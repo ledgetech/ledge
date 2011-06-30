@@ -1,6 +1,7 @@
 -- Shared module for handling background refreshes
 module("libledge", package.seeall)
 
+require("md5") -- http://www.keplerproject.org/md5/
 local redis_parser = require("redis.parser") -- https://github.com/agentzh/lua-redis-parser
 local background_refreshes = {} -- internal, to stop flooding of background refreshes
 local ledge = {}
@@ -148,7 +149,7 @@ end
 
 -- TODO: Work out the valid expiry from headers, based on RFC.
 function ledge.calculate_expiry(header)
-	return 60 + conf.redis.max_stale_age
+	return 30 + conf.redis.max_stale_age
 end
 
 
