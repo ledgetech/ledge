@@ -4,11 +4,10 @@
 -- tools provided by ngx_openresty (https://github.com/agentzh/ngx_openresty) for embedding
 -- lua within nginx, and connecting to Redis as a cache backend, amonst other cool things.
 -- 
--- @author James Hurst <jhurst@squiz.co.uk>
+-- @author James Hurst <jhurst@pintsized.co.uk>
 
 conf = require("config")
 ledge = require("lib.libledge")
-require("md5") -- http://www.keplerproject.org/md5/
 
 
 -- First, try the cache. Use the full_uri for the cache key (includes scheme/host)
@@ -19,7 +18,8 @@ if cache ~= false then -- Cache HIT, send to client asap
 		ngx.header[k] = v
 	end
 	ngx.header["X-Ledge"] = "Cache HIT"
-	ngx.say(cache.body)
+	ngx.print(cache.body)
+	ngx.eof()
 
 	-- Check if we're stale
 	if cache.ttl - conf.redis.max_stale_age <= 0 then -- Stale, needs refresh
@@ -36,7 +36,8 @@ else
 			ngx.header[k] = v
 		end
 		ngx.header["X-Ledge"] = "Cache MISS, fetched from origin"
-		ngx.say(res.body)
+		ngx.print(res.body)
+		ngx.eof()
 
 		-- TODO: Work out if we're allowed to cache
 
