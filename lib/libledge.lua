@@ -8,18 +8,18 @@ local ledge = {}
 
 -- Fetches a resource from the origin server
 --
--- @param   string	The (relative) URI to proxy
--- @return  table	Result table, with .status and .body members
+-- @param	string	The (relative) URI to proxy
+-- @return	table	Result table, with .status and .body members
 function ledge.fetch_from_origin(uri)
-    local res = ngx.location.capture(conf.proxy.loc .. uri);
+	local res = ngx.location.capture(conf.proxy.loc .. uri);
 
-    if (res.status == ngx.HTTP_OK) then
-        ngx.log(ngx.NOTICE, "Fetched " .. uri .. " from the origin")
-    else
-        ngx.log(ngx.ERROR, "Could not fetch " .. uri .. " from the origin")
-    end
+	if (res.status == ngx.HTTP_OK) then
+		ngx.log(ngx.NOTICE, "Fetched " .. uri .. " from the origin")
+	else
+		ngx.log(ngx.ERROR, "Could not fetch " .. uri .. " from the origin")
+	end
 
-    return res
+	return res
 end
 
 
@@ -28,7 +28,7 @@ end
 -- @param	string	The URI (cache key)
 -- @return	table	The response table
 function ledge.read(uri)
-    local header_key = md5.sumhexa(uri)
+	local header_key = md5.sumhexa(uri)
 	
 	local q = redis_parser.build_query({
 		'HMGET', uri, 'status', 'body'
@@ -84,71 +84,71 @@ end
 
 -- Stores an item in cache
 --
--- @param   uri         The URI (cache key)
--- @param   response    The HTTP response object to store
+-- @param	uri			The URI (cache key)
+-- @param	response	The HTTP response object to store
 --
 -- @return boolean
 function ledge.save(uri, response)
-    
-    local reqs = {}
-    local header_key = md5.sumhexa(uri)
+	
+	local reqs = {}
+	local header_key = md5.sumhexa(uri)
 
-    -- Store the response. Header is a foreign key to another hash.
-    local q = redis_parser.build_query({ 
-        'HMSET', uri, 
-        --'body', ngx.encode_base64(response.body), 
+	-- Store the response. Header is a foreign key to another hash.
+	local q = redis_parser.build_query({ 
+		'HMSET', uri, 
+		--'body', ngx.encode_base64(response.body), 
 		'body', response.body, 
-        'status', response.status, 
-        'header', header_key
-    })
-    
-    -- Store the headers
-    local header_q = { 'HMSET', header_key } 
-    for k,v in pairs(response.header) do -- Add each k,v as a pair
-        table.insert(header_q, string.lower(k))
-        table.insert(header_q, v)
-    end
-    header_q = redis_parser.build_query(header_q)
-    
-    -- Work out TTL
-    local ttl = ledge.calculate_expiry(response.header)
-    local expire_q = redis_parser.build_query({ 'EXPIRE', uri, ttl })
+		'status', response.status, 
+		'header', header_key
+	})
+	
+	-- Store the headers
+	local header_q = { 'HMSET', header_key } 
+	for k,v in pairs(response.header) do -- Add each k,v as a pair
+		table.insert(header_q, string.lower(k))
+		table.insert(header_q, v)
+	end
+	header_q = redis_parser.build_query(header_q)
+	
+	-- Work out TTL
+	local ttl = ledge.calculate_expiry(response.header)
+	local expire_q = redis_parser.build_query({ 'EXPIRE', uri, ttl })
 	local expire_hq = redis_parser.build_query({ 'EXPIRE', header_key, ttl })
 
-    -- Send queries to redis all in one go.
-    local res = ngx.location.capture(conf.redis.loc, {
-        method = ngx.HTTP_POST,
-        args = { n = 4 }, -- How many queries
-        body = q .. expire_q .. header_q .. expire_hq
-    })
+	-- Send queries to redis all in one go.
+	local res = ngx.location.capture(conf.redis.loc, {
+		method = ngx.HTTP_POST,
+		args = { n = 4 }, -- How many queries
+		body = q .. expire_q .. header_q .. expire_hq
+	})
 
-    return res
+	return res
 end
 
 
 function ledge.refresh(uri)
-    if (background_refreshes[uri] == nil) then
-        background_refreshes[uri] = true
-        ngx.log(ngx.NOTICE, "Background refresh...")
-        
-        -- Re-fetch this resource
-        local res = ledge.fetch_from_origin(ngx.var.request_uri)
+	if (background_refreshes[uri] == nil) then
+		background_refreshes[uri] = true
+		ngx.log(ngx.NOTICE, "Background refresh...")
+		
+		-- Re-fetch this resource
+		local res = ledge.fetch_from_origin(ngx.var.request_uri)
 
-        -- Save to cache
-        if res.status == ngx.HTTP_OK then
-           local sres = ledge.save(uri, res)
-           if sres.status == ngx.HTTP_OK then
-               background_refreshes[uri] = nil
-               ngx.log(ngx.NOTICE, "Finished background refresh...")
-           end
-        end
-    end
+		-- Save to cache
+		if res.status == ngx.HTTP_OK then
+		   local sres = ledge.save(uri, res)
+		   if sres.status == ngx.HTTP_OK then
+			   background_refreshes[uri] = nil
+			   ngx.log(ngx.NOTICE, "Finished background refresh...")
+		   end
+		end
+	end
 end
 
 
 -- TODO: Work out the valid expiry from headers, based on RFC.
 function ledge.calculate_expiry(header)
-    return 60 + conf.redis.max_stale_age
+	return 60 + conf.redis.max_stale_age
 end
 
 
