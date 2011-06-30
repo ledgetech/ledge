@@ -1,16 +1,18 @@
 # ledge
 
-A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net) and the excellent tools conveniently bundled by [ngx_openresty](https://github.com/agentzh/ngx_openresty) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as connecting to [Redis](http://redis.io) as an upstream server to act as a cache backend, ..amongst other cool things.
+A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net) and the excellent tools conveniently bundled by [ngx_openresty](https://github.com/agentzh/ngx_openresty) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as connecting to [Redis](http://redis.io) as an upstream server to act as a cache backend.
 
 ## Status
 
 Experimental prototype, subject to change etc. Ideas welcome.
 
+### Sorta working
+
 * Proxying to upstream server
 * Cache storage in Redis
 * Serving stale content with background refresh
 
-TODO
+### TODO
 
 * Determine cache policy from headers
 * Proper "collpase forwaring"
