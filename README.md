@@ -65,14 +65,13 @@ Also at the http level:
 
 	server {
 	    listen       80;
-	    server_name  www.squiz.co.uk;
-	    #server_name  dev.vm;
+	    server_name  myserver;
 	    #lua_code_cache off;
 		
 	    #charset koi8-r;
 	    #access_log  logs/host.access.log  main;
 		
-		# By default, we hit the Squiz Edge Lua code
+		# By default, we hit the lua code
 		location / {
 	        set $full_uri $scheme://$host$request_uri;
 			
