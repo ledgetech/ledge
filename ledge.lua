@@ -6,12 +6,20 @@
 -- 
 -- @author James Hurst <jhurst@pintsized.co.uk>
 
+md5 = require("md5")
 conf = require("config")
 ledge = require("lib.libledge")
 
+-- A table for uris and keys so we don't have to hash more than once
+local uri = {
+	uri = ngx.var.full_uri,
+	key = 'cache:'..md5.sumhexa(ngx.var.full_uri)
+}
+uri['header_key'] = uri.key..':header'
+
 
 -- First, try the cache. Use the full_uri for the cache key (includes scheme/host)
-local cache = ledge.read(ngx.var.full_uri)
+local cache = ledge.read(uri)
 
 if cache ~= false then -- Cache HIT, send to client asap
 	ngx.log(ngx.NOTICE, "Cache HIT, with TTL: " .. cache.ttl)
@@ -24,13 +32,14 @@ if cache ~= false then -- Cache HIT, send to client asap
 
 	-- Check if we're stale
 	if cache.ttl - conf.redis.max_stale_age <= 0 then -- Stale, needs refresh
-		ngx.log(ngx.NOTICE, "We are stale, please refresh")
-		ledge.refresh(ngx.var.full_uri)
+		ngx.log(ngx.NOTICE, "Please refresh")
+		ledge.refresh(uri)
 	end
 
 else
 	-- Cache miss.. go fish
-	local res = ledge.fetch_from_origin(ngx.var.request_uri)
+	ngx.log(ngx.NOTICE, "Cache MISS, go fish...")
+	local res = ledge.fetch_from_origin(uri, true)
 
 	if res.status == ngx.HTTP_OK then
 		-- Send to browser
@@ -44,7 +53,7 @@ else
 		-- TODO: Work out if we're allowed to cache
 
 		-- Save to cache
-		ledge.save(ngx.var.full_uri, res)
+		ledge.save(uri, res)
 	else
 		-- Nothing in cache and could not proxy for some reason.
 		ngx.exit(res.status)
