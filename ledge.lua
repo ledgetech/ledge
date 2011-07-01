@@ -13,7 +13,8 @@ ledge = require("lib.libledge")
 -- First, try the cache. Use the full_uri for the cache key (includes scheme/host)
 local cache = ledge.read(ngx.var.full_uri)
 
-if cache ~= false then -- Cache HIT, send to client asap	 
+if cache ~= false then -- Cache HIT, send to client asap
+	ngx.log(ngx.NOTICE, "Cache HIT, with TTL: " .. cache.ttl)
 	for k,v in pairs(cache.header) do
 		ngx.header[k] = v
 	end
@@ -23,6 +24,7 @@ if cache ~= false then -- Cache HIT, send to client asap
 
 	-- Check if we're stale
 	if cache.ttl - conf.redis.max_stale_age <= 0 then -- Stale, needs refresh
+		ngx.log(ngx.NOTICE, "We are stale, please refresh")
 		ledge.refresh(ngx.var.full_uri)
 	end
 
