@@ -5,7 +5,7 @@ ledge = require("lib.libledge")
 -- A table for uris and keys so we don't have to hash more than once
 local uri = {
 	uri = ngx.var.full_uri,
-	key = 'cache:'..md5.sumhexa(ngx.var.full_uri)
+	key = 'ledge:'..md5.sumhexa(ngx.var.full_uri)
 }
 uri['header_key'] = uri.key..':header'
 

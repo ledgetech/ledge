@@ -152,25 +152,24 @@ end
 -- @param	string	The (relative) URI to proxy
 -- @return	table	Result table, with .status and .body members
 function ledge.fetch_from_origin(uri, in_progress_wait)
-	-- See if we're already doing this	
-	local r = ledge.redis_query({ 'SISMEMBER', 'proxy', uri.key })
+	-- Increment the subscriber count
+	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, 1 })
 	
-	if (r == 0) then -- Nothing happening for this URL
+	if (r == 1) then -- We are the first query for this URI (at least since last expiration)
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
-		
-		-- Tell redis we're doing this
-		ledge.redis_query({ 'SADD', 'proxy', uri.key })
 		
 		-- Actually fetch from origin..
 		local res = ngx.location.capture(conf.proxy.loc .. uri.uri);
 
-		-- Tell redis we're done (trying or succeeding)
-		local srem = ledge.redis_query({ 'SREM', 'proxy', uri.key })
+		-- Decrement the count
+		local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, -1 })
 		
-		-- Use ZeroMQ to publish the content
-		local zmq = ngx.location.capture(conf.prefix..'/zmq_pub', {
-			args = { channel = uri.key, subscribers = 1 }
-		})
+		if r > 0 then -- We have an audience
+			-- Use ZeroMQ to publish the content. Tell it how many others are listening.
+			local zmq = ngx.location.capture(conf.prefix..'/zmq_pub', {
+				args = { channel = uri.key, subscribers = r }
+			})
+		end
 		
 		if (res.status ~= ngx.HTTP_OK) then	
 			ngx.log(ngx.ERROR, "Could not fetch " .. uri.uri .. " from the origin")	
@@ -182,16 +181,16 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		
 		if (in_progress_wait) then -- If we want to wait..
 			
-			ngx.log(ngx.NOTICE, "Waiting for message")
-			
 			-- Use ZeroMQ to wait for the content
 			local zmq = ngx.location.capture(conf.prefix..'/zmq_sub', {
 				args = { channel = uri.key }
 			})
 		
+			-- Decrement the counter, even on error
+			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, -1 })
+		
 			if zmq.status == ngx.HTTP_OK then
-				ngx.log(ngx.NOTICE, "Message received: "..zmq.body)
-				return true, zmq
+				return zmq
 			end
 		else
 			return false, nil -- For background refresh to not bother saving, no biggie
