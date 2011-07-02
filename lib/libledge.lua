@@ -76,7 +76,7 @@ function ledge.read(uri)
 	if (r ~= false) then
 		local b = rep[1]
 		local h = rep[2]
-		local t = rep[3]
+		local t = tonumber(rep[3])
 	
 		if t > -1 then -- we got something valid
 			
@@ -168,7 +168,7 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		local srem = ledge.redis_query({ 'SREM', 'proxy', uri.key })
 		
 		-- Use ZeroMQ to publish the content
-		local res = ngx.location.capture(conf.prefix..'/zmq_pub', {
+		local zmq = ngx.location.capture(conf.prefix..'/zmq_pub', {
 			args = { channel = uri.key, subscribers = 1 }
 		})
 		
@@ -185,13 +185,13 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 			ngx.log(ngx.NOTICE, "Waiting for message")
 			
 			-- Use ZeroMQ to wait for the content
-			local res = ngx.location.capture(conf.prefix..'/zmq_sub', {
+			local zmq = ngx.location.capture(conf.prefix..'/zmq_sub', {
 				args = { channel = uri.key }
 			})
 		
-			if res.status == ngx.HTTP_OK then
-				ngx.log(ngx.NOTICE, "Message received: "..res.body)
-				return true, res
+			if zmq.status == ngx.HTTP_OK then
+				ngx.log(ngx.NOTICE, "Message received: "..zmq.body)
+				return true, zmq
 			end
 		else
 			return false, nil -- For background refresh to not bother saving, no biggie
