@@ -65,6 +65,8 @@ Experimental prototype, subject to change etc. Ideas welcome.
 		No
 	+ In progress?
 		Yes
+	+ Share response?
+		Yes
 	INCR list
 	(
 		ZMQ.CONNECT SUB
@@ -96,6 +98,8 @@ Experimental prototype, subject to change etc. Ideas welcome.
 		Yes
 	+ In progress?
 		No
+	+ Share response?
+		Yes
 	#BGREFRESH
 
 ----
