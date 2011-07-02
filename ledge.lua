@@ -32,9 +32,6 @@ if (success == true) then -- HOT
 			ledge.save(uri, res)
 		end
 	end
-
-	ngx.exit(cache.status)
-	
 else
 	-- COLD
 	ngx.log(ngx.NOTICE, "Cache MISS, go fish...")
@@ -50,8 +47,6 @@ else
 
 		-- Save to cache
 		ledge.save(uri, res)
-		
-		ngx.exit(res.status)
 	else
 		-- Couldn't fetch for some reason
 		ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
