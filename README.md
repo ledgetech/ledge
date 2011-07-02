@@ -1,16 +1,20 @@
 # ledge
 
-A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net) and the excellent tools conveniently bundled by [ngx_openresty](https://github.com/agentzh/ngx_openresty) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as connecting to [Redis](http://redis.io) as an upstream server to act as a cache backend.
+A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net), and the excellent tools conveniently bundled by [ngx_openresty](https://github.com/agentzh/ngx_openresty) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as connecting to [Redis](http://redis.io) as an upstream server to act as a cache backend, and using [ZeroMQ](http://www.zeromq.org) for messaging and synchronisation.
+
+### Authors
+
+* James Hurst <james@pintsized.co.uk>
 
 ## Status
 
 Experimental prototype, subject to change etc. Ideas welcome.
 
-### Sorta working
+### Working
 
 * Proxying to upstream server
 * Cache storage in Redis
-* Serving stale content with background refresh
+* Serving stale content
 
 ### TODO
 
@@ -18,6 +22,96 @@ Experimental prototype, subject to change etc. Ideas welcome.
 * Proper "collpase forwaring"
 * ESI
 * ...
+
+----
+
+## Psuedo code schematic
+
+	[#NAME]	A named code block (referred to elsewhere)
+	()		Nginx subrequest
+
+----
+
+	COLD
+	====
+	
+	+ In cache?
+		No
+	+ In progress?
+		No
+	[#BGREFRESH
+		INCR list
+		FETCH_FROM_ORIGIN
+		SEND_TO_BROWSER
+		...
+		GET list
+		+ More in list than before?
+			Yes
+		(
+			for each extra in list {
+				ZMQ.CONNECT REP (means a subscriber connected)
+			}
+			ZMQ.SEND SNDMORE (whole request data)
+			return HTTP_OK
+		)
+	]
+
+----
+
+	COLD, BUT IN PROGRESS/WAIT
+	==========================
+	
+	+ In cache?
+		No
+	+ In progress?
+		Yes
+	INCR list
+	(
+		ZMQ.CONNECT SUB
+		ZMQ.CONNECT REQ (to notify of connection)
+		ZMQ.RECV RCVMORE (whole request data)
+	)
+	SEND_TO_BROWSER
+
+----
+
+	HOT
+	===
+	
+	+ In cache?
+		Yes
+	SEND_TO_BROWSER
+	+ Is stale?
+		No
+
+----
+
+	HOT, BUT STALE
+	==============
+	
+	+ In cache?
+		Yes
+	SEND_TO_BROWSER
+	+ Is stale?
+		Yes
+	+ In progress?
+		No
+	#BGREFRESH
+
+----
+
+	HOT, STALE, BUT IN PROGRESS
+	===========================
+	
+	+ In cache?
+		Yes
+	SEND_TO_BROWSER
+	+ Is stale?
+		Yes
+	+ In progress?
+		Yes
+
+----
 
 ## Installation
 
@@ -40,6 +134,10 @@ And the md5 lua module (available in luarocks).
 ### Redis
 
 Download and install from http://redis.io/download
+
+### ZeroMQ
+
+Install ZeroMQ, and then the Lua ZeroMQ bindings from: https://github.com/Neopallium/lua-zmq
 
 ### nginx configuration
 
