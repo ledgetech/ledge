@@ -17,6 +17,7 @@ local uri = {
 }
 uri['header_key'] = uri.key..':header'
 
+-- TODO: Handle IMS / Force Refresh
 
 -- First, try the cache. Use the full_uri for the cache key (includes scheme/host)
 local cache = ledge.read(uri)

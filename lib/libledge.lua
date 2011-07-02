@@ -1,42 +1,61 @@
--- Shared module for handling background refreshes
 module("libledge", package.seeall)
 
 local redis_parser = require("redis.parser") -- https://github.com/agentzh/lua-redis-parser
-local background_refreshes = {} -- internal, to stop flooding of background refreshes
+
 local ledge = {}
 
 
---[[
-function ledge.redis(parallel, ...)
-	if (parallel) then -- Do a capture_multi
-		local reqs = {}
-		
-		for i,v in ipairs(arg) do
-			local req = { conf.redis.loc, { 
-				args = { n = 1 }, 
-				method = ngx.HTTP_POST,
-				body = arg}
-			table.insert(reqs, req)
-		end
-		
-		local reps = { ngx.location.capture_multi({ reqs })}
-		
-		local res = {}
-		for i,v in ipairs(r) do
-			table.insert(res, redis_parser.parser_reply(r.body))
-		end
-		
-		return unpack(res)
+-- Runs a single query and returns the parsed response
+--
+-- e.g. local res = ledge.redis_query({ 'HGET', 'mykey' })
+--
+-- @param	table	query expressed as a list of Redis commands
+-- @return	mixed	Redis response or false on failure
+function ledge.redis_query(query)
+	local res = ngx.location.capture(conf.redis.loc, {
+		method = ngx.HTTP_POST,
+		args = { n = 1 },
+		body = redis_parser.build_query(query)
+	})
+	
+	if (res.status == ngx.HTTP_OK) then
+		return redis_parser.parse_reply(res.body)
 	else
-		
-		-- Do everything in one query
-		
-		local r = ngx.location.capture({
-			
-		})
+		return false
 	end
 end
-]]--
+
+
+-- Runs multiple queries pipelined. This is faster than parallel subrequests
+-- it seems.
+--
+-- e.g. local resps = ledge.redis_pipeline({ q1, q2 })
+--
+-- @param	table	A table of queries, where each query is expressed as a table
+-- @return	mixed	An array of parsed replies, or false on failure
+function ledge.redis_pipeline(queries)
+	for i,q in ipairs(queries) do
+		queries[i] = redis_parser.build_query(q)
+	end
+	
+	local rep = ngx.location.capture(conf.redis.loc, {
+		args = { n = #queries },
+		method = ngx.HTTP_POST,
+		body = table.concat(queries)
+	})
+	
+	local reps = {}
+	
+	if (rep.status == ngx.HTTP_OK) then
+		local results = redis_parser.parse_replies(rep.body, #queries)
+		for i,v in ipairs(results) do
+			table.insert(reps, v[1]) -- #1 = res, #2 = typ
+		end
+		return reps
+	else
+		return false
+	end
+end
 
 
 -- Reads an item from cache
@@ -44,43 +63,32 @@ end
 -- @param	string	The URI (cache key)
 -- @return	table	The response table
 function ledge.read(uri)
-	local q = redis_parser.build_query({
-		'HMGET', uri.key, 'status', 'body'
+	
+	-- Fetch from Redis
+	local rep = ledge.redis_pipeline({
+		{ 'HMGET', uri.key, 'status', 'body' },	-- Main content
+		{ 'HGETALL', uri.header_key }, 			-- Headers
+		{ 'TTL', uri.key }						-- TTL
 	})
 	
-	local header_q = redis_parser.build_query({
-		'HGETALL', uri.header_key
-	})
+	if (r ~= false) then
+		local b = rep[1]
+		local h = rep[2]
+		local t = rep[3]
 	
-	local ttl_q = redis_parser.build_query({
-		'TTL', uri.key
-	})
-	
-	local r, h, t = ngx.location.capture_multi({
-		{ conf.redis.loc, { args = { n = 1 }, method = ngx.HTTP_POST, body = q }},
-		{ conf.redis.loc, { args = { n = 1 }, method = ngx.HTTP_POST, body = header_q }},
-		{ conf.redis.loc, { args = { n = 1 }, method = ngx.HTTP_POST, body = ttl_q }}
-	})
-	
-	if r.status == ngx.HTTP_OK and h.status == ngx.HTTP_OK and t.status == ngx.HTTP_OK then
-		r = redis_parser.parse_reply(r.body)
-		h = redis_parser.parse_reply(h.body)
-		t = redis_parser.parse_reply(t.body)
-
-		if t ~= nil and t > -1 then -- we got something valid
+		if t > -1 then -- we got something valid
 			
-			-- Body parts will be as per the HMGET args
-			local response = {
-				status = r[1],
-				--body = ngx.decode_base64(r[2]),
-				body = r[2],
+			-- Reassemble a response object
+			local response = { -- Main parts will be ordered as per the HMGET args
+				status = b[1],
+				body = b[2],
 				header = {},
 				ttl = t,
 			}
 
 			-- Whereas header parts will be a flat list of pairs..
-			for i=1, #h, 2 do
-				response.header[h[i]] = h[i+1]
+			for i = 1, #h, 2 do
+				response.header[h[i]] = h[i + 1]
 			end
 
 			return response
@@ -101,17 +109,13 @@ end
 --
 -- @return boolean
 function ledge.save(uri, response)
-	
-	local reqs = {}
-
 	-- Store the response. Header is a foreign key to another hash.
-	local q = redis_parser.build_query({ 
+	local q = { 
 		'HMSET', uri.key, 
-		--'body', ngx.encode_base64(response.body), 
 		'body', response.body, 
 		'status', response.status,
 		'header', uri.header_key
-	})
+	}
 	
 	-- Store the headers
 	local header_q = { 'HMSET', uri.header_key } 
@@ -119,21 +123,18 @@ function ledge.save(uri, response)
 		table.insert(header_q, string.lower(k))
 		table.insert(header_q, v)
 	end
-	header_q = redis_parser.build_query(header_q)
 	
 	-- Work out TTL
 	local ttl = ledge.calculate_expiry(response.header)
-	local expire_q = redis_parser.build_query({ 'EXPIRE', uri.key, ttl })
-	local expire_hq = redis_parser.build_query({ 'EXPIRE', uri.header_key, ttl })
+	local expire_q = { 'EXPIRE', uri.key, ttl }
+	local expire_hq = { 'EXPIRE', uri.header_key, ttl }
 
-	-- Send queries to redis all in one go.
-	local res = ngx.location.capture(conf.redis.loc, {
-		method = ngx.HTTP_POST,
-		args = { n = 4 }, -- How many queries
-		body = q .. expire_q .. header_q .. expire_hq
-	})
+	local res = ledge.redis_pipeline({ q, header_q, expire_q, expire_hq })
+	
+	if (res ~= false) then
+		ledge.redis_query({ 'PUBLISH', uri.key, 'SAVED' })
+	end
 
-	return res
 end
 
 
@@ -142,50 +143,22 @@ end
 -- @param	string	The (relative) URI to proxy
 -- @return	table	Result table, with .status and .body members
 function ledge.fetch_from_origin(uri, in_progress_wait)
-	
-	-- See if we're already doing this
-	local q = redis_parser.build_query({
-		'SISMEMBER', 'proxy', uri.key
-	})
-	
-	local r = ngx.location.capture(conf.redis.loc, {
-		method = ngx.HTTP_POST,
-		args = { n = 1 },
-		body = q
-	})
-		
-	r = redis_parser.parse_reply(r.body)
+	-- See if we're already doing this	
+	local r = ledge.redis_query({ 'SISMEMBER', 'proxy', uri.key })
 	
 	if (r == 0) then -- Nothing happening for this URL
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 		
 		-- Tell redis we're doing this
-		local q = redis_parser.build_query({
-			'SADD', 'proxy', uri.key
-		})
-		
-		local r = ngx.location.capture(conf.redis.loc, {
-			method = ngx.HTTP_POST,
-			args = { n = 1 },
-			body = q
-		})
+		ledge.redis_query({ 'SADD', 'proxy', uri.key })
 		
 		-- Actually fetch from origin..
 		local res = ngx.location.capture(conf.proxy.loc .. uri.uri);
 
 		-- Tell redis we're done (trying or succeeding)
-		local q = redis_parser.build_query({
-			'SREM', 'proxy', uri.key
-		})
-		
-		local mq = redis_parser.build_query({
-			'PUBLISH', 'proxy:finished:'..uri.key, '1'
-		})
-		
-		local r = ngx.location.capture(conf.redis.loc, {
-			method = ngx.HTTP_POST,
-			args = { n = 2 },
-			body = q .. mq
+		ledge.redis_pipeline({
+			 { 'SREM', 'proxy', uri.key }, 
+			 { 'PUBLISH', uri.key, 'FETCHED' }
 		})
 		
 		if (res.status ~= ngx.HTTP_OK) then	
@@ -194,21 +167,21 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		
 		return res
 	else 	
-		
 		-- We are busy doing this already
 		
-		if (in_progress_wait) then
+		if (in_progress_wait) then -- If we want to wait..
 			
 			
 			-- Subscribe to channel
 			
 			-- This isn't going to work.. redis replies straight away and expects you to wait
-			-- for messages, but the redis2 module chokes on this. Hmmm. 
-			-- Not sure what our options are, without having a streamed reply from redis.
+			-- for messages, but the redis2 module chokes on this reply (it thinks it's bad). Hmmm. 
+			-- Not sure what our options are, without having a streamed reply from redis via some
+			-- kind of callback...
 			
 			--[[
 			local mq = redis_parser.build_query({
-				'SUBSCRIBE', 'proxy:finished:'..uri.key
+				'SUBSCRIBE', uri.key
 			})
 			ngx.log(ngx.NOTICE, "Going to wait for redis to say all clear")
 			local r = ngx.location.capture(conf.redis.loc, {
@@ -226,19 +199,17 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 			return { status = ngx.HTTP_NOT_FOUND }
 			
 		else
-			return { status = ngx.HTTP_NOT_FOUND }
+			return { status = ngx.HTTP_NOT_FOUND } -- For background refresh to not bother saving, no biggie
 		end
 	end
 end
 
 
-function ledge.refresh(uri)	
-	-- Re-fetch this resource
+function ledge.refresh(uri)
 	local res = ledge.fetch_from_origin(uri)
 
 	-- If res is false, another request is doing this for us
 	if res ~= false then
-		
 		-- TODO, check if we should still be caching this (policy may have changed)
 
 		-- Save to cache
