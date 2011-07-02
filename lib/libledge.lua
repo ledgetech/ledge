@@ -168,7 +168,7 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		local srem = ledge.redis_query({ 'SREM', 'proxy', uri.key })
 		
 		-- Use ZeroMQ to publish the content
-		local res = ngx.location.capture(conf.prefix..'/mqpub', {
+		local res = ngx.location.capture(conf.prefix..'/zmq_pub', {
 			args = { channel = uri.key, subscribers = 1 }
 		})
 		
@@ -185,7 +185,7 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 			ngx.log(ngx.NOTICE, "Waiting for message")
 			
 			-- Use ZeroMQ to wait for the content
-			local res = ngx.location.capture(conf.prefix..'/mqsub', {
+			local res = ngx.location.capture(conf.prefix..'/zmq_sub', {
 				args = { channel = uri.key }
 			})
 		
