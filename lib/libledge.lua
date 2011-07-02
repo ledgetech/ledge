@@ -1,9 +1,11 @@
 module("libledge", package.seeall)
 
+local zmq = require("zmq")
+local zmq_ctx = zmq.init(1)
 local redis_parser = require("redis.parser") -- https://github.com/agentzh/lua-redis-parser
 
-local ledge = {}
 
+local ledge = {}
 
 -- Runs a single query and returns the parsed response
 --
@@ -60,8 +62,8 @@ end
 
 -- Reads an item from cache
 --
--- @param	string	The URI (cache key)
--- @return	table	The response table
+-- @param	string			The URI (cache key)
+-- @return	bool | table	Success/failure | The response table
 function ledge.read(uri)
 	
 	-- Fetch from Redis
@@ -91,13 +93,13 @@ function ledge.read(uri)
 				response.header[h[i]] = h[i + 1]
 			end
 
-			return response
+			return true, response
 		else 
-			return false
+			return false, nil
 		end
 	else 
 		ngx.log(ngx.ERROR, "Failed to read from Redis")
-		return false
+		return false, nil
 	end
 end
 
@@ -109,6 +111,15 @@ end
 --
 -- @return boolean
 function ledge.save(uri, response)
+	-- TODO: Work out if we're allowed to save
+	-- We could store headers even if its no-store, so that we know the policy
+	-- for this item. Next hit is a cache hit, but reads the headers, and finds 
+	-- it has to go fetch anyway (and store, in case the policy changed)
+	--
+	-- On first request (so we know nothing), concurrent requests get told to wait, 
+	-- as if they will get the shared hit, and if it's no-store, told
+	-- to fetch in the end. But that will only happen once per URI. Potential flood I guess.
+	
 	-- Store the response. Header is a foreign key to another hash.
 	local q = { 
 		'HMSET', uri.key, 
@@ -130,10 +141,8 @@ function ledge.save(uri, response)
 	local expire_hq = { 'EXPIRE', uri.header_key, ttl }
 
 	local res = ledge.redis_pipeline({ q, header_q, expire_q, expire_hq })
-	
-	if (res ~= false) then
-		ledge.redis_query({ 'PUBLISH', uri.key, 'SAVED' })
-	end
+
+	-- TODO: Should probably return something.
 
 end
 
@@ -156,73 +165,43 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		local res = ngx.location.capture(conf.proxy.loc .. uri.uri);
 
 		-- Tell redis we're done (trying or succeeding)
-		ledge.redis_pipeline({
-			 { 'SREM', 'proxy', uri.key }, 
-			 { 'PUBLISH', uri.key, 'FETCHED' }
+		local srem = ledge.redis_query({ 'SREM', 'proxy', uri.key })
+		
+		-- Use ZeroMQ to publish the content
+		local res = ngx.location.capture(conf.prefix..'/mqpub', {
+			args = { channel = uri.key, subscribers = 1 }
 		})
 		
 		if (res.status ~= ngx.HTTP_OK) then	
 			ngx.log(ngx.ERROR, "Could not fetch " .. uri.uri .. " from the origin")	
 		end
 		
-		return res
+		return true, res
 	else 	
 		-- We are busy doing this already
 		
 		if (in_progress_wait) then -- If we want to wait..
 			
+			ngx.log(ngx.NOTICE, "Waiting for message")
 			
-			-- Subscribe to channel
-			
-			-- This isn't going to work.. redis replies straight away and expects you to wait
-			-- for messages, but the redis2 module chokes on this reply (it thinks it's bad). Hmmm. 
-			-- Not sure what our options are, without having a streamed reply from redis via some
-			-- kind of callback...
-			
-			--[[
-			local mq = redis_parser.build_query({
-				'SUBSCRIBE', uri.key
+			-- Use ZeroMQ to wait for the content
+			local res = ngx.location.capture(conf.prefix..'/mqsub', {
+				args = { channel = uri.key }
 			})
-			ngx.log(ngx.NOTICE, "Going to wait for redis to say all clear")
-			local r = ngx.location.capture(conf.redis.loc, {
-				method = ngx.HTTP_POST,
-				args = { n = 1 },
-				body = mq
-			})
-			ngx.log(ngx.NOTICE, "Got all clear")
-			
-			-- We should be in cache now
-			--return ledge.read(uri)
-			
-			]]--
-			
-			return { status = ngx.HTTP_NOT_FOUND }
-			
+		
+			if res.status == ngx.HTTP_OK then
+				ngx.log(ngx.NOTICE, "Message received: "..res.body)
+				return true, res
+			end
 		else
-			return { status = ngx.HTTP_NOT_FOUND } -- For background refresh to not bother saving, no biggie
+			return false, nil -- For background refresh to not bother saving, no biggie
 		end
 	end
 end
-
-
-function ledge.refresh(uri)
-	local res = ledge.fetch_from_origin(uri)
-
-	-- If res is false, another request is doing this for us
-	if res ~= false then
-		-- TODO, check if we should still be caching this (policy may have changed)
-
-		-- Save to cache
-		if res.status == ngx.HTTP_OK then
-			local sres = ledge.save(uri, res)
-		end
-	end
-end
-
 
 -- TODO: Work out the valid expiry from headers, based on RFC.
 function ledge.calculate_expiry(header)
-	return 30 + conf.redis.max_stale_age
+	return 15 + conf.redis.max_stale_age
 end
 
 
