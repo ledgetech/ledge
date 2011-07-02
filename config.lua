@@ -8,7 +8,7 @@ conf.proxy = {
 } 
 conf.redis = {
     loc = conf.prefix .. "/redis",
-    max_stale_age = 900, -- How stale a valid cache entry can be
+    max_stale_age = 0, -- How stale a valid cache entry can be
 }
 
 return conf
