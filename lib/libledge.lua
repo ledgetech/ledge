@@ -14,7 +14,7 @@ ledge.zmq_ctx = zmq.init(1)
 -- @param	table	query expressed as a list of Redis commands
 -- @return	mixed	Redis response or false on failure
 function ledge.redis_query(query)
-	local res = ngx.location.capture(conf.locatons.redis, {
+	local res = ngx.location.capture(conf.locations.redis, {
 		method = ngx.HTTP_POST,
 		args = { n = 1 },
 		body = redis_parser.build_query(query)
@@ -151,12 +151,13 @@ end
 --
 -- @param	string	The (relative) URI to proxy
 -- @return	table	Result table, with .status and .body members
-function ledge.fetch_from_origin(uri, in_progress_wait)
+function ledge.fetch_from_origin(uri, collapse_forwarding)
+	
 	-- Increment the subscriber count
 	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "1" })
+	ngx.log(ngx.NOTICE, "Subscribers: " .. r)
 	
-	
-	if (r == 1 or in_progress_wait == false) then -- We are the first query for this URI (at least since last expiration)
+	if (r == 1) then -- We are the first query for this URI (at least since last expiration)
 		
 		--  Socket to publish on
 		local s = ledge.zmq_ctx:socket(zmq.PUB)
@@ -171,6 +172,7 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		-- Decrement the count
 		local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 		
+		-- Publish to subscribers (collapsed requests)
 		s:send(uri.key .. ':status', zmq.SNDMORE)
 		s:send(uri.key .. ' ' .. res.status, zmq.SNDMORE)
 		for k,v in pairs(res.header) do
@@ -184,31 +186,22 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		
 		ngx.log(ngx.NOTICE, "PUBLISHED RESULT")
 		
-		if (res.status ~= ngx.HTTP_OK) then	
-			ngx.log(ngx.ERROR, "Could not fetch " .. uri.uri .. " from the origin, got " .. res.status)	
-		end
-		
 		return true, res
 	else 	
-		-- We are busy doing this already
-		ngx.log(ngx.NOTICE, "Wait, there are "..(r-1).." others")
-		
-		
-		if (in_progress_wait) then -- If we want to wait..
+		-- COLD but we are busy doing this already
+		if (collapse_forwarding == true) then -- If we want to wait..
 			
-			
+			-- Go to the collapser proxy
 			local res = ngx.location.capture(conf.locations.wait_for_origin .. uri.uri);
 	
-		
 			-- Decrement the counter, even on error
 			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 			
-			if zmq.status == ngx.HTTP_OK then
-				return true, zmq
-			end
+			return true, res
 		else
+			-- HOT and STALE, but we're already doing it
 			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
-			ngx.log(ngx.NOTICE, "Not waiting as we got it from cache")
+			ngx.log(ngx.NOTICE, "In progress, but I'm not waiting")
 			return false, nil -- For background refresh to not bother saving, no biggie
 		end
 	end
@@ -216,7 +209,7 @@ end
 
 -- TODO: Work out the valid expiry from headers, based on RFC.
 function ledge.calculate_expiry(header)
-	return 15 + conf.redis.max_stale_age
+	return 15 + conf.max_stale_age
 end
 
 

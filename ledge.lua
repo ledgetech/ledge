@@ -21,21 +21,22 @@ if (success == true) then -- HOT
 		ngx.header[k] = v
 	end
 	ngx.print(cache.body)
+	ngx.log(ngx.NOTICE, "HOT response sent")
 	ngx.eof()
 
 	-- Check if we're stale
-	if cache.ttl - conf.redis.max_stale_age <= 0 then -- HOT, BUT STALE
+	if (cache.ttl - conf.max_stale_age <= 0) then -- HOT, BUT STALE
 		ngx.log(ngx.NOTICE, "Please refresh")
 		local success, res = ledge.fetch_from_origin(uri)
 		
-		if (success == true) then -- HOT, BUT STALE, BUT (WAS) IN PROGRESS
+		if (success == true) then -- HOT, BUT STALE, BUT NOW REFRESHED
 			ledge.save(uri, res)
 		end
 	end
 else
 	-- COLD
 	ngx.log(ngx.NOTICE, "Cache MISS, go fish...")
-	local success, res = ledge.fetch_from_origin(uri, false)
+	local success, res = ledge.fetch_from_origin(uri, conf.collapse_forwarding) -- Fetch
 
 	if success == true then
 		-- Send to browser
@@ -43,6 +44,7 @@ else
 			ngx.header[k] = v
 		end
 		ngx.print(res.body)
+		ngx.log(ngx.NOTICE, "COLD response sent")
 		ngx.eof()
 
 		-- Save to cache
