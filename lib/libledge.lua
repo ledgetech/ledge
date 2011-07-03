@@ -14,7 +14,7 @@ ledge.zmq_ctx = zmq.init(1)
 -- @param	table	query expressed as a list of Redis commands
 -- @return	mixed	Redis response or false on failure
 function ledge.redis_query(query)
-	local res = ngx.location.capture(conf.redis.loc, {
+	local res = ngx.location.capture(conf.locatons.redis, {
 		method = ngx.HTTP_POST,
 		args = { n = 1 },
 		body = redis_parser.build_query(query)
@@ -40,7 +40,7 @@ function ledge.redis_pipeline(queries)
 		queries[i] = redis_parser.build_query(q)
 	end
 	
-	local rep = ngx.location.capture(conf.redis.loc, {
+	local rep = ngx.location.capture(conf.locations.redis, {
 		args = { n = #queries },
 		method = ngx.HTTP_POST,
 		body = table.concat(queries)
@@ -155,31 +155,37 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 	-- Increment the subscriber count
 	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "1" })
 	
+	
 	if (r == 1 or in_progress_wait == false) then -- We are the first query for this URI (at least since last expiration)
+		
+		--  Socket to publish on
+		local s = ledge.zmq_ctx:socket(zmq.PUB)
+		s:connect("tcp://*:5601")
+		
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 		
 		-- Actually fetch from origin..
-		local res = ngx.location.capture(conf.proxy.loc .. uri.uri);
+		local res = ngx.location.capture(conf.locations.origin .. uri.uri);
 		ngx.log(ngx.NOTICE, "FINISHED FROM ORIGIN")
 
 		-- Decrement the count
 		local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 		
-		ngx.log(ngx.NOTICE, "Our audience is "..r)
-		if r > 0 then -- We have an audience
-		
-			-- Use ZeroMQ to publish the content. Tell it how many others are listening.
-		--	local zmq = ngx.location.capture(conf.prefix..'/zmq_pub', {
-		--		args = { 
-		--			channel = uri.key, 
-		--			subscribers = r, 
-		--			message = "TESTING ONE TWO" 
-		--		}
-		--	})
+		s:send(uri.key .. ':status', zmq.SNDMORE)
+		s:send(uri.key .. ' ' .. res.status, zmq.SNDMORE)
+		for k,v in pairs(res.header) do
+			s:send(uri.key .. ':header', zmq.SNDMORE)
+			s:send(uri.key .. ' ' .. k, zmq.SNDMORE)
+			s:send(uri.key .. ' ' .. v, zmq.SNDMORE)
 		end
+		s:send(uri.key .. ':body', zmq.SNDMORE)
+		s:send(uri.key .. ' ' .. res.body)
+		s:close()
+		
+		ngx.log(ngx.NOTICE, "PUBLISHED RESULT")
 		
 		if (res.status ~= ngx.HTTP_OK) then	
-			ngx.log(ngx.ERROR, "Could not fetch " .. uri.uri .. " from the origin")	
+			ngx.log(ngx.ERROR, "Could not fetch " .. uri.uri .. " from the origin, got " .. res.status)	
 		end
 		
 		return true, res
@@ -190,13 +196,9 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		
 		if (in_progress_wait) then -- If we want to wait..
 			
-			-- Use ZeroMQ to wait for the content
-			-- THIS WILL BLOCK THE WHOLE NGINX REACTOR :(
-			local zmq = ngx.location.capture(conf.prefix..'/zmq_sub', {
-				args = { channel = uri.key }
-			})
 			
-			ngx.exec(conf.prefix..'/zmq_sub?channel='..uri.key)
+			local res = ngx.location.capture(conf.locations.wait_for_origin .. uri.uri);
+	
 		
 			-- Decrement the counter, even on error
 			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
