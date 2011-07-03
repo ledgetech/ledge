@@ -16,5 +16,9 @@ while true do
 	elseif (m == ch .. ':body') then
 		local b = s:recv()
 		print("body")
+	elseif (m == ch .. ':end') then
+		print("END\n")
+	else
+		print("unknown: " .. m) -- Don't know what you mean
 	end
 end

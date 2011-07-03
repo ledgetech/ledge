@@ -155,13 +155,12 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 	
 	-- Increment the subscriber count
 	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "1" })
-	ngx.log(ngx.NOTICE, "Subscribers: " .. r)
 	
 	if (r == 1) then -- We are the first query for this URI (at least since last expiration)
 		
 		--  Socket to publish on
 		local s = ledge.zmq_ctx:socket(zmq.PUB)
-		s:connect("tcp://*:5601")
+		s:bind("tcp://*:5601")
 		
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 		
@@ -181,7 +180,8 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 			s:send(uri.key .. ' ' .. v, zmq.SNDMORE)
 		end
 		s:send(uri.key .. ':body', zmq.SNDMORE)
-		s:send(uri.key .. ' ' .. res.body)
+		s:send(uri.key .. ' ' .. res.body, zmq.SNDMORE)
+		s:send(uri.key .. ':end')
 		s:close()
 		
 		ngx.log(ngx.NOTICE, "PUBLISHED RESULT")
@@ -191,8 +191,14 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 		-- COLD but we are busy doing this already
 		if (collapse_forwarding == true) then -- If we want to wait..
 			
+			ngx.log(ngx.NOTICE, "WAIT FOR ORIGIN")
+			
 			-- Go to the collapser proxy
-			local res = ngx.location.capture(conf.locations.wait_for_origin .. uri.uri);
+			local res = ngx.location.capture(conf.locations.wait_for_origin .. uri.uri, {
+				args = { channel = uri.key }
+			});
+			
+			ngx.log(ngx.NOTICE, "FINISHED WAITING")
 	
 			-- Decrement the counter, even on error
 			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })

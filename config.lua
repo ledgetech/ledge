@@ -11,7 +11,7 @@ conf.locations = {
 	redis = conf.prefix .. "/redis"
 }
 
-conf.max_stale_age = 60
+conf.max_stale_age = 0
 
 conf.collapse_forwarding = true
 
