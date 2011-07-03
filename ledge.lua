@@ -35,7 +35,7 @@ if (success == true) then -- HOT
 else
 	-- COLD
 	ngx.log(ngx.NOTICE, "Cache MISS, go fish...")
-	local success, res = ledge.fetch_from_origin(uri, true)
+	local success, res = ledge.fetch_from_origin(uri, false)
 
 	if success == true then
 		-- Send to browser

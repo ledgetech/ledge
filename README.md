@@ -8,7 +8,9 @@ A Lua implementation of edge proxying and caching. Relies on [nginx](http://ngin
 
 ## Status
 
-Experimental prototype, subject to change etc. Ideas welcome.
+Experimental prototype, does not work right now. subject to change etc. Ideas welcome.
+
+Particularly the ZeroMQ portions, which will block nginx.
 
 ### Working
 
@@ -18,8 +20,8 @@ Experimental prototype, subject to change etc. Ideas welcome.
 
 ### TODO
 
+* Figure out if ZeroMQ (or some other mechanism) can be used for sharing origin requests
 * Determine cache policy from headers
-* Proper "collpase forwaring"
 * ESI
 * ...
 

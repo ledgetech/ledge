@@ -1,8 +1,6 @@
 module("libledge", package.seeall)
 
-
 local redis_parser = require("redis.parser") -- https://github.com/agentzh/lua-redis-parser
-
 
 local ledge = {}
 
@@ -157,7 +155,7 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 	-- Increment the subscriber count
 	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "1" })
 	
-	if (r == 1) then -- We are the first query for this URI (at least since last expiration)
+	if (r == 1 or in_progress_wait == false) then -- We are the first query for this URI (at least since last expiration)
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 		
 		-- Actually fetch from origin..
@@ -171,13 +169,13 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		if r > 0 then -- We have an audience
 		
 			-- Use ZeroMQ to publish the content. Tell it how many others are listening.
-			local zmq = ngx.location.capture(conf.prefix..'/zmq_pub', {
-				args = { 
-					channel = uri.key, 
-					subscribers = r, 
-					message = "TESTING ONE TWO" 
-				}
-			})
+		--	local zmq = ngx.location.capture(conf.prefix..'/zmq_pub', {
+		--		args = { 
+		--			channel = uri.key, 
+		--			subscribers = r, 
+		--			message = "TESTING ONE TWO" 
+		--		}
+		--	})
 		end
 		
 		if (res.status ~= ngx.HTTP_OK) then	
@@ -193,23 +191,21 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		if (in_progress_wait) then -- If we want to wait..
 			
 			-- Use ZeroMQ to wait for the content
-			--local zmq = ngx.location.capture(conf.prefix..'/zmq_sub', {
-			--	args = { channel = uri.key }
-			--})
+			-- THIS WILL BLOCK THE WHOLE NGINX REACTOR :(
+			local zmq = ngx.location.capture(conf.prefix..'/zmq_sub', {
+				args = { channel = uri.key }
+			})
 			
 			ngx.exec(conf.prefix..'/zmq_sub?channel='..uri.key)
 		
-		--	os.execute('sleep 2')
-			
 			-- Decrement the counter, even on error
-		--[[	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
-		
-			--return false, nil
-		
+			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
+			
 			if zmq.status == ngx.HTTP_OK then
 				return true, zmq
-			end]]--
+			end
 		else
+			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 			ngx.log(ngx.NOTICE, "Not waiting as we got it from cache")
 			return false, nil -- For background refresh to not bother saving, no biggie
 		end
