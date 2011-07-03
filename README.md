@@ -110,8 +110,7 @@ Also at the http level:
 			proxy_set_header X-Forwarded-For $remote_addr;
 			proxy_set_header Host $host;
 			
-			proxy_pass http://213.129.83.47:80;
-			#proxy_pass http://127.0.0.1:8081;
+			proxy_pass http://127.0.0.1:8081;
 		}
 		
 		# Collapsing proxy (node.js listening to ZeroMQ)
