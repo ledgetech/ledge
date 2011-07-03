@@ -48,6 +48,7 @@ else
 		-- Save to cache
 		ledge.save(uri, res)
 	else
+		ngx.log(ngx.NOTICE, "something went wrong")
 		-- Couldn't fetch for some reason
 		ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
 	end

@@ -1,11 +1,13 @@
 module("libledge", package.seeall)
 
-local zmq = require("zmq")
-local zmq_ctx = zmq.init(1)
+
 local redis_parser = require("redis.parser") -- https://github.com/agentzh/lua-redis-parser
 
 
 local ledge = {}
+
+require("zmq")
+ledge.zmq_ctx = zmq.init(1)
 
 -- Runs a single query and returns the parsed response
 --
@@ -153,21 +155,28 @@ end
 -- @return	table	Result table, with .status and .body members
 function ledge.fetch_from_origin(uri, in_progress_wait)
 	-- Increment the subscriber count
-	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, 1 })
+	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "1" })
 	
 	if (r == 1) then -- We are the first query for this URI (at least since last expiration)
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 		
 		-- Actually fetch from origin..
 		local res = ngx.location.capture(conf.proxy.loc .. uri.uri);
+		ngx.log(ngx.NOTICE, "FINISHED FROM ORIGIN")
 
 		-- Decrement the count
-		local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, -1 })
+		local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 		
+		ngx.log(ngx.NOTICE, "Our audience is "..r)
 		if r > 0 then -- We have an audience
+		
 			-- Use ZeroMQ to publish the content. Tell it how many others are listening.
 			local zmq = ngx.location.capture(conf.prefix..'/zmq_pub', {
-				args = { channel = uri.key, subscribers = r }
+				args = { 
+					channel = uri.key, 
+					subscribers = r, 
+					message = "TESTING ONE TWO" 
+				}
 			})
 		end
 		
@@ -178,21 +187,30 @@ function ledge.fetch_from_origin(uri, in_progress_wait)
 		return true, res
 	else 	
 		-- We are busy doing this already
+		ngx.log(ngx.NOTICE, "Wait, there are "..(r-1).." others")
+		
 		
 		if (in_progress_wait) then -- If we want to wait..
 			
 			-- Use ZeroMQ to wait for the content
-			local zmq = ngx.location.capture(conf.prefix..'/zmq_sub', {
-				args = { channel = uri.key }
-			})
+			--local zmq = ngx.location.capture(conf.prefix..'/zmq_sub', {
+			--	args = { channel = uri.key }
+			--})
+			
+			ngx.exec(conf.prefix..'/zmq_sub?channel='..uri.key)
 		
+		--	os.execute('sleep 2')
+			
 			-- Decrement the counter, even on error
-			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, -1 })
+		--[[	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
+		
+			--return false, nil
 		
 			if zmq.status == ngx.HTTP_OK then
-				return zmq
-			end
+				return true, zmq
+			end]]--
 		else
+			ngx.log(ngx.NOTICE, "Not waiting as we got it from cache")
 			return false, nil -- For background refresh to not bother saving, no biggie
 		end
 	end
