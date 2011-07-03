@@ -1,6 +1,6 @@
 # ledge
 
-A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net), and the excellent tools conveniently bundled by [ngx_openresty](https://github.com/agentzh/ngx_openresty) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as connecting to [Redis](http://redis.io) as an upstream server to act as a cache backend, and using [ZeroMQ](http://www.zeromq.org) for messaging and synchronisation.
+A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net), the [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as [Redis](http://redis.io) as an upstream server to act as a cache backend, and [ZeroMQ](http://www.zeromq.org) and [Node.js](http://nodejs.org) for messaging and synchronisation.
 
 ### Authors
 
@@ -8,118 +8,31 @@ A Lua implementation of edge proxying and caching. Relies on [nginx](http://ngin
 
 ## Status
 
-Experimental prototype, does not work right now. subject to change etc. Ideas welcome.
+Experimental prototype. Not at all ready for production, but ideas welcome.
 
-Particularly the ZeroMQ portions, which will block nginx.
+0MQ is used to send (not receive as this blocks the nginx reactor) information about a proxied response. This relies on a Node.js server (wait\_for\_origin.js) to be running and configured as an nginx internal location block, which blocks simultaneous connections when using collapse forwarding.
 
 ### Working
 
 * Proxying to upstream server
 * Cache storage in Redis
 * Serving stale content
+* Collapse forwarding via 0MQ+Node.js
 
 ### TODO
 
-* Figure out if ZeroMQ (or some other mechanism) can be used for sharing origin requests
 * Determine cache policy from headers
-* ESI
-* ...
-
-----
-
-## Psuedo code schematic
-
-	[#NAME]	A named code block (referred to elsewhere)
-	()		Nginx subrequest
-
-----
-
-	COLD
-	====
-	
-	+ In cache?
-		No
-	+ In progress?
-		No
-	[#BGREFRESH
-		INCR list
-		FETCH_FROM_ORIGIN
-		SEND_TO_BROWSER
-		...
-		GET list
-		+ More in list than before?
-			Yes
-		(
-			for each extra in list {
-				ZMQ.CONNECT REP (means a subscriber connected)
-			}
-			ZMQ.SEND SNDMORE (whole request data)
-			return HTTP_OK
-		)
-	]
-
-----
-
-	COLD, BUT IN PROGRESS/WAIT
-	==========================
-	
-	+ In cache?
-		No
-	+ In progress?
-		Yes
-	+ Share response?
-		Yes
-	INCR list
-	(
-		ZMQ.CONNECT SUB
-		ZMQ.CONNECT REQ (to notify of connection)
-		ZMQ.RECV RCVMORE (whole request data)
-	)
-	SEND_TO_BROWSER
-
-----
-
-	HOT
-	===
-	
-	+ In cache?
-		Yes
-	SEND_TO_BROWSER
-	+ Is stale?
-		No
-
-----
-
-	HOT, BUT STALE
-	==============
-	
-	+ In cache?
-		Yes
-	SEND_TO_BROWSER
-	+ Is stale?
-		Yes
-	+ In progress?
-		No
-	+ Share response?
-		Yes
-	#BGREFRESH
-
-----
-
-	HOT, STALE, BUT IN PROGRESS
-	===========================
-	
-	+ In cache?
-		Yes
-	SEND_TO_BROWSER
-	+ Is stale?
-		Yes
-	+ In progress?
-		Yes
+* Prove stability / bench
+* Start adding modularised cool stuff
+	* ESI
+	* Auth patterns / sessions?
+	* ...
 
 ----
 
 ## Installation
+
+This is not exhaustive.. you're on the bleeding (l)edge here. Getting all the tools to work took me longer than writing the code.  
 
 ### ngx_openresty
 
@@ -144,6 +57,10 @@ Download and install from http://redis.io/download
 ### ZeroMQ
 
 Install ZeroMQ, and then the Lua ZeroMQ bindings from: https://github.com/Neopallium/lua-zmq
+
+### Node.js
+
+Install Node.js and the [ZeroMQ bindings](https://github.com/JustinTulloss/zeromq.node) using [npm](https://github.com/isaacs/npm)
 
 ### nginx configuration
 
@@ -186,15 +103,27 @@ Also at the http level:
 		}
 		
 		# Proxy to origin server
-		location /__ledge/proxy {
+		location /__ledge/origin {
 			internal;
-			rewrite ^/__ledge/proxy(.*)$ $1 break;
+			rewrite ^/__ledge/origin(.*)$ $1 break;
 			proxy_set_header X-Real-IP  $remote_addr;
 			proxy_set_header X-Forwarded-For $remote_addr;
 			proxy_set_header Host $host;
 			
-	    	proxy_pass http://127.0.0.1:8081;
-	    }   		
+			proxy_pass http://213.129.83.47:80;
+			#proxy_pass http://127.0.0.1:8081;
+		}
+		
+		# Collapsing proxy (node.js listening to ZeroMQ)
+		location /__ledge/wait_for_origin {
+			internal;
+			rewrite ^/__ledge/wait_for_origin(.*)$ $1 break;
+			proxy_set_header X-Real-IP  $remote_addr;
+			proxy_set_header X-Forwarded-For $remote_addr;
+			proxy_set_header Host $host;
+			
+			proxy_pass http://127.0.0.1:1337;
+		}
 		
 	    # Redis
 	    # Accepts raw queries as POST body.
