@@ -4,6 +4,7 @@ module("config", package.seeall)
 --
 -- Nginx must be reloaded for changes to take affect. 
 -- Run "lua config.lua" to check for syntax correctness.
+-- TODO: Write a config check tool (test number of params to matches etc)
 return {
 	
 	-- How 'stale' an item can be. A stale hit will return the cached 
@@ -11,17 +12,19 @@ return {
 	max_stale_age = {
 		default = 900,
 		match_uri = { 
-			{ "/about", 0 },
-			{ "/contact", 360 },
+			{ "^/about", 0 },
+			{ "^/contact", 360 },
 		},
 	},
 	
 	-- Collapse concurrent requests to the origin server into a single
 	-- request. The other requests wait until the first one finishes. 
+	-- Suits slow but cacheable origins. Probably turn this off for 
+	-- URIs which are deifinitely not cacheable.
 	collapse_origin_requests = {
 		default = true,
 		match_uri = { 
-			{ "/.*/cart", false },
+			{ "^/cart", false },
 		},
 	},
 	

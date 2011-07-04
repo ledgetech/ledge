@@ -1,11 +1,16 @@
 module("libledge", package.seeall)
 
+
+-- Ledge
+--
+-- This module is loaded once for the first request, and so 
 local ledge = {
 	_config_file = require("config"),
 	config = {},
 	redis = {
 		parser = require("redis.parser"),
 	},
+	cache = {},
 	zmq = require("zmq").init(1),
 	locations = {
 		origin = "/__ledge/origin",
@@ -14,17 +19,36 @@ local ledge = {
 	}
 }
 
-function ledge.process_config()
-	-- Load defaults
-	ledge.config.max_stale_age = ledge._config_file.max_stale_age.default
-	ledge.config.collapse_origin_requests = ledge._config_file.collapse_origin_requests.default
-	ledge.config.process_esi = ledge._config_file.process_esi.default
 
+-- Loads runtime configuration into ledge.config
+--
+-- The configuration file is only loaded once for the first request. 
+-- This runs any dynamatic pattern matches for the current request.
+--
+-- @return void
+function ledge.process_config()
 	for k,v in pairs(ledge._config_file) do
+		-- Grab the default
+		ledge.config[k] = ledge._config_file[k].default
+		
+		-- URI matches
 		if ledge._config_file[k].match_uri then
 			for i,v in ipairs(ledge._config_file[k].match_uri) do
 				if (ngx.var.uri:find(v[1]) ~= nil) then
 					ledge.config[k] = v[2]
+					break -- We take the first hit
+				end
+			end
+		end
+		
+		-- Request header matches
+		if ledge._config_file[k].match_header then
+			local h = ngx.req.get_headers()
+			
+			for i,v in ipairs(ledge._config_file[k].match_header) do
+				if (h[v[1]] ~= nil) and (h[v[1]]:find(v[2]) ~= nil) then
+					ledge.config[k] = v[3]
+					break
 				end
 			end
 		end
@@ -34,6 +58,7 @@ function ledge.process_config()
 	ngx.log(ngx.NOTICE, "ledge.config.collapse_origin_requests: " .. tostring(ledge.config.collapse_origin_requests))
 	ngx.log(ngx.NOTICE, "ledge.config.process_esi: " .. tostring(ledge.config.process_esi))
 end
+
 
 -- Runs a single query and returns the parsed response
 --
@@ -86,9 +111,6 @@ function ledge.redis.query_pipeline(queries)
 		return false
 	end
 end
-
-
-ledge.cache = {}
 
 
 -- Reads an item from cache
