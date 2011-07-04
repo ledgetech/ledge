@@ -1,16 +1,15 @@
 var http = require('http');
-
+var zmq = require("zeromq");
 
 function parseMessage(ch, msg) {
 	return msg.toString('utf8').replace(ch + ' ', '');
 }
 
 http.createServer(function (request, response) {
-	zmq = require("zeromq");
-	s = zmq.createSocket("sub");
+	var s = zmq.createSocket("sub");
 	
-	url = require('url').parse(request.url, true)
-	ch = url.query.channel;
+	var url = require('url').parse(request.url, true)
+	var ch = url.query.channel;
 	
 	s.subscribe(ch);
 	s.connect('tcp://*:5601');
