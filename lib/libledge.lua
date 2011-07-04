@@ -1,11 +1,16 @@
 module("libledge", package.seeall)
 
-local redis_parser = require("redis.parser") -- https://github.com/agentzh/lua-redis-parser
-
-local ledge = {}
-
-require("zmq")
-ledge.zmq_ctx = zmq.init(1)
+local ledge = {
+	redis = {
+		parser = require("redis.parser"),
+	},
+	zmq = require("zmq").init(1),
+	locations = {
+		origin = "/__ledge/origin",
+		wait_for_origin = "/__ledge/wait_for_origin",
+		redis = "/__ledge/redis"
+	}
+}
 
 -- Runs a single query and returns the parsed response
 --
@@ -13,15 +18,15 @@ ledge.zmq_ctx = zmq.init(1)
 --
 -- @param	table	query expressed as a list of Redis commands
 -- @return	mixed	Redis response or false on failure
-function ledge.redis_query(query)
-	local res = ngx.location.capture(conf.locations.redis, {
+function ledge.redis.query(query)
+	local res = ngx.location.capture(ledge.locations.redis, {
 		method = ngx.HTTP_POST,
 		args = { n = 1 },
-		body = redis_parser.build_query(query)
+		body = ledge.redis.parser.build_query(query)
 	})
 	
 	if (res.status == ngx.HTTP_OK) then
-		return redis_parser.parse_reply(res.body)
+		return ledge.redis.parser.parse_reply(res.body)
 	else
 		return false
 	end
@@ -35,12 +40,12 @@ end
 --
 -- @param	table	A table of queries, where each query is expressed as a table
 -- @return	mixed	An array of parsed replies, or false on failure
-function ledge.redis_pipeline(queries)
+function ledge.redis.query_pipeline(queries)
 	for i,q in ipairs(queries) do
-		queries[i] = redis_parser.build_query(q)
+		queries[i] = ledge.redis.parser.build_query(q)
 	end
 	
-	local rep = ngx.location.capture(conf.locations.redis, {
+	local rep = ngx.location.capture(ledge.locations.redis, {
 		args = { n = #queries },
 		method = ngx.HTTP_POST,
 		body = table.concat(queries)
@@ -49,7 +54,7 @@ function ledge.redis_pipeline(queries)
 	local reps = {}
 	
 	if (rep.status == ngx.HTTP_OK) then
-		local results = redis_parser.parse_replies(rep.body, #queries)
+		local results = ledge.redis.parser.parse_replies(rep.body, #queries)
 		for i,v in ipairs(results) do
 			table.insert(reps, v[1]) -- #1 = res, #2 = typ
 		end
@@ -60,14 +65,17 @@ function ledge.redis_pipeline(queries)
 end
 
 
+ledge.cache = {}
+
+
 -- Reads an item from cache
 --
 -- @param	string			The URI (cache key)
 -- @return	bool | table	Success/failure | The response table
-function ledge.read(uri)
+function ledge.cache.read(uri)
 	
 	-- Fetch from Redis
-	local rep = ledge.redis_pipeline({
+	local rep = ledge.redis.query_pipeline({
 		{ 'HMGET', uri.key, 'status', 'body' },	-- Main content
 		{ 'HGETALL', uri.header_key }, 			-- Headers
 		{ 'TTL', uri.key }						-- TTL
@@ -110,7 +118,7 @@ end
 -- @param	response	The HTTP response object to store
 --
 -- @return boolean
-function ledge.save(uri, response)
+function ledge.cache.save(uri, response)
 	-- TODO: Work out if we're allowed to save
 	-- We could store headers even if its no-store, so that we know the policy
 	-- for this item. Next hit is a cache hit, but reads the headers, and finds 
@@ -142,7 +150,7 @@ function ledge.save(uri, response)
 	local expire_q = { 'EXPIRE', uri.key, ttl }
 	local expire_hq = { 'EXPIRE', uri.header_key, ttl }
 
-	local res = ledge.redis_pipeline({ q, header_q, expire_q, expire_hq })
+	local res = ledge.redis.query_pipeline({ q, header_q, expire_q, expire_hq })
 
 	-- TODO: Should probably return something.
 
@@ -156,22 +164,22 @@ end
 function ledge.fetch_from_origin(uri, collapse_forwarding)
 	
 	-- Increment the subscriber count
-	local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "1" })
+	local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "1" })
 	
 	if (r == 1) then -- We are the first query for this URI (at least since last expiration)
 		
 		--  Socket to publish on
-		local s = ledge.zmq_ctx:socket(zmq.PUB)
+		local s = ledge.zmq:socket(zmq.PUB)
 		s:bind("tcp://*:5601")
 		
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 		
 		-- Actually fetch from origin..
-		local res = ngx.location.capture(conf.locations.origin .. uri.uri);
+		local res = ngx.location.capture(ledge.locations.origin .. uri.uri);
 		ngx.log(ngx.NOTICE, "FINISHED FROM ORIGIN")
 
 		-- Decrement the count
-		local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
+		local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 		
 		-- Publish to subscribers (collapsed requests)
 		s:send(uri.key .. ':status', zmq.SNDMORE)
@@ -196,10 +204,10 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 			ngx.log(ngx.NOTICE, "WAIT FOR ORIGIN")
 			
 			-- Decrement the counter, even on error
-			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
+			local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 			
 			-- Go to the collapser proxy
-			local res = ngx.location.capture(conf.locations.wait_for_origin .. uri.uri, {
+			local res = ngx.location.capture(ledge.locations.wait_for_origin .. uri.uri, {
 				args = { channel = uri.key }
 			});
 			
@@ -213,7 +221,7 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 				ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 
 				-- Actually fetch from origin..
-				res = ngx.location.capture(conf.locations.origin .. uri.uri);
+				res = ngx.location.capture(ledge.locations.origin .. uri.uri);
 				ngx.log(ngx.NOTICE, "FINISHED FROM ORIGIN")
 				--]]
 			else
@@ -225,7 +233,7 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 			return true, res
 		else
 			-- HOT and STALE, but we're already doing it
-			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
+			local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 			ngx.log(ngx.NOTICE, "In progress, but I'm not waiting")
 			return false, nil -- For background refresh to not bother saving, no biggie
 		end
@@ -236,6 +244,5 @@ end
 function ledge.calculate_expiry(header)
 	return 15 + conf.max_stale_age
 end
-
 
 return ledge

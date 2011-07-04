@@ -1,18 +1,14 @@
 module("config", package.seeall)
 
--- Configuration table
-local conf = {}
-
-conf.prefix = "/__ledge" -- Nginx internal location prefix
-
-conf.locations = {
-	origin = conf.prefix .. "/origin",
-	wait_for_origin = conf.prefix .. "/wait_for_origin",
-	redis = conf.prefix .. "/redis"
+return {
+	
+	-- How 'stale' an item can be. 
+	-- A stale hit will return the cached result but 
+	-- trigger an origin round trip in the background. 
+	max_stale_age = 900,
+	
+	-- Collapse concurrent COLD hits into a single origin
+	-- request. The other requests wait until the first one 
+	-- finishes. 
+	collapse_forwarding = true,
 }
-
-conf.max_stale_age = 0
-
-conf.collapse_forwarding = true
-
-return conf

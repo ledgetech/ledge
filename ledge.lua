@@ -13,7 +13,7 @@ uri['header_key'] = uri.key..':header'
 --			Assuming standard request for now.
 
 -- First, try the cache. 
-local success, cache = ledge.read(uri)
+local success, cache = ledge.cache.read(uri)
 
 if (success == true) then -- HOT
 	ngx.log(ngx.NOTICE, "Cache HIT, with TTL: " .. cache.ttl)
@@ -30,7 +30,7 @@ if (success == true) then -- HOT
 		local success, res = ledge.fetch_from_origin(uri)
 		
 		if (success == true) then -- HOT, BUT STALE, BUT NOW REFRESHED
-			ledge.save(uri, res)
+			ledge.cache.save(uri, res)
 		end
 	end
 else
@@ -48,7 +48,7 @@ else
 		ngx.eof()
 
 		-- Save to cache
-		ledge.save(uri, res)
+		ledge.cache.save(uri, res)
 	else
 		ngx.log(ngx.NOTICE, "something went wrong")
 		-- Couldn't fetch for some reason
