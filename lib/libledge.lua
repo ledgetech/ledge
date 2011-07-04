@@ -116,6 +116,8 @@ function ledge.save(uri, response)
 	-- for this item. Next hit is a cache hit, but reads the headers, and finds 
 	-- it has to go fetch anyway (and store, in case the policy changed)
 	--
+	-- This might allow for collapse forwaring to be on, but only used by known cacheable content?
+	--
 	-- On first request (so we know nothing), concurrent requests get told to wait, 
 	-- as if they will get the shared hit, and if it's no-store, told
 	-- to fetch in the end. But that will only happen once per URI. Potential flood I guess.
@@ -193,15 +195,32 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 			
 			ngx.log(ngx.NOTICE, "WAIT FOR ORIGIN")
 			
+			-- Decrement the counter, even on error
+			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
+			
 			-- Go to the collapser proxy
 			local res = ngx.location.capture(conf.locations.wait_for_origin .. uri.uri, {
 				args = { channel = uri.key }
 			});
 			
-			ngx.log(ngx.NOTICE, "FINISHED WAITING")
+			ngx.log(ngx.NOTICE, "WAIT STATUS: " .. res.status)
+			
+			if (res.status >= 500) then
+				ngx.log(ngx.NOTICE, "COLLAPSE FAILED")
+				return false, res
+				
+				--[[
+				ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
+
+				-- Actually fetch from origin..
+				res = ngx.location.capture(conf.locations.origin .. uri.uri);
+				ngx.log(ngx.NOTICE, "FINISHED FROM ORIGIN")
+				--]]
+			else
+			
+				ngx.log(ngx.NOTICE, "FINISHED WAITING")
+			end
 	
-			-- Decrement the counter, even on error
-			local r = ledge.redis_query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 			
 			return true, res
 		else

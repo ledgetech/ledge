@@ -23,7 +23,7 @@ http.createServer(function (request, response) {
 		var body = "";
 		
 		for (i = 0; i < messages.length; i++) {
-			msg = messages[i].toString('utf8');
+			var msg = messages[i].toString('utf8');
 			
 			switch (msg) {
 			case ch + ':header':
@@ -48,6 +48,8 @@ http.createServer(function (request, response) {
 	});
 	
 	
+	
 }).listen(1337, "127.0.0.1");
+
 
 console.log('Server running at http://127.0.0.1:1337/');
