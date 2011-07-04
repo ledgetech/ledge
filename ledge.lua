@@ -1,6 +1,7 @@
 md5 = require("md5")
-conf = require("config")
+
 ledge = require("lib.libledge")
+ledge.process_config()
 
 -- A table for uris and keys so we don't have to hash more than once
 local uri = {
@@ -25,7 +26,7 @@ if (success == true) then -- HOT
 	ngx.eof()
 
 	-- Check if we're stale
-	if (cache.ttl - conf.max_stale_age <= 0) then -- HOT, BUT STALE
+	if (cache.ttl - ledge.config.max_stale_age <= 0) then -- HOT, BUT STALE
 		ngx.log(ngx.NOTICE, "Please refresh")
 		local success, res = ledge.fetch_from_origin(uri)
 		
@@ -36,7 +37,7 @@ if (success == true) then -- HOT
 else
 	-- COLD
 	ngx.log(ngx.NOTICE, "Cache MISS, go fish...")
-	local success, res = ledge.fetch_from_origin(uri, conf.collapse_forwarding) -- Fetch
+	local success, res = ledge.fetch_from_origin(uri, ledge.config.collapse_origin_requests) -- Fetch
 
 	if success == true then
 		-- Send to browser

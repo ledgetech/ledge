@@ -1,6 +1,8 @@
 module("libledge", package.seeall)
 
 local ledge = {
+	_config_file = require("config"),
+	config = {},
 	redis = {
 		parser = require("redis.parser"),
 	},
@@ -12,9 +14,30 @@ local ledge = {
 	}
 }
 
+function ledge.process_config()
+	-- Load defaults
+	ledge.config.max_stale_age = ledge._config_file.max_stale_age.default
+	ledge.config.collapse_origin_requests = ledge._config_file.collapse_origin_requests.default
+	ledge.config.process_esi = ledge._config_file.process_esi.default
+
+	for k,v in pairs(ledge._config_file) do
+		if ledge._config_file[k].match_uri then
+			for i,v in ipairs(ledge._config_file[k].match_uri) do
+				if (ngx.var.uri:find(v[1]) ~= nil) then
+					ledge.config[k] = v[2]
+				end
+			end
+		end
+	end
+
+	ngx.log(ngx.NOTICE, "ledge.config.max_stale_age: " .. tostring(ledge.config.max_stale_age))
+	ngx.log(ngx.NOTICE, "ledge.config.collapse_origin_requests: " .. tostring(ledge.config.collapse_origin_requests))
+	ngx.log(ngx.NOTICE, "ledge.config.process_esi: " .. tostring(ledge.config.process_esi))
+end
+
 -- Runs a single query and returns the parsed response
 --
--- e.g. local res = ledge.redis_query({ 'HGET', 'mykey' })
+-- e.g. local res = ledge.redis.query({ 'HGET', 'mykey' })
 --
 -- @param	table	query expressed as a list of Redis commands
 -- @return	mixed	Redis response or false on failure
@@ -36,7 +59,7 @@ end
 -- Runs multiple queries pipelined. This is faster than parallel subrequests
 -- it seems.
 --
--- e.g. local resps = ledge.redis_pipeline({ q1, q2 })
+-- e.g. local resps = ledge.redis.query_pipeline({ q1, q2 })
 --
 -- @param	table	A table of queries, where each query is expressed as a table
 -- @return	mixed	An array of parsed replies, or false on failure
@@ -242,7 +265,7 @@ end
 
 -- TODO: Work out the valid expiry from headers, based on RFC.
 function ledge.calculate_expiry(header)
-	return 15 + conf.max_stale_age
+	return 60 + ledge.config.max_stale_age
 end
 
 return ledge
