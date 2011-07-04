@@ -122,7 +122,7 @@ function ledge.cache.read(uri)
 	-- Fetch from Redis
 	local rep = ledge.redis.query_pipeline({
 		{ 'HMGET', uri.key, 'status', 'body' },	-- Main content
-		{ 'HGETALL', uri.header_key }, 			-- Headers
+		{ 'HGETALL', uri.header_key },			-- Headers
 		{ 'TTL', uri.key }						-- TTL
 	})
 	
@@ -161,8 +161,7 @@ end
 --
 -- @param	uri			The URI (cache key)
 -- @param	response	The HTTP response object to store
---
--- @return boolean
+-- @return	boolean
 function ledge.cache.save(uri, response)
 	-- TODO: Work out if we're allowed to save
 	-- We could store headers even if its no-store, so that we know the policy

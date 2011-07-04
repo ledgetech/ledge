@@ -10,9 +10,6 @@ local uri = {
 }
 uri['header_key'] = uri.key..':header'
 
--- TODO:	Handle IMS / Force Refresh by reading request headers. 
---			Assuming standard request for now.
-
 -- First, try the cache. 
 local success, cache = ledge.cache.read(uri)
 
