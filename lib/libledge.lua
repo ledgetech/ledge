@@ -223,10 +223,6 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 	
 	if (r == 1) then -- We are the first query for this URI (at least since last expiration)
 		
-		--  Socket to publish on
-		local s = ledge.zmq:socket(zmq.PUB)
-		s:bind("tcp://*:5601")
-		
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 		
 		-- Actually fetch from origin..
