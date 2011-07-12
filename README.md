@@ -1,6 +1,6 @@
-# ledge
+# Ledge (Lua - Edge)
 
-A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net), the [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as [Redis](http://redis.io) as an upstream server to act as a cache backend, and [ZeroMQ](http://www.zeromq.org) and [Node.js](http://nodejs.org) for messaging and synchronisation.
+A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net), the [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as [Redis](http://redis.io) as an upstream server to act as a cache backend.
 
 ### Authors
 
@@ -10,14 +10,12 @@ A Lua implementation of edge proxying and caching. Relies on [nginx](http://ngin
 
 Experimental prototype. Not at all ready for production, but ideas welcome.
 
-0MQ is used to send (not receive as this blocks the nginx reactor) information about a proxied response. This relies on a Node.js server (wait\_for\_origin.js) to be running and configured as an nginx internal location block, which blocks simultaneous connections when using collapse forwarding.
-
 ### Working
 
 * Proxying to upstream server
 * Cache storage in Redis
 * Serving stale content
-* Collapse forwarding via 0MQ+Node.js
+* Collapse forwarding
 
 ### TODO
 
@@ -53,14 +51,6 @@ And the md5 lua module (available in luarocks).
 ### Redis
 
 Download and install from http://redis.io/download
-
-### ZeroMQ
-
-Install ZeroMQ, and then the Lua ZeroMQ bindings from: https://github.com/Neopallium/lua-zmq
-
-### Node.js
-
-Install Node.js and the [ZeroMQ bindings](https://github.com/JustinTulloss/zeromq.node) using [npm](https://github.com/isaacs/npm)
 
 ### nginx configuration
 
@@ -99,7 +89,7 @@ Also at the http level:
 	        set $full_uri $scheme://$host$request_uri;
 			
 			# Wherever you install ledge
-			content_by_lua_file '/home/me/ledge/ledge.lua';
+			content_by_lua_file '/home/me/ledge/main.lua';
 		}
 		
 		# Proxy to origin server
@@ -113,15 +103,16 @@ Also at the http level:
 			proxy_pass http://127.0.0.1:8081;
 		}
 		
-		# Collapsing proxy (node.js listening to ZeroMQ)
+		# For SUBSCRIBING to messages from Redis (collapse forwarding)
 		location /__ledge/wait_for_origin {
-			internal;
-			rewrite ^/__ledge/wait_for_origin(.*)$ $1 break;
-			proxy_set_header X-Real-IP  $remote_addr;
-			proxy_set_header X-Forwarded-For $remote_addr;
-			proxy_set_header Host $host;
+          	internal;
+          	set_unescape_uri $channel $arg_channel;
+        	redis2_raw_queries 2 "SUBSCRIBE $channel\r\n"
 			
-			proxy_pass http://127.0.0.1:1337;
+       		redis2_connect_timeout 200ms;
+       		redis2_send_timeout 200ms;
+           	redis2_read_timeout 60s;
+      		redis2_pass redis_subscribe;
 		}
 		
 	    # Redis
