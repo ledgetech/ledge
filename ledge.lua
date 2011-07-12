@@ -90,11 +90,16 @@ end
 
 
 function ledge.send(response)
+	local ledge_header = response.type
+	if response.action then
+		ledge_header = ledge_header .. "; " .. response.action
+	end
+	
 	ngx.status = response.status
 	for k,v in pairs(response.header) do
 		ngx.header[k] = v
 	end
-	ngx.header['X-Ledge'] = { response.type, response.action }
+	ngx.header['X-Ledge'] = ledge_header
 	ngx.print(response.body)
 	ngx.eof()
 end
