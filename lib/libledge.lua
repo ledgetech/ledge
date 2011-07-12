@@ -7,16 +7,27 @@ module("libledge", package.seeall)
 local ledge = {
 	_config_file = require("config"),
 	config = {},
+	cache = {},
+	
 	redis = {
 		parser = require("redis.parser"),
 	},
-	cache = {},
-	zmq = require("zmq").init(1),
+	
+	-- Subrequest locations
 	locations = {
 		origin = "/__ledge/origin",
 		wait_for_origin = "/__ledge/wait_for_origin",
 		redis = "/__ledge/redis"
-	}
+	},
+	
+	-- Constants
+	SUBZERO 	= 1,
+	COLD 		= 2,
+	WARM 		= 3,
+	HOT 		= 4,
+	FETCHED		= 10,
+	COLLAPSED 	= 11,
+	ABSTAINED	= 12,
 }
 
 
@@ -87,7 +98,7 @@ end
 -- e.g. local resps = ledge.redis.query_pipeline({ q1, q2 })
 --
 -- @param	table	A table of queries, where each query is expressed as a table
--- @return	mixed	An array of parsed replies, or false on failure
+-- @return	mixed	A table of parsed replies, or false on failure
 function ledge.redis.query_pipeline(queries)
 	for i,q in ipairs(queries) do
 		queries[i] = ledge.redis.parser.build_query(q)
@@ -225,18 +236,7 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 		-- Decrement the count
 		local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 		
-		-- Publish to subscribers (collapsed requests)
-		s:send(uri.key .. ':status', zmq.SNDMORE)
-		s:send(uri.key .. ' ' .. res.status, zmq.SNDMORE)
-		for k,v in pairs(res.header) do
-			s:send(uri.key .. ':header', zmq.SNDMORE)
-			s:send(uri.key .. ' ' .. k, zmq.SNDMORE)
-			s:send(uri.key .. ' ' .. v, zmq.SNDMORE)
-		end
-		s:send(uri.key .. ':body', zmq.SNDMORE)
-		s:send(uri.key .. ' ' .. res.body, zmq.SNDMORE)
-		s:send(uri.key .. ':end')
-		s:close()
+		local pub = ledge.redis.query({ 'PUBLISH', uri.key, 'finished'})
 		
 		ngx.log(ngx.NOTICE, "PUBLISHED RESULT")
 		
@@ -251,30 +251,26 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 			local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 			
 			-- Go to the collapser proxy
-			local res = ngx.location.capture(ledge.locations.wait_for_origin .. uri.uri, {
+			local rep = ngx.location.capture(ledge.locations.wait_for_origin, {
 				args = { channel = uri.key }
 			});
 			
-			ngx.log(ngx.NOTICE, "WAIT STATUS: " .. res.status)
-			
-			if (res.status >= 500) then
-				ngx.log(ngx.NOTICE, "COLLAPSE FAILED")
-				return false, res
+			if (rep.status == ngx.HTTP_OK) then				
+				local results = ledge.redis.parser.parse_replies(rep.body, 2)
+				local messages = results[2][1] -- Second reply, body
 				
-				--[[
-				ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
-
-				-- Actually fetch from origin..
-				res = ngx.location.capture(ledge.locations.origin .. uri.uri);
-				ngx.log(ngx.NOTICE, "FINISHED FROM ORIGIN")
-				--]]
+				for k,v in pairs(messages) do
+					if (v == 'finished') then
+						-- Go get from redis
+						ngx.log(ngx.NOTICE, "FINISHED WAITING")
+						break
+					end
+				end
 			else
-			
-				ngx.log(ngx.NOTICE, "FINISHED WAITING")
+				return false, rep -- Pass on the failure?
 			end
-	
 			
-			return true, res
+			return true, rep
 		else
 			-- HOT and STALE, but we're already doing it
 			local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
