@@ -236,7 +236,6 @@ function ledge.cache.save(uri, response)
 	local expire_hq = { 'EXPIRE', uri.header_key, ttl }
 
 	local res = ledge.redis.query_pipeline({ q, header_q, expire_q, expire_hq })
-	ngx.log(ngx.NOTICE, res[1][1])
 	-- TODO: Should probably return something.
 
 end
@@ -294,7 +293,7 @@ function ledge.fetch(uri, res)
 							ngx.log(ngx.NOTICE, "FINISHED WAITING")
 							
 							-- Go get from redis
-							local cache = ledge.read(uri)
+							local cache = ledge.cache.read(uri)
 							res.status = cache.status
 							res.body = cache.body
 							res.header = cache.header
