@@ -218,10 +218,14 @@ end
 -- @return	table	Result table, with .status and .body members
 function ledge.fetch_from_origin(uri, collapse_forwarding)
 	
-	-- Increment the subscriber count
-	local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "1" })
+	-- Set the fetch key
+	local fetch = ledge.redis.query({ 'SETNX', uri.fetch_key, '1' })
 	
-	if (r == 1) then -- We are the first query for this URI (at least since last expiration)
+	if (fetch == 1) then -- Go do the fetch
+		
+		-- First TTL our key
+		-- TODO: Read from config
+		ledge.redis.query({ 'EXPIRE', uri.fetch_key, '10' })
 		
 		ngx.log(ngx.NOTICE, "GOING TO ORIGIN")
 		
@@ -229,10 +233,10 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 		local res = ngx.location.capture(ledge.locations.origin .. uri.uri);
 		ngx.log(ngx.NOTICE, "FINISHED FROM ORIGIN")
 
-		-- Decrement the count
-		local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
-		
-		local pub = ledge.redis.query({ 'PUBLISH', uri.key, 'finished'})
+		ledge.redis.query({ 'PUBLISH', uri.key, 'finished'})
+
+		-- Remove the fetch key
+		ledge.redis.query({ 'DEL', uri.fetch_key }) 
 		
 		ngx.log(ngx.NOTICE, "PUBLISHED RESULT")
 		
@@ -242,9 +246,6 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 		if (collapse_forwarding == true) then -- If we want to wait..
 			
 			ngx.log(ngx.NOTICE, "WAIT FOR ORIGIN")
-			
-			-- Decrement the counter, even on error
-			local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 			
 			-- Go to the collapser proxy
 			local rep = ngx.location.capture(ledge.locations.wait_for_origin, {
@@ -269,7 +270,6 @@ function ledge.fetch_from_origin(uri, collapse_forwarding)
 			return true, rep
 		else
 			-- HOT and STALE, but we're already doing it
-			local r = ledge.redis.query({ 'HINCRBY', 'ledge:subscribers', uri.key, "-1" })
 			ngx.log(ngx.NOTICE, "In progress, but I'm not waiting")
 			return false, nil -- For background refresh to not bother saving, no biggie
 		end
@@ -278,7 +278,7 @@ end
 
 -- TODO: Work out the valid expiry from headers, based on RFC.
 function ledge.calculate_expiry(header)
-	return 60 + ledge.config.max_stale_age
+	return 15 + ledge.config.max_stale_age
 end
 
 return ledge
