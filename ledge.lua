@@ -94,6 +94,10 @@ function ledge.send(response)
 	if response.action then
 		ngx.header['X-Ledge-Action'] = response.action
 	end
+	if response.ttl then
+		ngx.header['X-Ledge-TTL'] = response.ttl
+	end
+	ngx.header['X-Ledge-Max-Stale-Age'] = ledge.config.max_stale_age
 	ngx.print(response.body)
 	ngx.eof()
 end
@@ -336,17 +340,18 @@ end
 
 -- Work out the valid expiry from the Expires header.
 function ledge.calculate_expiry(res)
+	local expiry = 0
 	if (ledge.response_is_cacheable(res)) then
 		if res.header['Expires'] then
 			local expires = date(res.header['Expires'])
 			local now = date(ngx.time())
 			local diff = date.diff(expires, now)
-			
-			return diff:spanseconds() + ledge.config.max_stale_age
+			expiry = diff:spanseconds() + ledge.config.max_stale_age
 		end
 	end
 	
-	return 0
+	res.ttl = 15 + ledge.config.max_stale_age --expiry
+	return res.ttl --expiry
 end
 
 
