@@ -12,7 +12,7 @@ return {
 	max_stale_age = {
 		default = 900,
 		match_uri = { 
-			{ "^/about", 0 },
+			{ "^/about", 250 },
 			{ "^/contact", 360 },
 		},
 	},

@@ -46,7 +46,7 @@ function ledge.process_config()
 		-- URI matches
 		if ledge._config_file[k].match_uri then
 			for i,v in ipairs(ledge._config_file[k].match_uri) do
-				if (ngx.var.uri:find(v[1], 1, true) ~= nil) then
+				if (ngx.var.uri:find(v[1]) ~= nil) then
 					ledge.config[k] = v[2]
 					break -- We take the first hit
 				end
@@ -58,7 +58,7 @@ function ledge.process_config()
 			local h = ngx.req.get_headers()
 			
 			for i,v in ipairs(ledge._config_file[k].match_header) do
-				if (h[v[1]] ~= nil) and (h[v[1]]:find(v[2], 1, true) ~= nil) then
+				if (h[v[1]] ~= nil) and (h[v[1]]:find(v[2]) ~= nil) then
 					ledge.config[k] = v[3]
 					break
 				end
@@ -206,41 +206,33 @@ end
 -- @param	response	The HTTP response object to store
 -- @return	boolean
 function ledge.cache.save(uri, response)
-	
-	-- TODO: Work out if we're allowed to save
-	-- We could store headers even if its no-store, so that we know the policy
-	-- for this item. Next hit is a cache hit, but reads the headers, and finds 
-	-- it has to go fetch anyway (and store, in case the policy changed)
-	--
-	-- This might allow for collapse forwaring to be on, but only used by known cacheable content?
-	--
-	-- On first request (so we know nothing), concurrent requests get told to wait, 
-	-- as if they will get the shared hit, and if it's no-store, told
-	-- to fetch in the end. But that will only happen once per URI. Potential flood I guess.
-	
-	-- Store the response. Header is a foreign key to another hash.
-	local q = { 
-		'HMSET', uri.key, 
-		'body', response.body, 
-		'status', response.status,
-		'header', uri.header_key
-	}
-	
-	-- Store the headers
-	local header_q = { 'HMSET', uri.header_key } 
-	for k,v in pairs(response.header) do -- Add each k,v as a pair
-		table.insert(header_q, string.lower(k))
-		table.insert(header_q, v)
+	if (ledge.response_is_cacheable) then	
+		-- Store the response. Header is a foreign key to another hash.
+		local q = { 
+			'HMSET', uri.key, 
+			'body', response.body, 
+			'status', response.status,
+			'header', uri.header_key
+		}
+
+		-- Store the headers
+		local header_q = { 'HMSET', uri.header_key } 
+		for k,v in pairs(response.header) do -- Add each k,v as a pair
+			table.insert(header_q, string.lower(k))
+			table.insert(header_q, v)
+		end
+
+		-- Work out TTL
+		local ttl = ledge.calculate_expiry(response)
+		local expire_q = { 'EXPIRE', uri.key, ttl }
+		local expire_hq = { 'EXPIRE', uri.header_key, ttl }
+
+		local res = ledge.redis.query_pipeline({ q, header_q, expire_q, expire_hq })
+		
+		return true
+	else
+		return nil
 	end
-	
-	-- Work out TTL
-	local ttl = ledge.calculate_expiry(response)
-	local expire_q = { 'EXPIRE', uri.key, ttl }
-	local expire_hq = { 'EXPIRE', uri.header_key, ttl }
-
-	local res = ledge.redis.query_pipeline({ q, header_q, expire_q, expire_hq })
-	-- TODO: Should probably return something.
-
 end
 
 
@@ -340,18 +332,17 @@ end
 
 -- Work out the valid expiry from the Expires header.
 function ledge.calculate_expiry(res)
-	local expiry = 0
+	res.ttl = 0
 	if (ledge.response_is_cacheable(res)) then
 		if res.header['Expires'] then
 			local expires = date(res.header['Expires'])
 			local now = date(ngx.time())
 			local diff = date.diff(expires, now)
-			expiry = diff:spanseconds() + ledge.config.max_stale_age
+			res.ttl = diff:spanseconds() + ledge.config.max_stale_age
 		end
 	end
 	
-	res.ttl = 15 + ledge.config.max_stale_age --expiry
-	return res.ttl --expiry
+	return res.ttl
 end
 
 
