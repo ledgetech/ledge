@@ -1,4 +1,5 @@
 module("ledge", package.seeall)
+date = require("date") -- LuaDate v2. Needs hacking to work with LuaJit (deprecated use of arg for varyarg, use {...})
 
 
 -- Ledge
@@ -31,7 +32,6 @@ local ledge = {
 }
 
 
-
 -- Loads runtime configuration into ledge.config
 --
 -- The configuration file is only loaded once for the first request. 
@@ -46,7 +46,7 @@ function ledge.process_config()
 		-- URI matches
 		if ledge._config_file[k].match_uri then
 			for i,v in ipairs(ledge._config_file[k].match_uri) do
-				if (ngx.var.uri:find(v[1]) ~= nil) then
+				if (ngx.var.uri:find(v[1], 1, true) ~= nil) then
 					ledge.config[k] = v[2]
 					break -- We take the first hit
 				end
@@ -58,17 +58,13 @@ function ledge.process_config()
 			local h = ngx.req.get_headers()
 			
 			for i,v in ipairs(ledge._config_file[k].match_header) do
-				if (h[v[1]] ~= nil) and (h[v[1]]:find(v[2]) ~= nil) then
+				if (h[v[1]] ~= nil) and (h[v[1]]:find(v[2], 1, true) ~= nil) then
 					ledge.config[k] = v[3]
 					break
 				end
 			end
 		end
 	end
-
-	ngx.log(ngx.NOTICE, "ledge.config.max_stale_age: " .. tostring(ledge.config.max_stale_age))
-	ngx.log(ngx.NOTICE, "ledge.config.collapse_origin_requests: " .. tostring(ledge.config.collapse_origin_requests))
-	ngx.log(ngx.NOTICE, "ledge.config.process_esi: " .. tostring(ledge.config.process_esi))
 end
 
 
@@ -90,20 +86,17 @@ end
 
 
 function ledge.send(response)
-	local ledge_header = response.type
-	if response.action then
-		ledge_header = ledge_header .. "; " .. response.action
-	end
-	
 	ngx.status = response.status
 	for k,v in pairs(response.header) do
 		ngx.header[k] = v
 	end
-	ngx.header['X-Ledge'] = ledge_header
+	ngx.header['X-Ledge-Type'] = response.type
+	if response.action then
+		ngx.header['X-Ledge-Action'] = response.action
+	end
 	ngx.print(response.body)
 	ngx.eof()
 end
-
 
 
 -- Runs a single query and returns the parsed response
@@ -209,6 +202,7 @@ end
 -- @param	response	The HTTP response object to store
 -- @return	boolean
 function ledge.cache.save(uri, response)
+	
 	-- TODO: Work out if we're allowed to save
 	-- We could store headers even if its no-store, so that we know the policy
 	-- for this item. Next hit is a cache hit, but reads the headers, and finds 
@@ -236,7 +230,7 @@ function ledge.cache.save(uri, response)
 	end
 	
 	-- Work out TTL
-	local ttl = ledge.calculate_expiry(response.header)
+	local ttl = ledge.calculate_expiry(response)
 	local expire_q = { 'EXPIRE', uri.key, ttl }
 	local expire_hq = { 'EXPIRE', uri.header_key, ttl }
 
@@ -251,7 +245,6 @@ end
 -- @param	table	The URI table
 -- @return	table	Response
 function ledge.fetch(uri, res)
-	
 	if (ledge.config.collapse_origin_requests == false) then
 		local origin = ngx.location.capture(ledge.locations.origin .. uri.uri);
 		ledge.cache.save(uri, origin)
@@ -318,9 +311,43 @@ function ledge.fetch(uri, res)
 	end
 end
 
--- TODO: Work out the valid expiry from headers, based on RFC.
-function ledge.calculate_expiry(header)
-	return 15 + ledge.config.max_stale_age
+
+-- Determines if the response can be stored, based on RFC 2616.
+-- This is probably not complete.
+function ledge.response_is_cacheable(res)
+	local cacheable = true
+	
+	local nocache_headers = {}
+	nocache_headers['Pragma'] = { 'no-cache' }
+	nocache_headers['Cache-Control'] = { 'no-cache', 'must-revalidate', 'no-store', 'private' }
+	
+	for k,v in pairs(nocache_headers) do
+		for i,header in ipairs(v) do
+			if (res.header[k] and res.header[k] == header) then
+				cacheable = false
+				break
+			end
+		end
+	end
+	
+	return cacheable
 end
+
+
+-- Work out the valid expiry from the Expires header.
+function ledge.calculate_expiry(res)
+	if (ledge.response_is_cacheable(res)) then
+		if res.header['Expires'] then
+			local expires = date(res.header['Expires'])
+			local now = date(ngx.time())
+			local diff = date.diff(expires, now)
+			
+			return diff:spanseconds() + ledge.config.max_stale_age
+		end
+	end
+	
+	return 0
+end
+
 
 return ledge
