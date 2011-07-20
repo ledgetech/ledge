@@ -21,15 +21,37 @@ local ledge = {
 		redis = "/__ledge/redis"
 	},
 	
-	-- Constants
-	SUBZERO 	= 'Sub-Zero',
-	COLD 		= 'Cold',
-	WARM 		= 'Warm',
-	HOT 		= 'Hot',
-	FETCHED		= 'Fetched',
-	COLLAPSED 	= 'Collapsed',
-	ABSTAINED	= 'Abstained',
+	states = {
+		SUBZERO		= 1,
+		COLD		= 2,
+		WARM		= 3,
+		HOT			= 4,
+	},
+
+	actions = {
+		FETCHED		= 1,
+		COLLAPSED	= 2,
+		ABSTAINED	= 3,
+	},
 }
+
+
+function ledge.states.tostring(state)
+	for k,v in pairs(ledge.states) do
+		if v == state then
+			return k
+		end
+	end
+end
+
+
+function ledge.actions.tostring(action)
+	for k,v in pairs(ledge.actions) do
+		if v == action then
+			return k
+		end
+	end
+end
 
 
 -- Loads runtime configuration into ledge.config
@@ -69,16 +91,15 @@ end
 
 
 function ledge.prepare(uri)
-	
 	local res = ledge.cache.read(uri)
 	if (res) then
 		if (res.ttl - ledge.config.max_stale_age <= 0) then
-			res.type = ledge.WARM
+			res.state = ledge.states.WARM
 		else
-			res.type = ledge.HOT
+			res.state = ledge.states.HOT
 		end
 	else
-		res = { type = ledge.SUBZERO }
+		res = { state = ledge.states.SUBZERO }
 	end
 	
 	return res
@@ -90,14 +111,15 @@ function ledge.send(response)
 	for k,v in pairs(response.header) do
 		ngx.header[k] = v
 	end
-	ngx.header['X-Ledge-Type'] = response.type
+	ngx.header['X-Ledge-State'] = ledge.states.tostring(response.state)
 	if response.action then
-		ngx.header['X-Ledge-Action'] = response.action
+		ngx.header['X-Ledge-Action'] = ledge.actions.tostring(response.action)
 	end
 	if response.ttl then
 		ngx.header['X-Ledge-TTL'] = response.ttl
+		ngx.header['X-Ledge-Max-Stale-Age'] = ledge.config.max_stale_age
 	end
-	ngx.header['X-Ledge-Max-Stale-Age'] = ledge.config.max_stale_age
+	
 	ngx.print(response.body)
 	ngx.eof()
 end
@@ -248,7 +270,7 @@ function ledge.fetch(uri, res)
 		res.status = origin.status
 		res.body = origin.body
 		res.header = origin.header
-		res.action = ledge.FETCHED
+		res.action = ledge.actions.FETCHED
 		return res
 	else
 	
@@ -267,11 +289,11 @@ function ledge.fetch(uri, res)
 			res.status = origin.status
 			res.body = origin.body
 			res.header = origin.header
-			res.action = ledge.FETCHED
+			res.action = ledge.actions.FETCHED
 			return res
 		else
 			-- This fetch is already happening 
-			if (res.type < ledge.WARM) then
+			if (res.state < ledge.states.WARM) then
 				-- Go to the collapser proxy
 				local rep = ngx.location.capture(ledge.locations.wait_for_origin, {
 					args = { channel = uri.key }
@@ -291,7 +313,7 @@ function ledge.fetch(uri, res)
 							res.status = cache.status
 							res.body = cache.body
 							res.header = cache.header
-							res.action = ledge.COLLAPSED
+							res.action = ledge.actions.COLLAPSED
 							return res
 							
 						end
@@ -300,7 +322,7 @@ function ledge.fetch(uri, res)
 					return nil, rep.status -- Pass on the failure
 				end
 			else -- Is WARM and already happening, so bail
-				res.action = ledge.ABSTAIN
+				res.action = ledge.actions.ABSTAINED
 				return res
 			end
 		end

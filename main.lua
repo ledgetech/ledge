@@ -12,12 +12,12 @@ uri.fetch_key	= uri.key..':fetch'		-- Temp key during an origin request.
 
 local res = ledge.prepare(uri)
 
-if (res.type == ledge.HOT) then
+if (res.state == ledge.states.HOT) then
 	ledge.send(res)
-elseif (res.type == ledge.WARM) then
+elseif (res.state == ledge.states.WARM) then
 	ledge.send(res)
 	ledge.fetch(uri, res)
-elseif (res.type < ledge.WARM) then
+elseif (res.state < ledge.states.WARM) then
 	res = ledge.fetch(uri, res)
 	ledge.send(res)
 end
