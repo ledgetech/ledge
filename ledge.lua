@@ -240,7 +240,7 @@ function ledge.cache.save(uri, response)
 		-- Store the headers
 		local header_q = { 'HMSET', uri.header_key } 
 		for k,v in pairs(response.header) do -- Add each k,v as a pair
-			table.insert(header_q, string.lower(k))
+			table.insert(header_q, k)
 			table.insert(header_q, v)
 		end
 
