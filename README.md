@@ -26,8 +26,6 @@ Experimental prototype. Not at all ready for production, but ideas welcome.
 	* Auth patterns / sessions?
 	* ...
 
-----
-
 ## Installation
 
 This is not exhaustive.. you're on the bleeding (l)edge here. Getting all the tools to work took me longer than writing the code.  

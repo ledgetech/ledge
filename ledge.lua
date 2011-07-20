@@ -1,6 +1,4 @@
 module("ledge", package.seeall)
-date = require("date") -- LuaDate v2. Needs hacking to work with LuaJit (deprecated use of arg for varyarg, use {...})
-
 
 -- Ledge
 --
@@ -200,10 +198,10 @@ function ledge.cache.read(uri)
 			
 			-- Reassemble a response object
 			local response = { -- Main parts will be ordered as per the HMGET args
-				status = b[1],
-				body = b[2],
-				header = {},
-				ttl = t,
+				status	= b[1],
+				body	= b[2],
+				header	= {},
+				ttl		= t,
 			}
 
 			-- Whereas header parts will be a flat list of pairs..
@@ -228,7 +226,7 @@ end
 -- @param	response	The HTTP response object to store
 -- @return	boolean
 function ledge.cache.save(uri, response)
-	if (ledge.response_is_cacheable) then	
+	if (ledge.response_is_cacheable(response)) then	
 		-- Store the response. Header is a foreign key to another hash.
 		local q = { 
 			'HMSET', uri.key, 
@@ -357,10 +355,7 @@ function ledge.calculate_expiry(res)
 	res.ttl = 0
 	if (ledge.response_is_cacheable(res)) then
 		if res.header['Expires'] then
-			local expires = date(res.header['Expires'])
-			local now = date(ngx.time())
-			local diff = date.diff(expires, now)
-			res.ttl = diff:spanseconds() + ledge.config.max_stale_age
+			res.ttl = (ngx.parse_http_time(res.header['Expires']) - ngx.time()) + ledge.config.max_stale_age
 		end
 	end
 	
