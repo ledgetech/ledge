@@ -191,7 +191,7 @@ function ledge.cache.read(uri)
 		{ 'TTL', uri.key }						-- TTL
 	})
 	
-	if (r ~= false) then
+	if (rep ~= false) then
 		local b = rep[1]
 		local h = rep[2]
 		local t = tonumber(rep[3])
