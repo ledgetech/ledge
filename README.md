@@ -44,8 +44,6 @@ And for better performance, compile --with-luajit
 
 You'll also need the redis parser: https://github.com/agentzh/lua-redis-parser
 
-And the md5 lua module (available in luarocks).
-
 ### Redis
 
 Download and install from http://redis.io/download
