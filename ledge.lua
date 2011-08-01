@@ -1,24 +1,24 @@
-module("ledge", package.seeall)
-
 -- Ledge
 --
 -- This module is loaded once for the first request, and so 
 local ledge = {
-	_config_file = require("config"),
+    _mt = {},
+    
+    _config_file = require("config"),
 	config = {},
 	cache = {},
-	
+
 	redis = {
 		parser = require("redis.parser"),
 	},
-	
+
 	-- Subrequest locations
 	locations = {
 		origin = "/__ledge/origin",
 		wait_for_origin = "/__ledge/wait_for_origin",
 		redis = "/__ledge/redis"
 	},
-	
+
 	states = {
 		SUBZERO		= 1,
 		COLD		= 2,
@@ -32,6 +32,9 @@ local ledge = {
 		ABSTAINED	= 3,
 	},
 }
+
+
+setmetatable(ledge, ledge._mt)
 
 
 function ledge.states.tostring(state)
@@ -89,6 +92,8 @@ end
 
 
 function ledge.prepare(uri)
+    ngx.req.clear_header('Accept-Encoding') -- We don't want anything gzipped
+    
 	local res = ledge.cache.read(uri)
 	if (res) then
 		if (res.ttl - ledge.config.max_stale_age <= 0) then
@@ -99,12 +104,18 @@ function ledge.prepare(uri)
 	else
 		res = { state = ledge.states.SUBZERO }
 	end
-	
 	return res
 end
 
 
 function ledge.send(response)
+    -- Fire the on_before_send event
+    if type(ledge.config.on_before_send) == 'function' then --and response.status < 300 then
+        response = ledge.config.on_before_send(ledge, response)
+    else
+        ngx.log(ngx.NOTICE, "on_before_send event handler is not a function")
+    end
+
 	ngx.status = response.status
 	for k,v in pairs(response.header) do
 		ngx.header[k] = v
@@ -169,6 +180,7 @@ function ledge.redis.query_pipeline(queries)
 		for i,v in ipairs(results) do
 			table.insert(reps, v[1]) -- #1 = res, #2 = typ
 		end
+		
 		return reps
 	else
 		return false
@@ -181,7 +193,6 @@ end
 -- @param	string			The URI (cache key)
 -- @return	bool | table	Success/failure | The response table
 function ledge.cache.read(uri)
-	
 	-- Fetch from Redis
 	local rep = ledge.redis.query_pipeline({
 		{ 'HMGET', uri.key, 'status', 'body' },	-- Main content
@@ -208,7 +219,7 @@ function ledge.cache.read(uri)
 			for i = 1, #h, 2 do
 				response.header[h[i]] = h[i + 1]
 			end
-
+            
 			return response
 		else 
 			return nil
@@ -282,7 +293,7 @@ function ledge.fetch(uri, res)
 			
 			-- Remove the fetch and publish to waiting threads
 			ledge.redis.query({ 'DEL', uri.fetch_key })
-			ledge.redis.query({ 'PUBLISH', uri.key, 'finished'})
+			ledge.redis.query({ 'PUBLISH', uri.key, 'finished' })
 			
 			res.status = origin.status
 			res.body = origin.body
@@ -362,5 +373,9 @@ function ledge.calculate_expiry(res)
 	return res.ttl
 end
 
+getmetatable(ledge).__newindex =    function (table, key, val) 
+                                        error('Attempt to write to undeclared variable "' .. key .. '": ' .. debug.traceback()) 
+                                    end
 
 return ledge
+

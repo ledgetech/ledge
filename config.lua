@@ -1,10 +1,11 @@
-module("config", package.seeall)
-
 -- Ledge configuration file
 --
 -- Nginx must be reloaded for changes to take affect. 
 -- Run "lua config.lua" to check for syntax correctness.
 -- TODO: Write a config check tool (test number of params to matches etc)
+
+local esi_processor = require("plugins.esi_processor")
+
 return {
 	
 	-- How 'stale' an item can be. A stale hit will return the cached 
@@ -22,18 +23,16 @@ return {
 	-- Suits slow but cacheable origins. Probably turn this off for 
 	-- URIs which are deifinitely not cacheable.
 	collapse_origin_requests = {
-		default = true,
+		default = false,
 		match_uri = { 
 			{ "^/cart", false },
 		},
 	},
 	
-	-- Whether to attempt ESI processing.
-	process_esi = {
-		default = false,
-		match_header = {
-			{ "X-ESI", "Contains Fragments", true },
-		},
-	},
-	
+	on_before_send = {
+	    default =   function(ledge, response) 
+                        return esi_processor.process(ledge, response)
+                    end
+	}
+
 }

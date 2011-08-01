@@ -1,5 +1,4 @@
-ledge = require("ledge")
-
+local ledge = require("ledge")
 ledge.process_config()
 
 -- A table for the uri and keys
