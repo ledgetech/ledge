@@ -1,6 +1,7 @@
 -- Ledge
 --
--- This module is loaded once for the first request, and so 
+-- This module does all of the heavy lifting. It is loaded once for the first
+-- request. Anything dynamic for your request must be passed to this module (not stored).
 local ledge = {
     _mt = {},
     
@@ -34,9 +35,15 @@ local ledge = {
 }
 
 
+-- Specify the metatable.
 setmetatable(ledge, ledge._mt)
 
 
+-- Returns the state name as string (for logging).
+-- One of 'SUBZERO', 'COLD', 'WARM', or 'HOT'.
+--
+-- @param   number  State
+-- @return  string  State as a string
 function ledge.states.tostring(state)
 	for k,v in pairs(ledge.states) do
 		if v == state then
@@ -46,6 +53,11 @@ function ledge.states.tostring(state)
 end
 
 
+-- Returns the action type as string (for logging).
+-- One of 'FETCHED', 'COLLAPSED', or 'ABSTAINED'.
+--
+-- @param   number  Action
+-- @return  string  Action as a string
 function ledge.actions.tostring(action)
 	for k,v in pairs(ledge.actions) do
 		if v == action then
@@ -104,6 +116,8 @@ function ledge.prepare(uri)
 	else
 		res = { state = ledge.states.SUBZERO }
 	end
+	
+	res.uri = uri
 	return res
 end
 
