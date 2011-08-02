@@ -5,6 +5,7 @@
 -- TODO: Write a config check tool (test number of params to matches etc)
 
 local esi_processor = require("plugins.esi_processor")
+local preemptive_recache = require("plugins.preemptive_recache")
 
 return {
 	
@@ -30,9 +31,15 @@ return {
 	},
 	
 	on_before_send = {
-	    default =   function(ledge, response) 
-                        return esi_processor.process(ledge, response)
-                    end
+	    default = function(ledge, response)
+	        return esi_processor.process(ledge, response)
+        end
+	},
+	
+	on_after_send = {
+	    default = function(ledge, response)
+	        return preemptive_recache.go(ledge, response)
+	    end
 	}
 
 }
