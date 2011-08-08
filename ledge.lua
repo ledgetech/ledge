@@ -103,25 +103,51 @@ function ledge.process_config()
 end
 
 
-function ledge.prepare(uri)
-    ngx.req.clear_header('Accept-Encoding') -- We don't want anything gzipped
-    
-	local res = ledge.cache.read(uri)
-	if (res) then
-		if (res.ttl - ledge.config.max_stale_age <= 0) then
-			res.state = ledge.states.WARM
-		else
-			res.state = ledge.states.HOT
-		end
-	else
-		res = { state = ledge.states.SUBZERO }
-	end
-	
-	res.uri = uri
-	return res
+-- Creates and returns a table of cache keys for the URI
+--
+-- @param   string  Full URI
+-- @return  table   Keys table
+function ledge.create_keys(full_uri)
+    local keys = {}
+    keys.uri 		= full_uri
+    keys.key 		= 'ledge:'..ngx.md5(full_uri)   -- Hash, with .status, and .body
+    keys.header_key	= keys.key..':header'           -- Hash, with header names and values
+    keys.fetch_key	= keys.key..':fetch'            -- Temp key during collapsed origin request.
+    return keys
 end
 
 
+-- Prepares the response by attempting to read from cache.
+-- A skeletol response object will be returned with a state of < WARM
+-- in the event of a cache miss.
+-- 
+-- @param   table   Keys table
+-- @return  table   Response object
+function ledge.prepare(keys)
+    ngx.req.clear_header('Accept-Encoding') -- We don't want anything gzipped
+    
+	local response = ledge.cache.read(keys)
+	if (response) then
+		if (response.ttl - ledge.config.max_stale_age <= 0) then
+			response.state = ledge.states.WARM
+		else
+			response.state = ledge.states.HOT
+		end
+	else
+		response = { state = ledge.states.SUBZERO }
+	end
+	
+	response.keys = keys
+	return response
+end
+
+
+-- Sends the response to the client
+-- If on_before_send is defined in configuration, the response may be altered
+-- by any plugins.
+--
+-- @param   table   Response object
+-- @return  void
 function ledge.send(response)
     -- Fire the on_before_send event
     if type(ledge.config.on_before_send) == 'function' then --and response.status < 300 then
@@ -150,19 +176,19 @@ end
 
 -- Runs a single query and returns the parsed response
 --
--- e.g. local res = ledge.redis.query({ 'HGET', 'mykey' })
+-- e.g. local rep = ledge.redis.query({ 'HGET', 'mykey' })
 --
 -- @param	table	query expressed as a list of Redis commands
 -- @return	mixed	Redis response or false on failure
 function ledge.redis.query(query)
-	local res = ngx.location.capture(ledge.locations.redis, {
+	local rep = ngx.location.capture(ledge.locations.redis, {
 		method = ngx.HTTP_POST,
 		args = { n = 1 },
 		body = ledge.redis.parser.build_query(query)
 	})
 	
-	if (res.status == ngx.HTTP_OK) then
-		return ledge.redis.parser.parse_reply(res.body)
+	if (rep.status == ngx.HTTP_OK) then
+		return ledge.redis.parser.parse_reply(rep.body)
 	else
 		return false
 	end
@@ -172,7 +198,7 @@ end
 -- Runs multiple queries pipelined. This is faster than parallel subrequests
 -- it seems.
 --
--- e.g. local resps = ledge.redis.query_pipeline({ q1, q2 })
+-- e.g. local reps = ledge.redis.query_pipeline({ q1, q2 })
 --
 -- @param	table	A table of queries, where each query is expressed as a table
 -- @return	mixed	A table of parsed replies, or false on failure
@@ -206,12 +232,12 @@ end
 --
 -- @param	string			The URI (cache key)
 -- @return	bool | table	Success/failure | The response table
-function ledge.cache.read(uri)
+function ledge.cache.read(keys)
 	-- Fetch from Redis
 	local rep = ledge.redis.query_pipeline({
-		{ 'HMGET', uri.key, 'status', 'body' },	-- Main content
-		{ 'HGETALL', uri.header_key },			-- Headers
-		{ 'TTL', uri.key }						-- TTL
+		{ 'HMGET', keys.key, 'status', 'body' },	-- Main content
+		{ 'HGETALL', keys.header_key },			-- Headers
+		{ 'TTL', keys.key }						-- TTL
 	})
 	
 	if (rep ~= false) then
@@ -247,21 +273,21 @@ end
 
 -- Stores an item in cache
 --
--- @param	uri			The URI (cache key)
+-- @param	keys			The URI (cache key)
 -- @param	response	The HTTP response object to store
 -- @return	boolean
-function ledge.cache.save(uri, response)
+function ledge.cache.save(keys, response)
 	if (ledge.response_is_cacheable(response)) then	
 		-- Store the response. Header is a foreign key to another hash.
 		local q = { 
-			'HMSET', uri.key, 
+			'HMSET', keys.key, 
 			'body', response.body, 
 			'status', response.status,
-			'header', uri.header_key
+			'header', keys.header_key
 		}
 
 		-- Store the headers
-		local header_q = { 'HMSET', uri.header_key } 
+		local header_q = { 'HMSET', keys.header_key } 
 		for k,v in pairs(response.header) do -- Add each k,v as a pair
 			table.insert(header_q, k)
 			table.insert(header_q, v)
@@ -269,10 +295,11 @@ function ledge.cache.save(uri, response)
 
 		-- Work out TTL
 		local ttl = ledge.calculate_expiry(response)
-		local expire_q = { 'EXPIRE', uri.key, ttl }
-		local expire_hq = { 'EXPIRE', uri.header_key, ttl }
+		local expire_q = { 'EXPIRE', keys.key, ttl }
+		local expire_hq = { 'EXPIRE', keys.header_key, ttl }
 
-		local res = ledge.redis.query_pipeline({ q, header_q, expire_q, expire_hq })
+		local rep = ledge.redis.query_pipeline({ q, header_q, expire_q, expire_hq })
+		-- TODO: Check for success
 		
 		return true
 	else
@@ -285,41 +312,41 @@ end
 --
 -- @param	table	The URI table
 -- @return	table	Response
-function ledge.fetch(uri, res)
+function ledge.fetch(keys, response)
 	if (ledge.config.collapse_origin_requests == false) then
-		local origin = ngx.location.capture(ledge.locations.origin .. uri.uri);
-		ledge.cache.save(uri, origin)
+		local origin = ngx.location.capture(ledge.locations.origin .. keys.uri);
+		ledge.cache.save(keys, origin)
 		
-		res.status = origin.status
-		res.body = origin.body
-		res.header = origin.header
-		res.action = ledge.actions.FETCHED
-		return res
+		response.status = origin.status
+		response.body = origin.body
+		response.header = origin.header
+		response.action = ledge.actions.FETCHED
+		return response
 	else
 	
 		-- Set the fetch key
-		local fetch = ledge.redis.query({ 'SETNX', uri.fetch_key, '1' })
+		local fetch = ledge.redis.query({ 'SETNX', keys.fetch_key, '1' })
 		-- TODO: Read from config
-		ledge.redis.query({ 'EXPIRE', uri.fetch_key, '10' })
+		ledge.redis.query({ 'EXPIRE', keys.fetch_key, '10' })
 		if (fetch == 1) then -- Go do the fetch
-			local origin = ngx.location.capture(ledge.locations.origin .. uri.uri);
-			ledge.cache.save(uri, origin)
+			local origin = ngx.location.capture(ledge.locations.origin .. keys.uri);
+			ledge.cache.save(keys, origin)
 			
 			-- Remove the fetch and publish to waiting threads
-			ledge.redis.query({ 'DEL', uri.fetch_key })
-			ledge.redis.query({ 'PUBLISH', uri.key, 'finished' })
+			ledge.redis.query({ 'DEL', keys.fetch_key })
+			ledge.redis.query({ 'PUBLISH', keys.key, 'finished' })
 			
-			res.status = origin.status
-			res.body = origin.body
-			res.header = origin.header
-			res.action = ledge.actions.FETCHED
-			return res
+			response.status = origin.status
+			response.body = origin.body
+			response.header = origin.header
+			response.action = ledge.actions.FETCHED
+			return response
 		else
 			-- This fetch is already happening 
-			if (res.state < ledge.states.WARM) then
+			if (response.state < ledge.states.WARM) then
 				-- Go to the collapser proxy
 				local rep = ngx.location.capture(ledge.locations.wait_for_origin, {
-					args = { channel = uri.key }
+					args = { channel = keys.key }
 				});
 			
 				if (rep.status == ngx.HTTP_OK) then				
@@ -332,12 +359,12 @@ function ledge.fetch(uri, res)
 							ngx.log(ngx.NOTICE, "FINISHED WAITING")
 							
 							-- Go get from redis
-							local cache = ledge.cache.read(uri)
-							res.status = cache.status
-							res.body = cache.body
-							res.header = cache.header
-							res.action = ledge.actions.COLLAPSED
-							return res
+							local cache = ledge.cache.read(keys)
+							response.status = cache.status
+							response.body = cache.body
+							response.header = cache.header
+							response.action = ledge.actions.COLLAPSED
+							return response
 							
 						end
 					end
@@ -345,8 +372,8 @@ function ledge.fetch(uri, res)
 					return nil, rep.status -- Pass on the failure
 				end
 			else -- Is WARM and already happening, so bail
-				res.action = ledge.actions.ABSTAINED
-				return res
+				response.action = ledge.actions.ABSTAINED
+				return response
 			end
 		end
 	end
@@ -355,7 +382,7 @@ end
 
 -- Determines if the response can be stored, based on RFC 2616.
 -- This is probably not complete.
-function ledge.response_is_cacheable(res)
+function ledge.response_is_cacheable(response)
 	local cacheable = true
 	
 	local nocache_headers = {}
@@ -364,7 +391,7 @@ function ledge.response_is_cacheable(res)
 	
 	for k,v in pairs(nocache_headers) do
 		for i,header in ipairs(v) do
-			if (res.header[k] and res.header[k] == header) then
+			if (response.header[k] and response.header[k] == header) then
 				cacheable = false
 				break
 			end
@@ -376,15 +403,15 @@ end
 
 
 -- Work out the valid expiry from the Expires header.
-function ledge.calculate_expiry(res)
-	res.ttl = 0
-	if (ledge.response_is_cacheable(res)) then
-		if res.header['Expires'] then
-			res.ttl = (ngx.parse_http_time(res.header['Expires']) - ngx.time()) + ledge.config.max_stale_age
+function ledge.calculate_expiry(response)
+	response.ttl = 0
+	if (ledge.response_is_cacheable(response)) then
+		if response.header['Expires'] then
+			response.ttl = (ngx.parse_http_time(response.header['Expires']) - ngx.time()) + ledge.config.max_stale_age
 		end
 	end
 	
-	return res.ttl
+	return response.ttl
 end
 
 getmetatable(ledge).__newindex =    function (table, key, val) 
@@ -392,4 +419,3 @@ getmetatable(ledge).__newindex =    function (table, key, val)
                                     end
 
 return ledge
-

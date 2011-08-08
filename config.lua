@@ -33,7 +33,7 @@ return {
 	on_before_send = {
 	    default = function(ledge, response)
 	        return esi_processor.process(ledge, response)
-        end
+	    end
 	},
 	
 	on_after_send = {

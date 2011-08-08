@@ -9,14 +9,8 @@ function ledge_esi_processor.process(ledge, response)
     for i,tag in ipairs(tags) do
         local _, _, src = tag:find('src="(.-)"')
         
-        local uri = {}
-        uri.uri 		= src
-        uri.key 		= 'ledge:'..ngx.md5(src) -- Hash, with .status, and .body
-        uri.header_key	= uri.key..':header'	-- Hash, with header names and values
-        uri.meta_key	= uri.key..':meta'		-- Meta, hash with .cacheable = true|false. Persistent.
-        uri.fetch_key	= uri.key..':fetch'		-- Temp key during an origin request.
-        
-        uris[src] = uri
+        local keys = ledge.create_keys(src)
+        uris[src] = keys
         
         -- Get from cache or origin
         local f_res = ledge.prepare(uris[src])
