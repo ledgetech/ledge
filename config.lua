@@ -30,16 +30,16 @@ return {
 		},
 	},
 	
-	on_before_send = {
+	--[[on_before_send = {
 	    default = function(ledge, response)
-	        return esi_processor.process(ledge, response)
+	        --return esi_processor.process(ledge, response)
 	    end
-	},
+	},]]--
 	
-	on_after_send = {
+	--[[on_after_send = {
 	    default = function(ledge, response)
-	        return preemptive_recache.go(ledge, response)
+	        --return preemptive_recache.go(ledge, response)
 	    end
-	}
+	}]]--
 
 }

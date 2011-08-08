@@ -235,37 +235,33 @@ end
 function ledge.cache.read(keys)
 	-- Fetch from Redis
 	local rep = ledge.redis.query_pipeline({
-		{ 'HMGET', keys.key, 'status', 'body' },	-- Main content
-		{ 'HGETALL', keys.header_key },			-- Headers
-		{ 'TTL', keys.key }						-- TTL
+		{ 'HMGET', keys.key, 'status', 'body', 'header' },
+		{ 'TTL', keys.key }
 	})
 	
-	if (rep ~= false) then
+	if (rep ~= nil) then
 		local b = rep[1]
-		local h = rep[2]
-		local t = tonumber(rep[3])
+		local t = tonumber(rep[2])
 	
-		if t > -1 then -- we got something valid
+		if t > -1 then -- we got something valid and not expired
+		    
+		    -- Unserialize the headers
+			local h = loadstring('return ' .. b[3])
 			
 			-- Reassemble a response object
 			local response = { -- Main parts will be ordered as per the HMGET args
 				status	= b[1],
 				body	= b[2],
-				header	= {},
 				ttl		= t,
+				header = h(),
 			}
-
-			-- Whereas header parts will be a flat list of pairs..
-			for i = 1, #h, 2 do
-				response.header[h[i]] = h[i + 1]
-			end
-            
+			
 			return response
 		else 
 			return nil
 		end
 	else 
-		ngx.log(ngx.ERROR, "Failed to read from Redis")
+		error("Failed to read from Redis")
 		return nil
 	end
 end
@@ -277,28 +273,23 @@ end
 -- @param	response	The HTTP response object to store
 -- @return	boolean
 function ledge.cache.save(keys, response)
-	if (ledge.response_is_cacheable(response)) then	
-		-- Store the response. Header is a foreign key to another hash.
+	if (ledge.response_is_cacheable(response)) then
+	    -- Store the headers serialized
+	    local header_s = ledge.serialize(response.header)
+	    
+		-- Store the response.
 		local q = { 
 			'HMSET', keys.key, 
 			'body', response.body, 
 			'status', response.status,
-			'header', keys.header_key
+			'header', header_s
 		}
-
-		-- Store the headers
-		local header_q = { 'HMSET', keys.header_key } 
-		for k,v in pairs(response.header) do -- Add each k,v as a pair
-			table.insert(header_q, k)
-			table.insert(header_q, v)
-		end
-
+		
 		-- Work out TTL
 		local ttl = ledge.calculate_expiry(response)
 		local expire_q = { 'EXPIRE', keys.key, ttl }
-		local expire_hq = { 'EXPIRE', keys.header_key, ttl }
-
-		local rep = ledge.redis.query_pipeline({ q, header_q, expire_q, expire_hq })
+		
+		local rep = ledge.redis.query_pipeline({ q, expire_q })
 		-- TODO: Check for success
 		
 		return true
@@ -414,6 +405,35 @@ function ledge.calculate_expiry(response)
 	return response.ttl
 end
 
+
+-- Utility to serialize data
+--
+-- @param   mixed   Data to serialize
+-- @return  string
+function ledge.serialize(o)
+    if type(o) == "number" then
+        return o
+    elseif type(o) == "string" then
+        return string.format("%q", o)
+    elseif type(o) == "table" then
+        local t = {}
+        table.insert(t, "{\n")
+        for k,v in pairs(o) do
+            table.insert(t, "  [")
+            table.insert(t, ledge.serialize(k))
+            table.insert(t, "] = ")
+            table.insert(t, ledge.serialize(v))
+            table.insert(t, ",\n")
+        end
+        table.insert(t, "}\n")
+        return table.concat(t)
+    else
+        error("cannot serialize a " .. type(o))
+    end
+end
+
+
+-- Let us know if we're declaring 
 getmetatable(ledge).__newindex =    function (table, key, val) 
                                         error('Attempt to write to undeclared variable "' .. key .. '": ' .. debug.traceback()) 
                                     end
