@@ -3,6 +3,7 @@
 -- This module does all of the heavy lifting. It is loaded once for the first
 -- request. Anything dynamic for your request must be passed to this module (not stored).
 local ledge = {
+    version = '0.1-alpha',
     _mt = {},
     
     _config_file = require("config"),
@@ -124,8 +125,6 @@ end
 -- @param   table   Keys table
 -- @return  table   Response object
 function ledge.prepare(keys)
-    ngx.req.clear_header('Accept-Encoding') -- We don't want anything gzipped
-    
 	local response = ledge.cache.read(keys)
 	if (response) then
 		if (response.ttl - ledge.config.max_stale_age <= 0) then
@@ -160,6 +159,8 @@ function ledge.send(response)
 	for k,v in pairs(response.header) do
 		ngx.header[k] = v
 	end
+	
+	-- Set the X-Ledge headers (these may change)
 	ngx.header['X-Ledge-State'] = ledge.states.tostring(response.state)
 	if response.action then
 		ngx.header['X-Ledge-Action'] = ledge.actions.tostring(response.action)
@@ -167,6 +168,14 @@ function ledge.send(response)
 	if response.ttl then
 		ngx.header['X-Ledge-TTL'] = response.ttl
 		ngx.header['X-Ledge-Max-Stale-Age'] = ledge.config.max_stale_age
+	end
+	
+	-- Via header
+	local via = '1.1 ' .. ngx.var.proxy_name .. ' (Ledge/' ..ledge.version .. ')'
+	if  (response.header['Via'] ~= nil) then
+	    ngx.header['Via'] = via .. ', ' .. response.header['Via']
+	else
+	   ngx.header['Via'] = via
 	end
 	
 	ngx.print(response.body)
