@@ -1,5 +1,8 @@
 local ledge_esi_processor = {}
 
+-- Before we start, we need this; ngx.req.clear_header('Accept-Encoding') -- We don't want anything gzipped
+
+
 function ledge_esi_processor.process(ledge, response)
     -- We can't do ngx.location.capture within a Lua callback, so we must fetch
     -- in advance, and then swap afterwards.

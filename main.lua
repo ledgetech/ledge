@@ -4,7 +4,7 @@ local ledge = require("ledge")
 ledge.process_config()
 
 -- keys is a table of cache keys indentifying this request in redis
-local keys = ledge.create_keys(ngx.var.full_uri)
+local keys = ledge.create_keys(ngx.var.scheme..'://'..ngx.var.host..ngx.var.uri)
 
 -- Prepare fetches from cache, so we're either primed with a full response
 -- to send, or cold with an empty response which must be fetched.

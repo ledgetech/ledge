@@ -154,8 +154,18 @@ function ledge.send(response)
     else
         ngx.log(ngx.NOTICE, "on_before_send event handler is not a function")
     end
-
+    
 	ngx.status = response.status
+	
+    -- Via header
+	local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. ledge.version .. ')'
+	if  (response.header['Via'] ~= nil) then
+	    ngx.header['Via'] = via .. ', ' .. response.header['Via']
+	else
+	   ngx.header['Via'] = via
+	end
+    
+    -- Other headers
 	for k,v in pairs(response.header) do
 		ngx.header[k] = v
 	end
@@ -168,14 +178,6 @@ function ledge.send(response)
 	if response.ttl then
 		ngx.header['X-Ledge-TTL'] = response.ttl
 		ngx.header['X-Ledge-Max-Stale-Age'] = ledge.config.max_stale_age
-	end
-	
-	-- Via header
-	local via = '1.1 ' .. ngx.var.proxy_name .. ' (Ledge/' ..ledge.version .. ')'
-	if  (response.header['Via'] ~= nil) then
-	    ngx.header['Via'] = via .. ', ' .. response.header['Via']
-	else
-	   ngx.header['Via'] = via
 	end
 	
 	ngx.print(response.body)
@@ -379,6 +381,11 @@ function ledge.fetch(keys, response)
 	end
 end
 
+
+function ledge.request_is_cacheable() 
+    --local headers = ngx.req.get_headers()
+
+end
 
 -- Determines if the response can be stored, based on RFC 2616.
 -- This is probably not complete.
