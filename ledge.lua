@@ -40,6 +40,28 @@ local ledge = {
 setmetatable(ledge, ledge._mt)
 
 
+-- Returns the current request method as an ngx.HTTP_{METHOD} constant.
+--
+-- @param   void
+-- @return  const
+function ledge.request_method_constant()
+    local m = ngx.var.request_method
+    if (m == "GET") then
+        return ngx.HTTP_GET
+    elseif (m == "POST") then
+        return ngx.HTTP_POST
+    elseif (m == "HEAD") then
+        return ngx.HTTP_HEAD
+    elseif (m == "PUT") then
+        return ngx.HTTP_PUT
+    elseif (m == "DELETE") then
+        return ngx.HTTP_DELETE
+    else
+        return nil
+    end
+end
+
+
 -- Returns the state name as string (for logging).
 -- One of 'SUBZERO', 'COLD', 'WARM', or 'HOT'.
 --
@@ -125,19 +147,19 @@ end
 -- @param   table   Keys table
 -- @return  table   Response object
 function ledge.prepare(keys)
-	local response = ledge.cache.read(keys)
-	if (response) then
-		if (response.ttl - ledge.config.max_stale_age <= 0) then
-			response.state = ledge.states.WARM
-		else
-			response.state = ledge.states.HOT
-		end
-	else
-		response = { state = ledge.states.SUBZERO }
-	end
-	
-	response.keys = keys
-	return response
+    local response = ledge.cache.read(keys)
+    if (response) then
+        if (response.ttl - ledge.config.max_stale_age <= 0) then
+            response.state = ledge.states.WARM
+        else
+            response.state = ledge.states.HOT
+        end
+    else
+        response = { state = ledge.states.SUBZERO }
+    end
+
+    response.keys = keys
+    return response
 end
 
 
@@ -152,7 +174,7 @@ function ledge.send(response)
     if type(ledge.config.on_before_send) == 'function' then --and response.status < 300 then
         response = ledge.config.on_before_send(ledge, response)
     else
-        ngx.log(ngx.NOTICE, "on_before_send event handler is not a function")
+        --  ngx.log(ngx.NOTICE, "on_before_send event handler is not a function")
     end
     
 	ngx.status = response.status
@@ -271,6 +293,7 @@ function ledge.cache.read(keys)
 		else 
 			return nil
 		end
+
 	else 
 		error("Failed to read from Redis")
 		return nil
@@ -284,7 +307,7 @@ end
 -- @param	response	The HTTP response object to store
 -- @return	boolean
 function ledge.cache.save(keys, response)
-	if (ledge.response_is_cacheable(response)) then
+	if (ngx.var.request_method == "GET") and (ledge.response_is_cacheable(response)) then
 	    -- Store the headers serialized
 	    local header_s = ledge.serialize(response.header)
 	    
@@ -316,7 +339,10 @@ end
 -- @return	table	Response
 function ledge.fetch(keys, response)
 	if (ledge.config.collapse_origin_requests == false) then
-		local origin = ngx.location.capture(ledge.locations.origin .. keys.uri);
+		local origin = ngx.location.capture(ledge.locations.origin .. keys.uri, {
+            method = ledge.request_method_constant(),
+            body = ngx.var.request_body,
+        })
 		ledge.cache.save(keys, origin)
 		
 		response.status = origin.status
@@ -325,7 +351,6 @@ function ledge.fetch(keys, response)
 		response.action = ledge.actions.FETCHED
 		return response
 	else
-	
 		-- Set the fetch key
 		local fetch = ledge.redis.query({ 'SETNX', keys.fetch_key, '1' })
 		-- TODO: Read from config
@@ -411,14 +436,15 @@ end
 
 -- Work out the valid expiry from the Expires header.
 function ledge.calculate_expiry(response)
-	response.ttl = 0
-	if (ledge.response_is_cacheable(response)) then
-		if response.header['Expires'] then
-			response.ttl = (ngx.parse_http_time(response.header['Expires']) - ngx.time()) + ledge.config.max_stale_age
-		end
-	end
-	
-	return response.ttl
+    response.ttl = 0
+    if (ledge.response_is_cacheable(response)) then
+        local ex = response.header['Expires']
+        if ex then
+            response.ttl = (ngx.parse_http_time(ex) - ngx.time()) + ledge.config.max_stale_age
+        end
+    end
+
+    return response.ttl
 end
 
 
