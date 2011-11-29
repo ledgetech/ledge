@@ -31,8 +31,8 @@ elseif (response.state < ledge.states.WARM) then
 	ledge.send(response)
 end
 
-if type(ledge.config.on_after_send) == 'function' then
-    response = ledge.config.on_after_send(ledge, response)
+if type(ngx.ctx.on_after_send) == 'function' then
+    response = ngx.ctx.on_after_send(ledge, response)
 else
     --ngx.log(ngx.NOTICE, "on_after_send event handler is not a function")
 end
