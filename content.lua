@@ -5,15 +5,14 @@ ledge.process_config()
 
 -- keys is a table of cache keys indentifying this request in redis
 local full_uri = ngx.var.scheme..'://'..ngx.var.host
+
 if (ngx.var.request_uri ~= '/') then 
     -- We don't want to accidentally add a trailing slash, so only add the path
     -- if there's something there.
+    -- This is a hack though, see https://github.com/pintsized/ledge/issues/1
     full_uri = full_uri .. ngx.var.request_uri
 end
---ngx.log(ngx.NOTICE, ngx.var.args)
---if (ngx.var.args ~= "") then
---    full_uri = full_uri..'?'..ngx.var.args
---end
+
 local keys = ledge.create_keys(full_uri)
 
 -- Prepare fetches from cache, so we're either primed with a full response
