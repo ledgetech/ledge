@@ -1,7 +1,8 @@
 -- Ledge
 --
 -- This module does all of the heavy lifting. It is loaded once for the first
--- request. Anything dynamic for your request must be passed to this module (not stored).
+-- request. Anything dynamic for your request must be passed to this module (not 
+-- stored).
 local ledge = {
     version = '0.1-alpha',
     _mt = {},
@@ -10,9 +11,7 @@ local ledge = {
 	config = {},
 	cache = {},
 
-	redis = {
-		parser = require("redis.parser"),
-	},
+    redis = require("lib.redis"),
 
 	-- Subrequest locations
 	locations = {
@@ -132,10 +131,10 @@ end
 -- @return  table   Keys table
 function ledge.create_keys(full_uri)
     local keys = {}
-    keys.uri 		= full_uri
-    keys.key 		= 'ledge:'..ngx.md5(full_uri)   -- Hash, with .status, and .body
-    keys.header_key	= keys.key..':header'           -- Hash, with header names and values
-    keys.fetch_key	= keys.key..':fetch'            -- Temp key during collapsed origin request.
+    keys.uri = full_uri
+    keys.key = 'ledge:'..ngx.md5(full_uri)  -- Hash, with .status, and .body.
+    keys.header_key	= keys.key..':header'   -- Hash, with header names and values.
+    keys.fetch_key  = keys.key..':fetch'    -- Temp key during collapsed request.
     return keys
 end
 
@@ -171,10 +170,10 @@ end
 -- @return  void
 function ledge.send(response)
     -- Fire the on_before_send event
-    if type(ledge.config.on_before_send) == 'function' then --and response.status < 300 then
+    if type(ledge.config.on_before_send) == 'function' then
         response = ledge.config.on_before_send(ledge, response)
     else
-        --  ngx.log(ngx.NOTICE, "on_before_send event handler is not a function")
+        ngx.log(ngx.NOTICE, "on_before_send event handler is not a function")
     end
     
 	ngx.status = response.status
@@ -207,58 +206,6 @@ function ledge.send(response)
 end
 
 
--- Runs a single query and returns the parsed response
---
--- e.g. local rep = ledge.redis.query({ 'HGET', 'mykey' })
---
--- @param	table	query expressed as a list of Redis commands
--- @return	mixed	Redis response or false on failure
-function ledge.redis.query(query)
-	local rep = ngx.location.capture(ledge.locations.redis, {
-		method = ngx.HTTP_POST,
-		args = { n = 1 },
-		body = ledge.redis.parser.build_query(query)
-	})
-	
-	if (rep.status == ngx.HTTP_OK) then
-		return ledge.redis.parser.parse_reply(rep.body)
-	else
-		return false
-	end
-end
-
-
--- Runs multiple queries pipelined. This is faster than parallel subrequests
--- it seems.
---
--- e.g. local reps = ledge.redis.query_pipeline({ q1, q2 })
---
--- @param	table	A table of queries, where each query is expressed as a table
--- @return	mixed	A table of parsed replies, or false on failure
-function ledge.redis.query_pipeline(queries)
-	for i,q in ipairs(queries) do
-		queries[i] = ledge.redis.parser.build_query(q)
-	end
-	
-	local rep = ngx.location.capture(ledge.locations.redis, {
-		args = { n = #queries },
-		method = ngx.HTTP_POST,
-		body = table.concat(queries)
-	})
-	
-	local reps = {}
-	
-	if (rep.status == ngx.HTTP_OK) then
-		local results = ledge.redis.parser.parse_replies(rep.body, #queries)
-		for i,v in ipairs(results) do
-			table.insert(reps, v[1]) -- #1 = res, #2 = typ
-		end
-		
-		return reps
-	else
-		return false
-	end
-end
 
 
 -- Reads an item from cache
@@ -267,7 +214,7 @@ end
 -- @return	bool | table	Success/failure | The response table
 function ledge.cache.read(keys)
 	-- Fetch from Redis
-	local rep = ledge.redis.query_pipeline({
+    local rep = ledge.redis.query_pipeline({
 		{ 'HMGET', keys.key, 'status', 'body', 'header' },
 		{ 'TTL', keys.key }
 	})
@@ -280,7 +227,7 @@ function ledge.cache.read(keys)
 		    
 		    -- Unserialize the headers
 			local h = loadstring('return ' .. b[3])
-			
+
 			-- Reassemble a response object
 			local response = { -- Main parts will be ordered as per the HMGET args
 				status	= b[1],
@@ -303,11 +250,13 @@ end
 
 -- Stores an item in cache
 --
--- @param	keys			The URI (cache key)
+-- @param	keys		The URI (cache key)
 -- @param	response	The HTTP response object to store
 -- @return	boolean
 function ledge.cache.save(keys, response)
-	if (ngx.var.request_method == "GET") and (ledge.response_is_cacheable(response)) then
+	if  (ngx.var.request_method == "GET") and 
+        (ledge.response_is_cacheable(response)) then
+
 	    -- Store the headers serialized
 	    local header_s = ledge.serialize(response.header)
 	    
@@ -339,7 +288,7 @@ end
 -- @return	table	Response
 function ledge.fetch(keys, response)
 	if (ledge.config.collapse_origin_requests == false) then
-		local origin = ngx.location.capture(ledge.locations.origin .. keys.uri, {
+		local origin = ngx.location.capture(ledge.locations.origin..keys.uri, {
             method = ledge.request_method_constant(),
             body = ngx.var.request_body,
         })
@@ -355,8 +304,9 @@ function ledge.fetch(keys, response)
 		local fetch = ledge.redis.query({ 'SETNX', keys.fetch_key, '1' })
 		-- TODO: Read from config
 		ledge.redis.query({ 'EXPIRE', keys.fetch_key, '10' })
+
 		if (fetch == 1) then -- Go do the fetch
-			local origin = ngx.location.capture(ledge.locations.origin .. keys.uri);
+			local origin = ngx.location.capture(ledge.locations.origin..keys.uri);
 			ledge.cache.save(keys, origin)
 			
 			-- Remove the fetch and publish to waiting threads
@@ -419,7 +369,12 @@ function ledge.response_is_cacheable(response)
 	
 	local nocache_headers = {}
 	nocache_headers['Pragma'] = { 'no-cache' }
-	nocache_headers['Cache-Control'] = { 'no-cache', 'must-revalidate', 'no-store', 'private' }
+	nocache_headers['Cache-Control'] = { 
+        'no-cache', 
+        'must-revalidate', 
+        'no-store', 
+        'private' 
+    }
 	
 	for k,v in pairs(nocache_headers) do
 		for i,header in ipairs(v) do
@@ -440,7 +395,8 @@ function ledge.calculate_expiry(response)
     if (ledge.response_is_cacheable(response)) then
         local ex = response.header['Expires']
         if ex then
-            response.ttl = (ngx.parse_http_time(ex) - ngx.time()) + ledge.config.max_stale_age
+            response.ttl =  (ngx.parse_http_time(ex) - ngx.time()) 
+                            + ledge.config.max_stale_age
         end
     end
 
@@ -476,8 +432,9 @@ end
 
 
 -- Let us know if we're declaring 
-getmetatable(ledge).__newindex =    function (table, key, val) 
-                                        error('Attempt to write to undeclared variable "' .. key .. '": ' .. debug.traceback()) 
-                                    end
+getmetatable(ledge).__newindex = function(table, key, val) 
+        error(  'Attempt to write to undeclared variable "'..key..'": '
+                ..debug.traceback()) 
+    end
 
 return ledge

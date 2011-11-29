@@ -24,7 +24,7 @@ return {
 	-- Suits slow but cacheable origins. Probably turn this off for 
 	-- URIs which are deifinitely not cacheable.
 	collapse_origin_requests = {
-		default = true,
+		default = false,
 		match_uri = { 
 			{ "^/cart", false },
 		},
