@@ -17,7 +17,6 @@ local ledge = {
 	locations = {
 		origin = "/__ledge/origin",
 		wait_for_origin = "/__ledge/wait_for_origin",
-		redis = "/__ledge/redis"
 	},
 
 	states = {

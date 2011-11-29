@@ -1,4 +1,4 @@
-local ledge = require("ledge")
+local ledge = require("lib.ledge")
 
 -- Read in the config file to determine run level options for this request
 ledge.process_config()
