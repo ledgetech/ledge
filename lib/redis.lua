@@ -47,7 +47,7 @@ function redis.query_pipeline(queries)
 
     if (rep.status == ngx.HTTP_OK) then
         local results = redis.parser.parse_replies(rep.body, #queries)
-        for i,v in ipairs(results) do
+        for _,v in ipairs(results) do
             table.insert(reps, v[1]) -- #1 = res, #2 = typ
         end
 
