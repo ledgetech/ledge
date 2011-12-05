@@ -2,6 +2,7 @@ local redis = {
     parser = require("redis.parser"),
 }
 
+
 -- Runs a single query and returns the parsed response
 --
 -- e.g. local rep = redis.query({ 'HGET', 'mykey' })
@@ -9,7 +10,7 @@ local redis = {
 -- @param	table	query expressed as a list of Redis commands
 -- @return	mixed	Redis response or false on failure
 function redis.query(query)
-    local rep = ngx.location.capture(ngx.var.redis_location, {
+    local rep = ngx.location.capture(ngx.var.loc_redis, {
         method = ngx.HTTP_POST,
         args = { n = 1 },
         body = redis.parser.build_query(query)
@@ -36,7 +37,7 @@ function redis.query_pipeline(queries)
         queries[i] = redis.parser.build_query(q)
     end
 
-    local rep = ngx.location.capture(ngx.var.redis_location, {
+    local rep = ngx.location.capture(ngx.var.loc_redis, {
         args = { n = #queries },
         method = ngx.HTTP_POST,
         body = table.concat(queries)
