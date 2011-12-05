@@ -1,14 +1,9 @@
 -- Ledge
---
--- This module does all of the heavy lifting. It is loaded once for the first
--- request. Anything dynamic for your request must be passed to this module (not 
--- stored).
 local ledge = {
-    version = '0.1-alpha',
-    _mt = {},
+    version = '0.1',
 
     _config_file = require("config"),
-    cache = {},
+    cache = {}, -- Namespace
 
     redis = require("lib.redis"),
 
@@ -31,10 +26,6 @@ local ledge = {
         ABSTAINED	= 3,
     },
 }
-
-
--- Specify the metatable.
-setmetatable(ledge, ledge._mt)
 
 
 -- Returns the current request method as an ngx.HTTP_{METHOD} constant.
@@ -427,10 +418,14 @@ function ledge.serialize(o)
 end
 
 
--- Let us know if we're declaring 
+-- Metatable
+--
+-- To avoid race conditions, we specify a shared metatable and detect any 
+-- attempt to accidentally declare a field in this module from outside.
+setmetatable(ledge, {})
 getmetatable(ledge).__newindex = function(table, key, val) 
-    error(  'Attempt to write to undeclared variable "'..key..'": '
-    ..debug.traceback()) 
+    error('Attempt to write to undeclared variable "'..key..'": '..debug.traceback()) 
 end
+
 
 return ledge

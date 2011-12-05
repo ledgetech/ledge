@@ -57,4 +57,15 @@ function redis.query_pipeline(queries)
     end
 end
 
+
+-- Metatable
+--
+-- To avoid race conditions, we specify a shared metatable and detect any 
+-- attempt to accidentally declare a field in this module from outside.
+setmetatable(redis, {})
+getmetatable(redis).__newindex = function(table, key, val) 
+    error('Attempt to write to undeclared variable "'..key..'": '..debug.traceback()) 
+end
+
+
 return redis
