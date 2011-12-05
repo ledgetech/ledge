@@ -72,22 +72,26 @@ function ledge.actions.tostring(action)
 end
 
 
--- Loads runtime configuration into ngx.ctx
+-- Loads runtime configuration into ngx.ctx.config
 --
 -- The configuration file is only loaded once for the first request. 
 -- This runs any dynamatic pattern matches for the current request.
 --
 -- @return void
 function ledge.process_config()
+    if ngx.ctx.config == nil then 
+        ngx.ctx.config = {} 
+    end
+
     for k,v in pairs(ledge._config_file) do
         -- Grab the default
-        ngx.ctx[k] = ledge._config_file[k].default
+        ngx.ctx.config[k] = ledge._config_file[k].default
 
         -- URI matches
         if ledge._config_file[k].match_uri then
             for i,v in ipairs(ledge._config_file[k].match_uri) do
                 if (ngx.var.uri:find(v[1]) ~= nil) then
-                    ngx.ctx[k] = v[2]
+                    ngx.ctx.config[k] = v[2]
                     break -- We take the first hit
                 end
             end
@@ -99,7 +103,7 @@ function ledge.process_config()
 
             for i,v in ipairs(ledge._config_file[k].match_header) do
                 if (h[v[1]] ~= nil) and (h[v[1]]:find(v[2]) ~= nil) then
-                    ngx.ctx[k] = v[3]
+                    ngx.ctx.config[k] = v[3]
                     break
                 end
             end
@@ -131,7 +135,7 @@ end
 function ledge.prepare(keys)
     local response = ledge.cache.read(keys)
     if (response) then
-        if (response.ttl - ngx.ctx.max_stale_age <= 0) then
+        if (response.ttl - ngx.ctx.config.max_stale_age <= 0) then
             response.state = ledge.states.WARM
         else
             response.state = ledge.states.HOT
@@ -153,8 +157,8 @@ end
 -- @return  void
 function ledge.send(response)
     -- Fire the on_before_send event
-    if type(ngx.ctx.on_before_send) == 'function' then
-        response = ngx.ctx.on_before_send(ledge, response)
+    if type(ngx.ctx.config.on_before_send) == 'function' then
+        response = ngx.ctx.config.on_before_send(ledge, response)
     else
         --ngx.log(ngx.NOTICE, "on_before_send event handler is not a function")
     end
@@ -181,7 +185,7 @@ function ledge.send(response)
     end
     if response.ttl then
         ngx.header['X-Ledge-TTL'] = response.ttl
-        ngx.header['X-Ledge-Max-Stale-Age'] = ngx.ctx.max_stale_age
+        ngx.header['X-Ledge-Max-Stale-Age'] = ngx.ctx.config.max_stale_age
     end
 
     ngx.print(response.body)
@@ -269,7 +273,7 @@ end
 -- @param	table	The URI table
 -- @return	table	Response
 function ledge.fetch(keys, response)
-    if (ngx.ctx.collapse_origin_requests == false) then
+    if (ngx.ctx.config.collapse_origin_requests == false) then
         local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri, {
             method = ledge.request_method_constant(),
             body = ngx.var.request_body,
@@ -378,7 +382,7 @@ function ledge.calculate_expiry(response)
         local ex = response.header['Expires']
         if ex then
             response.ttl =  (ngx.parse_http_time(ex) - ngx.time()) 
-            + ngx.ctx.max_stale_age
+            + ngx.ctx.config.max_stale_age
         end
     end
 
