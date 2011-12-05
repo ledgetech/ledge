@@ -7,12 +7,6 @@ local ledge = {
 
     redis = require("lib.redis"),
 
-    -- Subrequest locations
-    locations = {
-        origin = "/__ledge/origin",
-        wait_for_origin = "/__ledge/wait_for_origin",
-    },
-
     states = {
         SUBZERO		= 1,
         COLD		= 2,
@@ -216,22 +210,23 @@ function ledge.cache.read(keys)
             local h = loadstring('return ' .. b[3])
 
             -- Reassemble a response object
-            local response = { -- Main parts will be ordered as per the HMGET args
-            status	= b[1],
-            body	= b[2],
-            ttl		= t,
-            header = h(),
-        }
+            local response = { 
+                -- Main parts will be ordered as per the HMGET args
+                status	= b[1],
+                body	= b[2],
+                ttl		= t,
+                header = h(),
+            }
 
-        return response
+            return response
+        else 
+            return nil
+        end
+
     else 
+        error("Failed to read from Redis")
         return nil
     end
-
-else 
-    error("Failed to read from Redis")
-    return nil
-end
 end
 
 
@@ -275,7 +270,7 @@ end
 -- @return	table	Response
 function ledge.fetch(keys, response)
     if (ngx.ctx.collapse_origin_requests == false) then
-        local origin = ngx.location.capture(ledge.locations.origin..keys.uri, {
+        local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri, {
             method = ledge.request_method_constant(),
             body = ngx.var.request_body,
         })
@@ -293,7 +288,7 @@ function ledge.fetch(keys, response)
         ledge.redis.query({ 'EXPIRE', keys.fetch_key, '10' })
 
         if (fetch == 1) then -- Go do the fetch
-            local origin = ngx.location.capture(ledge.locations.origin..keys.uri);
+            local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri);
             ledge.cache.save(keys, origin)
 
             -- Remove the fetch and publish to waiting threads
@@ -309,7 +304,7 @@ function ledge.fetch(keys, response)
             -- This fetch is already happening 
             if (response.state < ledge.states.WARM) then
                 -- Go to the collapser proxy
-                local rep = ngx.location.capture(ledge.locations.wait_for_origin, {
+                local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
                     args = { channel = keys.key }
                 });
 
