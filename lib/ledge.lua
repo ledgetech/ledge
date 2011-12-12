@@ -274,7 +274,11 @@ end
 -- @return	table	Response
 function ledge.fetch(keys, response)
     if (ngx.ctx.config.collapse_origin_requests == false) then
-        local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri, {
+        local uri = ngx.var.uri
+        if ngx.var.args ~= nil then
+            uri = uri .. '?' .. ngx.var.args
+        end
+        local origin = ngx.location.capture(ngx.var.loc_origin..uri, {
             method = ledge.request_method_constant(),
             body = ngx.var.request_body,
         })

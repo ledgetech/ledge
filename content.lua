@@ -3,17 +3,7 @@ local ledge = require("lib.ledge")
 -- Read in the config file to determine run level options for this request
 ledge.process_config()
 
--- keys is a table of cache keys indentifying this request in redis
-local full_uri = ngx.var.scheme..'://'..ngx.var.host
-
-if (ngx.var.request_uri ~= '/') then 
-    -- We don't want to accidentally add a trailing slash, so only add the path
-    -- if there's something there.
-    -- This is a hack though, see https://github.com/pintsized/ledge/issues/1
-    full_uri = full_uri .. ngx.var.request_uri
-end
-
-local keys = ledge.create_keys(full_uri)
+local keys = ledge.create_keys(ngx.var.full_uri)
 
 -- Prepare fetches from cache, so we're either primed with a full response
 -- to send, or cold with an empty response which must be fetched.
