@@ -22,6 +22,31 @@ local ledge = {
 }
 
 
+function ledge.main()
+    -- Read in the config file to determine run level options for this request
+    ledge.process_config()
+    ledge.create_keys()
+
+    -- Prepare fetches from cache, so we're either primed with a full response
+    -- to send, or cold with an empty response which must be fetched.
+    ledge.prepare()
+
+    local response = ngx.ctx.response
+
+    -- Send and/or fetch, depending on the state
+    if (response.state == ledge.states.HOT) then
+        ledge.send()
+    elseif (response.state == ledge.states.WARM) then
+        ledge.send()
+        ledge.fetch()
+    elseif (response.state < ledge.states.WARM) then
+        ngx.ctx.response = ledge.fetch()
+        ledge.send()
+    end
+end
+
+
+
 -- Returns the current request method as an ngx.HTTP_{METHOD} constant.
 --
 -- @param   void
@@ -116,13 +141,13 @@ end
 --
 -- @param   string  Full URI
 -- @return  table   Keys table
-function ledge.create_keys(full_uri)
+function ledge.create_keys()
     local keys = {}
-    keys.uri = full_uri
-    keys.key = 'ledge:'..ngx.md5(full_uri)  -- Hash, with .status, and .body.
+    keys.uri = ngx.var.full_uri
+    keys.key = 'ledge:'..ngx.md5(keys.uri)  -- Hash, with .status, and .body.
     keys.header_key	= keys.key..':header'   -- Hash, with header names and values.
     keys.fetch_key  = keys.key..':fetch'    -- Temp key during collapsed request.
-    return keys
+    ngx.ctx.keys = keys
 end
 
 
@@ -132,8 +157,8 @@ end
 -- 
 -- @param   table   Keys table
 -- @return  table   Response object
-function ledge.prepare(keys)
-    local response = ledge.cache.read(keys)
+function ledge.prepare()
+    local response = ledge.cache.read(ngx.ctx.keys)
     if (response) then
         if (response.ttl - ngx.ctx.config.max_stale_age <= 0) then
             response.state = ledge.states.WARM
@@ -144,8 +169,8 @@ function ledge.prepare(keys)
         response = { state = ledge.states.SUBZERO }
     end
 
-    response.keys = keys
-    return response
+    response.keys = ngx.ctx.keys
+    ngx.ctx.response = response
 end
 
 
@@ -155,7 +180,9 @@ end
 --
 -- @param   table   Response object
 -- @return  void
-function ledge.send(response)
+function ledge.send()
+    local response = ngx.ctx.response
+
     -- Fire the on_before_send event
     if type(ngx.ctx.config.on_before_send) == 'function' then
         response = ngx.ctx.config.on_before_send(ledge, response)
@@ -197,7 +224,9 @@ end
 --
 -- @param	string			The URI (cache key)
 -- @return	bool | table	Success/failure | The response table
-function ledge.cache.read(keys)
+function ledge.cache.read()
+    local keys = ngx.ctx.keys
+
     -- Fetch from Redis
     local rep = ledge.redis.query_pipeline({
         { 'HMGET', keys.key, 'status', 'body', 'header' },
@@ -239,7 +268,9 @@ end
 -- @param	keys		The URI (cache key)
 -- @param	response	The HTTP response object to store
 -- @return	boolean
-function ledge.cache.save(keys, response)
+function ledge.cache.save(response)
+    local keys = ngx.ctx.keys
+
     if  (ngx.var.request_method == "GET") and 
         (ledge.response_is_cacheable(response)) then
 
@@ -272,7 +303,9 @@ end
 --
 -- @param	table	The URI table
 -- @return	table	Response
-function ledge.fetch(keys, response)
+function ledge.fetch()
+    local keys = ngx.ctx.keys
+    local response = ngx.ctx.response
     if (ngx.ctx.config.collapse_origin_requests == false) then
         local uri = ngx.var.uri
         if ngx.var.args ~= nil then
@@ -282,7 +315,7 @@ function ledge.fetch(keys, response)
             method = ledge.request_method_constant(),
             body = ngx.var.request_body,
         })
-        ledge.cache.save(keys, origin)
+        ledge.cache.save(origin)
 
         response.status = origin.status
         response.body = origin.body
@@ -297,7 +330,7 @@ function ledge.fetch(keys, response)
 
         if (fetch == 1) then -- Go do the fetch
             local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri);
-            ledge.cache.save(keys, origin)
+            ledge.cache.save(origin)
 
             -- Remove the fetch and publish to waiting threads
             ledge.redis.query({ 'DEL', keys.fetch_key })
