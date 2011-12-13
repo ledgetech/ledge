@@ -1,6 +1,6 @@
 # Ledge (Lua - Edge)
 
-A attempt at edge proxying and caching logic in Lua. Relies on [nginx](http://nginx.net), the [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as [Redis](http://redis.io) as an upstream server to act as a cache backend.
+An attempt at edge proxying and caching logic in Lua. Relies on [nginx](http://nginx.net), the [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as [Redis](http://redis.io) as an upstream server to act as a cache backend.
 
 ### Authors
 
@@ -57,10 +57,9 @@ Also at the http level:
 
     server {
         listen       80;
-        server_name  jhurst-dev01.squiz.co.uk; 
+        server_name  {YOUR_SERVER_NAME}; 
         access_log  logs/access.log  main;
 		
-    	# By default, we hit the Squiz Edge Lua code
     	location / {
 			lua_need_request_body on;
             # Ledge needs $scheme, but this is empty unless evaluated in the config.
@@ -72,9 +71,9 @@ Also at the http level:
             set $loc_wait_for_origin '/__ledge/wait_for_origin';
 
             # Auth stage
-            # access_by_lua_file '/home/jhurst/prj/squiz_edge/ledge/auth.lua';
+            # access_by_lua_file '/home/me/ledge/auth.lua';
             # Content stage
-            content_by_lua_file '/home/jhurst/prj/squiz_edge/ledge/content.lua';
+            content_by_lua_file '/home/me/ledge/content.lua';
     	}
 
 
