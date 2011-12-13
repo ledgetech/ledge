@@ -1,46 +1,24 @@
 # Ledge (Lua - Edge)
 
-A Lua implementation of edge proxying and caching. Relies on [nginx](http://nginx.net), the [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as [Redis](http://redis.io) as an upstream server to act as a cache backend.
+A attempt at edge proxying and caching logic in Lua. Relies on [nginx](http://nginx.net), the [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as [Redis](http://redis.io) as an upstream server to act as a cache backend.
 
 ### Authors
 
-* James Hurst <james@pintsized.co.uk>
+* James Hurst <jhurst@squiz.co.uk>
 
 ## Status
 
-Experimental prototype. Not at all ready for production, but ideas welcome.
-
-### Working
-
-* Proxying to upstream server
-* Cache storage in Redis
-* Serving stale content
-* Collapse forwarding
-
-### TODO
-
-* Determine cache policy from headers
-* Prove stability / bench
-* Start adding modularised cool stuff
-	* ESI
-	* Auth patterns / sessions?
-	* ...
+Experimental prototype. Not at all ready for production, currently still proving out the technology. But ideas welcome.
 
 ## Installation
 
-This is not exhaustive.. you're on the bleeding (l)edge here. Getting all the tools to work took me longer than writing the code.  
+This is not exhaustive.. you're on the bleeding (l)edge here.
 
 ### ngx_openresty
 
 Follow the instructions here: http://github.com/agentzh/ngx_openresty
 
-Requires the following modules (which are built by default)
-
-* ngx_lua
-* echo-nginx-module
-* redis2-nginx-module
-
-And for better performance, compile --with-luajit
+For (even) better performance, compile --with-luajit
 
 You'll also need the redis parser: https://github.com/agentzh/lua-redis-parser
 
@@ -57,74 +35,90 @@ This is configured at the 'http' level of the nginx conf, not per server, and mu
 	# Ledge, followed by default (;;)
 	lua_package_path '/home/me/ledge/?.lua;;';
 
-#### Redis upstream
+#### Upstream servers
 
 Also at the http level:
 
-	# keepalive connection pool to a single redis running on localhost
-	upstream redis {   
+    # Upstream servers   
+    upstream origin {
+        server {YOUR_ORIGIN_IP}:80;  
+    }
+
+    upstream redis {   
+        server localhost:6379;
+        keepalive 1024 single;
+    } 
+
+	upstream redis_subscribe {
 		server localhost:6379;
-		
-    	# a pool with at most 1024 connections
-    	# and do not distinguish the servers:
-		keepalive 1024 single;
 	}
 	
 #### Example server configuration
 
-	server {
-	    listen       80;
-	    server_name  myserver;
-	    #lua_code_cache off;
+    server {
+        listen       80;
+        server_name  jhurst-dev01.squiz.co.uk; 
+        access_log  logs/access.log  main;
 		
-	    #charset koi8-r;
-	    #access_log  logs/host.access.log  main;
+    	# By default, we hit the Squiz Edge Lua code
+    	location / {
+			lua_need_request_body on;
+            # Ledge needs $scheme, but this is empty unless evaluated in the config.
+            # So for convenience, we define $full_uri for use in Lua.
+			set $full_uri $scheme://$host$uri$is_args$args;
+            # Nginx locations for Ledge to do I/O. 
+            set $loc_redis '/__ledge/redis';
+            set $loc_origin '/__ledge/origin';
+            set $loc_wait_for_origin '/__ledge/wait_for_origin';
+
+            # Auth stage
+            # access_by_lua_file '/home/jhurst/prj/squiz_edge/ledge/auth.lua';
+            # Content stage
+            content_by_lua_file '/home/jhurst/prj/squiz_edge/ledge/content.lua';
+    	}
+
+
+        ### Internal (reserved) locations ###
+
+    	# Proxy to origin server
+    	location /__ledge/origin {
+    		internal;
+    		rewrite ^/__ledge/origin(.*)$ $1 break;
+    		proxy_set_header X-Real-IP  $remote_addr;
+    		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    		proxy_set_header Host $host;
+			proxy_read_timeout 10s;
+            proxy_redirect off;
+			proxy_pass http://origin;
+	    }   
 		
-		# By default, we hit the lua code
-		location / {
-	        set $full_uri $scheme://$host$request_uri;
-			
-			# Wherever you install ledge
-			content_by_lua_file '/home/me/ledge/main.lua';
-		}
-		
-		# Proxy to origin server
-		location /__ledge/origin {
-			internal;
-			rewrite ^/__ledge/origin(.*)$ $1 break;
-			proxy_set_header X-Real-IP  $remote_addr;
-			proxy_set_header X-Forwarded-For $remote_addr;
-			proxy_set_header Host $host;
-			
-			proxy_pass http://127.0.0.1:8081;
-		}
-		
-		# For SUBSCRIBING to messages from Redis (collapse forwarding)
 		location /__ledge/wait_for_origin {
-          	internal;
-          	set_unescape_uri $channel $arg_channel;
-        	redis2_raw_queries 2 "SUBSCRIBE $channel\r\n"
-			
-       		redis2_connect_timeout 200ms;
-       		redis2_send_timeout 200ms;
-           	redis2_read_timeout 60s;
-      		redis2_pass redis_subscribe;
+			internal;
+	    	set_unescape_uri $channel $arg_channel;
+       		redis2_raw_queries 2 "SUBSCRIBE $channel\r\n";
+
+    		redis2_connect_timeout 200ms;
+    		redis2_send_timeout 200ms;
+    		redis2_read_timeout 60s;
+       		redis2_pass redis_subscribe;
 		}
-		
-	    # Redis
-	    # Accepts raw queries as POST body.
-		# Expects the arg 'n' for the query count
-	    location /__ledge/redis {
-	        internal;
-	        default_type text/plain;
+
+
+        # Redis
+        # Accepts a raw query as the "query" arg or POST body. Sending
+        # both will cause unpredictable behaviour.
+        location /__ledge/redis {
+            internal;
+            default_type text/plain;
 	    	set_unescape_uri $n $arg_n;
-	        echo_read_request_body;
-	
-	        redis2_raw_queries $n $echo_request_body;
-	
-			redis2_connect_timeout 200ms;
-			redis2_send_timeout 200ms;
-			redis2_read_timeout 200ms;
-			redis2_pass redis;
-	    }
+            echo_read_request_body;
+
+            redis2_raw_queries $n $echo_request_body;
+
+    		redis2_connect_timeout 200ms;
+    		redis2_send_timeout 200ms;
+    		redis2_read_timeout 200ms;
+    		redis2_pass redis;
+        }
+    }
 
