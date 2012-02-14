@@ -1,11 +1,10 @@
--- Ledge
+local redis = require("lib.redis")
+
 local ledge = {
     version = '0.1',
 
     _config_file = require("config"),
     cache = {}, -- Namespace
-
-    redis = require("lib.redis"),
 
     states = {
         SUBZERO		= 1,
@@ -221,32 +220,32 @@ end
 -- @param	string			The URI (cache key)
 -- @return	bool | table	Success/failure | The response table
 function ledge.cache.read()
-    local keys = ngx.ctx.keys
+    local ctx = ngx.ctx
 
     -- Fetch from Redis
-    local reply = assert(ledge.redis.query_pipeline({
-        { 'HMGET', keys.key, 'status', 'body', 'header' },
-        { 'TTL', keys.key }
+    local reply = assert(redis.query_pipeline({
+        { 'HMGET', ctx.keys.key, 'status', 'body', 'header' },
+        { 'TTL', ctx.keys.key }
     }), "Failed to read from Redis")
 
     local obj = {}
     
     -- A positive TTL tells us if there's anything valid
-    obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. keys.key)
+    obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. ctx.keys.key)
     if obj.ttl < 0 then
         return nil, ledge.states.SUBZERO  -- Cache miss
     end
 
     -- Bail if the cache entry looks bad in any way
-    obj.status  = assert(reply[1][1], "No status found for " .. keys.key)
-    obj.body    = assert(reply[1][2], "No body found for " .. keys.key)
-    obj.header  = assert(reply[1][3], "No headers found for " .. keys.key)
+    obj.status  = assert(reply[1][1], "No status found for " .. ctx.keys.key)
+    obj.body    = assert(reply[1][2], "No body found for " .. ctx.keys.key)
+    obj.header  = assert(reply[1][3], "No headers found for " .. ctx.keys.key)
     obj.header  = assert(loadstring('return ' .. obj.header)(), 
-                    "Count not unserialize headers for " .. keys.key)
+                    "Count not unserialize headers for " .. ctx.keys.key)
 
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
-    if obj.ttl - ngx.ctx.config.max_stale_age <= 0 then
+    if obj.ttl - ctx.config.max_stale_age <= 0 then
         return obj, ledge.states.WARM
     else
         return obj, ledge.states.HOT
@@ -279,7 +278,7 @@ function ledge.cache.save(response)
         local ttl = ledge.calculate_expiry(response)
         local expire_q = { 'EXPIRE', keys.key, ttl }
 
-        local rep = ledge.redis.query_pipeline({ q, expire_q })
+        local rep = redis.query_pipeline({ q, expire_q })
         -- TODO: Check for success
 
         return true
@@ -314,17 +313,17 @@ function ledge.fetch()
         return response
     else
         -- Set the fetch key
-        local fetch = ledge.redis.query({ 'SETNX', keys.fetch_key, '1' })
+        local fetch = redis.query({ 'SETNX', keys.fetch_key, '1' })
         -- TODO: Read from config
-        ledge.redis.query({ 'EXPIRE', keys.fetch_key, '10' })
+        redis.query({ 'EXPIRE', keys.fetch_key, '10' })
 
         if (fetch == 1) then -- Go do the fetch
             local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri);
             ledge.cache.save(origin)
 
             -- Remove the fetch and publish to waiting threads
-            ledge.redis.query({ 'DEL', keys.fetch_key })
-            ledge.redis.query({ 'PUBLISH', keys.key, 'finished' })
+            redis.query({ 'DEL', keys.fetch_key })
+            redis.query({ 'PUBLISH', keys.key, 'finished' })
 
             response.status = origin.status
             response.body = origin.body
@@ -340,7 +339,7 @@ function ledge.fetch()
                 });
 
                 if (rep.status == ngx.HTTP_OK) then				
-                    local results = ledge.redis.parser.parse_replies(rep.body, 2)
+                    local results = redis.parser.parse_replies(rep.body, 2)
                     local messages = results[2][1] -- Second reply, body
 
                     for k,v in pairs(messages) do
