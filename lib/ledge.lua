@@ -217,8 +217,8 @@ end
 
 -- Reads an item from cache
 --
--- @param	string			The URI (cache key)
--- @return	bool | table	Success/failure | The response table
+-- @param	string              The URI (cache key)
+-- @return	table|nil, state    The response table or nil, the cache state
 function ledge.cache.read()
     local ctx = ngx.ctx
 
@@ -226,9 +226,9 @@ function ledge.cache.read()
     local reply = assert(redis.query_pipeline({
         { 'HMGET', ctx.keys.key, 'status', 'body', 'header' },
         { 'TTL', ctx.keys.key }
-    }), "Failed to read from Redis")
+    }), "Failed to query Redis")
 
-    local obj = {}
+    local obj = {} -- Our cache object
     
     -- A positive TTL tells us if there's anything valid
     obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. ctx.keys.key)
@@ -255,36 +255,30 @@ end
 
 -- Stores an item in cache
 --
--- @param	response	The HTTP response object to store
--- @return	boolean
+-- @param	response	            The HTTP response object to store
+-- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
 function ledge.cache.save(response)
-    local keys = ngx.ctx.keys
+    local ctx = ngx.ctx
 
-    if  (ngx.var.request_method == "GET") and 
-        (ledge.response_is_cacheable(response)) then
-
-        -- Store the headers serialized
-        local header_s = ledge.serialize(response.header)
-
-        -- Store the response.
-        local q = { 
-            'HMSET', keys.key, 
-            'body', response.body, 
-            'status', response.status,
-            'header', header_s
-        }
-
-        -- Work out TTL
-        local ttl = ledge.calculate_expiry(response)
-        local expire_q = { 'EXPIRE', keys.key, ttl }
-
-        local rep = redis.query_pipeline({ q, expire_q })
-        -- TODO: Check for success
-
-        return true
-    else
-        return nil
+    if not ngx.var.request_method == "GET" or not ledge.response_is_cacheable(response) then
+        return false -- Not cacheable, but no error
     end
+
+    -- Our SET query
+    local q = { 
+        'HMSET', ctx.keys.key, 
+        'body', response.body, 
+        'status', response.status,
+        'header', ledge.serialize(response.header)
+    }
+
+    -- Our EXPIRE query
+    local expire_q = { 'EXPIRE', ctx.keys.key, ledge.calculate_expiry(response) }
+
+    -- Run the queries
+    local reply = assert(redis.query_pipeline({ q, expire_q }), "Failed to query Redis")
+
+    return reply.status == ngx.HTTP_OK or nil, reply.status
 end
 
 
