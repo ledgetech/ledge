@@ -27,24 +27,28 @@ function ledge.main()
     ledge.process_config()
     ledge.create_keys()
 
-    -- Prepare fetches from cache, so we're either primed with a full response
-    -- to send, or cold with an empty response which must be fetched.
-    ledge.prepare()
+    if ledge.request_is_cacheable() then
+        -- Prepare fetches from cache, so we're either primed with a full response
+        -- to send, or cold with an empty response which must be fetched.
+        ledge.prepare()
 
-    local response = ngx.ctx.response
-
-    -- Send and/or fetch, depending on the state
-    if (response.state == ledge.states.HOT) then
-        ledge.send()
-    elseif (response.state == ledge.states.WARM) then
-        ledge.send()
-        ledge.fetch()
-    elseif (response.state < ledge.states.WARM) then
+        local response = ngx.ctx.response
+        -- Send and/or fetch, depending on the state
+        if (response.state == ledge.states.HOT) then
+            ledge.send()
+        elseif (response.state == ledge.states.WARM) then
+            ledge.send()
+            ledge.fetch()
+        elseif (response.state < ledge.states.WARM) then
+            ngx.ctx.response = ledge.fetch()
+            ledge.send()
+        end
+    else 
+        ngx.ctx.response = { state = ledge.states.SUBZERO }
         ngx.ctx.response = ledge.fetch()
         ledge.send()
     end
 end
-
 
 
 -- Returns the current request method as an ngx.HTTP_{METHOD} constant.
@@ -265,7 +269,6 @@ end
 
 -- Stores an item in cache
 --
--- @param	keys		The URI (cache key)
 -- @param	response	The HTTP response object to store
 -- @return	boolean
 function ledge.cache.save(response)
@@ -381,9 +384,13 @@ end
 
 
 function ledge.request_is_cacheable() 
-    --local headers = ngx.req.get_headers()
-
+    local headers = ngx.req.get_headers()
+    if headers['Cache-Control'] == 'no-cache' or headers['Pragma'] == 'no-cache' then
+        return false
+    end
+    return true
 end
+
 
 -- Determines if the response can be stored, based on RFC 2616.
 -- This is probably not complete.
