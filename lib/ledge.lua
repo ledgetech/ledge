@@ -162,17 +162,9 @@ end
 -- @param   table   Keys table
 -- @return  table   Response object
 function ledge.prepare()
-    local response = ledge.cache.read(ngx.ctx.keys)
-    if (response) then
-        if (response.ttl - ngx.ctx.config.max_stale_age <= 0) then
-            response.state = ledge.states.WARM
-        else
-            response.state = ledge.states.HOT
-        end
-    else
-        response = { state = ledge.states.SUBZERO }
-    end
-
+    local response, state = ledge.cache.read(ngx.ctx.keys)
+    if not response then response = {} end -- Cache miss
+    response.state = state
     response.keys = ngx.ctx.keys
     ngx.ctx.response = response
 end
@@ -232,37 +224,32 @@ function ledge.cache.read()
     local keys = ngx.ctx.keys
 
     -- Fetch from Redis
-    local rep = ledge.redis.query_pipeline({
+    local reply = assert(ledge.redis.query_pipeline({
         { 'HMGET', keys.key, 'status', 'body', 'header' },
         { 'TTL', keys.key }
-    })
+    }), "Failed to read from Redis")
 
-    if (rep ~= nil) then
-        local b = rep[1]
-        local t = tonumber(rep[2])
+    local obj = {}
+    
+    -- A positive TTL tells us if there's anything valid
+    obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. keys.key)
+    if obj.ttl < 0 then
+        return nil, ledge.states.SUBZERO  -- Cache miss
+    end
 
-        if t > -1 then -- we got something valid and not expired
+    -- Bail if the cache entry looks bad in any way
+    obj.status  = assert(reply[1][1], "No status found for " .. keys.key)
+    obj.body    = assert(reply[1][2], "No body found for " .. keys.key)
+    obj.header  = assert(reply[1][3], "No headers found for " .. keys.key)
+    obj.header  = assert(loadstring('return ' .. obj.header)(), 
+                    "Count not unserialize headers for " .. keys.key)
 
-            -- Unserialize the headers
-            local h = loadstring('return ' .. b[3])
-
-            -- Reassemble a response object
-            local response = { 
-                -- Main parts will be ordered as per the HMGET args
-                status	= b[1],
-                body	= b[2],
-                ttl		= t,
-                header = h(),
-            }
-
-            return response
-        else 
-            return nil
-        end
-
-    else 
-        error("Failed to read from Redis")
-        return nil
+    -- Determine freshness from config.
+    -- TODO: Perhaps we should be storing stale policies rather than asking config?
+    if obj.ttl - ngx.ctx.config.max_stale_age <= 0 then
+        return obj, ledge.states.WARM
+    else
+        return obj, ledge.states.HOT
     end
 end
 

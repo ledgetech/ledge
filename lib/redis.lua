@@ -10,16 +10,16 @@ local redis = {
 -- @param	table	query expressed as a list of Redis commands
 -- @return	mixed	Redis response or false on failure
 function redis.query(query)
-    local rep = ngx.location.capture(ngx.var.loc_redis, {
+    local res = ngx.location.capture(ngx.var.loc_redis, {
         method = ngx.HTTP_POST,
         args = { n = 1 },
         body = redis.parser.build_query(query)
     })
 
-    if (rep.status == ngx.HTTP_OK) then
+    if (res.status == ngx.HTTP_OK) then
         return redis.parser.parse_reply(rep.body)
     else
-        return false
+        return nil, res.status
     end
 end
 
@@ -35,23 +35,22 @@ function redis.query_pipeline(queries)
         queries[i] = redis.parser.build_query(q)
     end
 
-    local rep = ngx.location.capture(ngx.var.loc_redis, {
+    local res = ngx.location.capture(ngx.var.loc_redis, {
         args = { n = #queries },
         method = ngx.HTTP_POST,
         body = table.concat(queries)
     })
 
-    local reps = {}
-
-    if (rep.status == ngx.HTTP_OK) then
-        local results = redis.parser.parse_replies(rep.body, #queries)
+    if (res.status == ngx.HTTP_OK) then
+        local reps = {}
+        local results = redis.parser.parse_replies(res.body, #queries)
         for _,v in ipairs(results) do
             table.insert(reps, v[1]) -- #1 = res, #2 = typ
         end
 
         return reps
     else
-        return false
+        return nil, res.status
     end
 end
 
