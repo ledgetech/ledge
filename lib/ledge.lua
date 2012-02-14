@@ -277,8 +277,7 @@ function ledge.cache.save(response)
 
     -- Run the queries
     local reply = assert(redis.query_pipeline({ q, expire_q }), "Failed to query Redis")
-
-    return reply.status == ngx.HTTP_OK or nil, reply.status
+    return assert(reply[1] == "OK" and reply[2] == 1)
 end
 
 
@@ -289,16 +288,53 @@ end
 function ledge.fetch()
     local keys = ngx.ctx.keys
     local response = ngx.ctx.response
-    if (ngx.ctx.config.collapse_origin_requests == false) then
-        local uri = ngx.var.uri
-        if ngx.var.args ~= nil then
-            uri = uri .. '?' .. ngx.var.args
+
+    local ctx =  ngx.ctx
+
+    if not ctx.config.collapse_origin_requests then
+        -- We can do a straight foward fetch-and-store
+
+        local var = ngx.var
+        local uri = var.uri
+        -- We need to use a relative 
+        if var.args then
+            uri = uri .. '?' .. var.args
         end
-        local origin = ngx.location.capture(ngx.var.loc_origin..uri, {
+
+        -- Fetch
+        local origin = ngx.location.capture(var.loc_origin..uri, {
             method = ledge.request_method_constant(),
-            body = ngx.var.request_body,
+            body = var.request_body,
         })
+
+        -- Could not proxy for some reason
+        if not origin.status == ngx.HTTP_OK then
+            return nil, origin.status
+        end
+
+        -- Save
+        assert(ledge.cache.save(origin), "Could not save fetched object")
+
+        ctx.response.status = origin.status
+        ctx.response.header = origin.header
+        ctx.response.body = origin.body
+        ctx.response.action  = ledge.actions.FETCHED
+        return ctx.response
+    end
+
+
+    -- Set the fetch key
+    local fetch = redis.query({ 'SETNX', keys.fetch_key, '1' })
+    -- TODO: Read from config
+    redis.query({ 'EXPIRE', keys.fetch_key, '10' })
+
+    if (fetch == 1) then -- Go do the fetch
+        local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri);
         ledge.cache.save(origin)
+
+        -- Remove the fetch and publish to waiting threads
+        redis.query({ 'DEL', keys.fetch_key })
+        redis.query({ 'PUBLISH', keys.key, 'finished' })
 
         response.status = origin.status
         response.body = origin.body
@@ -306,58 +342,38 @@ function ledge.fetch()
         response.action = ledge.actions.FETCHED
         return response
     else
-        -- Set the fetch key
-        local fetch = redis.query({ 'SETNX', keys.fetch_key, '1' })
-        -- TODO: Read from config
-        redis.query({ 'EXPIRE', keys.fetch_key, '10' })
+        -- This fetch is already happening 
+        if (response.state < ledge.states.WARM) then
+            -- Go to the collapser proxy
+            local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
+                args = { channel = keys.key }
+            });
 
-        if (fetch == 1) then -- Go do the fetch
-            local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri);
-            ledge.cache.save(origin)
+            if (rep.status == ngx.HTTP_OK) then				
+                local results = redis.parser.parse_replies(rep.body, 2)
+                local messages = results[2][1] -- Second reply, body
 
-            -- Remove the fetch and publish to waiting threads
-            redis.query({ 'DEL', keys.fetch_key })
-            redis.query({ 'PUBLISH', keys.key, 'finished' })
+                for k,v in pairs(messages) do
+                    if (v == 'finished') then
 
-            response.status = origin.status
-            response.body = origin.body
-            response.header = origin.header
-            response.action = ledge.actions.FETCHED
-            return response
-        else
-            -- This fetch is already happening 
-            if (response.state < ledge.states.WARM) then
-                -- Go to the collapser proxy
-                local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
-                    args = { channel = keys.key }
-                });
+                        ngx.log(ngx.NOTICE, "FINISHED WAITING")
 
-                if (rep.status == ngx.HTTP_OK) then				
-                    local results = redis.parser.parse_replies(rep.body, 2)
-                    local messages = results[2][1] -- Second reply, body
+                        -- Go get from redis
+                        local cache = ledge.cache.read(keys)
+                        response.status = cache.status
+                        response.body = cache.body
+                        response.header = cache.header
+                        response.action = ledge.actions.COLLAPSED
+                        return response
 
-                    for k,v in pairs(messages) do
-                        if (v == 'finished') then
-
-                            ngx.log(ngx.NOTICE, "FINISHED WAITING")
-
-                            -- Go get from redis
-                            local cache = ledge.cache.read(keys)
-                            response.status = cache.status
-                            response.body = cache.body
-                            response.header = cache.header
-                            response.action = ledge.actions.COLLAPSED
-                            return response
-
-                        end
                     end
-                else
-                    return nil, rep.status -- Pass on the failure
                 end
-            else -- Is WARM and already happening, so bail
-                response.action = ledge.actions.ABSTAINED
-                return response
+            else
+                return nil, rep.status -- Pass on the failure
             end
+        else -- Is WARM and already happening, so bail
+            response.action = ledge.actions.ABSTAINED
+            return response
         end
     end
 end
