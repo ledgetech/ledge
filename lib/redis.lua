@@ -24,14 +24,12 @@ function redis.query(query)
 end
 
 
---
 -- Runs multiple queries pipelined. This is faster than parallel subrequests.
 --
 -- e.g. local reps = redis.query_pipeline({ q1, q2 })
 --
 -- @param	table	A table of queries, where each query is expressed as a table
 -- @return	mixed	A table of parsed replies, or false on failure
--- 
 function redis.query_pipeline(queries)
     for i,q in ipairs(queries) do
         queries[i] = redis.parser.build_query(q)
