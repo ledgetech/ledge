@@ -17,7 +17,7 @@ function redis.query(query)
     })
 
     if (res.status == ngx.HTTP_OK) then
-        return redis.parser.parse_reply(rep.body)
+        return redis.parser.parse_reply(res.body)
     else
         return nil, res.status
     end
