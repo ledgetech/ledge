@@ -1,45 +1,41 @@
--- Ledge configuration file
+local config = require("lib.config")
+local event = require("lib.event")
+
+-- collapse_origin_requests
 --
--- Nginx must be reloaded for changes to take affect. 
--- Run "lua config.lua" to check for syntax correctness.
--- TODO: Write a config check tool (test number of params to matches etc)
+-- Collapse concurrent requests to the origin server into a single
+-- request. The other requests wait until the first one finishes. 
+-- Suits slow but cacheable origins. Probably turn this off for 
+-- URIs which are deifinitely not cacheable.
+config.set("collapse_origin_requests", true)
 
-local esi_processor = require("plugins.esi_processor")
-local preemptive_recache = require("plugins.preemptive_recache")
+-- serve_when_stale
+--
+-- How 'stale' an item can be (in seconds). A stale hit will return the cached 
+-- result but trigger an origin round trip in the background. 		
+config.set("serve_when_stale", 3600, { 
+    match_uri = { 
+        { "^/about", 250 },
+        { "^/contact", 350 },
+    } 
+})
 
-return {
-	
-	-- How 'stale' an item can be. A stale hit will return the cached 
-	-- result but trigger an origin round trip in the background. 		
-	max_stale_age = {
-		default = 900,
-		match_uri = { 
-			{ "^/about", 250 },
-			{ "^/contact", 360 },
-		},
-	},
-	
-	-- Collapse concurrent requests to the origin server into a single
-	-- request. The other requests wait until the first one finishes. 
-	-- Suits slow but cacheable origins. Probably turn this off for 
-	-- URIs which are deifinitely not cacheable.
-	collapse_origin_requests = {
-		default = false,
-		match_uri = { 
-			{ "^/cart", false },
-		},
-	},
-	
-	--[[on_before_send = {
-	    default = function(ledge, response)
-	        --return esi_processor.process(ledge, response)
-	    end
-	},]]--
-	
-	--[[on_after_send = {
-	    default = function(ledge, response)
-	        --return preemptive_recache.go(ledge, response)
-	    end
-	}]]--
+-- You can define event handlers too. Predefined events are:
+--
+--  * config_loaded     (before anything happens)
+--  * cache_accessed    (cache state established)
+--  * origin_required   (we're going to the origin)
+--  * origin_fetched    (successfully fetched from the origin)
+--  * response_ready    (response is ready to be sent)
+--  * response_sent     (response has been sent to the browser)
+--  * finished          (we're about to exit)
+--
+-- Example:
+--
+--      events.listen("response_ready", function() 
+--          ngx.log(ngx.NOTICE, "My content is ready to be sent")
+--      end)
 
-}
+event.listen("response_sent", function() 
+    ngx.log(ngx.NOTICE, "My stale config setting was  " .. ngx.ctx.config.serve_when_stale)
+end)

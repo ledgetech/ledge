@@ -1,9 +1,11 @@
 local redis = require("lib.redis")
+local config = require("lib.config")
+local event = require("lib.event")
 
 local ledge = {
     version = '0.1',
 
-    _config_file = require("config"),
+    _config_file = assert(loadfile(ngx.var.config_file)),
     cache = {}, -- Namespace
 
     states = {
@@ -22,8 +24,10 @@ local ledge = {
 
 
 function ledge.main()
-    -- Read in the config file to determine run level options for this request
-    ledge.process_config()
+    -- Run the config to determine run level options for this request
+    ledge._config_file()
+    event.emit("config_loaded")
+
     ledge.create_keys()
 
     if ledge.request_is_cacheable() then
@@ -47,6 +51,8 @@ function ledge.main()
         ngx.ctx.response = ledge.fetch()
         ledge.send()
     end
+
+    event.emit("finished")
 end
 
 
@@ -100,46 +106,6 @@ function ledge.actions.tostring(action)
 end
 
 
--- Loads runtime configuration into ngx.ctx.config
---
--- The configuration file is only loaded once for the first request. 
--- This runs any dynamatic pattern matches for the current request.
---
--- @return void
-function ledge.process_config()
-    if ngx.ctx.config == nil then 
-        ngx.ctx.config = {} 
-    end
-
-    for k,v in pairs(ledge._config_file) do
-        -- Grab the default
-        ngx.ctx.config[k] = ledge._config_file[k].default
-
-        -- URI matches
-        if ledge._config_file[k].match_uri then
-            for i,v in ipairs(ledge._config_file[k].match_uri) do
-                if (ngx.var.uri:find(v[1]) ~= nil) then
-                    ngx.ctx.config[k] = v[2]
-                    break -- We take the first hit
-                end
-            end
-        end
-
-        -- Request header matches
-        if ledge._config_file[k].match_header then
-            local h = ngx.req.get_headers()
-
-            for i,v in ipairs(ledge._config_file[k].match_header) do
-                if (h[v[1]] ~= nil) and (h[v[1]]:find(v[2]) ~= nil) then
-                    ngx.ctx.config[k] = v[3]
-                    break
-                end
-            end
-        end
-    end
-end
-
-
 -- Creates and returns a table of cache keys for the URI
 --
 -- @param   string  Full URI
@@ -166,52 +132,6 @@ function ledge.prepare()
     response.state = state
     response.keys = ngx.ctx.keys
     ngx.ctx.response = response
-end
-
-
--- Sends the response to the client
--- If on_before_send is defined in configuration, the response may be altered
--- by any plugins.
---
--- @param   table   Response object
--- @return  void
-function ledge.send()
-    local response = ngx.ctx.response
-
-    -- Fire the on_before_send event
-    if type(ngx.ctx.config.on_before_send) == 'function' then
-        response = ngx.ctx.config.on_before_send(ledge, response)
-    else
-        --ngx.log(ngx.NOTICE, "on_before_send event handler is not a function")
-    end
-
-    ngx.status = response.status
-
-    -- Via header
-    local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. ledge.version .. ')'
-    if  (response.header['Via'] ~= nil) then
-        ngx.header['Via'] = via .. ', ' .. response.header['Via']
-    else
-        ngx.header['Via'] = via
-    end
-
-    -- Other headers
-    for k,v in pairs(response.header) do
-        ngx.header[k] = v
-    end
-
-    -- Set the X-Ledge headers (these may change)
-    ngx.header['X-Ledge-State'] = ledge.states.tostring(response.state)
-    if response.action then
-        ngx.header['X-Ledge-Action'] = ledge.actions.tostring(response.action)
-    end
-    if response.ttl then
-        ngx.header['X-Ledge-TTL'] = response.ttl
-        ngx.header['X-Ledge-Max-Stale-Age'] = ngx.ctx.config.max_stale_age
-    end
-
-    ngx.print(response.body)
-    ngx.eof()
 end
 
 
@@ -245,11 +165,13 @@ function ledge.cache.read()
 
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
-    if obj.ttl - ctx.config.max_stale_age <= 0 then
+    if ctx.config.max_stale_age and obj.ttl - ctx.config.max_stale_age <= 0 then
         return obj, ledge.states.WARM
     else
         return obj, ledge.states.HOT
     end
+
+    event.emit("cache_accessed")
 end
 
 
@@ -286,6 +208,8 @@ end
 -- @param	table	The URI table
 -- @return	table	Response
 function ledge.fetch()
+    event.emit("origin_required")
+
     local keys = ngx.ctx.keys
     local response = ngx.ctx.response
 
@@ -319,6 +243,9 @@ function ledge.fetch()
         ctx.response.header = origin.header
         ctx.response.body = origin.body
         ctx.response.action  = ledge.actions.FETCHED
+
+        event.emit("origin_fetched")
+
         return ctx.response
     end
 
@@ -340,6 +267,9 @@ function ledge.fetch()
         response.body = origin.body
         response.header = origin.header
         response.action = ledge.actions.FETCHED
+
+        event.emit("origin_fetched")
+
         return response
     else
         -- This fetch is already happening 
@@ -376,6 +306,48 @@ function ledge.fetch()
             return response
         end
     end
+end
+
+
+-- Sends the response to the client
+-- If on_before_send is defined in configuration, the response may be altered
+-- by any plugins.
+--
+-- @param   table   Response object
+-- @return  void
+function ledge.send()
+    event.emit("response_ready")
+
+    local response = ngx.ctx.response
+    ngx.status = response.status
+
+    -- Via header
+    local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. ledge.version .. ')'
+    if  (response.header['Via'] ~= nil) then
+        ngx.header['Via'] = via .. ', ' .. response.header['Via']
+    else
+        ngx.header['Via'] = via
+    end
+
+    -- Other headers
+    for k,v in pairs(response.header) do
+        ngx.header[k] = v
+    end
+
+    -- Set the X-Ledge headers (these may change)
+    ngx.header['X-Ledge-State'] = ledge.states.tostring(response.state)
+    if response.action then
+        ngx.header['X-Ledge-Action'] = ledge.actions.tostring(response.action)
+    end
+    if response.ttl then
+        ngx.header['X-Ledge-TTL'] = response.ttl
+        ngx.header['X-Ledge-Max-Stale-Age'] = ngx.ctx.config.max_stale_age
+    end
+
+    ngx.print(response.body)
+    ngx.eof()
+
+    event.emit("response_sent")
 end
 
 
@@ -421,8 +393,8 @@ function ledge.calculate_expiry(response)
     if (ledge.response_is_cacheable(response)) then
         local ex = response.header['Expires']
         if ex then
-            response.ttl =  (ngx.parse_http_time(ex) - ngx.time()) 
-            + ngx.ctx.config.max_stale_age
+            local max_stale_age = ngx.ctx.config.max_stale_age or 0
+            response.ttl =  (ngx.parse_http_time(ex) - ngx.time()) + max_stale_age
         end
     end
 
