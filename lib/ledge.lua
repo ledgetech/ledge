@@ -113,8 +113,7 @@ end
 function ledge.create_keys()
     local keys = {}
     keys.uri = ngx.var.full_uri
-    keys.key = 'ledge:'..ngx.md5(keys.uri)  -- Hash, with .status, and .body.
-    keys.header_key	= keys.key..':header'   -- Hash, with header names and values.
+    keys.key = 'cache_obj:'..ngx.md5(keys.uri)  -- Hash, with .status, and .body.
     keys.fetch_key  = keys.key..':fetch'    -- Temp key during collapsed request.
     ngx.ctx.keys = keys
 end
@@ -145,11 +144,14 @@ function ledge.cache.read()
 
     -- Fetch from Redis
     local reply = assert(redis.query_pipeline({
-        { 'HMGET', ctx.keys.key, 'status', 'body', 'header' },
+        { 'HGETALL', ctx.keys.key },
         { 'TTL', ctx.keys.key }
     }), "Failed to query Redis")
 
-    local obj = {} -- Our cache object
+    -- Our cache object
+    local obj = {
+        header = {}
+    }
     
     -- A positive TTL tells us if there's anything valid
     obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. ctx.keys.key)
@@ -157,12 +159,25 @@ function ledge.cache.read()
         return nil, ledge.states.SUBZERO  -- Cache miss
     end
 
-    -- Bail if the cache entry looks bad in any way
-    obj.status  = assert(reply[1][1], "No status found for " .. ctx.keys.key)
-    obj.body    = assert(reply[1][2], "No body found for " .. ctx.keys.key)
-    obj.header  = assert(reply[1][3], "No headers found for " .. ctx.keys.key)
-    obj.header  = assert(loadstring('return ' .. obj.header)(), 
-                    "Count not unserialize headers for " .. ctx.keys.key)
+    assert(type(reply[1]) == 'table', 
+        "Failed to collect cache data from Redis")
+
+    local cache_parts = reply[1]
+    -- The Redis reply is a sequence of messages, so we iterate over pairs
+    -- to get hash key/values.
+    for i = 1, #cache_parts, 2 do
+        if cache_parts[i] == 'body' then
+            obj.body = cache_parts[i+1]
+        elseif cache_parts[i] == 'status' then
+            obj.status = cache_parts[i+1]
+        else
+            -- Everything else will be a header, with a h: prefix.
+            local _, _, header = cache_parts[i]:find('h:(.*)')
+            if header then
+                obj.header[header] = cache_parts[i+1]
+            end
+        end
+    end
 
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
@@ -192,8 +207,11 @@ function ledge.cache.save(response)
         'HMSET', ctx.keys.key, 
         'body', response.body, 
         'status', response.status,
-        'header', ledge.serialize(response.header)
     }
+    for header,header_value in pairs(response.header) do
+        table.insert(q, 'h:'..header)
+        table.insert(q, header_value)
+    end
 
     -- Our EXPIRE query
     local expire_q = { 'EXPIRE', ctx.keys.key, ledge.calculate_expiry(response) }
@@ -348,6 +366,7 @@ function ledge.send()
     -- Always ensure we send the correct length
     response.header['Content-Length'] = #response.body
     ngx.print(response.body)
+    ngx.eof()
 
     event.emit("response_sent")
 end
@@ -401,33 +420,6 @@ function ledge.calculate_expiry(response)
     end
 
     return response.ttl
-end
-
-
--- Utility to serialize data
---
--- @param   mixed   Data to serialize
--- @return  string
-function ledge.serialize(o)
-    if type(o) == "number" then
-        return o
-    elseif type(o) == "string" then
-        return string.format("%q", o)
-    elseif type(o) == "table" then
-        local t = {}
-        table.insert(t, "{\n")
-        for k,v in pairs(o) do
-            table.insert(t, "  [")
-            table.insert(t, ledge.serialize(k))
-            table.insert(t, "] = ")
-            table.insert(t, ledge.serialize(v))
-            table.insert(t, ",\n")
-        end
-        table.insert(t, "}\n")
-        return table.concat(t)
-    else
-        error("cannot serialize a " .. type(o))
-    end
 end
 
 
