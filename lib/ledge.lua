@@ -217,9 +217,12 @@ function ledge.cache.save(response)
     -- Our EXPIRE query
     local expire_q = { 'EXPIRE', ctx.keys.key, ledge.calculate_expiry(response) }
 
+    -- Add this to the expires queue, for cache priming and analysis.
+    local expires_queue_q = { 'ZADD', 'expires_queue', response.expires, ctx.keys.key }
+
     -- Run the queries
-    local reply = assert(redis.query_pipeline({ q, expire_q }), "Failed to query Redis")
-    return assert(reply[1] == "OK" and reply[2] == 1)
+    local reply = assert(redis.query_pipeline({ q, expire_q, expires_queue_q }), "Failed to query Redis")
+    return assert(reply[1] == "OK" and reply[2] == 1 and type(reply[3]) == 'number')
 end
 
 
@@ -416,7 +419,8 @@ function ledge.calculate_expiry(response)
         local ex = response.header['Expires']
         if ex then
             local serve_when_stale = ngx.ctx.config.serve_when_stale or 0
-            response.ttl =  (ngx.parse_http_time(ex) - ngx.time()) + serve_when_stale
+            response.expires = ngx.parse_http_time(ex)
+            response.ttl =  (response.expires - ngx.time()) + serve_when_stale
         end
     end
 
