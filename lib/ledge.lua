@@ -207,6 +207,7 @@ function ledge.cache.save(response)
         'HMSET', ctx.keys.key, 
         'body', response.body, 
         'status', response.status,
+        'uri', ngx.var.full_uri,
     }
     for header,header_value in pairs(response.header) do
         table.insert(q, 'h:'..header)
