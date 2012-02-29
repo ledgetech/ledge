@@ -132,6 +132,7 @@ function ledge.prepare()
     response.state = state
     response.keys = ngx.ctx.keys
     ngx.ctx.response = response
+    return response
 end
 
 
@@ -165,7 +166,7 @@ function ledge.cache.read()
 
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
-    if ctx.config.max_stale_age and obj.ttl - ctx.config.max_stale_age <= 0 then
+    if ctx.config.serve_when_stale and obj.ttl - ctx.config.serve_when_stale <= 0 then
         return obj, ledge.states.WARM
     else
         return obj, ledge.states.HOT
@@ -183,7 +184,7 @@ function ledge.cache.save(response)
     local ctx = ngx.ctx
 
     if not ngx.var.request_method == "GET" or not ledge.response_is_cacheable(response) then
-        return false -- Not cacheable, but no error
+        return 0 -- Not cacheable, but no error
     end
 
     -- Our SET query
@@ -344,8 +345,9 @@ function ledge.send()
         ngx.header['X-Ledge-Max-Stale-Age'] = ngx.ctx.config.max_stale_age
     end
 
+    -- Always ensure we send the correct length
+    response.header['Content-Length'] = #response.body
     ngx.print(response.body)
-    ngx.eof()
 
     event.emit("response_sent")
 end
@@ -393,8 +395,8 @@ function ledge.calculate_expiry(response)
     if (ledge.response_is_cacheable(response)) then
         local ex = response.header['Expires']
         if ex then
-            local max_stale_age = ngx.ctx.config.max_stale_age or 0
-            response.ttl =  (ngx.parse_http_time(ex) - ngx.time()) + max_stale_age
+            local serve_when_stale = ngx.ctx.config.serve_when_stale or 0
+            response.ttl =  (ngx.parse_http_time(ex) - ngx.time()) + serve_when_stale
         end
     end
 
