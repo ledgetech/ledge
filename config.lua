@@ -1,5 +1,6 @@
 local config = require("lib.config")
 local event = require("lib.event")
+local ledge = require("lib.ledge")
 
 -- collapse_origin_requests
 --
@@ -13,10 +14,8 @@ config.set("collapse_origin_requests", false)
 --
 -- How 'stale' an item can be (in seconds). A stale hit will return the cached 
 -- result but trigger an origin round trip in the background. 		
-config.set("serve_when_stale", 3600, { 
+config.set("serve_when_stale", 300, { 
     match_uri = { 
-        { "^/about", 250 },
-        { "^/contact", 350 },
         { "^/esi%-fragments/time", 60 },
     } 
 })
@@ -37,6 +36,13 @@ config.set("serve_when_stale", 3600, {
 --          ngx.log(ngx.NOTICE, "My content is ready to be sent")
 --      end)
 
+-- Remove Set-Cookie for cacheable responses
+event.listen("response_ready", function()
+    local response = ngx.ctx.response
+    if response.state >= ledge.states.WARM and response.header['Set-Cookie'] then
+        response.header['Set-Cookie'] = nil
+    end
+end)
 
 -- A basic ESI parser
 event.listen("response_ready", function()
@@ -67,8 +73,4 @@ event.listen("response_ready", function()
         return uris[src].body
     end)
     ngx.ctx.response = response
-end)
-
-event.listen("response_sent", function()
-    ngx.log(ngx.NOTICE, "My stale config was: " .. ngx.ctx.config.serve_when_stale)
 end)
