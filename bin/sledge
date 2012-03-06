@@ -1,0 +1,24 @@
+#!/usr/bin/env lua
+
+-- This is pretty simple for now (just a stub)
+
+require 'redis'
+
+local redis = Redis.connect('127.0.0.1', 6379)
+
+local total_hits_hot = redis:get('sledge:counter:HOT')
+local total_hits_warm = redis:get('sledge:counter:HOT')
+local total_hits_subzero = redis:get('sledge:counter:SUBZERO')
+
+function total_hits()
+    return total_hits_hot + total_hits_warm + total_hits_subzero
+end
+
+
+print("sledge (ledge stats) v0.1")
+print("=========================\n")
+print("Total HOT: " .. total_hits_hot)
+print("Total WARM: " .. total_hits_warm)
+print("Total SUBZERO: " .. total_hits_subzero)
+print("-----------------------")
+print("Total requests: " .. total_hits())
