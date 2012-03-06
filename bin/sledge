@@ -7,7 +7,7 @@ require 'redis'
 local redis = Redis.connect('127.0.0.1', 6379)
 
 local total_hits_hot = redis:get('sledge:counter:HOT')
-local total_hits_warm = redis:get('sledge:counter:HOT')
+local total_hits_warm = redis:get('sledge:counter:WARM')
 local total_hits_subzero = redis:get('sledge:counter:SUBZERO')
 
 function total_hits()
