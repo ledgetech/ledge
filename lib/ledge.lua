@@ -41,7 +41,7 @@ function ledge.main()
             ledge.send()
         elseif (response.state == ledge.states.WARM) then
             ledge.send()
-            ledge.fetch()
+    --        ledge.fetch()
         elseif (response.state < ledge.states.WARM) then
             ngx.ctx.response = ledge.fetch()
             ledge.send()
@@ -179,6 +179,8 @@ function ledge.cache.read()
         end
     end
 
+    event.emit("cache_accessed")
+
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
     if ctx.config.serve_when_stale and obj.ttl - ctx.config.serve_when_stale <= 0 then
@@ -186,8 +188,6 @@ function ledge.cache.read()
     else
         return obj, ledge.states.HOT
     end
-
-    event.emit("cache_accessed")
 end
 
 
@@ -218,7 +218,7 @@ function ledge.cache.save(response)
     local expire_q = { 'EXPIRE', ctx.keys.key, ledge.calculate_expiry(response) }
 
     -- Add this to the expires queue, for cache priming and analysis.
-    local expires_queue_q = { 'ZADD', 'expires_queue', response.expires, ctx.keys.key }
+    local expires_queue_q = { 'ZADD', 'expires_queue', response.expires, ngx.var.full_uri }
 
     -- Run the queries
     local reply = assert(redis.query_pipeline({ q, expire_q, expires_queue_q }), "Failed to query Redis")
@@ -343,6 +343,9 @@ function ledge.send()
 
     local response = ngx.ctx.response
     ngx.status = response.status
+    
+    -- Update stats
+    redis.query({'INCR', 'sledge:counter:' .. ledge.states.tostring(response.state)})
 
     -- Via header
     local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. ledge.version .. ')'
@@ -378,7 +381,7 @@ end
 
 function ledge.request_is_cacheable() 
     local headers = ngx.req.get_headers()
-    if headers['Cache-Control'] == 'no-cache' or headers['Pragma'] == 'no-cache' then
+    if headers['cache-control'] == 'no-cache' or headers['Pragma'] == 'no-cache' then
         return false
     end
     return true
