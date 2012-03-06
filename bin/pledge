@@ -1,0 +1,77 @@
+#!/usr/bin/env lua
+
+require 'redis'
+local redis = Redis.connect('127.0.0.1', 6379)
+
+require 'zmq'
+zmq.threads = require 'zmq.threads'
+
+socket = require 'socket'
+
+print("pledge 0.1 (ledge primer)\n")
+
+-- This is the primer worker code, loaded into a thread.
+local primer_code = [[
+    local id = ...
+
+    local zmq = require 'zmq'
+    local threads = require 'zmq.threads'
+    local context = threads.get_parent_ctx()
+
+    -- PULL jobs from the primers socket
+    local jobs = context:socket(zmq.PULL)
+    assert(jobs:connect("inproc://primers"))
+
+    function log(msg)
+        print(os.date('%c', os.time()) .. ' ' .. msg)
+    end
+
+    local http = require 'socket.http'
+
+    while true do
+        local msg = jobs:recv()
+        log("#"..id.." Priming " .. msg)
+
+        --  Do some 'work'
+        local s, c, h = http.request({
+            url = msg,
+            headers = { 
+                ['Cache-Control'] = 'no-cache' 
+            },
+        })
+
+        log("#"..id.." Done ("..c..")")
+    end
+    jobs:close()
+    return nil
+]]
+
+local context = zmq.init(1)
+
+--  Socket to talk to primers
+local primers = context:socket(zmq.PUSH)
+primers:bind("inproc://primers")
+
+--  Launch pool of primer threads
+local primer_pool = {}
+for n=1,5 do
+    primer_pool[n] = zmq.threads.runstring(context, primer_code, n)
+    primer_pool[n]:start()
+end
+
+print("Ready with " .. #primer_pool .. " threads...")
+    
+-- Periodically ask Redis for expired items
+while true do
+    socket.sleep(5) -- Sleep first so that ZMQ has a chance.
+
+    -- Look for expired items
+    local expired = redis:zrangebyscore('expires_queue', '-inf', os.time())
+    for i,uri in ipairs(expired) do
+        primers:send(uri)
+    end
+end
+
+--  We never get here but clean up anyhow
+primers:close()
+context:term()
