@@ -23,11 +23,13 @@ local ledge = {
 
 
 function ledge.main()
+    assert(ngx.var.cache_key, "cache_key not defined in nginx config")
+    assert(ngx.var.full_uri, "full_uri not defined in nginx config")
+    assert(ngx.var.relative_uri, "relative_uri not defined in nginx config")
+
     -- Run the config to determine run level options for this request
     ledge._config_file()
     event.emit("config_loaded")
-
-    ledge.create_keys()
 
     if ledge.request_is_cacheable() then
         -- Prepare fetches from cache, so we're either primed with a full response
@@ -105,32 +107,14 @@ function ledge.actions.tostring(action)
 end
 
 
--- Creates and returns a table of cache keys for the URI
---
--- @param   string  Full URI
--- @return  table   Keys table
-function ledge.create_keys()
-    local keys = {}
-    keys.uri = ngx.var.full_uri
-    keys.key = 'cache_obj:'..ngx.md5(keys.uri)  -- Hash, with .status, and .body.
-    keys.fetch_key  = keys.key..':fetch'    -- Temp key during collapsed request.
-    ngx.ctx.keys = keys
-end
-
-
 -- Prepares the response by attempting to read from cache.
 -- A skeletol response object will be returned with a state of < WARM
 -- in the event of a cache miss.
--- 
--- @param   table   Keys table
--- @return  table   Response object
 function ledge.prepare()
-    local response, state = ledge.cache.read(ngx.ctx.keys)
+    local response, state = ledge.cache.read()
     if not response then response = {} end -- Cache miss
     response.state = state
-    response.keys = ngx.ctx.keys
     ngx.ctx.response = response
-    return response
 end
 
 
@@ -143,8 +127,8 @@ function ledge.cache.read()
 
     -- Fetch from Redis
     local reply = assert(redis.query_pipeline({
-        { 'HGETALL', ctx.keys.key },
-        { 'TTL', ctx.keys.key }
+        { 'HGETALL', ngx.var.cache_key },
+        { 'TTL', ngx.var.cache_key }
     }), "Failed to query Redis")
 
     -- Our cache object
@@ -153,7 +137,7 @@ function ledge.cache.read()
     }
     
     -- A positive TTL tells us if there's anything valid
-    obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. ctx.keys.key)
+    obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. ngx.var.cache_key)
     if obj.ttl < 0 then
         return nil, ledge.states.SUBZERO  -- Cache miss
     end
@@ -178,7 +162,7 @@ function ledge.cache.read()
         end
     end
 
-    event.emit("cache_accessed")
+    vent.emit("cache_accessed")
 
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
@@ -203,7 +187,7 @@ function ledge.cache.save(response)
 
     -- Our SET query
     local q = { 
-        'HMSET', ctx.keys.key, 
+        'HMSET', ngx.var.cache_key,
         'body', response.body, 
         'status', response.status,
         'uri', ngx.var.full_uri,
@@ -214,7 +198,7 @@ function ledge.cache.save(response)
     end
 
     -- Our EXPIRE query
-    local expire_q = { 'EXPIRE', ctx.keys.key, ledge.calculate_expiry(response) }
+    local expire_q = { 'EXPIRE', ngx.var.cache_key, ledge.calculate_expiry(response) }
 
     -- Add this to the expires queue, for cache priming and analysis.
     local expires_queue_q = { 'ZADD', 'expires_queue', response.expires, ngx.var.full_uri }
@@ -248,7 +232,7 @@ function ledge.fetch()
         end
 
         -- Fetch
-        local origin = ngx.location.capture(var.loc_origin..uri, {
+        local origin = ngx.location.capture(var.loc_origin..ngx.var.relative_uri, {
             method = ledge.request_method_constant(),
             body = var.request_body,
         })
@@ -273,17 +257,18 @@ function ledge.fetch()
 
 
     -- Set the fetch key
-    local fetch = redis.query({ 'SETNX', keys.fetch_key, '1' })
+    local fetch_key = ngx.var.cache_key .. ':fetch'
+    local fetch = redis.query({ 'SETNX', fetch_key, '1' })
     -- TODO: Read from config
-    redis.query({ 'EXPIRE', keys.fetch_key, '10' })
+    redis.query({ 'EXPIRE', fetch_key, '10' })
 
     if (fetch == 1) then -- Go do the fetch
-        local origin = ngx.location.capture(ngx.var.loc_origin..keys.uri);
+        local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri);
         ledge.cache.save(origin)
 
         -- Remove the fetch and publish to waiting threads
-        redis.query({ 'DEL', keys.fetch_key })
-        redis.query({ 'PUBLISH', keys.key, 'finished' })
+        redis.query({ 'DEL', fetch_key })
+        redis.query({ 'PUBLISH', ngx.var.cache_key, 'finished' })
 
         response.status = origin.status
         response.body = origin.body
@@ -296,7 +281,7 @@ function ledge.fetch()
     else
         -- This fetch is already happening Go to the collapser proxy
         local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
-            args = { channel = keys.key }
+            args = { channel = ngx.var.cache_key }
         });
 
         if (rep.status == ngx.HTTP_OK) then				
@@ -309,7 +294,7 @@ function ledge.fetch()
                     ngx.log(ngx.NOTICE, "FINISHED WAITING")
 
                     -- Go get from redis
-                    local cache = ledge.cache.read(keys)
+                    local cache = ledge.cache.read()
                     response.status = cache.status
                     response.body = cache.body
                     response.header = cache.header
