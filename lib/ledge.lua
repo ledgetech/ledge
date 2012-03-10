@@ -1,11 +1,19 @@
 local redis = require("lib.redis")
 local config = require("lib.config")
 local event = require("lib.event")
+    
+-- Perform assertions on the nginx config only on the first run
+assert(ngx.var.cache_key, "cache_key not defined in nginx config")
+assert(ngx.var.full_uri, "full_uri not defined in nginx config")
+assert(ngx.var.relative_uri, "relative_uri not defined in nginx config")
+assert(ngx.var.config_file, "config_file not defined in nginx config")
+assert(ngx.var.loc_redis, "loc_redis not defined in nginx config")
+assert(ngx.var.loc_origin, "loc_origin not defined in nginx config")
 
 local ledge = {
     version = '0.1',
 
-    _config_file = assert(loadfile(ngx.var.config_file)),
+    config_file = assert(loadfile(ngx.var.config_file), "Config file not found"),
     cache = {}, -- Namespace
 
     states = {
@@ -23,12 +31,8 @@ local ledge = {
 
 
 function ledge.main()
-    assert(ngx.var.cache_key, "cache_key not defined in nginx config")
-    assert(ngx.var.full_uri, "full_uri not defined in nginx config")
-    assert(ngx.var.relative_uri, "relative_uri not defined in nginx config")
-
     -- Run the config to determine run level options for this request
-    ledge._config_file()
+    ledge.config_file()
     event.emit("config_loaded")
 
     if ledge.request_is_cacheable() then
@@ -253,58 +257,55 @@ function ledge.fetch()
         event.emit("origin_fetched")
 
         return ctx.response
-    end
-
-
-    -- Set the fetch key
-    local fetch_key = ngx.var.cache_key .. ':fetch'
-    local fetch = redis.query({ 'SETNX', fetch_key, '1' })
-    -- TODO: Read from config
-    redis.query({ 'EXPIRE', fetch_key, '10' })
-
-    if (fetch == 1) then -- Go do the fetch
-        local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri);
-        ledge.cache.save(origin)
-
-        -- Remove the fetch and publish to waiting threads
-        redis.query({ 'DEL', fetch_key })
-        redis.query({ 'PUBLISH', ngx.var.cache_key, 'finished' })
-
-        response.status = origin.status
-        response.body = origin.body
-        response.header = origin.header
-        response.action = ledge.actions.FETCHED
-
-        event.emit("origin_fetched")
-
-        return response
     else
-        -- This fetch is already happening Go to the collapser proxy
-        local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
-            args = { channel = ngx.var.cache_key }
-        });
+        assert(ngx.var.loc_wait_for_origin, "loc_wait_for_origin not defined in nginx config")
 
-        if (rep.status == ngx.HTTP_OK) then				
-            local results = redis.parser.parse_replies(rep.body, 2)
-            local messages = results[2][1] -- Second reply, body
+        -- Set the fetch key
+        local fetch_key = ngx.var.cache_key .. ':fetch'
+        local fetch = redis.query({ 'SETNX', fetch_key, '1' })
+        -- TODO: Read from config
+        redis.query({ 'EXPIRE', fetch_key, '10' })
 
-            for k,v in pairs(messages) do
-                if (v == 'finished') then
+        if (fetch == 1) then -- Go do the fetch
+            local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri);
+            ledge.cache.save(origin)
 
-                    ngx.log(ngx.NOTICE, "FINISHED WAITING")
+            -- Remove the fetch and publish to waiting threads
+            redis.query({ 'DEL', fetch_key })
+            redis.query({ 'PUBLISH', ngx.var.cache_key, 'finished' })
 
-                    -- Go get from redis
-                    local cache = ledge.cache.read()
-                    response.status = cache.status
-                    response.body = cache.body
-                    response.header = cache.header
-                    response.action = ledge.actions.COLLAPSED
-                    return response
+            response.status = origin.status
+            response.body = origin.body
+            response.header = origin.header
+            response.action = ledge.actions.FETCHED
 
-                end
-            end
+            event.emit("origin_fetched")
+
+            return response
         else
-            return nil, rep.status -- Pass on the failure
+            -- This fetch is already happening Go to the collapser proxy
+            local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
+                args = { channel = ngx.var.cache_key }
+            });
+
+            if (rep.status == ngx.HTTP_OK) then				
+                local results = redis.parser.parse_replies(rep.body, 2)
+                local messages = results[2][1] -- Second reply, body
+
+                for k,v in pairs(messages) do
+                    if (v == 'finished') then
+                        -- Go get from redis
+                        local  = ledge.cache.read()
+                        response.status = cache.status
+                        response.body = cache.body
+                        response.header = cache.header
+                        response.action = ledge.actions.COLLAPSED
+                        return response
+                    end
+                end
+            else
+                return nil, rep.status -- Pass on the failure
+            end
         end
     end
 end
