@@ -2,17 +2,31 @@
 
 An attempt at edge proxying and caching logic in Lua. Relies on [nginx](http://nginx.net), the [lua-nginx-module](https://github.com/chaoslawful/lua-nginx-module) for integrating Lua coroutines into the nginx event model via nginx subrequests, as well as [Redis](http://redis.io) as an upstream server to act as a cache backend.
 
-### Authors
+## What is it?
 
-* James Hurst <jhurst@squiz.co.uk>
+The idea is to provide predictable tools around agressive edge caching, for cases where origin servers are distant, slow, or unreliable. Tools are/will be included to monitor cache objects about to expire, and prime them in advance (pledge) as well as thorough statistical analysis to help tune behaviours and weed out cache policy issues at the origin (sledge).
+
+Configuration should be flexible and expressive as Lua code, allowing for behavioural filtering at run time (based on URIs or request headers) and advanced features such as ESI parsing.
+
+It should also be very fast, if all goes well, owing to the stack that it's built on.
+
+## What isn't it?
+
+* A replacement for Squid. This will never do forward proxying, for example.
+* An application server stack. You could do some pretty cool things with the nginx\_lua module I'm sure, but what I'm shooting for here is some caching code to cover the bases, leaving your code to be simple configuration hooks, modifying behaviours to suit your backends.
+* Finished. A lot of the code still looks like pseudo stubs (or embarrassing hacks), but it is coming together slowly.
 
 ## Status
 
-Experimental prototype. Not at all ready for production, currently still proving out the technology. But ideas welcome.
+Experimental prototype. Not at all ready for production, currently still proving out the technology.
+
+## Support / Contributing
+
+All help, ideas, and bug reports are very much welcomed. Raise a ticket or email me at <jhurst@squiz.co.uk>.
 
 ## Installation
 
-This is not exhaustive.. you're on the bleeding (l)edge here.
+I hope to get some installation instructions that are actually accurate together soon. This is not exhaustive.
 
 ### ngx_openresty
 
@@ -60,22 +74,29 @@ Also at the http level:
         server_name  {YOUR_SERVER_NAME}; 
         access_log  logs/access.log  main;
 		
-    	location / {
-			lua_need_request_body on;
-            # Ledge needs $scheme, but this is empty unless evaluated in the config.
-            # So for convenience, we define $full_uri for use in Lua.
-			set $full_uri $scheme://$host$uri$is_args$args;
+        location / { 
+            lua_need_request_body on; 
+
+            # URIs and key specs.
+            set $full_uri $scheme://$host$uri$is_args$args;
+            set $relative_uri $uri$is_args$args;
+            set $cache_key $full_uri;
+            set_sha1 $cache_key;
+            set $cache_key ledge:cache_obj:$cache_key;
+
+            set $config_file 'ledge/conf/config.lua';
+
             # Nginx locations for Ledge to do I/O. 
             set $loc_redis '/__ledge/redis';
             set $loc_origin '/__ledge/origin';
             set $loc_wait_for_origin '/__ledge/wait_for_origin';
 
             # Auth stage
-            # access_by_lua_file '/home/me/ledge/auth.lua';
-            # Content stage
-            content_by_lua_file '/home/me/ledge/content.lua';
-    	}
+            # access_by_lua_file '/home/jhurst/prj/squiz_edge/ledge/handlers/auth.lua';
 
+            # Content stage
+            content_by_lua_file '/home/jhurst/prj/squiz_edge/ledge/handlers/content.lua';
+        }   
 
         ### Internal (reserved) locations ###
 
@@ -121,3 +142,16 @@ Also at the http level:
         }
     }
 
+
+## Licence
+
+Copyright (c) 2012, James Hurs <jhurst@squiz.co.uk>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
