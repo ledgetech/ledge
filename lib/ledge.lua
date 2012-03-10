@@ -295,7 +295,7 @@ function ledge.fetch()
                 for k,v in pairs(messages) do
                     if (v == 'finished') then
                         -- Go get from redis
-                        local  = ledge.cache.read()
+                        local response = ledge.cache.read()
                         response.status = cache.status
                         response.body = cache.body
                         response.header = cache.header
