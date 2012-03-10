@@ -6,9 +6,9 @@ require 'redis'
 
 local redis = Redis.connect('127.0.0.1', 6379)
 
-local total_hits_hot = redis:get('sledge:counter:HOT')
-local total_hits_warm = redis:get('sledge:counter:WARM')
-local total_hits_subzero = redis:get('sledge:counter:SUBZERO')
+local total_hits_hot = redis:get('sledge:counter:HOT') or 0
+local total_hits_warm = redis:get('sledge:counter:WARM') or 0
+local total_hits_subzero = redis:get('sledge:counter:SUBZERO') or 0
 
 function total_hits()
     return total_hits_hot + total_hits_warm + total_hits_subzero
