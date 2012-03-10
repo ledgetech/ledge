@@ -360,15 +360,15 @@ function ledge.send()
         ngx.header[k] = v
     end
 
-    -- Set the X-Ledge headers (these may change)
-    ngx.header['X-Ledge-State'] = ledge.states.tostring(response.state)
-    if response.action then
-        ngx.header['X-Ledge-Action'] = ledge.actions.tostring(response.action)
+    -- X-Cache header
+    if response.state >= ledge.states.WARM then
+        ngx.header['X-Cache'] = 'HIT' 
+    else
+        ngx.header['X-Cache'] = 'MISS'
     end
-    if response.ttl then
-        ngx.header['X-Ledge-TTL'] = response.ttl
-        ngx.header['X-Ledge-Max-Stale-Age'] = ngx.ctx.config.max_stale_age
-    end
+
+    ngx.header['X-Cache-State'] = ledge.states.tostring(response.state)
+    ngx.header['X-Cache-Action'] = ledge.actions.tostring(response.action)
 
     -- Always ensure we send the correct length
     response.header['Content-Length'] = #response.body
