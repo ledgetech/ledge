@@ -18,7 +18,6 @@ local ledge = {
     actions = {
         FETCHED		= 1,
         COLLAPSED	= 2,
-        ABSTAINED	= 3,
     },
 }
 
@@ -40,8 +39,8 @@ function ledge.main()
         if (response.state == ledge.states.HOT) then
             ledge.send()
         elseif (response.state == ledge.states.WARM) then
+            ledge.background_fetch()
             ledge.send()
-    --        ledge.fetch()
         elseif (response.state < ledge.states.WARM) then
             ngx.ctx.response = ledge.fetch()
             ledge.send()
@@ -93,7 +92,7 @@ end
 
 
 -- Returns the action type as string (for logging).
--- One of 'FETCHED', 'COLLAPSED', or 'ABSTAINED'.
+-- One of 'FETCHED', 'COLLAPSED'.
 --
 -- @param   number  Action
 -- @return  string  Action as a string
@@ -295,40 +294,41 @@ function ledge.fetch()
 
         return response
     else
-        -- This fetch is already happening 
-        if (response.state < ledge.states.WARM) then
-            -- Go to the collapser proxy
-            local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
-                args = { channel = keys.key }
-            });
+        -- This fetch is already happening Go to the collapser proxy
+        local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
+            args = { channel = keys.key }
+        });
 
-            if (rep.status == ngx.HTTP_OK) then				
-                local results = redis.parser.parse_replies(rep.body, 2)
-                local messages = results[2][1] -- Second reply, body
+        if (rep.status == ngx.HTTP_OK) then				
+            local results = redis.parser.parse_replies(rep.body, 2)
+            local messages = results[2][1] -- Second reply, body
 
-                for k,v in pairs(messages) do
-                    if (v == 'finished') then
+            for k,v in pairs(messages) do
+                if (v == 'finished') then
 
-                        ngx.log(ngx.NOTICE, "FINISHED WAITING")
+                    ngx.log(ngx.NOTICE, "FINISHED WAITING")
 
-                        -- Go get from redis
-                        local cache = ledge.cache.read(keys)
-                        response.status = cache.status
-                        response.body = cache.body
-                        response.header = cache.header
-                        response.action = ledge.actions.COLLAPSED
-                        return response
+                    -- Go get from redis
+                    local cache = ledge.cache.read(keys)
+                    response.status = cache.status
+                    response.body = cache.body
+                    response.header = cache.header
+                    response.action = ledge.actions.COLLAPSED
+                    return response
 
-                    end
                 end
-            else
-                return nil, rep.status -- Pass on the failure
             end
-        else -- Is WARM and already happening, so bail
-            response.action = ledge.actions.ABSTAINED
-            return response
+        else
+            return nil, rep.status -- Pass on the failure
         end
     end
+end
+
+
+-- Publish that an item needs fetching in the background.
+-- Returns immediately.
+function ledge.background_fetch()
+    redis.query({ 'PUBLISH', 'revalidate', ngx.var.full_uri })
 end
 
 
