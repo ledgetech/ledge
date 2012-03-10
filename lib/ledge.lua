@@ -373,9 +373,8 @@ function ledge.send()
     -- Always ensure we send the correct length
     response.header['Content-Length'] = #response.body
     ngx.print(response.body)
-    ngx.eof()
-
     event.emit("response_sent")
+    ngx.eof()
 end
 
 
