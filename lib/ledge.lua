@@ -162,7 +162,7 @@ function ledge.cache.read()
         end
     end
 
-    vent.emit("cache_accessed")
+    event.emit("cache_accessed")
 
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
