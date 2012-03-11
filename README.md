@@ -62,10 +62,10 @@ Also at the http level:
         server localhost:6379;
         keepalive 1024 single;
     } 
-
-	upstream redis_subscribe {
-		server localhost:6379;
-	}
+    
+    upstream redis_subscribe {
+    	server localhost:6379;
+    }
 	
 #### Example server configuration
 
@@ -107,21 +107,21 @@ Also at the http level:
     		proxy_set_header X-Real-IP  $remote_addr;
     		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     		proxy_set_header Host $host;
-			proxy_read_timeout 10s;
-            proxy_redirect off;
-			proxy_pass http://origin;
-	    }   
-		
-		location /__ledge/wait_for_origin {
-			internal;
-	    	set_unescape_uri $channel $arg_channel;
+    		proxy_read_timeout 10s;
+    		proxy_redirect off;
+    		proxy_pass http://origin;
+    	}
+    	
+    	location /__ledge/wait_for_origin {
+    		internal;
+    		set_unescape_uri $channel $arg_channel;
        		redis2_raw_queries 2 "SUBSCRIBE $channel\r\n";
 
     		redis2_connect_timeout 200ms;
     		redis2_send_timeout 200ms;
     		redis2_read_timeout 60s;
        		redis2_pass redis_subscribe;
-		}
+       	}
 
 
         # Redis
@@ -130,7 +130,7 @@ Also at the http level:
         location /__ledge/redis {
             internal;
             default_type text/plain;
-	    	set_unescape_uri $n $arg_n;
+            set_unescape_uri $n $arg_n;
             echo_read_request_body;
 
             redis2_raw_queries $n $echo_request_body;
