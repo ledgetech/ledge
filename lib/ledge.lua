@@ -17,15 +17,15 @@ local ledge = {
     cache = {}, -- Namespace
 
     states = {
-        SUBZERO		= 1,
-        COLD		= 2,
-        WARM		= 3,
-        HOT			= 4,
+        SUBZERO = 1,
+        COLD    = 2,
+        WARM    = 3,
+        HOT     = 4,
     },
 
     actions = {
-        FETCHED		= 1,
-        COLLAPSED	= 2,
+        FETCHED     = 1,
+        COLLAPSED   = 2,
     },
 }
 
@@ -222,23 +222,13 @@ function ledge.fetch()
 
     local keys = ngx.ctx.keys
     local response = ngx.ctx.response
-
     local ctx =  ngx.ctx
 
     if not ctx.config.collapse_origin_requests then
         -- We can do a straight foward fetch-and-store
-
-        local var = ngx.var
-        local uri = var.uri
-        -- We need to use a relative 
-        if var.args then
-            uri = uri .. '?' .. var.args
-        end
-
-        -- Fetch
-        local origin = ngx.location.capture(var.loc_origin..ngx.var.relative_uri, {
+        local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri, {
             method = ledge.request_method_constant(),
-            body = var.request_body,
+            body = ngx.var.request_body,
         })
 
         -- Could not proxy for some reason
