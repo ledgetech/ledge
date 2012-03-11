@@ -13,7 +13,7 @@ assert(ngx.var.loc_origin, "loc_origin not defined in nginx config")
 local ledge = {
     version = '0.1',
 
-    config_file = assert(loadfile(ngx.var.config_file), "Config file not found"),
+    config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile"),
     cache = {}, -- Namespace
 
     states = {
@@ -235,16 +235,17 @@ function ledge.fetch()
         if not origin.status == ngx.HTTP_OK then
             return nil, origin.status
         end
-
-        -- Save
-        assert(ledge.cache.save(origin), "Could not save fetched object")
+        
 
         ctx.response.status = origin.status
         ctx.response.header = origin.header
         ctx.response.body = origin.body
         ctx.response.action  = ledge.actions.FETCHED
-
+        
         event.emit("origin_fetched")
+
+        -- Save
+        assert(ledge.cache.save(origin), "Could not save fetched object")
 
         return ctx.response
     else
@@ -258,6 +259,7 @@ function ledge.fetch()
 
         if (fetch == 1) then -- Go do the fetch
             local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri);
+            event.emit("origin_fetched")
             ledge.cache.save(origin)
 
             -- Remove the fetch and publish to waiting threads
@@ -268,8 +270,6 @@ function ledge.fetch()
             response.body = origin.body
             response.header = origin.header
             response.action = ledge.actions.FETCHED
-
-            event.emit("origin_fetched")
 
             return response
         else
