@@ -54,7 +54,7 @@ primers:bind("inproc://primers")
 
 --  Launch pool of primer threads
 local primer_pool = {}
-for n=1,5 do
+for n=1,10 do
     primer_pool[n] = zmq.threads.runstring(context, primer_code, n)
     primer_pool[n]:start()
 end
@@ -63,7 +63,7 @@ print("Ready with " .. #primer_pool .. " threads...")
     
 -- Periodically ask Redis for expired items
 while true do
-    socket.sleep(5) -- Sleep first so that ZMQ has a chance.
+    socket.sleep(3) -- Sleep first so that ZMQ has a chance.
 
     -- Look for expired items
     local expired = redis:zrangebyscore('expires_queue', '-inf', os.time())
