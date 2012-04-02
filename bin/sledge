@@ -6,10 +6,10 @@ require 'redis'
 
 local redis = Redis.connect('127.0.0.1', 6379)
 
-local total_hits_hot = redis:get('sledge:counter:HOT') or 0
-local total_hits_warm = redis:get('sledge:counter:WARM') or 0
-local total_hits_subzero = redis:get('sledge:counter:SUBZERO') or 0
-local known_url_count = redis:zcount('expires_queue', '-inf', '+inf') or 0
+local total_hits_hot = redis:get('ledge:counter:HOT') or 0
+local total_hits_warm = redis:get('ledge:counter:WARM') or 0
+local total_hits_subzero = redis:get('ledge:counter:SUBZERO') or 0
+local known_url_count = redis:zcount('ledge:uris_by_expiry', '-inf', '+inf') or 0
 local fresh_url_count = #redis:keys('ledge:cache_obj:http*') or 0
 local info = redis:info()
 local dbsize = redis:dbsize()
