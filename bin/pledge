@@ -61,15 +61,23 @@ end
 
 print("Ready with " .. #primer_pool .. " threads...")
     
+-- On the first load we'll push work out for all known expired URIs.
+-- Work being done gets set to -1, and future iterations look >= 0 
+-- to avoid repetition.
+local min_time = "-inf"
+
 -- Periodically ask Redis for expired items
 while true do
     socket.sleep(3) -- Sleep first so that ZMQ has a chance.
 
     -- Look for expired items
-    local expired = redis:zrangebyscore('expires_queue', '-inf', os.time())
+    local expired = redis:zrangebyscore('expires_queue', min_time, os.time())
     for i,uri in ipairs(expired) do
+        redis:zadd('expires_queue', -1, uri) 
         primers:send(uri)
     end
+
+    min_time = 0 -- From now on, only get >= 0 scores.
 end
 
 --  We never get here but clean up anyhow
