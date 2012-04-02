@@ -9,6 +9,8 @@ local redis = Redis.connect('127.0.0.1', 6379)
 local total_hits_hot = redis:get('sledge:counter:HOT') or 0
 local total_hits_warm = redis:get('sledge:counter:WARM') or 0
 local total_hits_subzero = redis:get('sledge:counter:SUBZERO') or 0
+local known_url_count = redis:zcount('expires_queue', '-inf', '+inf') or 0
+local fresh_url_count = #redis:keys('ledge:cache_obj:http*') or 0
 local info = redis:info()
 local dbsize = redis:dbsize()
 
@@ -24,19 +26,21 @@ function round(val, decimal)
     end
 end
 
-
-print("\nsledge (ledge stats) v0.1")
-print("==========================")
+print("sledge (ledge stats) v0.1")
+print("===========================")
 print("Total requests       " .. total_hits())
 print(" HOT                 " .. total_hits_hot)
 print(" WARM                " .. total_hits_warm)
 print(" SUBZERO             " .. total_hits_subzero)
 print("Hit rate             " .. tostring(round(total_hits_hot / total_hits() * 100))..'%')
-print("--------------------------")
-print("Number of items      " .. dbsize)
+print("---------------------------")
+print("Total known URIs     " .. known_url_count)
+print("Total fresh URIs     " .. fresh_url_count)
+print("---------------------------")
+print("Total items          " .. dbsize)
 print("Memory usage         " .. info['used_memory_human'])
 print("Peak memory usage    " .. info['used_memory_peak_human'])
 print("Expired items        " .. info['expired_keys'])
 print("Evictions            " .. info['evicted_keys'])
-print("--------------------------")
+print("---------------------------")
 print(" ")
