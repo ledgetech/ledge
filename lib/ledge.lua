@@ -232,10 +232,9 @@ function ledge.fetch()
         })
 
         -- Could not proxy for some reason
-        if not origin.status == ngx.HTTP_OK then
+        if origin.status >= 500 then
             return nil, origin.status
-        end
-        
+        end 
 
         ctx.response.status = origin.status
         ctx.response.header = origin.header
