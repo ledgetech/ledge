@@ -35,7 +35,7 @@ function ledge.main()
     ledge.config_file()
     event.emit("config_loaded")
 
-    if ledge.request_is_cacheable() then
+    if ledge.request_accepts_cache() then
         -- Prepare fetches from cache, so we're either primed with a full response
         -- to send, or cold with an empty response which must be fetched.
         ledge.prepare()
@@ -185,7 +185,7 @@ end
 function ledge.cache.save(response)
     local ctx = ngx.ctx
 
-    if not ngx.var.request_method == "GET" or not ledge.response_is_cacheable(response) then
+    if not ledge.response_is_cacheable(response) then
         return 0 -- Not cacheable, but no error
     end
 
@@ -205,7 +205,7 @@ function ledge.cache.save(response)
     local expire_q = { 'EXPIRE', ngx.var.cache_key, ledge.calculate_expiry(response) }
 
     -- Add this to the expires queue, for cache priming and analysis.
-    local expires_queue_q = { 'ZADD', 'expires_queue', response.expires, ngx.var.full_uri }
+    local expires_queue_q = { 'ZADD', 'ledge:uris_by_expiry', response.expires, ngx.var.full_uri }
 
     -- Run the queries
     local reply = assert(redis.query_pipeline({ q, expire_q, expires_queue_q }), "Failed to query Redis")
@@ -321,7 +321,7 @@ function ledge.send()
     ngx.status = response.status
     
     -- Update stats
-    redis.query({'INCR', 'sledge:counter:' .. ledge.states.tostring(response.state)})
+    redis.query({'INCR', 'ledge:counter:' .. ledge.states.tostring(response.state)})
 
     -- Via header
     local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. ledge.version .. ')'
@@ -354,7 +354,9 @@ function ledge.send()
 end
 
 
-function ledge.request_is_cacheable() 
+function ledge.request_accepts_cache() 
+    -- Only cache GET. I guess this should be configurable.
+    if ledge.request_method_constant() ~= ngx.HTTP_GET then return false end
     local headers = ngx.req.get_headers()
     if headers['cache-control'] == 'no-cache' or headers['Pragma'] == 'no-cache' then
         return false
