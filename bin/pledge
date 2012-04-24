@@ -1,62 +1,10 @@
 #!/usr/bin/env lua
-
 require 'redis'
 local redis = Redis.connect('127.0.0.1', 6379)
 
-require 'zmq'
+local zmq = require 'zmq'
 zmq.threads = require 'zmq.threads'
-
-socket = require 'socket'
-
-
-local concurrency = 2
-
-io.stdout:write("pledge 0.1 (ledge primer)\n\n")
-
--- This is the primer worker code, loaded into a thread.
-local primer_code = [[
-    local id = ...
-
-    local zmq = require 'zmq'
-    local threads = require 'zmq.threads'
-    local context = threads.get_parent_ctx()
-
-    -- PULL jobs from the primers socket
-    local jobs = context:socket(zmq.PULL)
-    assert(jobs:connect("inproc://primers"))
-
-    function log(msg)
-        io.stdout:write(os.date('%c', os.time()) .. ' ' .. msg .. "\n")
-        io.stdout:flush()
-    end
-
-    local http = require 'socket.http'
-    local url = require 'socket.url'
-
-    while true do
-        local msg = jobs:recv()
-        log("#"..id.." Priming " .. msg)
-
-        -- Change the host to localhost.. we'll manually add the Host header.
-        local parsed_url = url.parse(msg)
-        local origin_host = parsed_url.host
-        parsed_url.host = '127.0.0.1'
-
-        --  Do some 'work'
-        local s, c, h = http.request({
-            url = url.build(parsed_url),
-            headers = { 
-                ['Cache-Control'] = 'no-cache',
-                ['Host'] = origin_host
-            },
-        })
-
-        log("#"..id.." Done ("..c..")")
-        
-    end
-    jobs:close()
-    return nil
-]]
+local socket = require 'socket'
 
 local context = zmq.init(1)
 
@@ -64,16 +12,25 @@ local context = zmq.init(1)
 local primers = context:socket(zmq.PUSH)
 primers:bind("inproc://primers")
 
+local stalework = context:socket(zmq.PULL)
+stalework:bind("inproc://stalework")
+
 --  Launch pool of primer threads
+local concurrency = ... or 1
 local primer_pool = {}
 for n = 1, concurrency do
-    primer_pool[n] = zmq.threads.runstring(context, primer_code, n)
+    primer_pool[n] = zmq.threads.runfile(context, './bin/primer.lua', n)
     primer_pool[n]:start()
 end
 
+local sub_thread = zmq.threads.runfile(context, './bin/subscriber.lua')
+sub_thread:start()
+
+
+io.stdout:write("pledge 0.1 (ledge primer)\n\n")
 io.stdout:write("Ready with " .. #primer_pool .. " threads...\n")
 io.stdout:flush()
-    
+
 -- On the first load we'll push work out for all known expired URIs.
 -- Work being done gets set to -1, and future iterations look >= 0 
 -- to avoid repetition.
@@ -81,7 +38,13 @@ local min_time = "-inf"
 
 -- Periodically ask Redis for expired items
 while true do
-    socket.sleep(3) -- Sleep first so that ZMQ has a chance.
+    socket.sleep(1) -- Sleep first so that ZMQ has a chance.
+    
+    -- First see if we've been notified of any stale items
+    local stale = stalework:recv(zmq.NOBLOCK)
+    if (stale ~= nil) then
+        primers:send(stale)
+    end
 
     -- Look for expired items
     local expired = redis:zrangebyscore('ledge:uris_by_expiry', min_time, os.time())
