@@ -17,7 +17,7 @@ config.set("collapse_origin_requests", false)
 config.set("serve_when_stale", 300, { 
     match_uri = { 
         { "^/esi%-fragments/time", 60 },
-    } 
+    },
 })
 
 -- You can define event handlers too. Predefined events are:
@@ -37,16 +37,29 @@ config.set("serve_when_stale", 300, {
 --      end)
 
 -- Remove Set-Cookie for cacheable responses
+--[[
 event.listen("response_ready", function()
     local response = ngx.ctx.response
     if response.state >= ledge.states.WARM and response.header['Set-Cookie'] then
         response.header['Set-Cookie'] = nil
     end
 end)
+--]]
+
+-- Completely disregard no-cache
+event.listen("origin_fetched", function()
+    if ngx.var.host == 'reboot.squiz.net' and ngx.var.request_method == "GET" then
+        local ttl = 3600
+        ngx.ctx.response.header['Cache-Control'] = "max-age="..ttl..", public"
+        ngx.ctx.response.header['Pragma'] = nil
+        ngx.ctx.response.header['Expires'] = ngx.http_time(ngx.time() + ttl)
+    end
+end)
 
 -- A basic ESI parser
-event.listen("response_ready", function()
+--[[event.listen("response_ready", function()
     local response = ngx.ctx.response
+    if not response.body then return end
 
     -- We can't do ngx.location.capture within a Lua callback, so we must fetch
     -- in advance, and then swap afterwards.
@@ -74,3 +87,4 @@ event.listen("response_ready", function()
     end)
     ngx.ctx.response = response
 end)
+]]--
