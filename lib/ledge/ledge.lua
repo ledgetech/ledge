@@ -1,6 +1,10 @@
-local redis = require("lib.redis")
-local config = require("lib.config")
-local event = require("lib.event")
+module("ledge.ledge", package.seeall)
+local mt = { __index = ledge.ledge }
+
+--local redis = require("lib.redis")
+local config = require("ledge.config")
+local event = require("ledge.event")
+local redis = require("ledge.redis")
     
 -- Perform assertions on the nginx config only on the first run
 assert(ngx.var.cache_key, "cache_key not defined in nginx config")
@@ -10,51 +14,49 @@ assert(ngx.var.config_file, "config_file not defined in nginx config")
 assert(ngx.var.loc_redis, "loc_redis not defined in nginx config")
 assert(ngx.var.loc_origin, "loc_origin not defined in nginx config")
 
-local ledge = {
-    version = '0.1',
+local version = '0.1'
 
-    config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile"),
-    cache = {}, -- Namespace
+local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
+local cache = {} -- Namespace
 
-    states = {
+local states = {
         SUBZERO = 1,
         COLD    = 2,
         WARM    = 3,
         HOT     = 4,
-    },
+    }
 
-    actions = {
+local actions = {
         FETCHED     = 1,
         COLLAPSED   = 2,
-    },
-}
+    }
 
 
-function ledge.main()
+function main()
     -- Run the config to determine run level options for this request
-    ledge.config_file()
+    config_file()
     event.emit("config_loaded")
 
-    if ledge.request_accepts_cache() then
+    if request_accepts_cache() then
         -- Prepare fetches from cache, so we're either primed with a full response
         -- to send, or cold with an empty response which must be fetched.
-        ledge.prepare()
+        prepare()
 
         local response = ngx.ctx.response
         -- Send and/or fetch, depending on the state
-        if (response.state == ledge.states.HOT) then
-            ledge.send()
-        elseif (response.state == ledge.states.WARM) then
-            ledge.background_fetch()
-            ledge.send()
-        elseif (response.state < ledge.states.WARM) then
-            ngx.ctx.response = ledge.fetch()
-            ledge.send()
+        if (response.state == states.HOT) then
+            send()
+        elseif (response.state == states.WARM) then
+            background_fetch()
+            send()
+        elseif (response.state < states.WARM) then
+            ngx.ctx.response = fetch()
+            send()
         end
     else 
-        ngx.ctx.response = { state = ledge.states.SUBZERO }
-        ngx.ctx.response = ledge.fetch()
-        ledge.send()
+        ngx.ctx.response = { state = states.SUBZERO }
+        ngx.ctx.response = fetch()
+        send()
     end
 
     event.emit("finished")
@@ -65,7 +67,7 @@ end
 --
 -- @param   void
 -- @return  const
-function ledge.request_method_constant()
+function request_method_constant()
     local m = ngx.var.request_method
     if (m == "GET") then
         return ngx.HTTP_GET
@@ -88,8 +90,8 @@ end
 --
 -- @param   number  State
 -- @return  string  State as a string
-function ledge.states.tostring(state)
-    for k,v in pairs(ledge.states) do
+function states.tostring(state)
+    for k,v in pairs(states) do
         if v == state then
             return k
         end
@@ -102,8 +104,8 @@ end
 --
 -- @param   number  Action
 -- @return  string  Action as a string
-function ledge.actions.tostring(action)
-    for k,v in pairs(ledge.actions) do
+function actions.tostring(action)
+    for k,v in pairs(actions) do
         if v == action then
             return k
         end
@@ -114,8 +116,8 @@ end
 -- Prepares the response by attempting to read from cache.
 -- A skeletol response object will be returned with a state of < WARM
 -- in the event of a cache miss.
-function ledge.prepare()
-    local response, state = ledge.cache.read()
+function prepare()
+    local response, state = cache.read()
     if not response then response = {} end -- Cache miss
     response.state = state
     ngx.ctx.response = response
@@ -126,7 +128,7 @@ end
 --
 -- @param	string              The URI (cache key)
 -- @return	table|nil, state    The response table or nil, the cache state
-function ledge.cache.read()
+function cache.read()
     local ctx = ngx.ctx
 
     -- Fetch from Redis
@@ -143,7 +145,7 @@ function ledge.cache.read()
     -- A positive TTL tells us if there's anything valid
     obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. ngx.var.cache_key)
     if obj.ttl < 0 then
-        return nil, ledge.states.SUBZERO  -- Cache miss
+        return nil, states.SUBZERO  -- Cache miss
     end
 
     assert(type(reply[1]) == 'table', 
@@ -171,9 +173,9 @@ function ledge.cache.read()
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
     if ctx.config.serve_when_stale and obj.ttl - ctx.config.serve_when_stale <= 0 then
-        return obj, ledge.states.WARM
+        return obj, states.WARM
     else
-        return obj, ledge.states.HOT
+        return obj, states.HOT
     end
 end
 
@@ -182,10 +184,10 @@ end
 --
 -- @param	response	            The HTTP response object to store
 -- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
-function ledge.cache.save(response)
+function cache.save(response)
     local ctx = ngx.ctx
 
-    if not ledge.response_is_cacheable(response) then
+    if not response_is_cacheable(response) then
         return 0 -- Not cacheable, but no error
     end
 
@@ -202,7 +204,7 @@ function ledge.cache.save(response)
     end
 
     -- Our EXPIRE query
-    local expire_q = { 'EXPIRE', ngx.var.cache_key, ledge.calculate_expiry(response) }
+    local expire_q = { 'EXPIRE', ngx.var.cache_key, calculate_expiry(response) }
 
     -- Add this to the expires queue, for cache priming and analysis.
     local expires_queue_q = { 'ZADD', 'ledge:uris_by_expiry', response.expires, ngx.var.full_uri }
@@ -217,7 +219,7 @@ end
 --
 -- @param	table	The URI table
 -- @return	table	Response
-function ledge.fetch()
+function fetch()
     event.emit("origin_required")
 
     local keys = ngx.ctx.keys
@@ -227,7 +229,7 @@ function ledge.fetch()
     if not ctx.config.collapse_origin_requests then
         -- We can do a straight foward fetch-and-store
         local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri, {
-            method = ledge.request_method_constant(),
+            method = request_method_constant(),
             body = ngx.var.request_body,
         })
 
@@ -239,12 +241,12 @@ function ledge.fetch()
         ctx.response.status = origin.status
         ctx.response.header = origin.header
         ctx.response.body = origin.body
-        ctx.response.action  = ledge.actions.FETCHED
+        ctx.response.action  = actions.FETCHED
         
         event.emit("origin_fetched")
 
         -- Save
-        assert(ledge.cache.save(origin), "Could not save fetched object")
+        assert(cache.save(origin), "Could not save fetched object")
 
         return ctx.response
     else
@@ -259,7 +261,7 @@ function ledge.fetch()
         if (fetch == 1) then -- Go do the fetch
             local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri);
             event.emit("origin_fetched")
-            ledge.cache.save(origin)
+            cache.save(origin)
 
             -- Remove the fetch and publish to waiting threads
             redis.query({ 'DEL', fetch_key })
@@ -268,7 +270,7 @@ function ledge.fetch()
             response.status = origin.status
             response.body = origin.body
             response.header = origin.header
-            response.action = ledge.actions.FETCHED
+            response.action = actions.FETCHED
 
             return response
         else
@@ -284,11 +286,11 @@ function ledge.fetch()
                 for k,v in pairs(messages) do
                     if (v == 'finished') then
                         -- Go get from redis
-                        local response = ledge.cache.read()
+                        local response = cache.read()
                         response.status = cache.status
                         response.body = cache.body
                         response.header = cache.header
-                        response.action = ledge.actions.COLLAPSED
+                        response.action = actions.COLLAPSED
                         return response
                     end
                 end
@@ -302,7 +304,7 @@ end
 
 -- Publish that an item needs fetching in the background.
 -- Returns immediately.
-function ledge.background_fetch()
+function background_fetch()
     redis.query({ 'PUBLISH', 'revalidate', ngx.var.full_uri })
 end
 
@@ -313,17 +315,17 @@ end
 --
 -- @param   table   Response object
 -- @return  void
-function ledge.send()
+function send()
     event.emit("response_ready")
 
     local response = ngx.ctx.response
     ngx.status = response.status
     
     -- Update stats
-    redis.query({'INCR', 'ledge:counter:' .. ledge.states.tostring(response.state)})
+    redis.query({'INCR', 'ledge:counter:' .. states.tostring(response.state)})
 
     -- Via header
-    local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. ledge.version .. ')'
+    local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. version .. ')'
     if  (response.header['Via'] ~= nil) then
         ngx.header['Via'] = via .. ', ' .. response.header['Via']
     else
@@ -336,14 +338,14 @@ function ledge.send()
     end
 
     -- X-Cache header
-    if response.state >= ledge.states.WARM then
+    if response.state >= states.WARM then
         ngx.header['X-Cache'] = 'HIT' 
     else
         ngx.header['X-Cache'] = 'MISS'
     end
 
-    ngx.header['X-Cache-State'] = ledge.states.tostring(response.state)
-    ngx.header['X-Cache-Action'] = ledge.actions.tostring(response.action)
+    ngx.header['X-Cache-State'] = states.tostring(response.state)
+    ngx.header['X-Cache-Action'] = actions.tostring(response.action)
 
     -- Always ensure we send the correct length
     response.header['Content-Length'] = #response.body
@@ -353,9 +355,9 @@ function ledge.send()
 end
 
 
-function ledge.request_accepts_cache() 
+function request_accepts_cache() 
     -- Only cache GET. I guess this should be configurable.
-    if ledge.request_method_constant() ~= ngx.HTTP_GET then return false end
+    if request_method_constant() ~= ngx.HTTP_GET then return false end
     local headers = ngx.req.get_headers()
     if headers['cache-control'] == 'no-cache' or headers['Pragma'] == 'no-cache' then
         return false
@@ -366,7 +368,7 @@ end
 
 -- Determines if the response can be stored, based on RFC 2616.
 -- This is probably not complete.
-function ledge.response_is_cacheable(response)
+function response_is_cacheable(response)
     local cacheable = true
 
     local nocache_headers = {}
@@ -392,9 +394,9 @@ end
 
 
 -- Work out the valid expiry from the Expires header.
-function ledge.calculate_expiry(response)
+function calculate_expiry(response)
     response.ttl = 0
-    if (ledge.response_is_cacheable(response)) then
+    if (response_is_cacheable(response)) then
         local ex = response.header['Expires']
         if ex then
             local serve_when_stale = ngx.ctx.config.serve_when_stale or 0
@@ -415,6 +417,3 @@ setmetatable(ledge, {})
 getmetatable(ledge).__newindex = function(table, key, val) 
     error('Attempt to write to undeclared variable "'..key..'": '..debug.traceback()) 
 end
-
-
-return ledge

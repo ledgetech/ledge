@@ -1,6 +1,6 @@
-local config = require("lib.config")
-local event = require("lib.event")
-local ledge = require("lib.ledge")
+local config = require("ledge.config")
+local event = require("ledge.event")
+local ledge = require("ledge.ledge")
 
 -- collapse_origin_requests
 --
