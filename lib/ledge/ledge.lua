@@ -1,11 +1,7 @@
 module("ledge.ledge", package.seeall)
-local mt = { __index = ledge.ledge }
 
---local redis = require("lib.redis")
-local config = require("ledge.config")
-local event = require("ledge.event")
-local redis = require("ledge.redis")
-    
+_VERSION = 'resty-0.1'
+
 -- Perform assertions on the nginx config only on the first run
 assert(ngx.var.cache_key, "cache_key not defined in nginx config")
 assert(ngx.var.full_uri, "full_uri not defined in nginx config")
@@ -14,23 +10,23 @@ assert(ngx.var.config_file, "config_file not defined in nginx config")
 assert(ngx.var.loc_redis, "loc_redis not defined in nginx config")
 assert(ngx.var.loc_origin, "loc_origin not defined in nginx config")
 
-local version = '0.1'
+local config = require("ledge.config")
+local event = require("ledge.event")
+local redis = require("ledge.redis")
 
 local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
-local cache = {} -- Namespace
 
 local states = {
-        SUBZERO = 1,
-        COLD    = 2,
-        WARM    = 3,
-        HOT     = 4,
-    }
+    SUBZERO = 1,
+    COLD    = 2,
+    WARM    = 3,
+    HOT     = 4,
+}
 
 local actions = {
-        FETCHED     = 1,
-        COLLAPSED   = 2,
-    }
-
+    FETCHED     = 1,
+    COLLAPSED   = 2,
+}
 
 function main()
     -- Run the config to determine run level options for this request
@@ -117,7 +113,7 @@ end
 -- A skeletol response object will be returned with a state of < WARM
 -- in the event of a cache miss.
 function prepare()
-    local response, state = cache.read()
+    local response, state = cache_read()
     if not response then response = {} end -- Cache miss
     response.state = state
     ngx.ctx.response = response
@@ -128,7 +124,7 @@ end
 --
 -- @param	string              The URI (cache key)
 -- @return	table|nil, state    The response table or nil, the cache state
-function cache.read()
+function cache_read()
     local ctx = ngx.ctx
 
     -- Fetch from Redis
@@ -184,7 +180,7 @@ end
 --
 -- @param	response	            The HTTP response object to store
 -- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
-function cache.save(response)
+function cache_save(response)
     local ctx = ngx.ctx
 
     if not response_is_cacheable(response) then
@@ -246,7 +242,7 @@ function fetch()
         event.emit("origin_fetched")
 
         -- Save
-        assert(cache.save(origin), "Could not save fetched object")
+        assert(cache_save(origin), "Could not save fetched object")
 
         return ctx.response
     else
@@ -261,7 +257,7 @@ function fetch()
         if (fetch == 1) then -- Go do the fetch
             local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri);
             event.emit("origin_fetched")
-            cache.save(origin)
+            cache_save(origin)
 
             -- Remove the fetch and publish to waiting threads
             redis.query({ 'DEL', fetch_key })
@@ -286,7 +282,7 @@ function fetch()
                 for k,v in pairs(messages) do
                     if (v == 'finished') then
                         -- Go get from redis
-                        local response = cache.read()
+                        local response = cache_read()
                         response.status = cache.status
                         response.body = cache.body
                         response.header = cache.header
@@ -325,7 +321,7 @@ function send()
     redis.query({'INCR', 'ledge:counter:' .. states.tostring(response.state)})
 
     -- Via header
-    local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. version .. ')'
+    local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. _VERSION .. ')'
     if  (response.header['Via'] ~= nil) then
         ngx.header['Via'] = via .. ', ' .. response.header['Via']
     else
