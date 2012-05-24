@@ -138,11 +138,12 @@ end
 function cache_read()
     local ctx = ngx.ctx
 
-    -- Fetch from Redis
-    local reply = assert(redis.query_pipeline({
-        { 'HGETALL', ngx.var.cache_key },
-        { 'TTL', ngx.var.cache_key }
-    }), "Failed to query Redis")
+    -- Fetch from Redis, pipeline to reduce overhead
+    red:init_pipeline()
+    local cache_parts = red:hgetall(ngx.var.cache_key)
+    local ttl = red:ttl(ngx.var.cache_key)
+    local replies, err = red:commit_pipeline()
+    assert(replies, "Failed to query Redis: " .. err)
 
     -- Our cache object
     local obj = {
@@ -150,16 +151,17 @@ function cache_read()
     }
     
     -- A positive TTL tells us if there's anything valid
-    obj.ttl = assert(tonumber(reply[2]), "Bad TTL found for " .. ngx.var.cache_key)
+    obj.ttl = assert(tonumber(replies[2]), "Bad TTL found for " .. ngx.var.cache_key)
     if obj.ttl < 0 then
         return nil, states.SUBZERO  -- Cache miss
     end
 
-    assert(type(reply[1]) == 'table', 
+    -- We should get a table of cache entry values
+    assert(type(replies[1]) == 'table', 
         "Failed to collect cache data from Redis")
 
-    local cache_parts = reply[1]
-    -- The Redis reply is a sequence of messages, so we iterate over pairs
+    local cache_parts = replies[1]
+    -- The Redis replies is a sequence of messages, so we iterate over pairs
     -- to get hash key/values.
     for i = 1, #cache_parts, 2 do
         if cache_parts[i] == 'body' then
