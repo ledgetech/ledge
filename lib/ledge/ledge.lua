@@ -1,6 +1,6 @@
 module("ledge.ledge", package.seeall)
 
-_VERSION = 'resty-0.1'
+_VERSION = '0.01'
 
 -- Perform assertions on the nginx config only on the first run
 assert(ngx.var.cache_key, "cache_key not defined in nginx config")
@@ -13,6 +13,11 @@ assert(ngx.var.loc_origin, "loc_origin not defined in nginx config")
 local config = require("ledge.config")
 local event = require("ledge.event")
 local redis = require("ledge.redis")
+local cjson = require("cjson")
+
+local r = require "resty.redis"
+local red = r:new()
+red:set_timeout(ngx.var.redis_connect_timeout or 1000) -- Default to 1 sec
 
 local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
 
@@ -29,6 +34,12 @@ local actions = {
 }
 
 function main()
+    -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
+    local ok, err = red:connect(
+        ngx.var.redis_host or ngx.var.redis_socket or "127.0.0.1", 
+        ngx.var.redis_port or 6379
+    )
+
     -- Run the config to determine run level options for this request
     config_file()
     event.emit("config_loaded")
