@@ -143,7 +143,9 @@ function cache_read()
     local cache_parts = red:hgetall(ngx.var.cache_key)
     local ttl = red:ttl(ngx.var.cache_key)
     local replies, err = red:commit_pipeline()
-    assert(replies, "Failed to query Redis: " .. err)
+    if not replies then
+        error("Failed to query Redis: " .. err)
+    end
 
     -- Our cache object
     local obj = {
