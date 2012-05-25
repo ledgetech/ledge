@@ -56,7 +56,7 @@ function proxy(proxy_location)
         end
     else 
         ngx.ctx.response = { state = states.SUBZERO }
-        ngx.ctx.response = fetch()
+        ngx.ctx.response = fetch(proxy_location)
         send()
     end
     event.emit("finished")
