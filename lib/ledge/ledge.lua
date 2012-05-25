@@ -14,8 +14,9 @@ local resty_redis = require("resty.redis")
 local redis = resty_redis:new()
 local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
 
--- Cache states
-local states = {
+
+-- Cache states 
+local cache_states= {
     SUBZERO = 1, -- We don't know anything about this URI. Either first hit or not cacheable.
     COLD    = 2, -- Previosuly cacheable, expired and beyond stale. Revalidate.
     WARM    = 3, -- Previously cacheable, cached but stale. Serve and bg refresh.
@@ -23,37 +24,10 @@ local states = {
 }
 
 -- Proxy actions
-local actions = {
+local proxy_actions = {
     FETCHED     = 1, -- Went to the origin.
     COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
 }
-
--- Returns the state name as string (for logging).
--- One of 'SUBZERO', 'COLD', 'WARM', or 'HOT'.
---
--- @param   number  State
--- @return  string  State as a string
-function states.tostring(state)
-    for k,v in pairs(states) do
-        if v == state then
-            return k
-        end
-    end
-end
-
-
--- Returns the action type as string (for logging).
--- One of 'FETCHED', 'COLLAPSED'.
---
--- @param   number  Action
--- @return  string  Action as a string
-function actions.tostring(action)
-    for k,v in pairs(actions) do
-        if v == action then
-            return k
-        end
-    end
-end
 
 
 -- This is the only public method, to be called from nginx configuration.
@@ -79,12 +53,12 @@ function proxy(proxy_location)
         prepare()
         local response = ngx.ctx.response
         -- Send and/or fetch, depending on the state
-        if (response.state == states.HOT) then
+        if (response.state == cache_states.HOT) then
             send()
-        elseif (response.state == states.WARM) then
+        elseif (response.state == cache_states.WARM) then
             background_fetch(proxy_location)
             send()
-        elseif (response.state < states.WARM) then
+        elseif (response.state < cache_states.WARM) then
             ngx.ctx.response, status = fetch(proxy_location)
             if not ngx.ctx.response then
                 ngx.exit(status)
@@ -92,7 +66,7 @@ function proxy(proxy_location)
             send()
         end
     else 
-        ngx.ctx.response = { state = states.SUBZERO }
+        ngx.ctx.response = { state = cache_states.SUBZERO }
         ngx.ctx.response, status = fetch(proxy_location)
         if not ngx.ctx.response then
             ngx.exit(status)
@@ -107,8 +81,6 @@ function proxy(proxy_location)
         ngx.var.redis_keepalive_pool_size or 100
     )
 end
-
-
 
 
 -- Prepares the response by attempting to read from cache.
@@ -146,7 +118,7 @@ function cache_read()
     -- A positive TTL tells us if there's anything valid
     obj.ttl = assert(tonumber(replies[2]), "Bad TTL found for " .. ngx.var.cache_key)
     if obj.ttl < 0 then
-        return nil, states.SUBZERO  -- Cache miss
+        return nil, cache_states.SUBZERO  -- Cache miss
     end
 
     -- We should get a table of cache entry values
@@ -175,9 +147,9 @@ function cache_read()
     -- Determine freshness from config.
     -- TODO: Perhaps we should be storing stale policies rather than asking config?
     if ctx.config.serve_when_stale and obj.ttl - ctx.config.serve_when_stale <= 0 then
-        return obj, states.WARM
+        return obj, cache_states.WARM
     else
-        return obj, states.HOT
+        return obj, cache_states.HOT
     end
 end
 
@@ -247,7 +219,7 @@ function fetch(proxy_location)
     ctx.response.status = origin.status
     ctx.response.header = origin.header
     ctx.response.body = origin.body
-    ctx.response.action  = actions.FETCHED
+    ctx.response.action  = proxy_actions.FETCHED
 
     event.emit("origin_fetched")
 
@@ -274,9 +246,28 @@ end
 function send()
     local response = ngx.ctx.response
     ngx.status = response.status
-    
+
+    -- Get the cache state as human string for response headers
+    local cache_state_human = ''
+    for k,v in pairs(cache_states) do
+        if v == response.state then
+            cache_state_human = tostring(k)
+            break
+        end
+    end
+
+    -- Same for the proxy action
+    local proxy_action_human = ''
+    local action = response.action
+    for k,v in pairs(proxy_actions) do
+        if v == response.action then
+            proxy_action_human = tostring(k)
+            break
+        end
+    end
+
     -- Update stats
-    redis:incr('ledge:counter:' .. states.tostring(response.state):lower())
+    redis:incr('ledge:counter:' .. cache_state_human:lower())
 
     -- TODO: Handle Age properly as per http://www.freesoft.org/CIE/RFC/2068/131.htm
     -- Age header
@@ -302,14 +293,14 @@ function send()
     end
 
     -- X-Cache header
-    if response.state >= states.WARM then
+    if response.state >= cache_states.WARM then
         ngx.header['X-Cache'] = 'HIT' 
     else
         ngx.header['X-Cache'] = 'MISS'
     end
 
-    ngx.header['X-Cache-State'] = states.tostring(response.state)
-    ngx.header['X-Cache-Action'] = actions.tostring(response.action)
+    ngx.header['X-Cache-State'] = cache_state_human
+    ngx.header['X-Cache-Action'] = action_human
     
     event.emit("response_ready")
 
@@ -325,7 +316,7 @@ end
 
 function request_accepts_cache() 
     -- Only cache GET. I guess this should be configurable.
-    if request_method_constant() ~= ngx.HTTP_GET then return false end
+    if ngx['HTTP_'..ngx.var.request_method] ~= ngx.HTTP_GET then return false end
     local headers = ngx.req.get_headers()
     if headers['cache-control'] == 'no-cache' or headers['Pragma'] == 'no-cache' then
         return false
