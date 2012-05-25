@@ -66,6 +66,9 @@ function main()
         send()
     end
     event.emit("finished")
+
+    -- Keep the Redis connection
+    red:set_keepalive(ngx.var.redis_keepalive_idle or 0, ngx.var.keepalive_poolsize or 100)
 end
 
 
@@ -267,9 +270,9 @@ function fetch()
 
         -- Set the fetch key
         local fetch_key = ngx.var.cache_key .. ':fetch'
-        local fetch = redis.query({ 'SETNX', fetch_key, '1' })
+        local fetch = red:setnx(fetch_key, '1')
         -- TODO: Read from config
-        redis.query({ 'EXPIRE', fetch_key, '10' })
+        red:expire(fetch_key, '10')
 
         if (fetch == 1) then -- Go do the fetch
             local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri);
@@ -277,8 +280,8 @@ function fetch()
             cache_save(origin)
 
             -- Remove the fetch and publish to waiting threads
-            redis.query({ 'DEL', fetch_key })
-            redis.query({ 'PUBLISH', ngx.var.cache_key, 'finished' })
+            red:del(fetch_key)
+            red:publish(ngx.var.cache_key, 'finished')
 
             response.status = origin.status
             response.body = origin.body
@@ -318,7 +321,7 @@ end
 -- Publish that an item needs fetching in the background.
 -- Returns immediately.
 function background_fetch()
-    redis.query({ 'PUBLISH', 'revalidate', ngx.var.full_uri })
+    red:publish('revalidate', ngx.var.full_uri)
 end
 
 
@@ -329,16 +332,14 @@ end
 -- @param   table   Response object
 -- @return  void
 function send()
-    event.emit("response_ready")
-
     local response = ngx.ctx.response
     ngx.status = response.status
     
     -- Update stats
-    redis.query({'INCR', 'ledge:counter:' .. states.tostring(response.state)})
+    red:incr('ledge:counter:' .. states.tostring(response.state):lower())
 
     -- Via header
-    local via = '1.1 ' .. ngx.var.hostname .. ' (Ledge/' .. _VERSION .. ')'
+    local via = '1.1 ' .. ngx.var.hostname
     if  (response.header['Via'] ~= nil) then
         ngx.header['Via'] = via .. ', ' .. response.header['Via']
     else
@@ -359,14 +360,16 @@ function send()
 
     ngx.header['X-Cache-State'] = states.tostring(response.state)
     ngx.header['X-Cache-Action'] = actions.tostring(response.action)
+    
+    event.emit("response_ready")
 
     -- Always ensure we send the correct length
-    response.header['Content-Length'] = #response.body
+    --response.header['Content-Length'] = #response.body
     ngx.print(response.body)
+
     event.emit("response_sent")
 
-    red:set_keepalive(ngx.var.redis_keepalive_idle or 0, ngx.var.keepalive_poolsize or 100)
-    ngx.eof()
+    --ngx.eof()
 end
 
 
