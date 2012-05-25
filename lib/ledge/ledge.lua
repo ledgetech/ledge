@@ -13,7 +13,7 @@ local event = require("ledge.event")
 
 local r = require "resty.redis"
 local red = r:new()
-red:set_timeout(ngx.var.redis_connect_timeout or 1000) -- Default to 1 sec
+red:set_timeout(ngx.var.redis_timeout or 1000) -- Default to 1 sec
 
 local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
 
