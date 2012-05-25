@@ -7,7 +7,6 @@ assert(ngx.var.cache_key, "cache_key not defined in nginx config")
 assert(ngx.var.full_uri, "full_uri not defined in nginx config")
 assert(ngx.var.relative_uri, "relative_uri not defined in nginx config")
 assert(ngx.var.config_file, "config_file not defined in nginx config")
-assert(ngx.var.loc_origin, "loc_origin not defined in nginx config")
 
 local config = require("ledge.config")
 local event = require("ledge.event")
@@ -30,15 +29,12 @@ local actions = {
     COLLAPSED   = 2,
 }
 
-function main()
+function proxy(proxy_location)
     -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
     local ok, err = red:connect(
         ngx.var.redis_host or ngx.var.redis_socket or "127.0.0.1", 
         ngx.var.redis_port or 6379
     )
-  --  ngx.log(ngx.NOTICE, "Connection reused " .. (red:get_reused_times() or "0") .. " times")
-   
-
 
     -- Run the config to determine run level options for this request
     config_file(config)
@@ -52,10 +48,10 @@ function main()
         if (response.state == states.HOT) then
             send()
         elseif (response.state == states.WARM) then
-            background_fetch()
+            background_fetch(proxy_location)
             send()
         elseif (response.state < states.WARM) then
-            ngx.ctx.response = fetch()
+            ngx.ctx.response = fetch(proxy_location)
             send()
         end
     else 
@@ -66,7 +62,10 @@ function main()
     event.emit("finished")
 
     -- Keep the Redis connection
-    red:set_keepalive(ngx.var.redis_keepalive_idle or 0, ngx.var.keepalive_poolsize or 100)
+    red:set_keepalive(
+        ngx.var.redis_keepalive_max_idle_timeout or 0, 
+        ngx.var.redis_keepalive_pool_size or 100
+    )
 end
 
 
@@ -231,16 +230,16 @@ end
 
 -- Fetches a resource from the origin server.
 --
--- @param	table	The URI table
+-- @param	string	The nginx location to proxy using
 -- @return	table	Response
-function fetch()
+function fetch(proxy_location)
     event.emit("origin_required")
 
     local keys = ngx.ctx.keys
     local response = ngx.ctx.response
     local ctx =  ngx.ctx
 
-    local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri, {
+    local origin = ngx.location.capture(proxy_location..ngx.var.relative_uri, {
         method = request_method_constant(),
         body = ngx.var.request_body,
     })
