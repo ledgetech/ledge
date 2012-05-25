@@ -13,7 +13,6 @@ assert(ngx.var.loc_origin, "loc_origin not defined in nginx config")
 local config = require("ledge.config")
 local event = require("ledge.event")
 local redis = require("ledge.redis")
-local cjson = require("cjson")
 
 local r = require "resty.redis"
 local red = r:new()
@@ -39,16 +38,17 @@ function main()
         ngx.var.redis_host or ngx.var.redis_socket or "127.0.0.1", 
         ngx.var.redis_port or 6379
     )
+  --  ngx.log(ngx.NOTICE, "Connection reused " .. (red:get_reused_times() or "0") .. " times")
+   
+
 
     -- Run the config to determine run level options for this request
     config_file()
     event.emit("config_loaded")
-
     if request_accepts_cache() then
         -- Prepare fetches from cache, so we're either primed with a full response
         -- to send, or cold with an empty response which must be fetched.
         prepare()
-
         local response = ngx.ctx.response
         -- Send and/or fetch, depending on the state
         if (response.state == states.HOT) then
@@ -65,7 +65,6 @@ function main()
         ngx.ctx.response = fetch()
         send()
     end
-
     event.emit("finished")
 end
 
@@ -196,33 +195,36 @@ end
 -- @param	response	            The HTTP response object to store
 -- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
 function cache_save(response)
-    local ctx = ngx.ctx
-
     if not response_is_cacheable(response) then
         return 0 -- Not cacheable, but no error
     end
 
-    -- Our SET query
-    local q = { 
-        'HMSET', ngx.var.cache_key,
+    red:init_pipeline()
+
+    -- Turn the headers into a flat list of pairs
+    local h = {}
+    for header,header_value in pairs(response.header) do
+        table.insert(h, 'h:'..header)
+        table.insert(h, header_value)
+    end
+
+    red:hmset(ngx.var.cache_key, 
         'body', response.body, 
         'status', response.status,
         'uri', ngx.var.full_uri,
-    }
-    for header,header_value in pairs(response.header) do
-        table.insert(q, 'h:'..header)
-        table.insert(q, header_value)
+        unpack(h))
+
+    -- Set the expiry (this might include an additional stale period)
+    red:expire(ngx.var.cache_key, calculate_expiry(response))
+
+    -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
+    red:zadd('ledge:uris_by_expiry', response.expires, ngx.var.full_uri)
+
+    local replies, err = red:commit_pipeline()
+    if not replies then
+        error("Failed to query Redis: " .. err)
     end
-
-    -- Our EXPIRE query
-    local expire_q = { 'EXPIRE', ngx.var.cache_key, calculate_expiry(response) }
-
-    -- Add this to the expires queue, for cache priming and analysis.
-    local expires_queue_q = { 'ZADD', 'ledge:uris_by_expiry', response.expires, ngx.var.full_uri }
-
-    -- Run the queries
-    local reply = assert(redis.query_pipeline({ q, expire_q, expires_queue_q }), "Failed to query Redis")
-    return assert(reply[1] == "OK" and reply[2] == 1 and type(reply[3]) == 'number')
+    return assert(replies[1] == "OK" and replies[2] == 1 and type(replies[3]) == 'number')
 end
 
 
@@ -362,6 +364,8 @@ function send()
     response.header['Content-Length'] = #response.body
     ngx.print(response.body)
     event.emit("response_sent")
+
+    red:set_keepalive(ngx.var.redis_keepalive_idle or 0, ngx.var.keepalive_poolsize or 100)
     ngx.eof()
 end
 
