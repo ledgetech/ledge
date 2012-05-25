@@ -11,9 +11,9 @@ assert(ngx.var.config_file, "config_file not defined in nginx config")
 local config = require("ledge.config")
 local event = require("ledge.event")
 
-local r = require "resty.redis"
-local red = r:new()
-red:set_timeout(ngx.var.redis_timeout or 1000) -- Default to 1 sec
+local resty_redis = require "resty.redis"
+local redis = resty_redis:new()
+redis:set_timeout(ngx.var.redis_timeout or 1000) -- Default to 1 sec
 
 local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
 
@@ -31,7 +31,7 @@ local actions = {
 
 function proxy(proxy_location)
     -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
-    local ok, err = red:connect(
+    local ok, err = redis:connect(
         ngx.var.redis_host or ngx.var.redis_socket or "127.0.0.1", 
         ngx.var.redis_port or 6379
     )
@@ -62,7 +62,7 @@ function proxy(proxy_location)
     event.emit("finished")
 
     -- Keep the Redis connection
-    red:set_keepalive(
+    redis:set_keepalive(
         ngx.var.redis_keepalive_max_idle_timeout or 0, 
         ngx.var.redis_keepalive_pool_size or 100
     )
@@ -138,10 +138,10 @@ function cache_read()
     local ctx = ngx.ctx
 
     -- Fetch from Redis, pipeline to reduce overhead
-    red:init_pipeline()
-    local cache_parts = red:hgetall(ngx.var.cache_key)
-    local ttl = red:ttl(ngx.var.cache_key)
-    local replies, err = red:commit_pipeline()
+    redis:init_pipeline()
+    local cache_parts = redis:hgetall(ngx.var.cache_key)
+    local ttl = redis:ttl(ngx.var.cache_key)
+    local replies, err = redis:commit_pipeline()
     if not replies then
         error("Failed to query Redis: " .. err)
     end
@@ -199,7 +199,7 @@ function cache_save(response)
         return 0 -- Not cacheable, but no error
     end
 
-    red:init_pipeline()
+    redis:init_pipeline()
 
     -- Turn the headers into a flat list of pairs
     local h = {}
@@ -208,19 +208,19 @@ function cache_save(response)
         table.insert(h, header_value)
     end
 
-    red:hmset(ngx.var.cache_key, 
+    redis:hmset(ngx.var.cache_key, 
         'body', response.body, 
         'status', response.status,
         'uri', ngx.var.full_uri,
         unpack(h))
 
     -- Set the expiry (this might include an additional stale period)
-    red:expire(ngx.var.cache_key, calculate_expiry(response))
+    redis:expire(ngx.var.cache_key, calculate_expiry(response))
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    red:zadd('ledge:uris_by_expiry', response.expires, ngx.var.full_uri)
+    redis:zadd('ledge:uris_by_expiry', response.expires, ngx.var.full_uri)
 
-    local replies, err = red:commit_pipeline()
+    local replies, err = redis:commit_pipeline()
     if not replies then
         error("Failed to query Redis: " .. err)
     end
@@ -266,7 +266,7 @@ end
 -- Publish that an item needs fetching in the background.
 -- Returns immediately.
 function background_fetch()
-    red:publish('revalidate', ngx.var.full_uri)
+    redis:publish('revalidate', ngx.var.full_uri)
 end
 
 
@@ -281,7 +281,7 @@ function send()
     ngx.status = response.status
     
     -- Update stats
-    red:incr('ledge:counter:' .. states.tostring(response.state):lower())
+    redis:incr('ledge:counter:' .. states.tostring(response.state):lower())
 
     -- TODO: Handle Age properly as per http://www.freesoft.org/CIE/RFC/2068/131.htm
     -- Age header
