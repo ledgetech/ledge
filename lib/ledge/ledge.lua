@@ -8,12 +8,10 @@ assert(ngx.var.full_uri, "full_uri not defined in nginx config")
 assert(ngx.var.relative_uri, "relative_uri not defined in nginx config")
 assert(ngx.var.config_file, "config_file not defined in nginx config")
 
-local config = require("ledge.config")
 local event = require("ledge.event")
+local resty_redis = require("resty.redis")
 
-local resty_redis = require "resty.redis"
 local redis = resty_redis:new()
-redis:set_timeout(ngx.var.redis_timeout or 1000) -- Default to 1 sec
 
 local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
 
@@ -28,68 +26,6 @@ local actions = {
     FETCHED     = 1,
     COLLAPSED   = 2,
 }
-
-function proxy(proxy_location)
-    -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
-    local ok, err = redis:connect(
-        ngx.var.redis_host or ngx.var.redis_socket or "127.0.0.1", 
-        ngx.var.redis_port or 6379
-    )
-
-    -- Run the config to determine run level options for this request
-    config_file(config)
-    event.emit("config_loaded")
-    if request_accepts_cache() then
-        -- Prepare fetches from cache, so we're either primed with a full response
-        -- to send, or cold with an empty response which must be fetched.
-        prepare()
-        local response = ngx.ctx.response
-        -- Send and/or fetch, depending on the state
-        if (response.state == states.HOT) then
-            send()
-        elseif (response.state == states.WARM) then
-            background_fetch(proxy_location)
-            send()
-        elseif (response.state < states.WARM) then
-            ngx.ctx.response = fetch(proxy_location)
-            send()
-        end
-    else 
-        ngx.ctx.response = { state = states.SUBZERO }
-        ngx.ctx.response = fetch(proxy_location)
-        send()
-    end
-    event.emit("finished")
-
-    -- Keep the Redis connection
-    redis:set_keepalive(
-        ngx.var.redis_keepalive_max_idle_timeout or 0, 
-        ngx.var.redis_keepalive_pool_size or 100
-    )
-end
-
-
--- Returns the current request method as an ngx.HTTP_{METHOD} constant.
---
--- @param   void
--- @return  const
-function request_method_constant()
-    local m = ngx.var.request_method
-    if (m == "GET") then
-        return ngx.HTTP_GET
-    elseif (m == "POST") then
-        return ngx.HTTP_POST
-    elseif (m == "HEAD") then
-        return ngx.HTTP_HEAD
-    elseif (m == "PUT") then
-        return ngx.HTTP_PUT
-    elseif (m == "DELETE") then
-        return ngx.HTTP_DELETE
-    else
-        return nil
-    end
-end
-
 
 -- Returns the state name as string (for logging).
 -- One of 'SUBZERO', 'COLD', 'WARM', or 'HOT'.
@@ -117,6 +53,61 @@ function actions.tostring(action)
         end
     end
 end
+
+
+-- This is the only public method, to be called from nginx configuration.
+--
+-- @param   string  The nginx location name for proxying.
+-- @return  void
+function proxy(proxy_location)
+    -- Connect to Redis. Keepalive will stop this from happening on each request.
+    -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
+    redis:set_timeout(ngx.var.redis_timeout or 1000) -- Default to 1 sec
+    local ok, err = redis:connect(
+        ngx.var.redis_host or ngx.var.redis_socket or "127.0.0.1", 
+        ngx.var.redis_port or 6379
+    )
+
+    -- Run the config to determine run level options for this request
+    config_file(config)
+    event.emit("config_loaded")
+
+    if request_accepts_cache() then
+        -- Prepare fetches from cache, so we're either primed with a full response
+        -- to send, or cold with an empty response which must be fetched.
+        prepare()
+        local response = ngx.ctx.response
+        -- Send and/or fetch, depending on the state
+        if (response.state == states.HOT) then
+            send()
+        elseif (response.state == states.WARM) then
+            background_fetch(proxy_location)
+            send()
+        elseif (response.state < states.WARM) then
+            ngx.ctx.response, status = fetch(proxy_location)
+            if not ngx.ctx.response then
+                ngx.exit(status)
+            end
+            send()
+        end
+    else 
+        ngx.ctx.response = { state = states.SUBZERO }
+        ngx.ctx.response, status = fetch(proxy_location)
+        if not ngx.ctx.response then
+            ngx.exit(status)
+        end
+        send()
+    end
+    event.emit("finished")
+
+    -- Keep the Redis connection
+    redis:set_keepalive(
+        ngx.var.redis_keepalive_max_idle_timeout or 0, 
+        ngx.var.redis_keepalive_pool_size or 100
+    )
+end
+
+
 
 
 -- Prepares the response by attempting to read from cache.
@@ -239,9 +230,12 @@ function fetch(proxy_location)
     local response = ngx.ctx.response
     local ctx =  ngx.ctx
 
+    -- We must explicitly read the body
+    ngx.req.read_body()
+
     local origin = ngx.location.capture(proxy_location..ngx.var.relative_uri, {
         method = request_method_constant(),
-        body = ngx.var.request_body,
+        body = ngx.req.get_body_data(),
     })
 
     -- Could not proxy for some reason
@@ -379,6 +373,28 @@ function calculate_expiry(response)
     end
 
     return response.ttl
+end
+
+
+-- Returns the current request method as an ngx.HTTP_{METHOD} constant.
+--
+-- @param   void
+-- @return  const
+function request_method_constant()
+    local m = ngx.var.request_method
+    if (m == "GET") then
+        return ngx.HTTP_GET
+    elseif (m == "POST") then
+        return ngx.HTTP_POST
+    elseif (m == "HEAD") then
+        return ngx.HTTP_HEAD
+    elseif (m == "PUT") then
+        return ngx.HTTP_PUT
+    elseif (m == "DELETE") then
+        return ngx.HTTP_DELETE
+    else
+        return nil
+    end
 end
 
 
