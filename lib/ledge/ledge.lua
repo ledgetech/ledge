@@ -8,23 +8,24 @@ assert(ngx.var.full_uri, "full_uri not defined in nginx config")
 assert(ngx.var.relative_uri, "relative_uri not defined in nginx config")
 assert(ngx.var.config_file, "config_file not defined in nginx config")
 
+-- Load modules and config only on the first run
 local event = require("ledge.event")
 local resty_redis = require("resty.redis")
-
 local redis = resty_redis:new()
-
 local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
 
+-- Cache states
 local states = {
-    SUBZERO = 1,
-    COLD    = 2,
-    WARM    = 3,
-    HOT     = 4,
+    SUBZERO = 1, -- We don't know anything about this URI. Either first hit or not cacheable.
+    COLD    = 2, -- Previosuly cacheable, expired and beyond stale. Revalidate.
+    WARM    = 3, -- Previously cacheable, cached but stale. Serve and bg refresh.
+    HOT     = 4, -- Cached. Serve.
 }
 
+-- Proxy actions
 local actions = {
-    FETCHED     = 1,
-    COLLAPSED   = 2,
+    FETCHED     = 1, -- Went to the origin.
+    COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
 }
 
 -- Returns the state name as string (for logging).
@@ -60,10 +61,10 @@ end
 -- @param   string  The nginx location name for proxying.
 -- @return  void
 function proxy(proxy_location)
-    -- Connect to Redis. Keepalive will stop this from happening on each request.
-    -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
+    -- Connect to Redis. The connection is kept alive later.
     redis:set_timeout(ngx.var.redis_timeout or 1000) -- Default to 1 sec
     local ok, err = redis:connect(
+        -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
         ngx.var.redis_host or ngx.var.redis_socket or "127.0.0.1", 
         ngx.var.redis_port or 6379
     )
@@ -234,7 +235,7 @@ function fetch(proxy_location)
     ngx.req.read_body()
 
     local origin = ngx.location.capture(proxy_location..ngx.var.relative_uri, {
-        method = request_method_constant(),
+        method = ngx['HTTP_' .. ngx.var.request_method], -- Method as ngx.HTTP_x constant.
         body = ngx.req.get_body_data(),
     })
 
@@ -373,28 +374,6 @@ function calculate_expiry(response)
     end
 
     return response.ttl
-end
-
-
--- Returns the current request method as an ngx.HTTP_{METHOD} constant.
---
--- @param   void
--- @return  const
-function request_method_constant()
-    local m = ngx.var.request_method
-    if (m == "GET") then
-        return ngx.HTTP_GET
-    elseif (m == "POST") then
-        return ngx.HTTP_POST
-    elseif (m == "HEAD") then
-        return ngx.HTTP_HEAD
-    elseif (m == "PUT") then
-        return ngx.HTTP_PUT
-    elseif (m == "DELETE") then
-        return ngx.HTTP_DELETE
-    else
-        return nil
-    end
 end
 
 
