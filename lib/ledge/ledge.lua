@@ -258,7 +258,7 @@ function fetch()
         ctx.response.header = origin.header
         ctx.response.body = origin.body
         ctx.response.action  = actions.FETCHED
-        
+
         event.emit("origin_fetched")
 
         -- Save
@@ -337,6 +337,16 @@ function send()
     
     -- Update stats
     red:incr('ledge:counter:' .. states.tostring(response.state):lower())
+
+    -- TODO: Handle Age properly as per http://www.freesoft.org/CIE/RFC/2068/131.htm
+    -- Age header
+    -- We can't calculate Age without Date, which by default Nginx doesn't proxy.
+    -- You must set proxy_pass_header Date; in Nginx for this to work.
+    --[[if response.header['Date'] then
+        local prev_age = ngx.header['Age'] or 0
+        local date = ngx.parse_http_time(response.header['Date'])
+    end
+    ]]--
 
     -- Via header
     local via = '1.1 ' .. ngx.var.hostname
