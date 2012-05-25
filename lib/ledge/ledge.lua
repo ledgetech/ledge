@@ -43,7 +43,7 @@ function main()
 
 
     -- Run the config to determine run level options for this request
-    config_file()
+    config_file(config)
     event.emit("config_loaded")
     if request_accepts_cache() then
         -- Prepare fetches from cache, so we're either primed with a full response
@@ -242,79 +242,27 @@ function fetch()
     local response = ngx.ctx.response
     local ctx =  ngx.ctx
 
-    if not ctx.config.collapse_origin_requests then
-        -- We can do a straight foward fetch-and-store
-        local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri, {
-            method = request_method_constant(),
-            body = ngx.var.request_body,
-        })
+    local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri, {
+        method = request_method_constant(),
+        body = ngx.var.request_body,
+    })
 
-        -- Could not proxy for some reason
-        if origin.status >= 500 then
-            return nil, origin.status
-        end 
+    -- Could not proxy for some reason
+    if origin.status >= 500 then
+        return nil, origin.status
+    end 
 
-        ctx.response.status = origin.status
-        ctx.response.header = origin.header
-        ctx.response.body = origin.body
-        ctx.response.action  = actions.FETCHED
+    ctx.response.status = origin.status
+    ctx.response.header = origin.header
+    ctx.response.body = origin.body
+    ctx.response.action  = actions.FETCHED
 
-        event.emit("origin_fetched")
+    event.emit("origin_fetched")
 
-        -- Save
-        assert(cache_save(origin), "Could not save fetched object")
+    -- Save
+    assert(cache_save(origin), "Could not save fetched object")
 
-        return ctx.response
-    else
-        assert(ngx.var.loc_wait_for_origin, "loc_wait_for_origin not defined in nginx config")
-
-        -- Set the fetch key
-        local fetch_key = ngx.var.cache_key .. ':fetch'
-        local fetch = red:setnx(fetch_key, '1')
-        -- TODO: Read from config
-        red:expire(fetch_key, '10')
-
-        if (fetch == 1) then -- Go do the fetch
-            local origin = ngx.location.capture(ngx.var.loc_origin..ngx.var.relative_uri);
-            event.emit("origin_fetched")
-            cache_save(origin)
-
-            -- Remove the fetch and publish to waiting threads
-            red:del(fetch_key)
-            red:publish(ngx.var.cache_key, 'finished')
-
-            response.status = origin.status
-            response.body = origin.body
-            response.header = origin.header
-            response.action = actions.FETCHED
-
-            return response
-        else
-            -- This fetch is already happening Go to the collapser proxy
-            local rep = ngx.location.capture(ngx.var.loc_wait_for_origin, {
-                args = { channel = ngx.var.cache_key }
-            });
-
-            if (rep.status == ngx.HTTP_OK) then				
-                local results = redis.parser.parse_replies(rep.body, 2)
-                local messages = results[2][1] -- Second reply, body
-
-                for k,v in pairs(messages) do
-                    if (v == 'finished') then
-                        -- Go get from redis
-                        local response = cache_read()
-                        response.status = cache.status
-                        response.body = cache.body
-                        response.header = cache.header
-                        response.action = actions.COLLAPSED
-                        return response
-                    end
-                end
-            else
-                return nil, rep.status -- Pass on the failure
-            end
-        end
-    end
+    return ctx.response
 end
 
 
