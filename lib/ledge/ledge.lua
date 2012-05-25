@@ -7,12 +7,10 @@ assert(ngx.var.cache_key, "cache_key not defined in nginx config")
 assert(ngx.var.full_uri, "full_uri not defined in nginx config")
 assert(ngx.var.relative_uri, "relative_uri not defined in nginx config")
 assert(ngx.var.config_file, "config_file not defined in nginx config")
-assert(ngx.var.loc_redis, "loc_redis not defined in nginx config")
 assert(ngx.var.loc_origin, "loc_origin not defined in nginx config")
 
 local config = require("ledge.config")
 local event = require("ledge.event")
-local redis = require("ledge.redis")
 
 local r = require "resty.redis"
 local red = r:new()
