@@ -10,10 +10,9 @@ INSTALL ?= install
 all: ;
 
 install: all
-	$(INSTALL) -d $(DESTDIR)/$(LUA_LIB_DIR)/ledge
-	$(INSTALL) -d $(DESTDIR)/$(LUA_LIB_DIR)/ledge/lib
+	$(INSTALL) -d $(DESTDIR)/$(LUA_LIB_DIR)/ledge/lib/ledge
 	$(INSTALL) -d $(DESTDIR)/$(LUA_LIB_DIR)/ledge/conf
-	$(INSTALL) lib/*.lua $(DESTDIR)/$(LUA_LIB_DIR)/ledge/lib
+	$(INSTALL) lib/ledge/*.lua $(DESTDIR)/$(LUA_LIB_DIR)/ledge/lib
 	$(INSTALL) conf/*.lua $(DESTDIR)/$(LUA_LIB_DIR)/ledge/conf
 
 test: all
