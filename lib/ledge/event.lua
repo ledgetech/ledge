@@ -28,11 +28,11 @@ end
 --
 -- @param string    The event identifier
 -- @return void
-function event.emit(event)
+function event.emit(event, req, res)
     local e = ngx.ctx.event or {}
     for _,handler in ipairs(e[event] or {}) do
         if type(handler) == 'function' then
-            handler()
+            handler(req, res)
         end
     end
 end

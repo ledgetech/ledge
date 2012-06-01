@@ -29,77 +29,61 @@ local proxy_actions = {
     COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
 }
 
+local options = {}
 
--- This is the only public method, to be called from nginx configuration.
---
--- @param   string  The nginx location name for proxying.
--- @return  void
-function proxy(proxy_location)
-    -- Connect to Redis. The connection is kept alive later.
-    redis:set_timeout(ngx.var.redis_timeout or 1000) -- Default to 1 sec
-    local ok, err = redis:connect(
-        -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
-        ngx.var.redis_host or ngx.var.redis_socket or "127.0.0.1", 
-        ngx.var.redis_port or 6379
-    )
+-- Resty rack interface
+function call(o)
+    options = o
 
-    -- Run the config to determine run level options for this request
-    config_file(config)
-    event.emit("config_loaded")
+    return function(req, res)
+        if not options.redis then options.redis = {} end -- In case nothing has been set.
 
-    if request_accepts_cache() then
-        -- Prepare fetches from cache, so we're either primed with a full response
-        -- to send, or cold with an empty response which must be fetched.
-        prepare()
-        local response = ngx.ctx.response
-        -- Send and/or fetch, depending on the state
-        if (response.state == cache_states.HOT) then
-            send()
-        elseif (response.state == cache_states.WARM) then
-            background_fetch(proxy_location)
-            send()
-        elseif (response.state < cache_states.WARM) then
-            ngx.ctx.response, status = fetch(proxy_location)
-            if not ngx.ctx.response then
-                ngx.exit(status)
+        -- Connect to Redis. The connection is kept alive later.
+        redis:set_timeout(options.redis.timeout or 1000) -- Default to 1 sec
+
+        local ok, err = redis:connect(
+            -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
+            options.redis.host or options.redis.socket or "127.0.0.1", 
+            options.redis.port or 6379
+        )
+
+        -- Read from cache. 
+        if read_from_cache(req, res) then
+            res.state = cache_states.HOT
+            set_headers(res)
+        else
+            -- Nothing in cache or the client can't accept a cached response. 
+            -- TODO: Check for prior knowledge to determine probably cacheability?
+
+            if not fetch(req, res) then
+                return res.status, res.header, res.body -- Pass the proxied error back.
+            else
+                res.state = cache_states.SUBZERO
+                set_headers(res)
             end
-            send()
         end
-    else 
-        ngx.ctx.response = { state = cache_states.SUBZERO }
-        ngx.ctx.response, status = fetch(proxy_location)
-        if not ngx.ctx.response then
-            ngx.exit(status)
-        end
-        send()
+
+        event.emit("response_ready", req, res)
+
+        -- Keep the Redis connection
+        redis:set_keepalive(
+            options.redis.keepalive.max_idle_timeout or 0, 
+            options.redis.keepalive.pool_size or 100
+        )
+
+        -- Currently rack expets these. Seems a little verbose, but it's rack-like.
+        return res.status, res.header, res.body 
     end
-    event.emit("finished")
-
-    -- Keep the Redis connection
-    redis:set_keepalive(
-        ngx.var.redis_keepalive_max_idle_timeout or 0, 
-        ngx.var.redis_keepalive_pool_size or 100
-    )
-end
-
-
--- Prepares the response by attempting to read from cache.
--- A skeletol response object will be returned with a state of < WARM
--- in the event of a cache miss.
-function prepare()
-    local response, state = cache_read()
-    if not response then response = {} end -- Cache miss
-    response.state = state
-    ngx.ctx.response = response
 end
 
 
 -- Reads an item from cache
 --
--- @param	string              The URI (cache key)
--- @return	table|nil, state    The response table or nil, the cache state
-function cache_read()
-    local ctx = ngx.ctx
+-- @param	table   req
+-- @param   table   res
+-- @return	number  ttl
+function read_from_cache(req, res)
+    if not request_accepts_cache(req) then return nil end
 
     -- Fetch from Redis, pipeline to reduce overhead
     redis:init_pipeline()
@@ -110,15 +94,10 @@ function cache_read()
         error("Failed to query Redis: " .. err)
     end
 
-    -- Our cache object
-    local obj = {
-        header = {}
-    }
-    
     -- A positive TTL tells us if there's anything valid
-    obj.ttl = assert(tonumber(replies[2]), "Bad TTL found for " .. ngx.var.cache_key)
-    if obj.ttl < 0 then
-        return nil, cache_states.SUBZERO  -- Cache miss
+    local ttl = assert(tonumber(replies[2]), "Bad TTL found for " .. ngx.var.cache_key)
+    if ttl < 0 then
+        return nil -- Cache miss cache_states.SUBZERO  -- Cache miss
     end
 
     -- We should get a table of cache entry values
@@ -130,36 +109,29 @@ function cache_read()
     -- to get hash key/values.
     for i = 1, #cache_parts, 2 do
         if cache_parts[i] == 'body' then
-            obj.body = cache_parts[i+1]
+            res.body = cache_parts[i+1]
         elseif cache_parts[i] == 'status' then
-            obj.status = cache_parts[i+1]
+            res.status = cache_parts[i+1]
         else
             -- Everything else will be a header, with a h: prefix.
             local _, _, header = cache_parts[i]:find('h:(.*)')
             if header then
-                obj.header[header] = cache_parts[i+1]
+                res.header[header] = cache_parts[i+1]
             end
         end
     end
 
-    event.emit("cache_accessed")
-
-    -- Determine freshness from config.
-    -- TODO: Perhaps we should be storing stale policies rather than asking config?
-    if ctx.config.serve_when_stale and obj.ttl - ctx.config.serve_when_stale <= 0 then
-        return obj, cache_states.WARM
-    else
-        return obj, cache_states.HOT
-    end
+    event.emit("cache_accessed", req, res)
+    return ttl
 end
 
 
 -- Stores an item in cache
 --
--- @param	response	            The HTTP response object to store
+-- @param	table       The HTTP response object to store
 -- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
-function cache_save(response)
-    if not response_is_cacheable(response) then
+function cache_save(res)
+    if not response_is_cacheable(res) then
         return 0 -- Not cacheable, but no error
     end
 
@@ -167,22 +139,23 @@ function cache_save(response)
 
     -- Turn the headers into a flat list of pairs
     local h = {}
-    for header,header_value in pairs(response.header) do
+    for header,header_value in pairs(res.header) do
         table.insert(h, 'h:'..header)
         table.insert(h, header_value)
     end
 
     redis:hmset(ngx.var.cache_key, 
-        'body', response.body, 
-        'status', response.status,
+        'body', res.body, 
+        'status', res.status,
         'uri', ngx.var.full_uri,
         unpack(h))
 
     -- Set the expiry (this might include an additional stale period)
-    redis:expire(ngx.var.cache_key, calculate_expiry(response))
+    local ttl, expiry = calculate_expiry(res)
+    redis:expire(ngx.var.cache_key, ttl)
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    redis:zadd('ledge:uris_by_expiry', response.expires, ngx.var.full_uri)
+    redis:zadd('ledge:uris_by_expiry', expiry, ngx.var.full_uri)
 
     local replies, err = redis:commit_pipeline()
     if not replies then
@@ -196,37 +169,30 @@ end
 --
 -- @param	string	The nginx location to proxy using
 -- @return	table	Response
-function fetch(proxy_location)
-    event.emit("origin_required")
+function fetch(req, res)
+    event.emit("origin_required", req, res)
 
-    local keys = ngx.ctx.keys
-    local response = ngx.ctx.response
-    local ctx =  ngx.ctx
-
-    -- We must explicitly read the body
-    ngx.req.read_body()
-
-    local origin = ngx.location.capture(proxy_location..ngx.var.relative_uri, {
-        method = ngx['HTTP_' .. ngx.var.request_method], -- Method as ngx.HTTP_x constant.
-        body = ngx.req.get_body_data(),
+    local origin = ngx.location.capture(options.proxy_location..ngx.var.relative_uri, {
+        method = ngx['HTTP_' .. req.method], -- Method as ngx.HTTP_x constant.
+        body = req.body,
     })
 
+    res.status = origin.status
+    for k,v in pairs(origin.header) do
+        res.header[k] = v
+    end
+    res.body = origin.body
+    
+    event.emit("origin_fetched", req, res)
+
     -- Could not proxy for some reason
-    if origin.status >= 500 then
-        return nil, origin.status
-    end 
-
-    ctx.response.status = origin.status
-    ctx.response.header = origin.header
-    ctx.response.body = origin.body
-    ctx.response.action  = proxy_actions.FETCHED
-
-    event.emit("origin_fetched")
-
-    -- Save
-    assert(cache_save(origin), "Could not save fetched object")
-
-    return ctx.response
+    if res.status >= 500 then
+        return nil
+    else 
+        -- Save
+        assert(cache_save(res), "Could not save fetched object")
+        return true
+    end
 end
 
 
@@ -237,88 +203,40 @@ function background_fetch()
 end
 
 
--- Sends the response to the client
--- If on_before_send is defined in configuration, the response may be altered
--- by any plugins.
---
--- @param   table   Response object
--- @return  void
-function send()
-    local response = ngx.ctx.response
-    ngx.status = response.status
-
+function set_headers(res)
     -- Get the cache state as human string for response headers
     local cache_state_human = ''
     for k,v in pairs(cache_states) do
-        if v == response.state then
+        if v == res.state then
             cache_state_human = tostring(k)
             break
         end
     end
 
-    -- Same for the proxy action
-    local proxy_action_human = ''
-    local action = response.action
-    for k,v in pairs(proxy_actions) do
-        if v == response.action then
-            proxy_action_human = tostring(k)
-            break
-        end
-    end
-
-    -- Update stats
-    redis:incr('ledge:counter:' .. cache_state_human:lower())
-
-    -- TODO: Handle Age properly as per http://www.freesoft.org/CIE/RFC/2068/131.htm
-    -- Age header
-    -- We can't calculate Age without Date, which by default Nginx doesn't proxy.
-    -- You must set proxy_pass_header Date; in Nginx for this to work.
-    --[[if response.header['Date'] then
-        local prev_age = ngx.header['Age'] or 0
-        local date = ngx.parse_http_time(response.header['Date'])
-    end
-    ]]--
-
     -- Via header
     local via = '1.1 ' .. ngx.var.hostname
-    if  (response.header['Via'] ~= nil) then
-        ngx.header['Via'] = via .. ', ' .. response.header['Via']
+    if  (res.header['Via'] ~= nil) then
+        res.header['Via'] = via .. ', ' .. res.header['Via']
     else
-        ngx.header['Via'] = via
-    end
-
-    -- Other headers
-    for k,v in pairs(response.header) do
-        ngx.header[k] = v
+        res.header['Via'] = via
     end
 
     -- X-Cache header
-    if response.state >= cache_states.WARM then
-        ngx.header['X-Cache'] = 'HIT' 
+    if res.state >= cache_states.WARM then
+        res.header['X-Cache'] = 'HIT' 
     else
-        ngx.header['X-Cache'] = 'MISS'
+        res.header['X-Cache'] = 'MISS'
     end
 
-    ngx.header['X-Cache-State'] = cache_state_human
-    ngx.header['X-Cache-Action'] = action_human
-    
-    event.emit("response_ready")
-
-    -- Always ensure we send the correct length
-    --response.header['Content-Length'] = #response.body
-    ngx.print(response.body)
-
-    event.emit("response_sent")
-
-    --ngx.eof()
+    res.header['X-Cache-State'] = cache_state_human
 end
 
 
-function request_accepts_cache() 
+-- @return  boolean
+function request_accepts_cache(req) 
     -- Only cache GET. I guess this should be configurable.
-    if ngx['HTTP_'..ngx.var.request_method] ~= ngx.HTTP_GET then return false end
-    local headers = ngx.req.get_headers()
-    if headers['cache-control'] == 'no-cache' or headers['Pragma'] == 'no-cache' then
+    if ngx['HTTP_'..req.method] ~= ngx.HTTP_GET then return false end
+    if req.header['cache-control'] == 'no-cache' or req.header['Pragma'] == 'no-cache' then
         return false
     end
     return true
@@ -353,18 +271,19 @@ end
 
 
 -- Work out the valid expiry from the Expires header.
-function calculate_expiry(response)
-    response.ttl = 0
-    if (response_is_cacheable(response)) then
-        local ex = response.header['Expires']
+function calculate_expiry(res)
+    local ttl = 0
+    if (response_is_cacheable(res)) then
+        local ex = res.header['Expires']
         if ex then
-            local serve_when_stale = ngx.ctx.config.serve_when_stale or 0
-            response.expires = ngx.parse_http_time(ex)
-            response.ttl =  (response.expires - ngx.time()) + serve_when_stale
+            --local serve_when_stale = ngx.ctx.config.serve_when_stale or 0
+            local serve_when_stale = 0
+            expires = ngx.parse_http_time(ex)
+            ttl =  (expires - ngx.time()) + serve_when_stale
         end
     end
 
-    return response.ttl
+    return ttl, expires
 end
 
 
