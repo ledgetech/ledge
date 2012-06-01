@@ -11,7 +11,6 @@ assert(ngx.var.config_file, "config_file not defined in nginx config")
 -- Load modules and config only on the first run
 local event = require("ledge.event")
 local resty_redis = require("resty.redis")
-local redis = resty_redis:new()
 local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
 
 
@@ -36,12 +35,13 @@ function call(o)
     options = o
 
     return function(req, res)
+        ngx.ctx.redis = resty_redis:new()
         if not options.redis then options.redis = {} end -- In case nothing has been set.
 
         -- Connect to Redis. The connection is kept alive later.
-        redis:set_timeout(options.redis.timeout or 1000) -- Default to 1 sec
+        ngx.ctx.redis:set_timeout(options.redis.timeout or 1000) -- Default to 1 sec
 
-        local ok, err = redis:connect(
+        local ok, err = ngx.ctx.redis:connect(
             -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
             options.redis.host or options.redis.socket or "127.0.0.1", 
             options.redis.port or 6379
@@ -66,7 +66,7 @@ function call(o)
         event.emit("response_ready", req, res)
 
         -- Keep the Redis connection
-        redis:set_keepalive(
+        ngx.ctx.redis:set_keepalive(
             options.redis.keepalive.max_idle_timeout or 0, 
             options.redis.keepalive.pool_size or 100
         )
@@ -86,12 +86,12 @@ function read_from_cache(req, res)
     if not request_accepts_cache(req) then return nil end
 
     -- Fetch from Redis, pipeline to reduce overhead
-    redis:init_pipeline()
-    local cache_parts = redis:hgetall(ngx.var.cache_key)
-    local ttl = redis:ttl(ngx.var.cache_key)
-    local replies, err = redis:commit_pipeline()
+    ngx.ctx.redis:init_pipeline()
+    local cache_parts = ngx.ctx.redis:hgetall(ngx.var.cache_key)
+    local ttl = ngx.ctx.redis:ttl(ngx.var.cache_key)
+    local replies, err = ngx.ctx.redis:commit_pipeline()
     if not replies then
-        error("Failed to query Redis: " .. err)
+        error("Failed to query ngx.ctx.redis: " .. err)
     end
 
     -- A positive TTL tells us if there's anything valid
@@ -135,7 +135,7 @@ function cache_save(res)
         return 0 -- Not cacheable, but no error
     end
 
-    redis:init_pipeline()
+    ngx.ctx.redis:init_pipeline()
 
     -- Turn the headers into a flat list of pairs
     local h = {}
@@ -144,7 +144,7 @@ function cache_save(res)
         table.insert(h, header_value)
     end
 
-    redis:hmset(ngx.var.cache_key, 
+    ngx.ctx.redis:hmset(ngx.var.cache_key, 
         'body', res.body, 
         'status', res.status,
         'uri', ngx.var.full_uri,
@@ -152,14 +152,14 @@ function cache_save(res)
 
     -- Set the expiry (this might include an additional stale period)
     local ttl, expiry = calculate_expiry(res)
-    redis:expire(ngx.var.cache_key, ttl)
+    ngx.ctx.redis:expire(ngx.var.cache_key, ttl)
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    redis:zadd('ledge:uris_by_expiry', expiry, ngx.var.full_uri)
+    ngx.ctx.redis:zadd('ledge:uris_by_expiry', expiry, ngx.var.full_uri)
 
-    local replies, err = redis:commit_pipeline()
+    local replies, err = ngx.ctx.redis:commit_pipeline()
     if not replies then
-        error("Failed to query Redis: " .. err)
+        error("Failed to query ngx.ctx.redis: " .. err)
     end
     return assert(replies[1] == "OK" and replies[2] == 1 and type(replies[3]) == 'number')
 end
@@ -199,7 +199,7 @@ end
 -- Publish that an item needs fetching in the background.
 -- Returns immediately.
 function background_fetch()
-    redis:publish('revalidate', ngx.var.full_uri)
+    ngx.ctx.redis:publish('revalidate', ngx.var.full_uri)
 end
 
 
