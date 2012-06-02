@@ -27,6 +27,41 @@ function call(o)
     options = o
 
     return function(req, res)
+
+        -- Will the request accept a cached response?
+        req.accepts_cache = function(self)
+            if ngx['HTTP_'..req.method] ~= ngx.HTTP_GET then return false end
+            if req.header['cache-control'] == 'no-cache' or req.header['Pragma'] == 'no-cache' then
+                return false
+            end
+            return true
+        end
+
+        -- Can the response by cached?
+        res.cacheable = function(self)
+            local cacheable = true
+
+            local nocache_headers = {}
+            nocache_headers['Pragma'] = { 'no-cache' }
+            nocache_headers['Cache-Control'] = { 
+                'no-cache', 
+                'must-revalidate', 
+                'no-store', 
+                'private' 
+            }
+
+            for k,v in pairs(nocache_headers) do
+                for i,header in ipairs(v) do
+                    if (res.header[k] and res.header[k] == header) then
+                        cacheable = false
+                        break
+                    end
+                end
+            end
+
+            return cacheable
+        end
+
         ngx.ctx.redis = resty_redis:new()
         if not options.redis then options.redis = {} end -- In case nothing has been set.
 
@@ -80,7 +115,7 @@ end
 -- @param   table   res
 -- @return	number  ttl
 function read(req, res)
-    if not request_accepts_cache(req) then return nil end
+    if not req:accepts_cache() then return nil end
 
     -- Fetch from Redis, pipeline to reduce overhead
     ngx.ctx.redis:init_pipeline()
@@ -228,44 +263,6 @@ function set_headers(req, res)
     end
 
     res.header['X-Cache-State'] = cache_state_human
-end
-
-
--- @return  boolean
-function request_accepts_cache(req) 
-    -- Only cache GET. I guess this should be configurable.
-    if ngx['HTTP_'..req.method] ~= ngx.HTTP_GET then return false end
-    if req.header['cache-control'] == 'no-cache' or req.header['Pragma'] == 'no-cache' then
-        return false
-    end
-    return true
-end
-
-
--- Determines if the response can be stored, based on RFC 2616.
--- This is probably not complete.
-function response_is_cacheable(res)
-    local cacheable = true
-
-    local nocache_headers = {}
-    nocache_headers['Pragma'] = { 'no-cache' }
-    nocache_headers['Cache-Control'] = { 
-        'no-cache', 
-        'must-revalidate', 
-        'no-store', 
-        'private' 
-    }
-
-    for k,v in pairs(nocache_headers) do
-        for i,header in ipairs(v) do
-            if (res.header[k] and res.header[k] == header) then
-                cacheable = false
-                break
-            end
-        end
-    end
-
-    return cacheable
 end
 
 
