@@ -28,8 +28,9 @@ function call(o)
 
     return function(req, res)
 
-        -- Will the request accept a cached response?
-        req.accepts_cache = function(self)
+        -- First lets introduce some utility functions to our rack req/res environments.
+
+        req.accepts_cache = function()
             if ngx['HTTP_'..req.method] ~= ngx.HTTP_GET then return false end
             if req.header['cache-control'] == 'no-cache' or req.header['Pragma'] == 'no-cache' then
                 return false
@@ -37,35 +38,49 @@ function call(o)
             return true
         end
 
-        -- Can the response by cached?
-        res.cacheable = function(self)
-            local cacheable = true
-
-            local nocache_headers = {}
-            nocache_headers['Pragma'] = { 'no-cache' }
-            nocache_headers['Cache-Control'] = { 
-                'no-cache', 
-                'must-revalidate', 
-                'no-store', 
-                'private' 
+        res.cacheable = function()
+            local nocache_headers = {
+                ["Pragma"] = { "no-cache" },
+                ["Cache-Control"] = {
+                    "no-cache", 
+                    "must-revalidate", 
+                    "no-store", 
+                    "private",
+                }
             }
 
             for k,v in pairs(nocache_headers) do
                 for i,header in ipairs(v) do
                     if (res.header[k] and res.header[k] == header) then
-                        cacheable = false
-                        break
+                        return false
                     end
                 end
             end
 
-            return cacheable
+            return true
         end
 
-        ngx.ctx.redis = resty_redis:new()
-        if not options.redis then options.redis = {} end -- In case nothing has been set.
+        -- The Expires header as a unix timestamp
+        res.expires_timestamp = function()
+            if not res.cacheable() then return nil end -- Cache-Control directives take precidence over Expires
+            if res.header["Expires"] then return ngx.parse_http_time(res.header["Expires"]) end
+        end
+
+        -- The cache ttl used for saving.
+        res.ttl = function()
+            local expires_ts = res.expires_timestamp()
+            -- TODO: Reintroduce stale TTL from config
+            if expires_ts then 
+                return (expires_ts - ngx.time()) 
+            else
+                return 0
+            end
+        end
+
 
         -- Connect to Redis. The connection is kept alive later.
+        ngx.ctx.redis = resty_redis:new()
+        if not options.redis then options.redis = {} end -- In case nothing has been set.
         ngx.ctx.redis:set_timeout(options.redis.timeout or 1000) -- Default to 1 sec
 
         local ok, err = ngx.ctx.redis:connect(
@@ -74,7 +89,8 @@ function call(o)
             options.redis.port or 6379
         )
 
-        -- Read from cache. 
+
+        -- Try to read from cache. 
         if read(req, res) then
             res.state = cache_states.HOT
             set_headers(req, res)
@@ -115,7 +131,7 @@ end
 -- @param   table   res
 -- @return	number  ttl
 function read(req, res)
-    if not req:accepts_cache() then return nil end
+    if not req.accepts_cache() then return nil end
 
     -- Fetch from Redis, pipeline to reduce overhead
     ngx.ctx.redis:init_pipeline()
@@ -127,10 +143,9 @@ function read(req, res)
     end
 
     -- A positive TTL tells us if there's anything valid
-    local ttl = assert(tonumber(replies[2]), "Bad TTL found for " .. ngx.var.cache_key)
-    if ttl < 0 then
-        return nil -- Cache miss cache_states.SUBZERO  -- Cache miss
-    end
+    local ttl = assert(tonumber(replies[2]), 
+        "Bad TTL found for " .. ngx.var.cache_key)
+    if ttl < 0 then return nil end -- Cache miss 
 
     -- We should get a table of cache entry values
     assert(type(replies[1]) == 'table', 
@@ -163,7 +178,7 @@ end
 -- @param	table       The HTTP response object to store
 -- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
 function save(req, res)
-    if not res:cacheable() then
+    if not res.cacheable() then
         return 0 -- Not cacheable, but no error
     end
 
@@ -180,20 +195,21 @@ function save(req, res)
         'body', res.body, 
         'status', res.status,
         'uri', req.uri_full,
-        unpack(h))
+        unpack(h)
+    )
 
     -- Set the expiry (this might include an additional stale period)
-    local ttl, expiry = calculate_expiry(res)
-    ngx.ctx.redis:expire(ngx.var.cache_key, ttl)
+    ngx.ctx.redis:expire(ngx.var.cache_key, res.ttl())
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    ngx.ctx.redis:zadd('ledge:uris_by_expiry', expiry, req.uri_full)
+    ngx.ctx.redis:zadd('ledge:uris_by_expiry', res.expires_timestamp(), req.uri_full)
 
     local replies, err = ngx.ctx.redis:commit_pipeline()
     if not replies then
         error("Failed to query Redis: " .. err)
     end
-    return assert(replies[1] == "OK" and replies[2] == 1 and type(replies[3]) == 'number')
+    return assert(replies[1] == "OK" and replies[2] == 1 and type(replies[3]) == 'number', 
+        "Unexpeted reply from Redis when trying to save")
 end
 
 
@@ -263,23 +279,6 @@ function set_headers(req, res)
     end
 
     res.header['X-Cache-State'] = cache_state_human
-end
-
-
--- Work out the valid expiry from the Expires header.
-function calculate_expiry(res)
-    local ttl = 0
-    if res:cacheable() then
-        local ex = res.header['Expires']
-        if ex then
-            --local serve_when_stale = ngx.ctx.config.serve_when_stale or 0
-            local serve_when_stale = 0
-            expires = ngx.parse_http_time(ex)
-            ttl =  (expires - ngx.time()) + serve_when_stale
-        end
-    end
-
-    return ttl, expires
 end
 
 
