@@ -100,6 +100,7 @@ function call(o)
 
             if not fetch(req, res) then
                 -- Keep the Redis connection
+                -- TODO: Better cleanup handling
                 ngx.ctx.redis:set_keepalive(
                     options.redis.keepalive.max_idle_timeout or 0, 
                     options.redis.keepalive.pool_size or 100
@@ -145,7 +146,7 @@ function read(req, res)
     -- A positive TTL tells us if there's anything valid
     local ttl = assert(tonumber(replies[2]), 
         "Bad TTL found for " .. ngx.var.cache_key)
-    if ttl < 0 then return nil end -- Cache miss 
+    if ttl <= 0 then return nil end -- Cache miss 
 
     -- We should get a table of cache entry values
     assert(type(replies[1]) == 'table', 
