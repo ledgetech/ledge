@@ -2,12 +2,6 @@ module("ledge.ledge", package.seeall)
 
 _VERSION = '0.01'
 
--- Perform assertions on the nginx config only on the first run
-assert(ngx.var.cache_key, "cache_key not defined in nginx config")
-assert(ngx.var.full_uri, "full_uri not defined in nginx config")
-assert(ngx.var.relative_uri, "relative_uri not defined in nginx config")
-assert(ngx.var.config_file, "config_file not defined in nginx config")
-
 -- Load modules and config only on the first run
 local event = require("ledge.event")
 local resty_redis = require("resty.redis")
@@ -56,6 +50,11 @@ function call(o)
             -- TODO: Check for prior knowledge to determine probably cacheability?
 
             if not fetch(req, res) then
+                -- Keep the Redis connection
+                ngx.ctx.redis:set_keepalive(
+                options.redis.keepalive.max_idle_timeout or 0, 
+                options.redis.keepalive.pool_size or 100
+                )
                 return res.status, res.header, res.body -- Pass the proxied error back.
             else
                 res.state = cache_states.SUBZERO
@@ -130,7 +129,7 @@ end
 --
 -- @param	table       The HTTP response object to store
 -- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
-function cache_save(res)
+function cache_save(req, res)
     if not response_is_cacheable(res) then
         return 0 -- Not cacheable, but no error
     end
@@ -147,7 +146,7 @@ function cache_save(res)
     ngx.ctx.redis:hmset(ngx.var.cache_key, 
         'body', res.body, 
         'status', res.status,
-        'uri', ngx.var.full_uri,
+        'uri', req.uri_full,
         unpack(h))
 
     -- Set the expiry (this might include an additional stale period)
@@ -155,11 +154,11 @@ function cache_save(res)
     ngx.ctx.redis:expire(ngx.var.cache_key, ttl)
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    ngx.ctx.redis:zadd('ledge:uris_by_expiry', expiry, ngx.var.full_uri)
+    ngx.ctx.redis:zadd('ledge:uris_by_expiry', expiry, req.uri_full)
 
     local replies, err = ngx.ctx.redis:commit_pipeline()
     if not replies then
-        error("Failed to query ngx.ctx.redis: " .. err)
+        error("Failed to query Redis: " .. err)
     end
     return assert(replies[1] == "OK" and replies[2] == 1 and type(replies[3]) == 'number')
 end
@@ -172,25 +171,27 @@ end
 function fetch(req, res)
     event.emit("origin_required", req, res)
 
-    local origin = ngx.location.capture(options.proxy_location..ngx.var.relative_uri, {
+    local origin = ngx.location.capture(options.proxy_location..req.uri_relative, {
         method = ngx['HTTP_' .. req.method], -- Method as ngx.HTTP_x constant.
         body = req.body,
     })
 
     res.status = origin.status
+    -- Merge headers in rather than wipe out the res.headers table)
     for k,v in pairs(origin.header) do
         res.header[k] = v
     end
     res.body = origin.body
-    
-    event.emit("origin_fetched", req, res)
 
     -- Could not proxy for some reason
     if res.status >= 500 then
         return nil
     else 
+        -- A nice opportunity for post-fetch / pre-save work.
+        event.emit("origin_fetched", req, res)
+
         -- Save
-        assert(cache_save(res), "Could not save fetched object")
+        assert(cache_save(req, res), "Could not save fetched object")
         return true
     end
 end
@@ -198,8 +199,8 @@ end
 
 -- Publish that an item needs fetching in the background.
 -- Returns immediately.
-function background_fetch()
-    ngx.ctx.redis:publish('revalidate', ngx.var.full_uri)
+function background_fetch(req)
+    ngx.ctx.redis:publish('revalidate', req.uri_full)
 end
 
 
