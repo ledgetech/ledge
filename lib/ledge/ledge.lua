@@ -5,8 +5,6 @@ _VERSION = '0.01'
 -- Load modules and config only on the first run
 local event = require("ledge.event")
 local resty_redis = require("resty.redis")
-local config_file = assert(loadfile(ngx.var.config_file), "Config file not found or will not compile")
-
 
 -- Cache states 
 local cache_states= {
@@ -42,9 +40,9 @@ function call(o)
         )
 
         -- Read from cache. 
-        if read_from_cache(req, res) then
+        if read(req, res) then
             res.state = cache_states.HOT
-            set_headers(res)
+            set_headers(req, res)
         else
             -- Nothing in cache or the client can't accept a cached response. 
             -- TODO: Check for prior knowledge to determine probably cacheability?
@@ -52,13 +50,13 @@ function call(o)
             if not fetch(req, res) then
                 -- Keep the Redis connection
                 ngx.ctx.redis:set_keepalive(
-                options.redis.keepalive.max_idle_timeout or 0, 
-                options.redis.keepalive.pool_size or 100
+                    options.redis.keepalive.max_idle_timeout or 0, 
+                    options.redis.keepalive.pool_size or 100
                 )
                 return res.status, res.header, res.body -- Pass the proxied error back.
             else
                 res.state = cache_states.SUBZERO
-                set_headers(res)
+                set_headers(req, res)
             end
         end
 
@@ -81,7 +79,7 @@ end
 -- @param	table   req
 -- @param   table   res
 -- @return	number  ttl
-function read_from_cache(req, res)
+function read(req, res)
     if not request_accepts_cache(req) then return nil end
 
     -- Fetch from Redis, pipeline to reduce overhead
@@ -129,7 +127,7 @@ end
 --
 -- @param	table       The HTTP response object to store
 -- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
-function cache_save(req, res)
+function save(req, res)
     if not response_is_cacheable(res) then
         return 0 -- Not cacheable, but no error
     end
@@ -191,7 +189,7 @@ function fetch(req, res)
         event.emit("origin_fetched", req, res)
 
         -- Save
-        assert(cache_save(req, res), "Could not save fetched object")
+        assert(save(req, res), "Could not save fetched object")
         return true
     end
 end
@@ -199,12 +197,12 @@ end
 
 -- Publish that an item needs fetching in the background.
 -- Returns immediately.
-function background_fetch(req)
+function fetch_background(req, res)
     ngx.ctx.redis:publish('revalidate', req.uri_full)
 end
 
 
-function set_headers(res)
+function set_headers(req, res)
     -- Get the cache state as human string for response headers
     local cache_state_human = ''
     for k,v in pairs(cache_states) do
@@ -215,7 +213,7 @@ function set_headers(res)
     end
 
     -- Via header
-    local via = '1.1 ' .. ngx.var.hostname
+    local via = '1.1 ' .. req.host
     if  (res.header['Via'] ~= nil) then
         res.header['Via'] = via .. ', ' .. res.header['Via']
     else
@@ -246,7 +244,7 @@ end
 
 -- Determines if the response can be stored, based on RFC 2616.
 -- This is probably not complete.
-function response_is_cacheable(response)
+function response_is_cacheable(res)
     local cacheable = true
 
     local nocache_headers = {}
@@ -260,7 +258,7 @@ function response_is_cacheable(response)
 
     for k,v in pairs(nocache_headers) do
         for i,header in ipairs(v) do
-            if (response.header[k] and response.header[k] == header) then
+            if (res.header[k] and res.header[k] == header) then
                 cacheable = false
                 break
             end
