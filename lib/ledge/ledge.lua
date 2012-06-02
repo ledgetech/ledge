@@ -163,7 +163,7 @@ end
 -- @param	table       The HTTP response object to store
 -- @return	boolean|nil, status     Saved state or nil, ngx.capture status on error.
 function save(req, res)
-    if not response_is_cacheable(res) then
+    if not res:cacheable() then
         return 0 -- Not cacheable, but no error
     end
 
@@ -269,7 +269,7 @@ end
 -- Work out the valid expiry from the Expires header.
 function calculate_expiry(res)
     local ttl = 0
-    if (response_is_cacheable(res)) then
+    if res:cacheable() then
         local ex = res.header['Expires']
         if ex then
             --local serve_when_stale = ngx.ctx.config.serve_when_stale or 0
