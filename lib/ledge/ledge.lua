@@ -2,8 +2,6 @@ module("ledge.ledge", package.seeall)
 
 _VERSION = '0.01'
 
--- Load modules and config only on the first run
-local event = require("ledge.event")
 local resty_redis = require("resty.redis")
 
 -- Cache states 
@@ -18,6 +16,11 @@ local cache_states= {
 local proxy_actions = {
     FETCHED     = 1, -- Went to the origin.
     COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
+}
+
+ngx.ctx.ledge = {
+    event = {},
+    config = {}
 }
 
 local options = {}
@@ -112,7 +115,7 @@ function call(o)
             end
         end
 
-        event.emit("response_ready", req, res)
+        emit("response_ready", req, res)
 
         -- Keep the Redis connection
         ngx.ctx.redis:set_keepalive(
@@ -169,7 +172,7 @@ function read(req, res)
         end
     end
 
-    event.emit("cache_accessed", req, res)
+    emit("cache_accessed", req, res)
     return ttl
 end
 
@@ -219,7 +222,7 @@ end
 -- @param	string	The nginx location to proxy using
 -- @return	table	Response
 function fetch(req, res)
-    event.emit("origin_required", req, res)
+    emit("origin_required", req, res)
 
     local origin = ngx.location.capture(options.proxy_location..req.uri_relative, {
         method = ngx['HTTP_' .. req.method], -- Method as ngx.HTTP_x constant.
@@ -238,7 +241,7 @@ function fetch(req, res)
         return nil
     else 
         -- A nice opportunity for post-fetch / pre-save work.
-        event.emit("origin_fetched", req, res)
+        emit("origin_fetched", req, res)
 
         -- Save
         assert(save(req, res), "Could not save fetched object")
@@ -280,6 +283,32 @@ function set_headers(req, res)
     end
 
     res.header['X-Cache-State'] = cache_state_human
+end
+
+
+-- Attach handler to an event
+-- 
+-- @param   string      The event identifier
+-- @param   function    The event handler
+-- @return  void
+function bind(event, callback)
+    if not ngx.ctx.ledge.event[event] then ngx.ctx.ledge.event[event] = {} end
+    table.insert(ngx.ctx.ledge.event[event], callback)
+end
+
+
+-- Broadcast an event
+--
+-- @param   string  The event identifier
+-- @param   table   request environment
+-- @param   table   response environment
+-- @return  void
+function emit(event, req, res)
+   for _, handler in ipairs(ngx.ctx.ledge.event[event] or {}) do
+       if type(handler) == "function" then
+           handler(req, res)
+       end
+   end
 end
 
 
