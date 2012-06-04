@@ -65,7 +65,8 @@ function call(o)
 
         -- The Expires header as a unix timestamp
         res.expires_timestamp = function()
-            if not res.cacheable() then return nil end -- Cache-Control directives take precidence over Expires
+            -- Cache-Control directives take precidence over Expires
+            if not res.cacheable() then return nil end 
             if res.header["Expires"] then return ngx.parse_http_time(res.header["Expires"]) end
         end
 
@@ -91,7 +92,6 @@ function call(o)
             options.redis.host or options.redis.socket or "127.0.0.1", 
             options.redis.port or 6379
         )
-
 
         -- Try to read from cache. 
         if read(req, res) then
@@ -283,6 +283,51 @@ function set_headers(req, res)
     end
 
     res.header['X-Cache-State'] = cache_state_human
+end
+
+
+-- Set a config parameter
+--
+-- The vararg is an optional parameter containing a table which specifies per URI or 
+-- header based value filters. This allows a config item to only be set on certain URIs, 
+-- for example. 
+--
+-- @param string    The config parameter
+-- @param mixed     The config default value
+-- @param ...       Filter table. First level is the filter type "match_uri" or "match_header".
+--                  Each of these has a list of pattern => value pairs.
+function set(param, value, ...)
+    ngx.ctx.ledge.config[param] = value
+    local filters = select(1, ...)
+    if filters then
+        if filters.match_uri then
+            for _,filter in ipairs(filters.match_uri) do
+                if ngx.var.uri:find(filter[1]) ~= nil then
+                    ngx.ctx.ledge.config[param] = filter[2]
+                    break
+                end
+            end
+        end
+
+        if filters.match_header then
+            local h = ngx.req.get_headers()
+            for _,filter in ipairs(filters.match_header) do
+                if h[filter[1]] ~= nil and h[filter[1]]:find(filter[2]) ~= nil then
+                    ngx.ctx.ledge.config[param] = filter[3]
+                    break
+                end
+            end
+        end
+    end
+end
+
+
+-- Convenience for accessing config parameters
+--
+-- @param   string  The config parameter
+-- @return  mixed
+function get(param)
+    return ngx.ctx.ledge.config[param]
 end
 
 
