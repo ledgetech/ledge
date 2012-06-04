@@ -8,7 +8,58 @@ This library is considered expirmental and under active development. Functionali
 
 ## Description
 
-Configurable and flexible caching behaviours for Nginx using Redis as a backend.
+Configurable and flexible caching behaviours for Nginx using Redis as a backend. Requires [lua-resty-rack](https://github.com/pintsized/lua-resty-rack) as well as the standard OpenResty modules.
+
+## Synopsis
+ 
+    content\_by\_lua '_
+        local rack = require "resty.rack"
+        local ledge = require "ledge.ledge"
+        
+        -- Ledge configuration
+        local options = {
+            proxy\_location = "/\_\_ledge/origin"
+            redis = {
+                host = "127.0.0.1",
+                port = 6379,
+                --socket = "unix:/tmp/redis.sock",
+                --timeout = 1000,
+                keepalive = {
+                    max\_idle\_timeout = 0,
+                    pool\_size = 100,
+                }
+            }
+        }
+        
+        -- Bind to events
+        ledge.bind("origin\_fetched", function(req, res)
+            if req.method == "GET" then
+                local ttl = 3600
+                res.header["Cache-Control"] = "max-age="..ttl..", public"
+                res.header["Pragma"] = nil 
+                res.header["Expires"] = ngx.http\_time(ngx.time() + ttl)
+            end 
+        end)
+
+        -- These config settings and plugins are on the TODO list.
+
+        ledge.set("collapse\_origin\_requests", true)
+        ledge.set("max\_stale\_age", 3600, {
+            match\_uri = {
+                { "/about", 60 }
+            }
+        })
+        
+        -- Install plugins (which bind to ledge events)
+        -- ledge.use(ledge.plugins.esi)
+        -- ledge.use(ledge.plugins.combine\_css)
+
+        -- Install as middleware
+        rack.use(ledge, options)
+
+        -- Run the application
+        rack.run()
+    ';
 
 ## Author
 
