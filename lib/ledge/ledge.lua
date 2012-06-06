@@ -102,7 +102,6 @@ function call(o)
         emit("response_ready", req, res)
         
         redis_close()
-        return
     end
 end
 
