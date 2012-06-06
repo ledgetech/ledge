@@ -81,17 +81,7 @@ function call(o)
             end
         end
 
-
-        -- Connect to Redis. The connection is kept alive later.
-        ngx.ctx.redis = resty_redis:new()
-        if not options.redis then options.redis = {} end -- In case nothing has been set.
-        ngx.ctx.redis:set_timeout(options.redis.timeout or 1000) -- Default to 1 sec
-
-        local ok, err = ngx.ctx.redis:connect(
-            -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
-            options.redis.host or options.redis.socket or "127.0.0.1", 
-            options.redis.port or 6379
-        )
+        redis_connect()
 
         -- Try to read from cache. 
         if read(req, res) then
@@ -100,14 +90,8 @@ function call(o)
         else
             -- Nothing in cache or the client can't accept a cached response. 
             -- TODO: Check for prior knowledge to determine probably cacheability?
-
             if not fetch(req, res) then
-                -- Keep the Redis connection
-                -- TODO: Better cleanup handling
-                ngx.ctx.redis:set_keepalive(
-                    options.redis.keepalive.max_idle_timeout or 0, 
-                    options.redis.keepalive.pool_size or 100
-                )
+                redis_close()
                 return -- Pass the proxied error on.
             else
                 res.state = cache_states.SUBZERO
@@ -116,13 +100,33 @@ function call(o)
         end
 
         emit("response_ready", req, res)
-
-        -- Keep the Redis connection
-        ngx.ctx.redis:set_keepalive(
-            options.redis.keepalive.max_idle_timeout or 0, 
-            options.redis.keepalive.pool_size or 100
-        )
+        
+        redis_close()
+        return
     end
+end
+
+
+function redis_connect()
+    -- Connect to Redis. The connection is kept alive later.
+    ngx.ctx.redis = resty_redis:new()
+    if not options.redis then options.redis = {} end -- In case nothing has been set.
+    ngx.ctx.redis:set_timeout(options.redis.timeout or 1000) -- Default to 1 sec
+
+    local ok, err = ngx.ctx.redis:connect(
+        -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
+        options.redis.host or options.redis.socket or "127.0.0.1", 
+        options.redis.port or 6379
+    )
+end
+
+
+function redis_close()
+    -- Keep the Redis connection
+    ngx.ctx.redis:set_keepalive(
+        options.redis.keepalive.max_idle_timeout or 0, 
+        options.redis.keepalive.pool_size or 100
+    )
 end
 
 
@@ -159,7 +163,7 @@ function read(req, res)
         if cache_parts[i] == 'body' then
             res.body = cache_parts[i+1]
         elseif cache_parts[i] == 'status' then
-            res.status = cache_parts[i+1]
+            res.status = tonumber(cache_parts[i+1])
         else
             -- Everything else will be a header, with a h: prefix.
             local _, _, header = cache_parts[i]:find('h:(.*)')
