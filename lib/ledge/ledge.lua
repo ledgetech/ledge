@@ -108,7 +108,7 @@ function call(o)
                     options.redis.keepalive.max_idle_timeout or 0, 
                     options.redis.keepalive.pool_size or 100
                 )
-                return res.status, res.header, res.body -- Pass the proxied error back.
+                return -- Pass the proxied error on.
             else
                 res.state = cache_states.SUBZERO
                 set_headers(req, res)
@@ -122,9 +122,6 @@ function call(o)
             options.redis.keepalive.max_idle_timeout or 0, 
             options.redis.keepalive.pool_size or 100
         )
-
-        -- Currently rack expets these. Seems a little verbose, but it's rack-like.
-        return res.status, res.header, res.body 
     end
 end
 
