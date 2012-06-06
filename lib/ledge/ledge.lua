@@ -18,11 +18,6 @@ local proxy_actions = {
     COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
 }
 
-ngx.ctx.ledge = {
-    event = {},
-    config = {}
-}
-
 local options = {}
 
 -- Resty rack interface
@@ -297,6 +292,8 @@ end
 -- @param ...       Filter table. First level is the filter type "match_uri" or "match_header".
 --                  Each of these has a list of pattern => value pairs.
 function set(param, value, ...)
+    if not ngx.ctx.ledge then create_ledge_ctx() end
+
     ngx.ctx.ledge.config[param] = value
     local filters = select(1, ...)
     if filters then
@@ -327,7 +324,7 @@ end
 -- @param   string  The config parameter
 -- @return  mixed
 function get(param)
-    return ngx.ctx.ledge.config[param]
+    return ngx.ctx.ledge.config[param] or nil
 end
 
 
@@ -337,6 +334,7 @@ end
 -- @param   function    The event handler
 -- @return  void
 function bind(event, callback)
+    if not ngx.ctx.ledge then create_ledge_ctx() end
     if not ngx.ctx.ledge.event[event] then ngx.ctx.ledge.event[event] = {} end
     table.insert(ngx.ctx.ledge.event[event], callback)
 end
@@ -354,6 +352,15 @@ function emit(event, req, res)
            handler(req, res)
        end
    end
+end
+
+
+-- Ensures we have tables ready for event registration and configuration settings
+function create_ledge_ctx()
+    ngx.ctx.ledge = {
+        event = {},
+        config = {}
+    }
 end
 
 
