@@ -17,23 +17,9 @@ Download and install:
 * [Redis](http://redis.io/download) >= 2.4.14
 * [ngx_openresty](http://openresty.org/) >= 1.0.15.7
 
-Read and understand the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
+Review the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
 
-Install the contents of `lib` from both [lua-resty-rack](https://github.com/pintsized/lua-resty-rack) and **ledge** to a path contained defined by `lua_package_path` in `nginx.conf` (see [http://wiki.nginx.org/HttpLuaModule#lua_package_path](http://wiki.nginx.org/HttpLuaModule#lua_package_path)
-
-Such as
-
-```
-/myproj/lualib/ledge/ledge.lua
-/myproj/lualib/resty/rack.lua
-/myproj/lualib/resty/rack/*.lua
-```
-
-Where `lua_package_path` in `nginx.conf` looks like
-
-```
-lua_package_path '/myproj/lualib/?.lua;;';
-```
+Clone this repo and [lua-resty-rack](https://github.com/pintsized/lua-resty-rack) into a path defined by `lua_package_path` in `nginx.conf` (see [http://wiki.nginx.org/HttpLuaModule#lua_package_path](http://wiki.nginx.org/HttpLuaModule#lua_package_path)
 
 ### Usage
 
