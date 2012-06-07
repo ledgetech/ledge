@@ -33,7 +33,7 @@ Where `lua_package_path` in `nginx.conf` looks like
 lua_package_path '/myproj/lualib/?.lua;;';
 ```
 
-## Usage
+### Usage
 
 In `nginx.conf`, first define your upstream server as a `location` block. Note from the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation that named locations such as @foo cannot be used due to a limitation in the Nginx core. Instead, use a regular location (we've been using `/__ledge/` as a prefix), and mark it as `internal`.
 
@@ -56,7 +56,7 @@ server {
 
 You can of course use anything available to you in Nginx as your origin `location`, here we are using the proxy module to fetch from our origin server.
 
-Finally create the `location` block for where you wish caching to take place (inside the same `server` block), and configure Ledge by installing it with `resty.rack`.
+Finally create the `location` block for where you wish cacheing to take place (inside the same `server` block), and configure Ledge by installing it with `resty.rack`.
 
 ```
 location / {
@@ -68,7 +68,7 @@ location / {
 	}
 	set $cache_key ledge:cache_obj:$scheme:$host:$uri:$query_hash;	
 	
-	content_by_lua '_
+	content_by_lua '
 		local rack = require "resty.rack"
 		local ledge = require "ledge.ledge"
 		
@@ -77,6 +77,97 @@ location / {
 	';
 }
 ```
+
+## Functions
+
+You can configure Ledge behaviours and extend the functionality by calling API functions **before** running `rack.run()`. This provides the opportunity to bind callbacks to events for runtime modification of the request or response.
+
+### ledge.set(param, value, ...)
+
+**Syntax:** `ledge.set(param, value, filter_table?)`
+
+Sets a configuration option. If the third parameter is omitted, all requests will use the same configuration option. If however filter_table is supplied, it's possible to set the parameter only for matching requests.
+
+```
+ledge.set("max_stale_age", 3600, {
+	match_uri = {
+		{ "/some/path", 86400 },
+	},
+	match_header = {
+		{ "Content-Type", "application/json", 60 },
+	},
+})
+```
+
+#### Filters
+
+There are two filter types; `match_uri` and `match_header`. Both accept a Lua pattern as the first table element, for looser matching.
+
+
+### ledge.get(param)
+
+**Syntax:** `local value = ledge.get(param)`
+
+Gets a configuration option.
+
+
+### ledge.bind(event_name, callback)
+
+**Syntax:** `ledge.bind(event, function(req, res) end)`
+
+Binds a user defined function to an event. See below for details of event types.
+
+The `req` and `res` parameters are documented in [lua-resty-rack](https://github.com/pintsized/lua-resty-rack). Ledge adds some additional convenience methods.
+
+* `req.accepts_cache()`
+* `res.cacheable()`
+* `res.expires_timestamp()`
+* `res.ttl()`
+
+## Events
+
+Ledge provides a set of events which are broadcast at the various stages of cacheing / proxying. The req/res environment is passed through functions bound to these events, providing the opportunity to manipulate the request or response as needed. For example:
+
+```
+ledge.bind("response_ready", function(req, res)
+	res.header['X-Homer'] = "Doh!"
+end)
+```
+
+The events currently available are:
+
+#### cache_accessed
+
+Broadcast when an item was found in cache and loaded into `res`.
+
+#### origin_required
+
+Broadcast when Ledge is about to proxy to the origin.
+
+#### origin_fetched
+
+Broadcast when the response was successfully fetched from the origin, but before it was saved to cache. This is useful when the response must be modified to alter its cacheability. For example:
+
+```
+ledge.bind("origin_fetched", function(req, res)
+	local ttl = 3600
+	res.header["Cache-Control"] = "max-age="..ttl..", public"
+	res.header["Pragma"] = nil
+	res.header["Expires"] = ngx.http_time(ngx.time() + ttl)
+end)
+```
+
+This blindly decides that a non-cacheable response can be cached. Probably only when origin servers aren't cooperating.
+
+#### response_ready
+
+Ledge is finished and about to return. Last chance to jump in before rack sends the response.
+
+## Configuration parameters
+
+There are currently no available runtime configuration parameters (rendering `set()` and `get()` above temporarily pointless for all but user supplied callbacks). 
+
+There were methods to control behvaiours such as serving stale content, which were removed during refactoring and will be added back shortly.
 
 ## Author
 
