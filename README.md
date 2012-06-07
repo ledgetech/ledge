@@ -35,7 +35,7 @@ lua_package_path '/myproj/lualib/?.lua;;';
 
 ## Usage
 
-In `nginx.conf`, first define your upstream server as an internal location. Note from the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation that named locations such as @foo cannot be used due to a limitation in the Nginx core. Instead, use a regular location (we've been using /__ledge as a prefix), and mark it as `internal`.
+In `nginx.conf`, first define your upstream server as a `location` block. Note from the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation that named locations such as @foo cannot be used due to a limitation in the Nginx core. Instead, use a regular location (we've been using `/__ledge/` as a prefix), and mark it as `internal`.
 
 ```
 server {
@@ -54,13 +54,13 @@ server {
 }
 ```
 
-You can of course use anything available to you in Nginx as an upstream location, here we are using the proxy module to fetch from our origin server.
+You can of course use anything available to you in Nginx as your origin `location`, here we are using the proxy module to fetch from our origin server.
 
-Create another location block where you wish caching to take place, and configure Ledge.
+Finally create the `location` block for where you wish caching to take place (inside the same `server` block), and configure Ledge by installing it with `resty.rack`.
 
 ```
 location / {
-	# NOTE: The following configuration is currently required, but will likely go away in the next version.
+	# NOTE: The following cache_key generation is currently required, but will likely go away in the next version.
 	set $query_hash "";
 	if ($is_args != "") {
 	    set $query_hash $args;
