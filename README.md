@@ -56,7 +56,7 @@ server {
 
 You can of course use anything available to you in Nginx as your origin `location`, here we are using the proxy module to fetch from our origin server.
 
-Finally create the `location` block for where you wish cacheing to take place (inside the same `server` block), and configure Ledge by installing it with `resty.rack`.
+Finally create the `location` block (inside the same `server` block), and configure Ledge by installing it with `resty.rack`.
 
 ```
 location / {
@@ -80,7 +80,7 @@ location / {
 
 ## Functions
 
-You can configure Ledge behaviours and extend the functionality by calling API functions **before** running `rack.run()`. This provides the opportunity to bind callbacks to events for runtime modification of the request or response.
+You can configure Ledge behaviours and extend the functionality by calling API functions **before** running `rack.run()`.
 
 ### ledge.set(param, value, ...)
 
