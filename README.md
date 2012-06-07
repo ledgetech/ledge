@@ -8,6 +8,8 @@ It utilises [Redis](http://redis.io) as a storage backend, and depends on the `l
 
 This library is considered experimental and under active development, functionality may change without notice. However it is currently in production for a small number of sites and appears stable.
 
+Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
+
 ## Installation
 
 Download and install:
@@ -157,7 +159,7 @@ ledge.bind("origin_fetched", function(req, res)
 end)
 ```
 
-This blindly decides that a non-cacheable response can be cached. Probably only when origin servers aren't cooperating.
+This blindly decides that a non-cacheable response can be cached. Probably only useful when origin servers aren't cooperating.
 
 #### response_ready
 
@@ -174,6 +176,8 @@ There were methods to control behvaiours such as serving stale content, which we
 James Hurst <jhurst@squiz.co.uk>
 
 ## Licence
+
+This module is licensed under the 2-clause BSD license.
 
 Copyright (c) 2012, James Hurst <jhurst@squiz.co.uk>
 
