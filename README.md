@@ -25,7 +25,7 @@ Clone this repo and [lua-resty-rack](https://github.com/pintsized/lua-resty-rack
 
 In `nginx.conf`, first define your upstream server as a `location` block. Note from the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation that named locations such as @foo cannot be used due to a limitation in the Nginx core. Instead, use a regular location (we've been using `/__ledge/` as a prefix), and mark it as `internal`.
 
-```
+```nginx
 server {
 	listen 80;
 	server_name example.com;
@@ -46,7 +46,7 @@ You can of course use anything available to you in Nginx as your origin `locatio
 
 Finally create the `location` block (inside the same `server` block), and configure Ledge by installing it with `resty.rack`.
 
-```
+```nginx
 location / {
 	# NOTE: The following cache_key generation is currently required, but will likely go away in the next version.
 	set $query_hash "";
