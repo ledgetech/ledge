@@ -76,7 +76,7 @@ You can configure Ledge behaviours and extend the functionality by calling API f
 
 Sets a configuration option. If the third parameter is omitted, all requests will use the same configuration option. If however filter_table is supplied, it's possible to set the parameter only for matching requests.
 
-```
+```lua
 ledge.set("max_stale_age", 3600, {
 	match_uri = {
 		{ "/some/path", 86400 },
@@ -116,7 +116,7 @@ The `req` and `res` parameters are documented in [lua-resty-rack](https://github
 
 Ledge provides a set of events which are broadcast at the various stages of cacheing / proxying. The req/res environment is passed through functions bound to these events, providing the opportunity to manipulate the request or response as needed. For example:
 
-```
+```lua
 ledge.bind("response_ready", function(req, res)
 	res.header['X-Homer'] = "Doh!"
 end)
@@ -136,7 +136,7 @@ Broadcast when Ledge is about to proxy to the origin.
 
 Broadcast when the response was successfully fetched from the origin, but before it was saved to cache. This is useful when the response must be modified to alter its cacheability. For example:
 
-```
+```lua
 ledge.bind("origin_fetched", function(req, res)
 	local ttl = 3600
 	res.header["Cache-Control"] = "max-age="..ttl..", public"
