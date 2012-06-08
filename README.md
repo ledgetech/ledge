@@ -2,7 +2,7 @@
 
 A [Lua](http://www.lua.org) module for [OpenResty](http://openresty.org), providing scriptable HTTP cache (edge) functionality for Nginx.
 
-It utilises [Redis](http://redis.io) as a storage backend, and depends on the `lua-resty-*` modules bundled with OpenResty as well as [lua-resty-rack](https://github.com/pintsized/lua-resty-rack).
+It utilises [Redis](http://redis.io) as a storage backend, and depends on the [lua-resty-redis](https://github.com/agentzh/lua-resty-redis) module bundled with OpenResty as well as [lua-resty-rack](https://github.com/pint[ized/lua-resty-rack), maintained separately.
 
 ## Status
 
