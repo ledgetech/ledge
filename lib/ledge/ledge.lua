@@ -29,8 +29,8 @@ function call(o)
         -- First lets introduce some utility functions to our rack req/res environments.
 
         req.accepts_cache = function()
-            if ngx['HTTP_'..req.method] ~= ngx.HTTP_GET then return false end
-            if req.header['cache-control'] == 'no-cache' or req.header['Pragma'] == 'no-cache' then
+            if ngx["HTTP_"..req.method] ~= ngx.HTTP_GET then return false end
+            if req.header["Cache-Control"] == "no-cache" or req.header["Pragma"] == "no-cache" then
                 return false
             end
             return true
