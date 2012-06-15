@@ -54,7 +54,7 @@ location / {
 	    set $query_hash $args;
 	    set_sha1 $query_hash;
 	}
-	set $cache_key ledge:cache_obj:$scheme:$host:$uri:$query_hash;	
+	set $cache_key ledge:cache_obj:$request_method:$scheme:$host:$uri:$query_hash;
 	
 	content_by_lua '
 		local rack = require "resty.rack"
