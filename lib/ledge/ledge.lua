@@ -1,6 +1,6 @@
 module("ledge.ledge", package.seeall)
 
-_VERSION = '0.01'
+_VERSION = '0.02'
 
 local resty_redis = require("resty.redis")
 
