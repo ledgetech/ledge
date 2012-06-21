@@ -181,6 +181,8 @@ function save(req, res)
         return 0 -- Not cacheable, but no error
     end
 
+    emit("before_save", req, res)
+
     ngx.ctx.redis:init_pipeline()
 
     -- Turn the headers into a flat list of pairs
