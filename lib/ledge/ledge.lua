@@ -185,9 +185,9 @@ function save(req, res)
 
     ngx.ctx.redis:init_pipeline()
 
-    -- Check / remove Set-Cookie
-    if res.header["Set-Cookie"] ~= nil then
-        --
+    -- Check / remove Set-Cookie before saving to cache (See RFC 2109, section 4.2.3).
+    if res.header["Cache-Control"]:find("no%-cache=\"set%-cookie\"") ~= nil then
+        res.header["Set-Cookie"] = nil
     end
 
     -- Turn the headers into a flat list of pairs
