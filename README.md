@@ -132,9 +132,13 @@ Broadcast when an item was found in cache and loaded into `res`.
 
 Broadcast when Ledge is about to proxy to the origin.
 
+#### before_save
+
+Broadcast when about to save a cacheable response.
+
 #### origin_fetched
 
-Broadcast when the response was successfully fetched from the origin, but before it was saved to cache. This is useful when the response must be modified to alter its cacheability. For example:
+Broadcast when the response was successfully fetched from the origin, but before it was saved to cache (and before __before_save__!). This is useful when the response must be modified to alter its cacheability. For example:
 
 ```lua
 ledge.bind("origin_fetched", function(req, res)
