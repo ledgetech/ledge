@@ -185,6 +185,11 @@ function save(req, res)
 
     ngx.ctx.redis:init_pipeline()
 
+    -- Check / remove Set-Cookie
+    if res.header["Set-Cookie"] ~= nil then
+        --
+    end
+
     -- Turn the headers into a flat list of pairs
     local h = {}
     for header,header_value in pairs(res.header) do
@@ -265,7 +270,7 @@ function set_headers(req, res)
     end
 
     -- Via header
-    local via = '1.1 ' .. req.host
+    local via = '1.1 ' .. req.host .. ' (ledge/' .. _VERSION .. ')'
     if  (res.header['Via'] ~= nil) then
         res.header['Via'] = via .. ', ' .. res.header['Via']
     else
