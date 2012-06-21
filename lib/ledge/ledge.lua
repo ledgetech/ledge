@@ -260,14 +260,6 @@ end
 
 
 function set_headers(req, res)
-    -- Get the cache state as human string for response headers
-    local cache_state_human = ''
-    for k,v in pairs(cache_states) do
-        if v == res.state then
-            cache_state_human = tostring(k)
-            break
-        end
-    end
 
     -- Via header
     local via = '1.1 ' .. req.host .. ' (ledge/' .. _VERSION .. ')'
@@ -277,14 +269,25 @@ function set_headers(req, res)
         res.header['Via'] = via
     end
 
-    -- X-Cache header
-    if res.state >= cache_states.WARM then
-        res.header['X-Cache'] = 'HIT' 
-    else
-        res.header['X-Cache'] = 'MISS'
-    end
+    -- Only add X-Cache headers for cacheable responses
+    if res.cacheable() then
+        -- Get the cache state as human string for response headers
+        local cache_state_human = ''
+        for k,v in pairs(cache_states) do
+            if v == res.state then
+                cache_state_human = tostring(k)
+                break
+            end
+        end
+        -- X-Cache header
+        if res.state >= cache_states.WARM then
+            res.header['X-Cache'] = 'HIT' 
+        else
+            res.header['X-Cache'] = 'MISS'
+        end
 
-    res.header['X-Cache-State'] = cache_state_human
+        res.header['X-Cache-State'] = cache_state_human
+    end
 end
 
 
