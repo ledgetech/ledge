@@ -48,14 +48,6 @@ Finally create the `location` block (inside the same `server` block), and config
 
 ```nginx
 location / {
-	# NOTE: The following cache_key generation is currently required, but will likely go away in the next version.
-	set $query_hash "";
-	if ($is_args != "") {
-	    set $query_hash $args;
-	    set_sha1 $query_hash;
-	}
-	set $cache_key ledge:cache_obj:$request_method:$scheme:$host:$uri:$query_hash;
-	
 	content_by_lua '
 		local rack = require "resty.rack"
 		local ledge = require "ledge.ledge"
@@ -157,9 +149,52 @@ Ledge is finished and about to return. Last chance to jump in before rack sends 
 
 ## Configuration parameters
 
-There are currently no available runtime configuration parameters (rendering `set()` and `get()` above temporarily pointless for all but user supplied callbacks). 
+### cache_key_spec
 
-There were methods to control behvaiours such as serving stale content, which were removed during refactoring and will be added back shortly.
+**Syntax:** `ledge.set("cache_key_spec", spec)`
+
+Overrides the cache key spec. This allows you to abstract certain items for great hit rates (at the expense of collisons), for example.
+
+The default spec is:
+
+Overrides the cache key spec. This allows you to abstract certain items for great hit rates (at the expense of collisons), for example.
+
+The default spec is:
+
+```lua
+{
+    ngx.var.request_method,
+    ngx.var.scheme,
+    ngx.var.host,
+    ngx.var.uri,
+    ngx.var.args
+}
+```
+
+Which will generate cache keys in Redis such as:
+
+```
+ledge:cache_obj:HEAD:http:example.com:/about
+ledge:cache_obj:HEAD:http:example.com:/about:p=2&q=foo
+```
+
+If you're doing SSL terminate at Nginx and your origin pages look the same for HTTPS and HTTP traffic, you could simply provide a cache key spec omitting `ngx.car.scheme`, to avoid splitting the cache.
+
+Another case might be to use a hash algorithm for the args, if you're worried about cache keys getting too long (not a problem for Redis, but potentially for network and storage).
+
+```
+ledge.set("cache_key_spec", {
+    ngx.var.request_method,
+    --ngx.var.scheme,
+    ngx.var.host,
+    ngx.var.uri,
+    ngx.md5(ngx.var.args)
+})
+```
+
+### Other configuration options
+
+There were previously methods to control behvaiours such as serving stale content, which were removed during refactoring and will be added back shortly.
 
 ## Author
 

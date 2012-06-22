@@ -76,6 +76,21 @@ function call(o)
             end
         end
 
+        -- Generate the cache key, from a given or default spec. The default is:
+        -- ledge:cache_obj:GET:http:example.com:/about:p=3&q=searchterms
+        if not ngx.ctx.ledge.config.cache_key_spec then
+            ngx.ctx.ledge.config.cache_key_spec = {
+                ngx.var.request_method,
+                ngx.var.scheme,
+                ngx.var.host,
+                ngx.var.uri,
+                ngx.var.args,
+            }
+        end
+        table.insert(ngx.ctx.ledge.config.cache_key_spec, 1, "cache_obj")
+        table.insert(ngx.ctx.ledge.config.cache_key_spec, 1, "ledge")
+        ngx.ctx.ledge.cache_key = table.concat(ngx.ctx.ledge.config.cache_key_spec, ":")
+
         redis_connect()
 
         -- Try to read from cache. 
@@ -134,21 +149,19 @@ function read(req, res)
 
     -- Fetch from Redis, pipeline to reduce overhead
     ngx.ctx.redis:init_pipeline()
-    local cache_parts = ngx.ctx.redis:hgetall(ngx.var.cache_key)
-    local ttl = ngx.ctx.redis:ttl(ngx.var.cache_key)
+    local cache_parts = ngx.ctx.redis:hgetall(ngx.ctx.ledge.cache_key)
+    local ttl = ngx.ctx.redis:ttl(ngx.ctx.ledge.cache_key)
     local replies, err = ngx.ctx.redis:commit_pipeline()
     if not replies then
         error("Failed to query redis: " .. err)
     end
 
     -- A positive TTL tells us if there's anything valid
-    local ttl = assert(tonumber(replies[2]), 
-        "Bad TTL found for " .. ngx.var.cache_key)
+    local ttl = assert(tonumber(replies[2]), "Bad TTL found for " .. ngx.ctx.ledge.cache_key)
     if ttl <= 0 then return nil end -- Cache miss 
 
     -- We should get a table of cache entry values
-    assert(type(replies[1]) == 'table', 
-        "Failed to collect cache data from Redis")
+    assert(type(replies[1]) == 'table', "Failed to collect cache data from Redis")
 
     local cache_parts = replies[1]
     -- The Redis replies is a sequence of messages, so we iterate over pairs
@@ -197,7 +210,7 @@ function save(req, res)
 
     ngx.ctx.redis:init_pipeline()
 
-    ngx.ctx.redis:hmset(ngx.var.cache_key, 
+    ngx.ctx.redis:hmset(ngx.ctx.ledge.cache_key, 
         'body', res.body, 
         'status', res.status,
         'uri', req.uri_full,
@@ -205,7 +218,7 @@ function save(req, res)
     )
 
     -- Set the expiry (this might include an additional stale period)
-    ngx.ctx.redis:expire(ngx.var.cache_key, res.ttl())
+    ngx.ctx.redis:expire(ngx.ctx.ledge.cache_key, res.ttl())
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
     ngx.ctx.redis:zadd('ledge:uris_by_expiry', res.expires_timestamp(), req.uri_full)
