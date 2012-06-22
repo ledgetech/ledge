@@ -138,7 +138,7 @@ function read(req, res)
     local ttl = ngx.ctx.redis:ttl(ngx.var.cache_key)
     local replies, err = ngx.ctx.redis:commit_pipeline()
     if not replies then
-        error("Failed to query ngx.ctx.redis: " .. err)
+        error("Failed to query redis: " .. err)
     end
 
     -- A positive TTL tells us if there's anything valid
