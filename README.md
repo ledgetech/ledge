@@ -178,7 +178,7 @@ If you're doing SSL termination at Nginx and your origin pages look the same for
 
 Another case might be to use a hash algorithm for the args, if you're worried about cache keys getting too long (not a problem for Redis, but potentially for network and storage).
 
-```
+```lua
 ledge.set("cache_key_spec", {
     ngx.var.request_method,
     --ngx.var.scheme,
