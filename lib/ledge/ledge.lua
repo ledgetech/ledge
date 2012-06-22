@@ -183,8 +183,6 @@ function save(req, res)
 
     emit("before_save", req, res)
 
-    ngx.ctx.redis:init_pipeline()
-
     -- Check / remove Set-Cookie before saving to cache (See RFC 2109, section 4.2.3).
     if res.header["Cache-Control"]:find("no%-cache=\"set%-cookie\"") ~= nil then
         res.header["Set-Cookie"] = nil
@@ -196,6 +194,8 @@ function save(req, res)
         table.insert(h, 'h:'..header)
         table.insert(h, header_value)
     end
+
+    ngx.ctx.redis:init_pipeline()
 
     ngx.ctx.redis:hmset(ngx.var.cache_key, 
         'body', res.body, 
