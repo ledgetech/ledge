@@ -157,10 +157,6 @@ Overrides the cache key spec. This allows you to abstract certain items for grea
 
 The default spec is:
 
-Overrides the cache key spec. This allows you to abstract certain items for great hit rates (at the expense of collisons), for example.
-
-The default spec is:
-
 ```lua
 {
     ngx.var.request_method,
@@ -178,7 +174,7 @@ ledge:cache_obj:HEAD:http:example.com:/about
 ledge:cache_obj:HEAD:http:example.com:/about:p=2&q=foo
 ```
 
-If you're doing SSL terminate at Nginx and your origin pages look the same for HTTPS and HTTP traffic, you could simply provide a cache key spec omitting `ngx.car.scheme`, to avoid splitting the cache.
+If you're doing SSL termination at Nginx and your origin pages look the same for HTTPS and HTTP traffic, you could simply provide a cache key spec omitting `ngx.car.scheme`, to avoid splitting the cache.
 
 Another case might be to use a hash algorithm for the args, if you're worried about cache keys getting too long (not a problem for Redis, but potentially for network and storage).
 
