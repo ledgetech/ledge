@@ -22,6 +22,7 @@ local options = {}
 
 -- Resty rack interface
 function call(o)
+    if not ngx.ctx.ledge then create_ledge_ctx() end
     options = o
 
     return function(req, res)
@@ -273,7 +274,6 @@ end
 
 
 function set_headers(req, res)
-
     -- Via header
     local via = '1.1 ' .. req.host .. ' (ledge/' .. _VERSION .. ')'
     if  (res.header['Via'] ~= nil) then
@@ -370,11 +370,11 @@ end
 -- @param   table   response environment
 -- @return  void
 function emit(event, req, res)
-   for _, handler in ipairs(ngx.ctx.ledge.event[event] or {}) do
-       if type(handler) == "function" then
-           handler(req, res)
-       end
-   end
+    for _, handler in ipairs(ngx.ctx.ledge.event[event] or {}) do
+        if type(handler) == "function" then
+            handler(req, res)
+        end
+    end
 end
 
 
