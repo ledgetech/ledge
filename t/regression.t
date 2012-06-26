@@ -20,12 +20,6 @@ __DATA__
 --- config
 	location /test {
 		content_by_lua '
-			local redis = require "resty.redis"
-			local red = redis:new()
-			red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
-			red:flushdb()
-			red:close()
-
 			local rack = require "resty.rack"
 			local ledge = require "ledge.ledge"
 
