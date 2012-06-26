@@ -198,7 +198,7 @@ function save(req, res)
     emit("before_save", req, res)
 
     -- Check / remove Set-Cookie before saving to cache (See RFC 2109, section 4.2.3).
-    if res.header["Cache-Control"]:find("no%-cache=\"set%-cookie\"") ~= nil then
+    if res.header["Cache-Control"] and res.header["Cache-Control"]:find("no%-cache=\"set%-cookie\"") ~= nil then
         res.header["Set-Cookie"] = nil
     end
 
