@@ -15,7 +15,7 @@ run_tests();
 
 
 __DATA__
-=== TEST 1: no event (issue #12)
+=== TEST 1: no event, no header (issue #12, #13, #14)
 --- http_config eval: $::HttpConfig
 --- config
 	location /test {
