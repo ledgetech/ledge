@@ -56,13 +56,11 @@ function call(o)
                 end
             end
 
-            return true
+            return res.ttl() > 0 or false
         end
 
         -- The Expires header as a unix timestamp
         res.expires_timestamp = function()
-            -- Cache-Control directives take precidence over Expires
-            if not res.cacheable() then return nil end 
             if res.header["Expires"] then return ngx.parse_http_time(res.header["Expires"]) end
         end
 
