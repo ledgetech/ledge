@@ -200,6 +200,9 @@ function save(req, res)
         res.header["Set-Cookie"] = nil
     end
 
+    -- Never cache the content length. Nginx will deal with this for 1.0 clients.
+    if res.header["Content-Length"] then res.header["Content-Length"] = nil end
+
     -- Turn the headers into a flat list of pairs
     local h = {}
     for header,header_value in pairs(res.header) do
