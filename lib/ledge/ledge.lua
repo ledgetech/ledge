@@ -273,7 +273,7 @@ end
 
 function set_headers(req, res)
     -- Via header
-    local via = '1.1 ' .. req.host .. ' (ledge/' .. _VERSION .. ')'
+    local via = '1.1 ' .. ngx.var.hostname .. ' (ledge/' .. _VERSION .. ')'
     if  (res.header['Via'] ~= nil) then
         res.header['Via'] = via .. ', ' .. res.header['Via']
     else
