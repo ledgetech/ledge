@@ -212,6 +212,9 @@ function save(req, res)
 
     ngx.ctx.redis:init_pipeline()
 
+    -- Delete any existing data, to avoid accidental hash merges.
+    ngx.ctx.redis:del(ngx.ctx.ledge.cache_key)
+
     ngx.ctx.redis:hmset(ngx.ctx.ledge.cache_key, 
         'body', res.body, 
         'status', res.status,
