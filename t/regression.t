@@ -6,7 +6,7 @@ plan tests => 1;
 my $pwd = cwd();
 
 our $HttpConfig = qq{
-	lua_package_path "$pwd/lib/?.lua;;";
+	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
 };
 
 $ENV{TEST_NGINX_REDIS_PORT} ||= 6379;
