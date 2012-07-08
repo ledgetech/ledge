@@ -30,7 +30,7 @@ function call(o)
         -- First lets introduce some utility functions to our rack req/res environments.
 
         req.accepts_cache = function()
-            if ngx["HTTP_"..req.method] ~= ngx.HTTP_GET then return false end
+            if req.method ~= "GET" and req.method ~= "HEAD" then return false end
             if req.header["Cache-Control"] == "no-cache" or req.header["Pragma"] == "no-cache" then
                 return false
             end
@@ -232,7 +232,7 @@ function save(req, res)
     if not replies then
         error("Failed to query Redis: " .. err)
     end
-    return assert(replies[1] == 0 and replies[2] == "OK" and replies[3] == 1 and type(replies[4]) == 'number', 
+    return assert((replies[1] == 0 or replies[1] == 1) and replies[2] == "OK" and replies[3] == 1 and type(replies[4]) == 'number', 
         "Unexpeted reply from Redis when trying to save")
 end
 
