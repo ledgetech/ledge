@@ -232,7 +232,7 @@ function save(req, res)
     if not replies then
         error("Failed to query Redis: " .. err)
     end
-    return assert(replies[1] == "OK" and replies[2] == 1 and type(replies[3]) == 'number', 
+    return assert(replies[1] == 0 and replies[2] == "OK" and replies[3] == 1 and type(replies[4]) == 'number', 
         "Unexpeted reply from Redis when trying to save")
 end
 
