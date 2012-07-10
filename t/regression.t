@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 19;
+plan tests => 28;
 
 my $pwd = cwd();
 
@@ -258,3 +258,207 @@ GET /test
 --- response_headers
 Cache-Control: no-cache="set-cookie"
 Set-Cookie:
+
+
+=== TEST 8: Cache-Control case-sensitivity: Camel-case (issue #6)
+--- http_config eval: $::HttpConfig
+--- config
+        location /test {
+                content_by_lua '
+                        local redis = require "resty.redis"
+                        local red = redis:new()
+                        red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
+                        red:flushdb()
+                        red:close()
+
+                        local rack = require "resty.rack"
+                        local ledge = require "ledge.ledge"
+
+                        local options = {
+                                proxy_location = "/test_content",
+
+                                -- this block is to mitigate another issue
+                                redis = {
+                                        keepalive = {}
+                                }
+
+                        }
+                        rack.use(ledge, options)
+                        rack.run()
+                ';
+        }
+        location /test_content {
+                content_by_lua '
+			ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
+			ngx.header["Cache-Control"] = "no-cache"
+                        ngx.say("this is a test content")
+                ';
+        }
+--- request
+GET /test
+--- error_code: 200
+--- response_headers
+Cache-Control: no-cache
+
+
+=== TEST 9: Cache-Control case-sensitivity: Camel-case (issue #6)
+--- http_config eval: $::HttpConfig
+--- config
+        location = /test {
+                content_by_lua '
+                        local rack = require "resty.rack"
+                        local ledge = require "ledge.ledge"
+
+                        local options = {
+                                proxy_location = "/test_content",
+
+                                -- this block is to mitigate another issue
+                                redis = {
+                                        keepalive = {}
+                                }
+
+                        }
+                        rack.use(ledge, options)
+                        rack.run()
+                ';
+        }
+--- request
+GET /test
+--- error_code: 404
+
+
+=== TEST 10: Cache-Control case-sensitivity: lower-case (issue #6)
+--- http_config eval: $::HttpConfig
+--- config
+        location /test {
+                content_by_lua '
+                        local redis = require "resty.redis"
+                        local red = redis:new()
+                        red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
+                        red:flushdb()
+                        red:close()
+
+                        local rack = require "resty.rack"
+                        local ledge = require "ledge.ledge"
+
+                        local options = {
+                                proxy_location = "/test_content",
+
+                                -- this block is to mitigate another issue
+                                redis = {
+                                        keepalive = {}
+                                }
+
+                        }
+                        rack.use(ledge, options)
+                        rack.run()
+                ';
+        }
+        location /test_content {
+                content_by_lua '
+                        ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
+                        ngx.header["cache-control"] = "no-cache"
+                        ngx.say("this is a test content")
+                ';
+        }
+--- request
+GET /test
+--- error_code: 200
+--- response_headers
+Cache-Control: no-cache
+
+
+=== TEST 11: Cache-Control case-sensitivity: lower-case (issue #6)
+--- http_config eval: $::HttpConfig
+--- config
+        location = /test {
+                content_by_lua '
+                        local rack = require "resty.rack"
+                        local ledge = require "ledge.ledge"
+
+                        local options = {
+                                proxy_location = "/test_content",
+
+                                -- this block is to mitigate another issue
+                                redis = {
+                                        keepalive = {}
+                                }
+
+                        }
+                        rack.use(ledge, options)
+                        rack.run()
+                ';
+        }
+--- request
+GET /test
+--- error_code: 404
+
+
+=== TEST 12: Cache-Control case-sensitivity: upper-case (issue #6)
+--- http_config eval: $::HttpConfig
+--- config
+        location /test {
+                content_by_lua '
+                        local redis = require "resty.redis"
+                        local red = redis:new()
+                        red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
+                        red:flushdb()
+                        red:close()
+
+                        local rack = require "resty.rack"
+                        local ledge = require "ledge.ledge"
+
+                        local options = {
+                                proxy_location = "/test_content",
+
+                                -- this block is to mitigate another issue
+                                redis = {
+                                        keepalive = {}
+                                }
+
+                        }
+                        rack.use(ledge, options)
+                        rack.run()
+                ';
+        }
+        location /test_content {
+                content_by_lua '
+                        ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
+                        ngx.header["CACHE-CONTROL"] = "no-cache"
+                        ngx.say("this is a test content")
+                ';
+        }
+--- request
+GET /test
+--- error_code: 200
+--- response_headers
+Cache-Control: no-cache
+
+
+=== TEST 13: Cache-Control case-sensitivity: upper-case (issue #6)
+--- http_config eval: $::HttpConfig
+--- config
+        location = /test {
+                content_by_lua '
+                        local rack = require "resty.rack"
+                        local ledge = require "ledge.ledge"
+
+                        local options = {
+                                proxy_location = "/test_content",
+
+                                -- this block is to mitigate another issue
+                                redis = {
+                                        keepalive = {}
+                                }
+
+                        }
+                        rack.use(ledge, options)
+                        rack.run()
+                ';
+        }
+--- request
+GET /test
+--- error_code: 404
+
+
+
