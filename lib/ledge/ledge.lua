@@ -200,6 +200,9 @@ function save(req, res)
         res.header["Set-Cookie"] = nil
     end
 
+    -- Never cache the content length. Nginx will deal with this for 1.0 clients.
+    if res.header["Content-Length"] then res.header["Content-Length"] = nil end
+
     -- Turn the headers into a flat list of pairs
     local h = {}
     for header,header_value in pairs(res.header) do
@@ -208,6 +211,9 @@ function save(req, res)
     end
 
     ngx.ctx.redis:init_pipeline()
+
+    -- Delete any existing data, to avoid accidental hash merges.
+    ngx.ctx.redis:del(ngx.ctx.ledge.cache_key)
 
     ngx.ctx.redis:hmset(ngx.ctx.ledge.cache_key, 
         'body', res.body, 
@@ -226,7 +232,7 @@ function save(req, res)
     if not replies then
         error("Failed to query Redis: " .. err)
     end
-    return assert(replies[1] == "OK" and replies[2] == 1 and type(replies[3]) == 'number', 
+    return assert(replies[1] == 0 and replies[2] == "OK" and replies[3] == 1 and type(replies[4]) == 'number', 
         "Unexpeted reply from Redis when trying to save")
 end
 
@@ -273,7 +279,7 @@ end
 
 function set_headers(req, res)
     -- Via header
-    local via = '1.1 ' .. req.host .. ' (ledge/' .. _VERSION .. ')'
+    local via = '1.1 ' .. ngx.var.hostname .. ' (ledge/' .. _VERSION .. ')'
     if  (res.header['Via'] ~= nil) then
         res.header['Via'] = via .. ', ' .. res.header['Via']
     else
