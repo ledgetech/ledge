@@ -86,7 +86,7 @@ GET /test
 --- error_code: 200
 --- response_headers_like
 Cache-Control: no-cache="set-cookie"
-Set-Cookie: .*
+Set-Cookie: test=PRIVATE_COOKIE_SHOULD_NOT_BE_CACHED; path=/; expires=[A-Za-z]{3}, \d{2}-[A-Za-z]{3}-\d{2} \d{2}:\d{2}:\d{2} GMT
 
 
 === TEST 3: set-cookie headers: cache hit (from TEST2): the cached header should not contain set-cookie (issue #7)
