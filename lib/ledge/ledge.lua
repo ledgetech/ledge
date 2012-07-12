@@ -195,19 +195,26 @@ function save(req, res)
 
     emit("before_save", req, res)
 
-    -- Check / remove Set-Cookie before saving to cache (See RFC 2109, section 4.2.3).
-    if res.header["Cache-Control"] and res.header["Cache-Control"]:find("no%-cache=\"set%-cookie\"") ~= nil then
-        res.header["Set-Cookie"] = nil
-    end
+    -- Never cache Content-Length
+    local uncacheable_headers = { ["Content-Length"] = true }
 
-    -- Never cache the content length. Nginx will deal with this for 1.0 clients.
-    if res.header["Content-Length"] then res.header["Content-Length"] = nil end
+    -- Remove any headers marked as Cache-Control: (no-cache|no-store|private)="field".
+    if res.header["Cache-Control"] then
+        local patterns = { "no%-cache", "no%-store", "private" }
+        for _,p in ipairs(patterns) do
+            for h in res.header["Cache-Control"]:gmatch(p .. "=\"([%a-]+)\"") do 
+                uncacheable_headers[h:lower()] = true
+            end
+        end
+    end
 
     -- Turn the headers into a flat list of pairs
     local h = {}
     for header,header_value in pairs(res.header) do
-        table.insert(h, 'h:'..header)
-        table.insert(h, header_value)
+        if not uncacheable_headers[header:lower()] then
+            table.insert(h, 'h:'..header)
+            table.insert(h, header_value)
+        end
     end
 
     ngx.ctx.redis:init_pipeline()
