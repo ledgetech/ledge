@@ -6,7 +6,7 @@ It utilises [Redis](http://redis.io) as a storage backend, and depends on the [l
 
 ## Status
 
-This library is considered experimental and under active development, functionality may change without notice. However it is currently in production for a small number of sites and appears stable.
+This library is considered experimental and under active development, functionality may change without notice.
 
 Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
 
@@ -30,9 +30,9 @@ server {
 	listen 80;
 	server_name example.com;
 	
-	location /__ledge/example.com {
+	location /__ledge {
 		internal;
-		rewrite ^/__ledge/example.com(.*)$ $1 break;
+		rewrite ^/__ledge(.*)$ $1 break;
 		proxy_set_header X-Real-IP  $remote_addr;
 		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 		proxy_set_header Host $host;
@@ -46,13 +46,13 @@ You can of course use anything available to you in Nginx as your origin `locatio
 
 Finally create the `location` block (inside the same `server` block), and configure Ledge by installing it with `resty.rack`.
 
-```nginx
+```lua
 location / {
 	content_by_lua '
-		local rack = require "resty.rack"
-		local ledge = require "ledge.ledge"
+		rack = require "resty.rack"
+		ledge = require "ledge.ledge"
 		
-		rack.use(ledge, { proxy_location = "/__ledge/example.com" })
+		rack.use(ledge)
 		rack.run()
 	';
 }
@@ -62,27 +62,40 @@ location / {
 
 You can configure Ledge behaviours and extend the functionality by calling API functions **before** running `rack.run()`.
 
-### ledge.set(param, value, ...)
+### ledge.set(param, value)
 
-**Syntax:** `ledge.set(param, value, filter_table?)`
+**Syntax:** `ledge.set(param, value)`
 
-Sets a configuration option. If the third parameter is omitted, all requests will use the same configuration option. If however filter_table is supplied, it's possible to set the parameter only for matching requests.
+Sets a configuration option.
 
 ```lua
-ledge.set("max_stale_age", 3600, {
-	match_uri = {
-		{ "/some/path", 86400 },
-	},
-	match_header = {
-		{ "Content-Type", "application/json", 60 },
-	},
-})
+ledge.set("origin_location", "/__my_origin")
 ```
 
-#### Filters
+### ledge.gset(param, vaue)
 
-There are two filter types; `match_uri` and `match_header`. Both accept a Lua pattern as the first table element, for looser matching.
+**Syntax:** `ledge.gset(param, value)`
 
+Sets a configuration globally. This is only relevant during `init_by_lua`, allowing global options to be set once when the server reloads, rather than per request.
+
+```lua
+http {
+    init_by_lua '
+        rack = require "resty.rack"
+        ledge = require "ledge.ledge"
+        ledge.gset("redis_host", 192.168.1.234)
+    ';
+
+    server {
+        location / {
+            content_by_lua '
+                rack.use(ledge)
+                rack.run()
+            ';
+        }
+    }
+}
+```
 
 ### ledge.get(param)
 
@@ -149,9 +162,49 @@ Ledge is finished and about to return. Last chance to jump in before rack sends 
 
 ## Configuration parameters
 
-### cache_key_spec
+### origin_location
 
-**Syntax:** `ledge.set("cache_key_spec", spec)`
+*Default:* `/__ledge/origin`
+
+Renamed from "proxy_location" to be more generic (you might not be proxying).
+
+### redis_host
+
+*Default:* `127.0.0.1`
+
+### redis_port
+
+*Default:* `6379`
+
+### redis_socket
+
+*Default:* `nil`
+
+`connect()` will use TCP by default, unless `redis_socket` is defined.
+
+### redis_database
+
+*Default:* `0`
+
+### redis_timeout
+
+*Default:* `nil`
+
+ngx_lua defaults to *60s*, overridable per worker process by using the `lua_socket_read_timeout` directive. Only set this if you want fine grained control over Redis timeouts (rather than all cosocket connections).
+
+### redis_keepalive_timeout
+
+*Default:* `nil`
+
+ngx_lua defaults to *60s*, overridable per worker process by using the `lua_socket_keepalive_timeout` directive.
+
+### redis_keepalive_pool_size
+
+*Default:* `nil`
+
+ngx_lua defaults to *30*, overridable per worker process by using the `lua_socket_pool_size` directive.
+
+### cache_key_spec
 
 Overrides the cache key spec. This allows you to abstract certain items for great hit rates (at the expense of collisons), for example.
 
@@ -188,19 +241,22 @@ ledge.set("cache_key_spec", {
 })
 ```
 
+Note that `cache_key_spec` cannot currently be set globally with `ledge.gset` (because `ngx.var` is not available during `init_by_lua`).
+
+
 ### Other configuration options
 
 There were previously methods to control behvaiours such as serving stale content, which were removed during refactoring and will be added back shortly.
 
 ## Author
 
-James Hurst <jhurst@squiz.co.uk>
+James Hurst <james@pintsized.co.uk>
 
 ## Licence
 
 This module is licensed under the 2-clause BSD license.
 
-Copyright (c) 2012, James Hurst <jhurst@squiz.co.uk>
+Copyright (c) 2012, James Hurst <james@pintsized.co.uk>
 
 All rights reserved.
 
