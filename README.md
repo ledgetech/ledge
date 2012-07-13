@@ -15,15 +15,15 @@ Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](
 Download and install:
 
 * [Redis](http://redis.io/download) >= 2.4.14
-* [ngx_openresty](http://openresty.org/) >= 1.0.15.7
+* [OpenResty](http://openresty.org/) >= 1.0.15.7
 
 Review the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
 
-Clone this repo and [lua-resty-rack](https://github.com/pintsized/lua-resty-rack) into a path defined by `lua_package_path` in `nginx.conf` (see [http://wiki.nginx.org/HttpLuaModule#lua_package_path](http://wiki.nginx.org/HttpLuaModule#lua_package_path)
+Clone this repo and [lua-resty-rack](https://github.com/pintsized/lua-resty-rack) into a path defined by [lua_package_path](http://wiki.nginx.org/HttpLuaModule#lua_package_path) in `nginx.conf`.
 
 ### Usage
 
-In `nginx.conf`, first define your upstream server as a `location` block. Note from the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation that named locations such as @foo cannot be used due to a limitation in the Nginx core. Instead, use a regular location (we've been using `/__ledge/` as a prefix), and mark it as `internal`.
+In `nginx.conf`, first define your upstream server as a `location` block. Note from the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation that named locations such as @foo cannot be used due to a limitation in the Nginx core. Instead, use a regular location (the default is `/__ledge`), and mark it as `internal`.
 
 ```nginx
 server {
@@ -58,6 +58,26 @@ location / {
 }
 ```
 
+If you are using OpenResty >= 1.2.1.5, you can load the modules globally during `init_by_lua`, which will improve performance.
+
+```lua
+http {
+    init_by_lua '
+        rack = require "resty.rack"
+        ledge = require "ledge.ledge"
+    ';
+
+    server {
+        location / {
+            content_by_lua '
+                rack.use(ledge)
+                rack.run()
+            ';
+        }
+    }
+}
+```
+
 ## Functions
 
 You can configure Ledge behaviours and extend the functionality by calling API functions **before** running `rack.run()`.
@@ -76,7 +96,7 @@ ledge.set("origin_location", "/__my_origin")
 
 **Syntax:** `ledge.gset(param, value)`
 
-Sets a configuration globally. This is only relevant during `init_by_lua`, allowing global options to be set once when the server reloads, rather than per request.
+Sets a configuration option globally. This is only relevant during `init_by_lua`, allowing global options to be set once when the server reloads, rather than per request.
 
 ```lua
 http {
@@ -160,13 +180,11 @@ This blindly decides that a non-cacheable response can be cached. Probably only 
 
 Ledge is finished and about to return. Last chance to jump in before rack sends the response.
 
-## Configuration parameters
+## Configuration options
 
 ### origin_location
 
-*Default:* `/__ledge/origin`
-
-Renamed from "proxy_location" to be more generic (you might not be proxying).
+*Default:* `/__ledge`
 
 ### redis_host
 
@@ -244,10 +262,30 @@ ledge.set("cache_key_spec", {
 Note that `cache_key_spec` cannot currently be set globally with `ledge.gset` (because `ngx.var` is not available during `init_by_lua`).
 
 
-### Other configuration options
+## Known limitations
 
-There were previously methods to control behvaiours such as serving stale content, which were removed during refactoring and will be added back shortly.
+The following major items are currently not implemented, but on the short term TODO list.
 
+* No support for validation (If-Modified-Since, If-None-Match etc).
+* Incomplete logic when determining cacheability of requests / responses.
+* No support for logic around the Vary header.
+
+
+## Planned features
+
+Once the core functionality is more stable, there are plans for:
+
+* A plugin mechanism for modules to hook into events.
+* Some bundled plugins to solve common problems:
+ * ESI parser.
+ * CSS Combining.
+ * Stats gathering and reporting.
+ * ...
+* Stale while revalidate.
+* Collapse forwarding.
+* Offline mode.
+* ...
+ 
 ## Author
 
 James Hurst <james@pintsized.co.uk>
