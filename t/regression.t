@@ -22,25 +22,16 @@ __DATA__
 		content_by_lua '
 			local rack = require "resty.rack"
 			local ledge = require "ledge.ledge"
-
-			local options = {
-				proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-			}
-			rack.use(ledge, options)
+            ledge.set("redis_post", $TEST_NGINX_REDIS_PORT)
+			rack.use(ledge)
 			rack.run()
 		';
         }
-	location /test_content {
+	location /__ledge {
 		content_by_lua '
 			ngx.say("this is a test content")
 		';
-        }
+    }
 --- request
 GET /test
 --- error_code: 200
@@ -60,20 +51,11 @@ GET /test
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
 
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
-        location /test_content {
+        location /__ledge {
                 content_by_lua '
                         ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
                         ngx.header["Set-Cookie"] = "test=PRIVATE_COOKIE_SHOULD_NOT_BE_CACHED; path=/; expires="..ngx.cookie_time(ngx.now() + 600) 
@@ -97,16 +79,7 @@ Set-Cookie: test=PRIVATE_COOKIE_SHOULD_NOT_BE_CACHED; path=/; expires=[A-Za-z]{3
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
 
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
@@ -131,21 +104,12 @@ Set-Cookie:
 
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
-
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
-        location /test_content {
+        location /__ledge {
                 content_by_lua '
                         ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
 			ngx.header["Set-Cookie"] = "test=SHARED_COOKIE_SHOULD_BE_CACHED; path=/; expires="..ngx.cookie_time(ngx.now() + 600)
@@ -168,16 +132,7 @@ Set-Cookie: test=SHARED_COOKIE_SHOULD_BE_CACHED; path=/; expires=[A-Za-z]{3}, \d
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
 
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
@@ -203,20 +158,11 @@ Set-Cookie: test=SHARED_COOKIE_SHOULD_BE_CACHED; path=/; expires=[A-Za-z]{3}, \d
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
 
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
-        location /test_content {
+        location /__ledge {
                 content_by_lua '
                         ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
 			ngx.header["Cache-Control"] = "no-cache=\\"set-cookie\\""
@@ -239,16 +185,7 @@ Set-Cookie:
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
 
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
@@ -273,24 +210,14 @@ Set-Cookie:
 
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
-
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
-        location /test_content {
+        location /__ledge {
                 content_by_lua '
-			ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
-			ngx.header["Cache-Control"] = "no-cache"
+                        ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
+                        ngx.header["Cache-Control"] = "no-cache"
                         ngx.say("this is a test content")
                 ';
         }
@@ -309,16 +236,7 @@ Cache-Control: no-cache
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
 
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
@@ -340,21 +258,11 @@ GET /test
 
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
-
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
-        location /test_content {
+        location /__ledge {
                 content_by_lua '
                         ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
                         ngx.header["cache-control"] = "no-cache"
@@ -376,16 +284,7 @@ Cache-Control: no-cache
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
 
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
@@ -407,21 +306,11 @@ GET /test
 
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
-
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }
-        location /test_content {
+        location /__ledge {
                 content_by_lua '
                         ngx.header["Expires"] = ngx.http_time(ngx.now() + 600)
                         ngx.header["CACHE-CONTROL"] = "no-cache"
@@ -443,16 +332,7 @@ Cache-Control: no-cache
                         local rack = require "resty.rack"
                         local ledge = require "ledge.ledge"
 
-                        local options = {
-                                proxy_location = "/test_content",
-
-                                -- this block is to mitigate another issue
-                                redis = {
-                                        keepalive = {}
-                                }
-
-                        }
-                        rack.use(ledge, options)
+                        rack.use(ledge)
                         rack.run()
                 ';
         }

@@ -18,12 +18,22 @@ local proxy_actions = {
     COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
 }
 
-local options = {}
+-- Configuration defaults.
+-- Can be overriden during init_by_lua with ledge.gset(param, value).
+local g_config = {
+    origin_location = "/__ledge",
+    redis_host      = "127.0.0.1",
+    redis_port      = 6379,
+    redis_socket    = nil,
+    redis_database  = 0,
+    redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
+    redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
+    redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
+}
 
 -- Resty rack interface
-function call(o)
+function call()
     if not ngx.ctx.ledge then create_ledge_ctx() end
-    options = o
 
     return function(req, res)
 
@@ -90,7 +100,7 @@ function call(o)
         table.insert(ngx.ctx.ledge.config.cache_key_spec, 1, "ledge")
         ngx.ctx.ledge.cache_key = table.concat(ngx.ctx.ledge.config.cache_key_spec, ":")
 
-        redis_connect()
+        redis_connect(req, res)
 
         -- Try to read from cache. 
         if read(req, res) then
@@ -115,26 +125,47 @@ function call(o)
 end
 
 
-function redis_connect()
+function redis_connect(req, res)
     -- Connect to Redis. The connection is kept alive later.
     ngx.ctx.redis = resty_redis:new()
-    if not options.redis then options.redis = {} end -- In case nothing has been set.
-    ngx.ctx.redis:set_timeout(options.redis.timeout or 1000) -- Default to 1 sec
+    if get("redis_timeout") then ngx.ctx.redis:set_timeout(get("redis_timeout")) end
 
     local ok, err = ngx.ctx.redis:connect(
-        -- Try redis_host or redis_socket, fallback to localhost:6379 (Redis default).
-        options.redis.host or options.redis.socket or "127.0.0.1", 
-        options.redis.port or 6379
+        get("redis_socket") or get("redis_host"), 
+        get("redis_port")
     )
+
+    -- If we couldn't connect for any reason, redirect to the origin directly.
+    -- This means if Redis goes down, the site stands a chance of still being up.
+    if not ok then
+        ngx.log(ngx.WARN, err .. ", internally redirecting to the origin")
+        return ngx.exec(get("origin_location")..req.uri_relative)
+    end
+
+    -- redis:select always returns OK
+    if get("redis_database") then ngx.ctx.redis:select(get("redis_database")) end
 end
 
 
 function redis_close()
-    -- Keep the Redis connection
-    ngx.ctx.redis:set_keepalive(
-        options.redis.keepalive.max_idle_timeout or 0, 
-        options.redis.keepalive.pool_size or 100
-    )
+    -- Keep the Redis connection based on keepalive settings.
+    local ok, err = nil
+    if get("redis_keepalive_timeout") then
+        if get("redis_keepalive_pool_size") then
+            ok, err = ngx.ctx.redis:set_keepalive(
+                get("redis_keepalive_timeout"), 
+                get("redis_keepalive_pool_size")
+            )
+        else
+            ok, err = ngx.ctx.redis:set_keepalive(get("redis_keepalive_timeout"))
+        end
+    else
+        ok, err = ngx.ctx.redis:set_keepalive()
+    end
+
+    if not ok then
+        ngx.log(ngx.WARN, "couldn't set keepalive, "..err)
+    end
 end
 
 
@@ -251,7 +282,7 @@ end
 function fetch(req, res)
     emit("origin_required", req, res)
 
-    local origin = ngx.location.capture(options.proxy_location..req.uri_relative, {
+    local origin = ngx.location.capture(get("origin_location")..req.uri_relative, {
         method = ngx['HTTP_' .. req.method], -- Method as ngx.HTTP_x constant.
         body = req.body,
     })
@@ -316,49 +347,22 @@ end
 
 
 -- Set a config parameter
---
--- The vararg is an optional parameter containing a table which specifies per URI or 
--- header based value filters. This allows a config item to only be set on certain URIs, 
--- for example. 
---
--- @param string    The config parameter
--- @param mixed     The config default value
--- @param ...       Filter table. First level is the filter type "match_uri" or "match_header".
---                  Each of these has a list of pattern => value pairs.
-function set(param, value, ...)
+function set(param, value)
     if not ngx.ctx.ledge then create_ledge_ctx() end
-
-    ngx.ctx.ledge.config[param] = value
-    local filters = select(1, ...)
-    if filters then
-        if filters.match_uri then
-            for _,filter in ipairs(filters.match_uri) do
-                if ngx.var.uri:find(filter[1]) ~= nil then
-                    ngx.ctx.ledge.config[param] = filter[2]
-                    break
-                end
-            end
-        end
-
-        if filters.match_header then
-            local h = ngx.req.get_headers()
-            for _,filter in ipairs(filters.match_header) do
-                if h[filter[1]] ~= nil and h[filter[1]]:find(filter[2]) ~= nil then
-                    ngx.ctx.ledge.config[param] = filter[3]
-                    break
-                end
-            end
-        end
-    end
+    ngx.ctx.ledge.param = value
 end
 
 
--- Convenience for accessing config parameters
---
--- @param   string  The config parameter
--- @return  mixed
+-- Set a global config parameter. Only for use during init_by_lua.
+function gset(param, value)
+    g_config[param] = value
+end
+
+
+-- Gets a config parameter. 
 function get(param)
-    return ngx.ctx.ledge.config[param] or nil
+    if not ngx.ctx.ledge then create_ledge_ctx() end
+    return ngx.ctx.ledge.config[param] or g_config[param] or nil
 end
 
 
