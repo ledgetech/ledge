@@ -262,11 +262,13 @@ function save(req, res)
         unpack(h)
     )
 
+    local ttl = res.ttl()
+
     -- Set the expiry (this might include an additional stale period)
-    ngx.ctx.redis:expire(ngx.ctx.ledge.cache_key, res.ttl())
+    ngx.ctx.redis:expire(ngx.ctx.ledge.cache_key, ttl)
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    ngx.ctx.redis:zadd('ledge:uris_by_expiry', ngx.time() + res.ttl(), req.uri_full)
+    ngx.ctx.redis:zadd('ledge:uris_by_expiry', ngx.time() + ttl, req.uri_full)
 
     local replies, err = ngx.ctx.redis:commit_pipeline()
     if not replies then
