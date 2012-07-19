@@ -87,18 +87,16 @@ function call()
 
         -- Generate the cache key, from a given or default spec. The default is:
         -- ledge:cache_obj:GET:http:example.com:/about:p=3&q=searchterms
-        if not ngx.ctx.ledge.config.cache_key_spec then
-            ngx.ctx.ledge.config.cache_key_spec = {
-                ngx.var.request_method,
-                ngx.var.scheme,
-                ngx.var.host,
-                ngx.var.uri,
-                ngx.var.args,
-            }
-        end
-        table.insert(ngx.ctx.ledge.config.cache_key_spec, 1, "cache_obj")
-        table.insert(ngx.ctx.ledge.config.cache_key_spec, 1, "ledge")
-        ngx.ctx.ledge.cache_key = table.concat(ngx.ctx.ledge.config.cache_key_spec, ":")
+        local key_spec = get("cache_key_spec") or {
+            ngx.var.request_method,
+            ngx.var.scheme,
+            ngx.var.host,
+            ngx.var.uri,
+            ngx.var.args,
+        }
+        table.insert(key_spec, 1, "cache_obj")
+        table.insert(key_spec, 1, "ledge")
+        ngx.ctx.ledge.cache_key = table.concat(key_spec, ":")
 
         redis_connect(req, res)
 
@@ -349,7 +347,7 @@ end
 -- Set a config parameter
 function set(param, value)
     if not ngx.ctx.ledge then create_ledge_ctx() end
-    ngx.ctx.ledge.param = value
+    ngx.ctx.ledge.config[param] = value
 end
 
 
