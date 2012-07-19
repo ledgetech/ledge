@@ -15,9 +15,6 @@ our $HttpConfig = qq{
     ";
 };
 
-our $InitByLua = qq{
-};
-
 run_tests();
 
 __DATA__
