@@ -134,7 +134,6 @@ The `req` and `res` parameters are documented in [lua-resty-rack](https://github
 
 * `req.accepts_cache()`
 * `res.cacheable()`
-* `res.expires_timestamp()`
 * `res.ttl()`
 
 ## Events
