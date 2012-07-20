@@ -1,5 +1,16 @@
 ## Changelog
 
+### v0.04 (20 Jul 2012)
+
+* Feature: Offline / maintenance modes.
+* Feature (#23): Added support for `max-age` / `s-maxage`.
+* Refactor (#11): Config mechanism santised and refactored.
+* Feature: Added support for `init_by_lua` using `ledge.gset()`.
+* Bugfix (#19): Cache items are now fully removed when updated.
+* Bugfix (#17): Via header now shows the server name (rather than host name).
+* Feature (#7): Headers in the form `Cache-Control: no-cache|no-store|private=FIELDNAME` are now honoured.
+* Feature: Redis data is now stored atomically.
+
 ### v0.03 (26 Jun 2012)
 
 * Feature: Added the `before_save` event.
