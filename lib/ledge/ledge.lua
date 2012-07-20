@@ -83,10 +83,11 @@ function call()
             
             -- Fall back to Expires.
             if res.header["Expires"] then 
-                return ngx.parse_http_time(res.header["Expires"]) - ngx.time()
-            else
-                return 0
+                local time = ngx.parse_http_time(res.header["Expires"])
+                if time then return time - ngx.time() end
             end
+
+            return 0
         end
 
         -- Generate the cache key, from a given or default spec. The default is:
