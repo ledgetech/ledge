@@ -29,6 +29,7 @@ local g_config = {
     redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
     redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
     redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
+    keep_cache_for  = 0,            -- Keep cache items past expiry (seconds)
 }
 
 -- Resty rack interface
@@ -181,22 +182,13 @@ function read(req, res)
     if not req.accepts_cache() then return nil end
 
     -- Fetch from Redis, pipeline to reduce overhead
-    ngx.ctx.redis:init_pipeline()
-    local cache_parts = ngx.ctx.redis:hgetall(ngx.ctx.ledge.cache_key)
-    local ttl = ngx.ctx.redis:ttl(ngx.ctx.ledge.cache_key)
-    local replies, err = ngx.ctx.redis:commit_pipeline()
-    if not replies then
-        error("Failed to query redis: " .. err)
+    local cache_parts, err = ngx.ctx.redis:hgetall(ngx.ctx.ledge.cache_key)
+    if not cache_parts then
+        ngx.log(ngx.ERR, "Failed to read cache item: " .. err)
     end
 
-    -- A positive TTL tells us if there's anything valid
-    local ttl = assert(tonumber(replies[2]), "Bad TTL found for " .. ngx.ctx.ledge.cache_key)
-    if ttl <= 0 then return nil end -- Cache miss 
+    local ttl = nil
 
-    -- We should get a table of cache entry values
-    assert(type(replies[1]) == 'table', "Failed to collect cache data from Redis")
-
-    local cache_parts = replies[1]
     -- The Redis replies is a sequence of messages, so we iterate over pairs
     -- to get hash key/values.
     for i = 1, #cache_parts, 2 do
@@ -204,6 +196,10 @@ function read(req, res)
             res.body = cache_parts[i+1]
         elseif cache_parts[i] == 'status' then
             res.status = tonumber(cache_parts[i+1])
+        elseif cache_parts[i] == 'expires' then
+            ttl = tonumber(cache_parts[i+1]) - ngx.time()
+            -- Return nil on cache miss
+            if ttl <= 0 then return nil end
         else
             -- Everything else will be a header, with a h: prefix.
             local _, _, header = cache_parts[i]:find('h:(.*)')
@@ -259,20 +255,20 @@ function save(req, res)
     -- Delete any existing data, to avoid accidental hash merges.
     redis:del(ngx.ctx.ledge.cache_key)
 
+    local ttl = res.ttl()
+    local expires = ttl + ngx.time()
+
     redis:hmset(ngx.ctx.ledge.cache_key, 
         'body', res.body, 
         'status', res.status,
         'uri', req.uri_full,
+        'expires', expires,
         unpack(h)
     )
-
-    local ttl = res.ttl()
-
-    -- Set the expiry (this might include an additional stale period)
-    redis:expire(ngx.ctx.ledge.cache_key, ttl)
+    redis:expire(ngx.ctx.ledge.cache_key, ttl + tonumber(get("keep_cache_for")))
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    redis:zadd('ledge:uris_by_expiry', ngx.time() + ttl, req.uri_full)
+    redis:zadd('ledge:uris_by_expiry', expires, req.uri_full)
 
     -- Run transaction
     local replies, err = redis:exec()
