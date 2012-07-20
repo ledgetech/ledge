@@ -18,10 +18,16 @@ local proxy_actions = {
     COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
 }
 
+-- Origin modes
+ORIGIN_MODE_NORMAL       = 1 -- Fetch from the origin on cache miss (default).
+ORIGIN_MODE_OFFLINE      = 2 -- Minimise trips to the origin by serving old cached data.
+ORIGIN_MODE_MAINTENANCE  = 3 -- As OFFLINE but use maintenance_location (fail whale).
+
 -- Configuration defaults.
 -- Can be overriden during init_by_lua with ledge.gset(param, value).
 local g_config = {
-    origin_location = "/__ledge",
+    origin_location         = "/__ledge_origin",
+    maintenance_location    = "/__ledge_maintenance",
     redis_host      = "127.0.0.1",
     redis_port      = 6379,
     redis_socket    = nil,
@@ -29,8 +35,10 @@ local g_config = {
     redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
     redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
     redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
-    keep_cache_for  = 0,            -- Keep cache items past expiry (seconds)
+    keep_cache_for = 86400 * 30,    -- Max time to Keep cache items past expiry + stale (seconds)
+    origin_mode = ORIGIN_MODE_NORMAL,
 }
+
 
 -- Resty rack interface
 function call()
@@ -42,6 +50,10 @@ function call()
 
         req.accepts_cache = function()
             if req.method ~= "GET" and req.method ~= "HEAD" then return false end
+            
+            -- Blindly return true if we're not in "NORMAL" mode. 
+            if get("origin_mode") ~= ORIGIN_MODE_NORMAL then return true end
+
             if req.header["Cache-Control"] == "no-cache" or req.header["Pragma"] == "no-cache" then
                 return false
             end
@@ -49,6 +61,9 @@ function call()
         end
 
         res.cacheable = function()
+            -- Never cache the maintenance page (fail whale).
+            if get("origin_mode") == ORIGIN_MODE_MAINTENANCE then return false end
+
             local nocache_headers = {
                 ["Pragma"] = { "no-cache" },
                 ["Cache-Control"] = {
@@ -143,7 +158,7 @@ function redis_connect(req, res)
     -- This means if Redis goes down, the site stands a chance of still being up.
     if not ok then
         ngx.log(ngx.WARN, err .. ", internally redirecting to the origin")
-        return ngx.exec(get("origin_location")..req.uri_relative)
+        return ngx.exec(location()..req.uri_relative)
     end
 
     -- redis:select always returns OK
@@ -199,7 +214,9 @@ function read(req, res)
         elseif cache_parts[i] == 'expires' then
             ttl = tonumber(cache_parts[i+1]) - ngx.time()
             -- Return nil on cache miss
-            if ttl <= 0 then return nil end
+            if get("origin_mode") == ORIGIN_MODE_NORMAL and ttl <= 0 then 
+                return nil 
+            end
         else
             -- Everything else will be a header, with a h: prefix.
             local _, _, header = cache_parts[i]:find('h:(.*)')
@@ -282,7 +299,7 @@ end
 function fetch(req, res)
     emit("origin_required", req, res)
 
-    local origin = ngx.location.capture(get("origin_location")..req.uri_relative, {
+    local origin = ngx.location.capture(location()..req.uri_relative, {
         method = ngx['HTTP_' .. req.method], -- Method as ngx.HTTP_x constant.
         body = req.body,
     })
@@ -399,6 +416,17 @@ function create_ledge_ctx()
         event = {},
         config = {}
     }
+end
+
+
+-- Returns the location to "fetch" using, based on configuration.
+function location()
+    -- Use maintenance_location if we've been configured to avoid the origin.
+    if get("origin_mode") == ORIGIN_MODE_MAINTENANCE then
+        return get("maintenance_location")
+    else
+        return get("origin_location")
+    end
 end
 
 
