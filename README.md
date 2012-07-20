@@ -296,7 +296,6 @@ Once the core functionality is more stable, there are plans for:
  * ...
 * Stale while revalidate.
 * Collapse forwarding.
-* Offline mode.
 * ...
  
 ## Author
