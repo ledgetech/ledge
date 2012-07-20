@@ -5,7 +5,6 @@ plan tests => repeat_each() * (blocks() * 2) + 4;
 
 my $pwd = cwd();
 
-$ENV{TEST_NGINX_REDIS_PORT} ||= 6379;
 $ENV{TEST_NGINX_REDIS_DB} ||= 1;
 
 our $HttpConfig = qq{
@@ -13,7 +12,6 @@ our $HttpConfig = qq{
 	init_by_lua "
 		rack = require 'resty.rack'
 		ledge = require 'ledge.ledge'
-		ledge.gset('redis_port', $ENV{TEST_NGINX_REDIS_PORT})
 		ledge.gset('redis_database', $ENV{TEST_NGINX_REDIS_DB})
 	";
 };
