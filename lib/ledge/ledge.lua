@@ -69,17 +69,21 @@ function call()
             return res.ttl() > 0 or false
         end
 
-        -- The Expires header as a unix timestamp
-        res.expires_timestamp = function()
-            if res.header["Expires"] then return ngx.parse_http_time(res.header["Expires"]) end
-        end
-
         -- The cache ttl used for saving.
         res.ttl = function()
-            local expires_ts = res.expires_timestamp()
-            -- TODO: Reintroduce stale TTL from config
-            if expires_ts then 
-                return (expires_ts - ngx.time()) 
+            -- Header precedence is Cache-Control: s-maxage=NUM, Cache-Control: max-age=NUM,
+            -- and finally Expires: HTTP_TIMESTRING.
+            if res.header["Cache-Control"] then
+                for _,p in ipairs({ "s%-maxage", "max%-age" }) do
+                    for h in res.header["Cache-Control"]:gmatch(p .. "=\"?(%d+)\"?") do 
+                        return tonumber(h)
+                    end
+                end
+            end
+            
+            -- Fall back to Expires.
+            if res.header["Expires"] then 
+                return ngx.parse_http_time(res.header["Expires"]) - ngx.time()
             else
                 return 0
             end
@@ -225,13 +229,13 @@ function save(req, res)
     emit("before_save", req, res)
 
     -- Never cache Content-Length
-    local uncacheable_headers = { ["Content-Length"] = true }
+    local uncacheable_headers = { ["content-length"] = true }
 
     -- Remove any headers marked as Cache-Control: (no-cache|no-store|private)="field".
     if res.header["Cache-Control"] then
         local patterns = { "no%-cache", "no%-store", "private" }
         for _,p in ipairs(patterns) do
-            for h in res.header["Cache-Control"]:gmatch(p .. "=\"([%a-]+)\"") do 
+            for h in res.header["Cache-Control"]:gmatch(p .. "=\"?([%a-]+)\"?") do 
                 uncacheable_headers[h:lower()] = true
             end
         end
@@ -262,7 +266,7 @@ function save(req, res)
     ngx.ctx.redis:expire(ngx.ctx.ledge.cache_key, res.ttl())
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    ngx.ctx.redis:zadd('ledge:uris_by_expiry', res.expires_timestamp(), req.uri_full)
+    ngx.ctx.redis:zadd('ledge:uris_by_expiry', ngx.time() + res.ttl(), req.uri_full)
 
     local replies, err = ngx.ctx.redis:commit_pipeline()
     if not replies then
