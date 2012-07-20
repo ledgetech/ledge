@@ -183,7 +183,21 @@ Ledge is finished and about to return. Last chance to jump in before rack sends 
 
 ### origin_location
 
-*Default:* `/__ledge`
+*Default:* `/__ledge_origin`
+
+### maintenance_location
+
+*Default:* `/__ledge_maintenance`
+
+This is a special location used instead of the origin in `ORIGIN_MODE_MAINTENANCE`.
+
+### origin_mode
+
+*Default:* `ORIGIN_MODE_NORMAL`
+
+One of:
+
+`ORIGIN_MODE_NORMAL` proxies to the origin as expected. `ORIGIN_MODE_OFFLINE` will disregard cache headers and expiry to try and use the cache items wherever possible, avoiding the origin on the assumption that is cannot currently handle the load. `ORIGIN_MODE_MAINTENANCE` assumes the origin is offline, allowing you to use `/__ledge_maintenance` to supply a "fail whale".
 
 ### redis_host
 
