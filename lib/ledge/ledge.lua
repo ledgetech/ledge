@@ -233,7 +233,7 @@ function save(req, res)
     local uncacheable_headers = { ["content-length"] = true }
 
     -- Remove any headers marked as Cache-Control: (no-cache|no-store|private)="field".
-    if res.header["Cache-Control"] then
+    if res.header["Cache-Control"] and res.header["Cache-Control"]:find("=") then
         local patterns = { "no%-cache", "no%-store", "private" }
         for _,p in ipairs(patterns) do
             for h in res.header["Cache-Control"]:gmatch(p .. "=\"?([%a-]+)\"?") do 
@@ -251,12 +251,15 @@ function save(req, res)
         end
     end
 
-    ngx.ctx.redis:multi()
+    local redis = ngx.ctx.redis
+
+    -- Save atomically
+    redis:multi()
 
     -- Delete any existing data, to avoid accidental hash merges.
-    ngx.ctx.redis:del(ngx.ctx.ledge.cache_key)
+    redis:del(ngx.ctx.ledge.cache_key)
 
-    ngx.ctx.redis:hmset(ngx.ctx.ledge.cache_key, 
+    redis:hmset(ngx.ctx.ledge.cache_key, 
         'body', res.body, 
         'status', res.status,
         'uri', req.uri_full,
@@ -266,12 +269,13 @@ function save(req, res)
     local ttl = res.ttl()
 
     -- Set the expiry (this might include an additional stale period)
-    ngx.ctx.redis:expire(ngx.ctx.ledge.cache_key, ttl)
+    redis:expire(ngx.ctx.ledge.cache_key, ttl)
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    ngx.ctx.redis:zadd('ledge:uris_by_expiry', ngx.time() + ttl, req.uri_full)
+    redis:zadd('ledge:uris_by_expiry', ngx.time() + ttl, req.uri_full)
 
-    local replies, err = ngx.ctx.redis:exec()
+    -- Run transaction
+    local replies, err = redis:exec()
     if not replies then
         ngx.log(ngx.ERR, "Failed to save cache item: " .. err)
     end
