@@ -273,17 +273,12 @@ function save(req, res)
 
     local replies, err = ngx.ctx.redis:exec()
     if not replies then
-        error("Failed to query Redis: " .. err)
+        ngx.log(ngx.ERR, "Failed to save cache item: " .. err)
     end
-    return assert((replies[1] == 0 or replies[1] == 1) and replies[2] == "OK" and replies[3] == 1 and type(replies[4]) == 'number', 
-        "Unexpeted reply from Redis when trying to save")
 end
 
 
 -- Fetches a resource from the origin server.
---
--- @param	string	The nginx location to proxy using
--- @return	table	Response
 function fetch(req, res)
     emit("origin_required", req, res)
 
@@ -307,7 +302,7 @@ function fetch(req, res)
         emit("origin_fetched", req, res)
 
         -- Save
-        assert(save(req, res), "Could not save fetched object")
+        save(req, res)
         return true
     end
 end
