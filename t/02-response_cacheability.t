@@ -3,6 +3,7 @@ use Cwd qw(cwd);
 
 plan tests => repeat_each() * (blocks() * 2);
 
+$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 my $pwd = cwd();
 
 our $HttpConfig = qq{
@@ -10,7 +11,7 @@ our $HttpConfig = qq{
     init_by_lua "
         rack = require 'resty.rack'
         ledge = require 'ledge.ledge'
-        ledge.gset('redis_database', 1)
+        ledge.gset('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
     ";
 };
 
@@ -20,7 +21,7 @@ __DATA__
 === TEST 1: TTL from s-maxage (overrides max-age / Expires)
 --- http_config eval: $::HttpConfig
 --- config
-	location /t {
+	location /response_cacheability_1 {
         content_by_lua '
             ledge.bind("response_ready", function(req, res)
                 res.header["X-TTL"] = res.ttl()
@@ -39,7 +40,7 @@ __DATA__
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /t
+GET /response_cacheability_1
 --- response_headers
 X-TTL: 1200
 
@@ -47,7 +48,7 @@ X-TTL: 1200
 === TEST 2: TTL from max-age (overrides Expires)
 --- http_config eval: $::HttpConfig
 --- config
-	location /t {
+	location /response_cacheability_2 {
         content_by_lua '
             ledge.bind("response_ready", function(req, res)
                 res.header["X-TTL"] = res.ttl()
@@ -66,7 +67,7 @@ X-TTL: 1200
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /t
+GET /response_cacheability_2
 --- response_headers
 X-TTL: 600
 
@@ -74,7 +75,7 @@ X-TTL: 600
 === TEST 3: TTL from Expires
 --- http_config eval: $::HttpConfig
 --- config
-	location /t {
+	location /response_cacheability {
         content_by_lua '
             ledge.bind("response_ready", function(req, res)
                 res.header["X-TTL"] = res.ttl()
@@ -93,6 +94,6 @@ X-TTL: 600
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /t
+GET /response_cacheability_3
 --- response_headers
 X-TTL: 300

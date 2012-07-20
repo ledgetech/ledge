@@ -5,16 +5,14 @@ plan tests => 30;
 
 my $pwd = cwd();
 
-$ENV{TEST_NGINX_REDIS_PORT} ||= 6379;
-$ENV{TEST_NGINX_REDIS_DB} ||= 1;
+$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
 	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
 	init_by_lua '
 		rack = require "resty.rack"
 		ledge = require "ledge.ledge"
-		ledge.gset("redis_port", $ENV{TEST_NGINX_REDIS_PORT})
-		ledge.gset("redis_database", $ENV{TEST_NGINX_REDIS_DB})
+		ledge.gset("redis_database", $ENV{TEST_LEDGE_REDIS_DATABASE})
 	';
 };
 
@@ -26,7 +24,7 @@ __DATA__
 --- http_config eval: $::HttpConfig
 --- server_config eval: $::RedisFlush
 --- config
-	location /test {
+	location /regression_1 {
 		content_by_lua '
 			rack.use(ledge)
 			rack.run()
@@ -38,31 +36,14 @@ __DATA__
 		';
 	}
 --- request
-GET /test
+GET /regression_1
 --- error_code: 200
 
 === TEST 2: set-cookie headers: cache miss, cache-control & set-cookie in the header: the response should pass these values but not cache set-cookie (issue #7)
 --- http_config eval: $::HttpConfig
 --- config
-	location /test {
+	location /regression_2 {
 		content_by_lua '
-			local flushdb = ngx.req.get_uri_args()["flushdb"]
-			if flushdb == "1" then
-				local redis = require "resty.redis"
-				local red = redis:new()
-				red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
-				red:select($TEST_NGINX_REDIS_DB)
-				red:flushdb()
-				red:close()
-			end
-
-			ledge.set("cache_key_spec", {
-					ngx.var.request_method,
-					ngx.var.scheme,
-					ngx.var.host,
-					ngx.var.uri
-			})
-
 			rack.use(ledge)
 			rack.run()
 		';
@@ -76,7 +57,7 @@ GET /test
 		';
 	}
 --- request eval
-["GET /test?flushdb=1","GET /test?flushdb=0"]
+["GET /regression_2","GET /regression_2"]
 --- error_code eval
 [200, 200]
 --- response_body eval
@@ -91,25 +72,8 @@ Set-Cookie:"]
 === TEST 3: set-cookie headers: cache miss, set-cookie set but cache-control empty: the response should pass the set-cookie value and cache it (issue #7)
 --- http_config eval: $::HttpConfig
 --- config
-	location /test {
+	location /regression_3 {
 		content_by_lua '
-			local flushdb = ngx.req.get_uri_args()["flushdb"]
-			if flushdb == "1" then
-				local redis = require "resty.redis"
-				local red = redis:new()
-				red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
-				red:select($TEST_NGINX_REDIS_DB)
-				red:flushdb()
-				red:close()
-			end
-
-			ledge.set("cache_key_spec", {
-					ngx.var.request_method,
-					ngx.var.scheme,
-					ngx.var.host,
-					ngx.var.uri
-			})
-
 			rack.use(ledge)
 			rack.run()
 		';
@@ -122,7 +86,7 @@ Set-Cookie:"]
 		';
 	}
 --- request eval
-["GET /test?flushdb=1","GET /test?flushdb=0"]
+["GET /regression_3","GET /regression_3"]
 --- error_code eval
 [200, 200]
 --- response_headers_like eval
@@ -135,25 +99,8 @@ Set-Cookie: test=SHARED_COOKIE_SHOULD_BE_CACHED; path=/; expires=[A-Za-z]{3}, \\
 === TEST 4: set-cookie headers: cache miss, cache-control set but set-cookie empty: the response should pass the cache-control value and cache it (issue #7)
 --- http_config eval: $::HttpConfig
 --- config
-	location /test {
+	location /regression_4 {
 		content_by_lua '
-			local flushdb = ngx.req.get_uri_args()["flushdb"]
-			if flushdb == "1" then
-				local redis = require "resty.redis"
-				local red = redis:new()
-				red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
-				red:select($TEST_NGINX_REDIS_DB)
-				red:flushdb()
-				red:close()
-			end
-
-			ledge.set("cache_key_spec", {
-					ngx.var.request_method,
-					ngx.var.scheme,
-					ngx.var.host,
-					ngx.var.uri
-			})
-
 			rack.use(ledge)
 			rack.run()
 		';
@@ -166,7 +113,7 @@ Set-Cookie: test=SHARED_COOKIE_SHOULD_BE_CACHED; path=/; expires=[A-Za-z]{3}, \\
 		';
 	}
 --- request eval
-["GET /test?flushdb=1", "GET /test?flushdb=0"]
+["GET /regression_4", "GET /regression_4"]
 --- error_code eval
 [200, 200]
 --- response_headers eval
@@ -179,15 +126,8 @@ Set-Cookie:"]
 === TEST 5: Cache-Control case-sensitivity: Camel-case (issue #6)
 --- http_config eval: $::HttpConfig
 --- config
-	location /test {
+	location /regression_5 {
 		content_by_lua '
-			local redis = require "resty.redis"
-			local red = redis:new()
-			red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
-			red:select($TEST_NGINX_REDIS_DB)
-			red:flushdb()
-			red:close()
-
 			ledge.bind("origin_fetched", function(req, res)
 				if req.accepts_cache() then
 					res.header["X-Test"] = "Not Cacheable"
@@ -206,7 +146,7 @@ Set-Cookie:"]
 		';
 	}
 --- request
-GET /test
+GET /regression_5
 --- error_code: 200
 --- response_headers
 Cache-Control: no-cache
@@ -216,15 +156,8 @@ X-Test: Not Cacheable
 === TEST 6: Cache-Control case-sensitivity: lower-case (issue #6)
 --- http_config eval: $::HttpConfig
 --- config
-	location /test {
+	location /regression_6 {
 		content_by_lua '
-			local redis = require "resty.redis"
-			local red = redis:new()
-			red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
-			red:select($TEST_NGINX_REDIS_DB)
-			red:flushdb()
-			red:close()
-
 			ledge.bind("origin_fetched", function(req, res)
 				if req.accepts_cache() then
 					res.header["X-Test"] = "Not Cacheable"
@@ -243,7 +176,7 @@ X-Test: Not Cacheable
 		';
 	}
 --- request
-GET /test
+GET /regression_6
 --- error_code: 200
 --- response_headers
 Cache-Control: no-cache
@@ -253,15 +186,8 @@ X-Test: Not Cacheable
 === TEST 7: Cache-Control case-sensitivity: upper-case (issue #6)
 --- http_config eval: $::HttpConfig
 --- config
-	location /test {
+	location /regression_7 {
 		content_by_lua '
-			local redis = require "resty.redis"
-			local red = redis:new()
-			red:connect("127.0.0.1", $TEST_NGINX_REDIS_PORT)
-			red:select($TEST_NGINX_REDIS_DB)
-			red:flushdb()
-			red:close()
-
 			ledge.bind("origin_fetched", function(req, res)
 				if req.accepts_cache() then
 					res.header["X-Test"] = "Not Cacheable"
@@ -280,10 +206,9 @@ X-Test: Not Cacheable
 		';
 	}
 --- request
-GET /test
+GET /regression_7
 --- error_code: 200
 --- response_headers
 Cache-Control: no-cache
 X-Test: Not Cacheable
-
 
