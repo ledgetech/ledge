@@ -251,7 +251,7 @@ function save(req, res)
         end
     end
 
-    ngx.ctx.redis:init_pipeline()
+    ngx.ctx.redis:multi()
 
     -- Delete any existing data, to avoid accidental hash merges.
     ngx.ctx.redis:del(ngx.ctx.ledge.cache_key)
@@ -271,7 +271,7 @@ function save(req, res)
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
     ngx.ctx.redis:zadd('ledge:uris_by_expiry', ngx.time() + ttl, req.uri_full)
 
-    local replies, err = ngx.ctx.redis:commit_pipeline()
+    local replies, err = ngx.ctx.redis:exec()
     if not replies then
         error("Failed to query Redis: " .. err)
     end
