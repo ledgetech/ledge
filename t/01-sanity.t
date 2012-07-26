@@ -5,14 +5,14 @@ plan tests => repeat_each() * (blocks() * 2) + 4;
 
 my $pwd = cwd();
 
-$ENV{TEST_NGINX_REDIS_DB} ||= 1;
+$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
 	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
 	init_by_lua "
 		rack = require 'resty.rack'
 		ledge = require 'ledge.ledge'
-		ledge.gset('redis_database', $ENV{TEST_NGINX_REDIS_DB})
+		ledge.gset('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
 	";
 };
 
