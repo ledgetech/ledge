@@ -191,6 +191,10 @@ Ledge is finished and about to return. Last chance to jump in before rack sends 
 
 One of:
 
+* `ORIGIN_MODE_NORMAL`
+* `ORIGIN_MODE_AVOID`
+* `ORIGIN_MODE_BYPASS`
+
 `ORIGIN_MODE_NORMAL` proxies to the origin as expected. `ORIGIN_MODE_AVOID` will disregard cache headers and expiry to try and use the cache items wherever possible, avoiding the origin. This is similar to "offline_mode" in Squid. `ORIGIN_MODE_BYPASS` assumes the origin is down (for maintenance or otherwise), using cache where possible and exiting with `503 Service Unavailable` otherwise.
 
 ### redis_host
