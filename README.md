@@ -185,19 +185,13 @@ Ledge is finished and about to return. Last chance to jump in before rack sends 
 
 *Default:* `/__ledge_origin`
 
-### maintenance_location
-
-*Default:* `/__ledge_maintenance`
-
-This is a special location used instead of the origin in `ORIGIN_MODE_MAINTENANCE`.
-
 ### origin_mode
 
 *Default:* `ORIGIN_MODE_NORMAL`
 
 One of:
 
-`ORIGIN_MODE_NORMAL` proxies to the origin as expected. `ORIGIN_MODE_OFFLINE` will disregard cache headers and expiry to try and use the cache items wherever possible, avoiding the origin on the assumption that is cannot currently handle the load. `ORIGIN_MODE_MAINTENANCE` assumes the origin is offline, allowing you to use `/__ledge_maintenance` to supply a "fail whale".
+`ORIGIN_MODE_NORMAL` proxies to the origin as expected. `ORIGIN_MODE_AVOID` will disregard cache headers and expiry to try and use the cache items wherever possible, avoiding the origin. This is similar to "offline_mode" in Squid. `ORIGIN_MODE_BYPASS` assumes the origin is down (for maintenance or otherwise), using cache where possible and exiting with `503 Service Unavailable` otherwise.
 
 ### redis_host
 
@@ -273,6 +267,12 @@ ledge.set("cache_key_spec", {
 ```
 
 Note that `cache_key_spec` cannot currently be set globally with `ledge.gset` (because `ngx.var` is not available during `init_by_lua`).
+
+### keep_cache_for
+
+*Default:* `30 days`
+
+Specifies how long cache items are retained regardless of their TTL. You can use the [volatile-lru](http://antirez.com/post/redis-as-LRU-cache.html) Redis configuration to evict the least recently used cache items when under memory pressure. Therefore this setting is really about serving stale content with `ORIGIN_MODE_AVOID` or `ORIGIN_MODE_BYPASS` set.
 
 
 ## Known limitations
