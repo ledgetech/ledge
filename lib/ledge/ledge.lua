@@ -239,23 +239,47 @@ function save(req, res)
 
     emit("before_save", req, res)
 
-    -- Never cache Content-Length
-    local uncacheable_headers = { ["content-length"] = true }
+    -- These "hop-by-hop" response headers MUST NOT be cached:
+    -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
+    local uncacheable_headers = {
+        "Connection",
+        "Keep-Alive",
+        "Proxy-Authenticate",
+        "Proxy-Authorization",
+        "TE",
+        "Trailers",
+        "Transfer-Encoding",
+        "Upgrade",
 
-    -- Remove any headers marked as Cache-Control: (no-cache|no-store|private)="field".
+        -- We also choose not to cache the content length, it is set by Nginx 
+        -- based on the response body.
+        "Content-Length",
+    }
+   
+    -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
     if res.header["Cache-Control"] and res.header["Cache-Control"]:find("=") then
         local patterns = { "no%-cache", "no%-store", "private" }
         for _,p in ipairs(patterns) do
             for h in res.header["Cache-Control"]:gmatch(p .. "=\"?([%a-]+)\"?") do 
-                uncacheable_headers[h:lower()] = true
+                table.insert(uncacheable_headers, h)
             end
         end
     end
+    
+    -- Utility to search in uncacheable_headers.
+    local function is_uncacheable(t, h)
+        for _, v in ipairs(t) do
+            if v:lower() == h:lower() then
+                return true
+            end
+        end
+        return nil
+    end
 
-    -- Turn the headers into a flat list of pairs
+    -- Turn the headers into a flat list of pairs for the Redis query.
     local h = {}
     for header,header_value in pairs(res.header) do
-        if not uncacheable_headers[header:lower()] then
+        if not is_uncacheable(uncacheable_headers, header) then
             table.insert(h, 'h:'..header)
             table.insert(h, header_value)
         end
@@ -290,7 +314,6 @@ function save(req, res)
         ngx.log(ngx.ERR, "Failed to save cache item: " .. err)
     end
 end
-
 
 -- Fetches a resource from the origin server.
 function fetch(req, res)
