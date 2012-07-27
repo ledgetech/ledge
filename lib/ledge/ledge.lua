@@ -301,6 +301,7 @@ function save(req, res)
         'status', res.status,
         'uri', req.uri_full,
         'expires', expires,
+        'saved_ts', ngx.time(),
         unpack(h)
     )
     redis:expire(ngx.ctx.ledge.cache_key, ttl + tonumber(get("keep_cache_for")))
