@@ -380,32 +380,42 @@ end
 
 
 function set_headers(req, res)
+    local this_host = ngx.var.hostname .. ":" .. ngx.var.server_port
+
     -- Via header
-    local via = '1.1 ' .. ngx.var.hostname .. ' (ledge/' .. _VERSION .. ')'
-    if  (res.header['Via'] ~= nil) then
-        res.header['Via'] = via .. ', ' .. res.header['Via']
+    local via = "1.1 " .. this_host .. " (ledge/" .. _VERSION .. ")"
+    if  (res.header["Via"] ~= nil) then
+        res.header["Via"] = via .. ", " .. res.header["Via"]
     else
-        res.header['Via'] = via
+        res.header["Via"] = via
     end
 
     -- Only add X-Cache headers for cacheable responses
     if res.cacheable() then
         -- Get the cache state as human string for response headers
-        local cache_state_human = ''
+        local cache_state_human = ""
         for k,v in pairs(cache_states) do
             if v == res.state then
                 cache_state_human = tostring(k)
                 break
             end
         end
+        
+        res.header["X-Cache-State"] = cache_state_human
+
         -- X-Cache header
+        local x_cache = ""
         if res.state >= cache_states.WARM then
-            res.header['X-Cache'] = 'HIT' 
+            x_cache = "HIT from " .. this_host 
         else
-            res.header['X-Cache'] = 'MISS'
+            x_cache = "MISS from " .. this_host
         end
 
-        res.header['X-Cache-State'] = cache_state_human
+        if res.header["X-Cache"] then
+            res.header["X-Cache"] = x_cache .. ", " .. res.header["X-Cache"]
+        else
+            res.header["X-Cache"] = x_cache
+        end
     end
 end
 
