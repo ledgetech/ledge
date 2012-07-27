@@ -30,9 +30,9 @@ server {
 	listen 80;
 	server_name example.com;
 	
-	location /__ledge {
+	location /__ledge_origin {
 		internal;
-		rewrite ^/__ledge(.*)$ $1 break;
+		rewrite ^/__ledge_origin(.*)$ $1 break;
 		proxy_set_header X-Real-IP  $remote_addr;
 		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 		proxy_set_header Host $host;
