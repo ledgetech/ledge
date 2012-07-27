@@ -200,6 +200,7 @@ function read(req, res)
     end
 
     local ttl = nil
+    local time_in_cache = 0
 
     -- The Redis replies is a sequence of messages, so we iterate over pairs
     -- to get hash key/values.
@@ -214,6 +215,8 @@ function read(req, res)
             if get("origin_mode") == ORIGIN_MODE_NORMAL and ttl <= 0 then 
                 return nil 
             end
+        elseif cache_parts[i] == 'saved_ts' then
+            time_in_cache = ngx.time() - tonumber(cache_parts[i+1])
         else
             -- Everything else will be a header, with a h: prefix.
             local _, _, header = cache_parts[i]:find('h:(.*)')
@@ -221,6 +224,15 @@ function read(req, res)
                 res.header[header] = cache_parts[i+1]
             end
         end
+    end
+
+    -- Calculate the Age header
+    if res.header["Age"] then
+        -- We have end-to-end Age headers, add our time_in_cache.
+        res.header["Age"] = tonumber(res.header["Age"]) + time_in_cache
+    elseif res.header["Date"] then
+        -- We have no advertised Age, use the Date to generate it.
+        res.header["Age"] = ngx.time() - ngx.parse_http_time(res.header["Date"])
     end
 
     emit("cache_accessed", req, res)
@@ -341,7 +353,15 @@ function fetch(req, res)
     -- Could not proxy for some reason
     if res.status >= 500 then
         return nil
-    else 
+    else
+        -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
+        -- A received message that does not have a Date header field MUST be assigned 
+        -- one by the recipient if the message will be cached by that recipient
+        if not res.header["Date"] or not ngx.parse_http_time(res.header["Date"]) then
+            ngx.log(ngx.WARN, "no Date header from upstream, generating locally")
+            res.header["Date"] = ngx.http_time(ngx.time())
+        end
+
         -- A nice opportunity for post-fetch / pre-save work.
         emit("origin_fetched", req, res)
 
