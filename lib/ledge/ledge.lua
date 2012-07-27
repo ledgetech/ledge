@@ -159,7 +159,7 @@ function redis_connect(req, res)
     end
 
     -- redis:select always returns OK
-    if get("redis_database") then ngx.ctx.redis:select(get("redis_database")) end
+    if get("redis_database") > 0 then ngx.ctx.redis:select(get("redis_database")) end
 end
 
 
