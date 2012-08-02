@@ -380,10 +380,10 @@ end
 
 
 function set_headers(req, res)
-    local this_host = ngx.var.hostname .. ":" .. ngx.var.server_port
+    local hostname = ngx.var.hostname
 
     -- Via header
-    local via = "1.1 " .. this_host .. " (ledge/" .. _VERSION .. ")"
+    local via = "1.1 " .. hostname .. " (ledge/" .. _VERSION .. ")"
     if  (res.header["Via"] ~= nil) then
         res.header["Via"] = via .. ", " .. res.header["Via"]
     else
@@ -406,9 +406,9 @@ function set_headers(req, res)
         -- X-Cache header
         local x_cache = ""
         if res.state >= cache_states.WARM then
-            x_cache = "HIT from " .. this_host 
+            x_cache = "HIT from " .. hostname 
         else
-            x_cache = "MISS from " .. this_host
+            x_cache = "MISS from " .. hostname
         end
 
         if res.header["X-Cache"] then
