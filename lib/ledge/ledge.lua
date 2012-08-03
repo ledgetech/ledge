@@ -123,7 +123,7 @@ function call()
         end
         
         -- Modify / add to response headers.
-        set_headers(req, res)
+        prepare_response(req, res)
 
         emit("response_ready", req, res)
         
@@ -388,7 +388,7 @@ function fetch_background(req, res)
 end
 
 
-function set_headers(req, res)
+function prepare_response(req, res)
     local hostname = ngx.var.hostname
 
     -- Via header
@@ -399,27 +399,40 @@ function set_headers(req, res)
         res.header["Via"] = via
     end
 
-    if res.state > CACHE_STATE_PRIVATE then
-        -- X-Cache header
-        local x_cache = "MISS"
-        if res.state > CACHE_STATE_COLD then
-            x_cache = "HIT"
-        end
-
-        if res.header["X-Cache"] then
-            res.header["X-Cache"] = x_cache.." from "..hostname..", "..res.header["X-Cache"]
-        else
-            res.header["X-Cache"] = x_cache.." from "..hostname
-        end
+    -- X-Cache header
+    local cache = "MISS"
+    if res.state > CACHE_STATE_COLD then
+        cache = "HIT"
+    end
         
-        -- X-Ledge-Cache headers
-        local cache_state = cache_state_string(res.state)
+    -- X-Ledge-Cache headers
+    local cache_state = cache_state_string(res.state)
+
+    if res.state > CACHE_STATE_PRIVATE then
+        if res.header["X-Cache"] then
+            res.header["X-Cache"] = cache.." from "..hostname..", "..res.header["X-Cache"]
+        else
+            res.header["X-Cache"] = cache.." from "..hostname
+        end
 
         if res.header["X-Ledge-Cache"] then
             res.header["X-Ledge-Cache"] = cache_state.." from "..hostname..", "..res.header["X-Ledge-Cache"]
         else
             res.header["X-Ledge-Cache"] = cache_state.." from "..hostname
         end
+    end
+
+    -- Log variables. These must be initialized in nginx.conf
+    if ngx.var.ledge_x_cache then
+        ngx.var.ledge_x_cache = cache
+    end
+
+    if ngx.var.ledge_x_ledge_cache then
+        ngx.var.ledge_x_ledge_cache = cache_state
+    end
+
+    if ngx.var.ledge_version then
+        ngx.var.ledge_version = "ledge/" .. _VERSION
     end
 end
 
