@@ -103,18 +103,6 @@ function call()
             return 0
         end
 
-        -- Generate the cache key, from a given or default spec. The default is:
-        -- ledge:cache_obj:GET:http:example.com:/about:p=3&q=searchterms
-        local key_spec = get("cache_key_spec") or {
-            ngx.var.request_method,
-            ngx.var.scheme,
-            ngx.var.host,
-            ngx.var.uri,
-            ngx.var.args,
-        }
-        table.insert(key_spec, 1, "cache_obj")
-        table.insert(key_spec, 1, "ledge")
-        ngx.ctx.ledge.cache_key = table.concat(key_spec, ":")
 
         redis_connect(req, res)
 
@@ -194,7 +182,7 @@ function read(req, res)
     if not req.accepts_cache() then return nil end
 
     -- Fetch from Redis, pipeline to reduce overhead
-    local cache_parts, err = ngx.ctx.redis:hgetall(ngx.ctx.ledge.cache_key)
+    local cache_parts, err = ngx.ctx.redis:hgetall(cache_key())
     if not cache_parts then
         ngx.log(ngx.ERR, "Failed to read cache item: " .. err)
     end
@@ -303,12 +291,12 @@ function save(req, res)
     redis:multi()
 
     -- Delete any existing data, to avoid accidental hash merges.
-    redis:del(ngx.ctx.ledge.cache_key)
+    redis:del(cache_key())
 
     local ttl = res.ttl()
     local expires = ttl + ngx.time()
 
-    redis:hmset(ngx.ctx.ledge.cache_key, 
+    redis:hmset(cache_key(), 
         'body', res.body, 
         'status', res.status,
         'uri', req.uri_full,
@@ -316,7 +304,7 @@ function save(req, res)
         'saved_ts', ngx.time(),
         unpack(h)
     )
-    redis:expire(ngx.ctx.ledge.cache_key, ttl + tonumber(get("keep_cache_for")))
+    redis:expire(cache_key(), ttl + tonumber(get("keep_cache_for")))
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
     redis:zadd('ledge:uris_by_expiry', expires, req.uri_full)
@@ -327,6 +315,7 @@ function save(req, res)
         ngx.log(ngx.ERR, "Failed to save cache item: " .. err)
     end
 end
+
 
 -- Fetches a resource from the origin server.
 function fetch(req, res)
@@ -417,6 +406,26 @@ function set_headers(req, res)
             res.header["X-Cache"] = x_cache
         end
     end
+end
+
+
+function cache_key()
+    if not ngx.ctx.ledge then create_ledge_ctx() end
+    if not ngx.ctx.ledge.cache_key then 
+        -- Generate the cache key, from a given or default spec. The default is:
+        -- ledge:cache_obj:GET:http:example.com:/about:p=3&q=searchterms
+        local key_spec = get("cache_key_spec") or {
+            ngx.var.request_method,
+            ngx.var.scheme,
+            ngx.var.host,
+            ngx.var.uri,
+            ngx.var.args,
+        }
+        table.insert(key_spec, 1, "cache_obj")
+        table.insert(key_spec, 1, "ledge")
+        ngx.ctx.ledge.cache_key = table.concat(key_spec, ":")
+    end
+    return ngx.ctx.ledge.cache_key
 end
 
 
