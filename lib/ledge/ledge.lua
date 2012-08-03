@@ -2,15 +2,19 @@ module("ledge.ledge", package.seeall)
 
 _VERSION = '0.04'
 
-local resty_redis = require("resty.redis")
+-- Cache states
+CACHE_STATE_PRIVATE     = -12
+CACHE_STATE_IGNORED     = -11
+CACHE_STATE_REVALIDATED = -10
+CACHE_STATE_SUBZERO     = -1
+CACHE_STATE_COLD        = 0
+CACHE_STATE_WARM        = 1
+CACHE_STATE_HOT         = 2
 
--- Cache states 
-local cache_states= {
-    SUBZERO = 1, -- We don't know anything about this URI. Either first hit or not cacheable.
-    COLD    = 2, -- Previosuly cacheable, expired and beyond stale. Revalidate.
-    WARM    = 3, -- Previously cacheable, cached but stale. Serve and bg refresh.
-    HOT     = 4, -- Cached. Serve.
-}
+-- Origin modes, for serving stale content during maintenance periods or emergencies.
+ORIGIN_MODE_BYPASS  = 1 -- Never goes to the origin, serve from cache where possible or 503.
+ORIGIN_MODE_AVOID   = 2 -- Avoids going to the origin, serving from cache where possible.
+ORIGIN_MODE_NORMAL  = 4 -- Assume the origin is happy, use at will.
 
 -- Proxy actions
 local proxy_actions = {
@@ -18,11 +22,8 @@ local proxy_actions = {
     COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
 }
 
--- Origin modes, for serving stale content during maintenance periods or emergencies.
-ORIGIN_MODE_BYPASS  = 1 -- Never goes to the origin, serve from cache where possible or 503.
-ORIGIN_MODE_AVOID   = 2 -- Avoids going to the origin, serving from cache where possible.
-ORIGIN_MODE_NORMAL  = 4 -- Assume the origin is happy, use at will.
 
+local resty_redis = require("resty.redis")
 
 -- Configuration defaults.
 -- Can be overriden during init_by_lua with ledge.gset(param, value).
@@ -55,6 +56,7 @@ function call()
             if get("origin_mode") < ORIGIN_MODE_NORMAL then return true end
 
             if req.header["Cache-Control"] == "no-cache" or req.header["Pragma"] == "no-cache" then
+                res.state = CACHE_STATE_IGNORED
                 return false
             end
             return true
@@ -65,7 +67,6 @@ function call()
                 ["Pragma"] = { "no-cache" },
                 ["Cache-Control"] = {
                     "no-cache", 
-                    "must-revalidate", 
                     "no-store", 
                     "private",
                 }
@@ -74,12 +75,18 @@ function call()
             for k,v in pairs(nocache_headers) do
                 for i,header in ipairs(v) do
                     if (res.header[k] and res.header[k] == header) then
+                        res.state = CACHE_STATE_PRIVATE
                         return false
                     end
                 end
             end
 
-            return res.ttl() > 0 or false
+            if res.ttl() > 0 then
+                return true
+            else
+                res.state = CACHE_STATE_PRIVATE
+                return false
+            end
         end
 
         -- The cache ttl used for saving.
@@ -103,24 +110,20 @@ function call()
             return 0
         end
 
-
         redis_connect(req, res)
 
         -- Try to read from cache. 
-        if read(req, res) then
-            res.state = cache_states.HOT
-            set_headers(req, res)
-        else
-            -- Nothing in cache or the client can't accept a cached response. 
-            -- TODO: Check for prior knowledge to determine probably cacheability?
+        if not read(req, res) then
+            -- We must revalidate
             if not fetch(req, res) then
+                -- Some kind of error has occurred. Clean up and pass the proxies error on.
                 redis_close()
-                return -- Pass the proxied error on.
-            else
-                res.state = cache_states.SUBZERO
-                set_headers(req, res)
+                return
             end
         end
+        
+        -- Modify / add to response headers.
+        set_headers(req, res)
 
         emit("response_ready", req, res)
         
@@ -181,6 +184,8 @@ end
 function read(req, res)
     if not req.accepts_cache() then return nil end
 
+    res.state = CACHE_STATE_SUBZERO
+
     -- Fetch from Redis, pipeline to reduce overhead
     local cache_parts, err = ngx.ctx.redis:hgetall(cache_key())
     if not cache_parts then
@@ -201,7 +206,11 @@ function read(req, res)
             ttl = tonumber(cache_parts[i+1]) - ngx.time()
             -- Return nil on cache miss
             if get("origin_mode") == ORIGIN_MODE_NORMAL and ttl <= 0 then 
+                res.state = CACHE_STATE_COLD
                 return nil 
+            else
+                -- TODO: Check for stale
+                res.state = CACHE_STATE_HOT
             end
         elseif cache_parts[i] == 'saved_ts' then
             time_in_cache = ngx.time() - tonumber(cache_parts[i+1])
@@ -223,7 +232,18 @@ function read(req, res)
         res.header["Age"] = ngx.time() - ngx.parse_http_time(res.header["Date"])
     end
 
+    -- If we must-revalidate, set the ttl to 0 to trigger a fetch.
+    if res.header["Cache-Control"] and res.header["Cache-Control"]:find("must%-revalidate") then
+        -- TODO: To be useful here, we should issue a conditional GET to the origin, if we get 
+        -- a 304, return the current response (with a 200, since this revalidation was server, 
+        -- not client specififed). This allows us to revalidate but not transfer the body
+        -- from a distant origin without needing too.
+        res.state = CACHE_STATE_REVALIDATED
+        return nil
+    end
+
     emit("cache_accessed", req, res)
+
     return ttl
 end
 
@@ -379,32 +399,49 @@ function set_headers(req, res)
         res.header["Via"] = via
     end
 
-    -- Only add X-Cache headers for cacheable responses
-    if res.cacheable() then
-        -- Get the cache state as human string for response headers
-        local cache_state_human = ""
-        for k,v in pairs(cache_states) do
-            if v == res.state then
-                cache_state_human = tostring(k)
-                break
-            end
-        end
-        
-        res.header["X-Cache-State"] = cache_state_human
-
+    if res.state > CACHE_STATE_PRIVATE then
         -- X-Cache header
-        local x_cache = ""
-        if res.state >= cache_states.WARM then
-            x_cache = "HIT from " .. hostname 
-        else
-            x_cache = "MISS from " .. hostname
+        local x_cache = "MISS"
+        if res.state > CACHE_STATE_COLD then
+            x_cache = "HIT"
         end
 
         if res.header["X-Cache"] then
-            res.header["X-Cache"] = x_cache .. ", " .. res.header["X-Cache"]
+            res.header["X-Cache"] = x_cache.." from "..hostname..", "..res.header["X-Cache"]
         else
-            res.header["X-Cache"] = x_cache
+            res.header["X-Cache"] = x_cache.." from "..hostname
         end
+        
+        -- X-Ledge-Cache headers
+        local cache_state = cache_state_string(res.state)
+
+        if res.header["X-Ledge-Cache"] then
+            res.header["X-Ledge-Cache"] = cache_state.." from "..hostname..", "..res.header["X-Ledge-Cache"]
+        else
+            res.header["X-Ledge-Cache"] = cache_state.." from "..hostname
+        end
+    end
+end
+
+
+function cache_state_string(state)
+    if state == CACHE_STATE_PRIVATE then
+        return "PRIVATE"
+    elseif state == CACHE_STATE_SUBZERO then
+        return "SUBZERO"
+    elseif state == CACHE_STATE_COLD then
+        return "COLD"
+    elseif state == CACHE_STATE_WARM then
+        return "WARM"
+    elseif state == CACHE_STATE_HOT then
+        return "HOT"
+    elseif state == CACHE_STATE_REVALIDATED then
+        return "REVALIDATED"
+    elseif state == CACHE_STATE_IGNORED then
+        return "IGNORED"
+    else
+        ngx.log(ngx.WARN, "unknown cache state: " .. tostring(state))
+        return ""
     end
 end
 
