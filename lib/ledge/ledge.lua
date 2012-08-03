@@ -16,14 +16,10 @@ ORIGIN_MODE_BYPASS  = 1 -- Never goes to the origin, serve from cache where poss
 ORIGIN_MODE_AVOID   = 2 -- Avoids going to the origin, serving from cache where possible.
 ORIGIN_MODE_NORMAL  = 4 -- Assume the origin is happy, use at will.
 
--- Proxy actions
-local proxy_actions = {
-    FETCHED     = 1, -- Went to the origin.
-    COLLAPSED   = 2, -- Waited on a similar request to the origin, and shared the reponse.
-}
-
-
-local resty_redis = require("resty.redis")
+-- Origin actions
+ORIGIN_ACTION_NONE      = -1 -- No need for the origin (cache HIT).
+ORIGIN_ACTION_FETCHED   = 1 -- Went to the origin.
+ORIGIN_ACTION_COLLAPSED = 2 -- Waited on a similar request to the origin, and shared the reponse.
 
 -- Configuration defaults.
 -- Can be overriden during init_by_lua with ledge.gset(param, value).
@@ -41,6 +37,8 @@ local g_config = {
 }
 
 
+local resty_redis = require("resty.redis")
+
 -- Resty rack interface
 function call()
     if not ngx.ctx.ledge then create_ledge_ctx() end
@@ -56,7 +54,7 @@ function call()
             if get("origin_mode") < ORIGIN_MODE_NORMAL then return true end
 
             if req.header["Cache-Control"] == "no-cache" or req.header["Pragma"] == "no-cache" then
-                res.state = CACHE_STATE_IGNORED
+                res.cache_state = CACHE_STATE_IGNORED
                 return false
             end
             return true
@@ -75,7 +73,7 @@ function call()
             for k,v in pairs(nocache_headers) do
                 for i,header in ipairs(v) do
                     if (res.header[k] and res.header[k] == header) then
-                        res.state = CACHE_STATE_PRIVATE
+                        res.cache_state = CACHE_STATE_PRIVATE
                         return false
                     end
                 end
@@ -84,7 +82,7 @@ function call()
             if res.ttl() > 0 then
                 return true
             else
-                res.state = CACHE_STATE_PRIVATE
+                res.cache_state = CACHE_STATE_PRIVATE
                 return false
             end
         end
@@ -109,6 +107,9 @@ function call()
 
             return 0
         end
+
+        res.cache_state = CACHE_STATE_PRIVATE
+        res.origin_action = ORIGIN_ACTION_NONE
 
         redis_connect(req, res)
 
@@ -184,7 +185,7 @@ end
 function read(req, res)
     if not req.accepts_cache() then return nil end
 
-    res.state = CACHE_STATE_SUBZERO
+    res.cache_state = CACHE_STATE_SUBZERO
 
     -- Fetch from Redis, pipeline to reduce overhead
     local cache_parts, err = ngx.ctx.redis:hgetall(cache_key())
@@ -206,11 +207,11 @@ function read(req, res)
             ttl = tonumber(cache_parts[i+1]) - ngx.time()
             -- Return nil on cache miss
             if get("origin_mode") == ORIGIN_MODE_NORMAL and ttl <= 0 then 
-                res.state = CACHE_STATE_COLD
+                res.cache_state = CACHE_STATE_COLD
                 return nil 
             else
                 -- TODO: Check for stale
-                res.state = CACHE_STATE_HOT
+                res.cache_state = CACHE_STATE_HOT
             end
         elseif cache_parts[i] == 'saved_ts' then
             time_in_cache = ngx.time() - tonumber(cache_parts[i+1])
@@ -238,7 +239,7 @@ function read(req, res)
         -- a 304, return the current response (with a 200, since this revalidation was server, 
         -- not client specififed). This allows us to revalidate but not transfer the body
         -- from a distant origin without needing too.
-        res.state = CACHE_STATE_REVALIDATED
+        res.cache_state = CACHE_STATE_REVALIDATED
         return nil
     end
 
@@ -346,6 +347,8 @@ function fetch(req, res)
         res.status = ngx.HTTP_SERVICE_UNAVAILABLE
         return nil
     end
+        
+    res.origin_action = ORIGIN_ACTION_FETCHED
 
     local origin = ngx.location.capture(get("origin_location")..req.uri_relative, {
         method = ngx['HTTP_' .. req.method], -- Method as ngx.HTTP_x constant.
@@ -401,14 +404,16 @@ function prepare_response(req, res)
 
     -- X-Cache header
     local cache = "MISS"
-    if res.state > CACHE_STATE_COLD then
+    if res.cache_state > CACHE_STATE_COLD then
         cache = "HIT"
     end
         
     -- X-Ledge-Cache headers
-    local cache_state = cache_state_string(res.state)
+    local cache_state = cache_state_string(res.cache_state)
 
-    if res.state > CACHE_STATE_PRIVATE then
+    -- For cachable responses, we add X-Cache and X-Ledge-Cache headers
+    -- appending to upstream headers where necessary.
+    if res.cache_state > CACHE_STATE_PRIVATE then
         if res.header["X-Cache"] then
             res.header["X-Cache"] = cache.." from "..hostname..", "..res.header["X-Cache"]
         else
@@ -423,12 +428,16 @@ function prepare_response(req, res)
     end
 
     -- Log variables. These must be initialized in nginx.conf
-    if ngx.var.ledge_x_cache then
-        ngx.var.ledge_x_cache = cache
+    if ngx.var.ledge_cache then
+        ngx.var.ledge_cache = cache
     end
 
-    if ngx.var.ledge_x_ledge_cache then
-        ngx.var.ledge_x_ledge_cache = cache_state
+    if ngx.var.ledge_cache_state then
+        ngx.var.ledge_cache_state = cache_state
+    end
+
+    if ngx.var.ledge_origin_action then
+        ngx.var.ledge_origin_action = origin_action_string(res.origin_action)
     end
 
     if ngx.var.ledge_version then
@@ -454,6 +463,18 @@ function cache_state_string(state)
         return "IGNORED"
     else
         ngx.log(ngx.WARN, "unknown cache state: " .. tostring(state))
+        return ""
+    end
+end
+
+
+function origin_action_string(action)
+    if action == ORIGIN_ACTION_NONE then
+        return "NONE"
+    elseif action == ORIGIN_ACTION_FETCHED then
+        return "FETCHED"
+    else
+        ngx.log(ngx.WARN, "unknown origin action: " .. tostring(action))
         return ""
     end
 end
