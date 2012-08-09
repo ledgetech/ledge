@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) + 5; 
+plan tests => repeat_each() * (blocks() * 4); 
 
 my $pwd = cwd();
 
@@ -32,7 +32,7 @@ __DATA__
     location /__ledge_origin {
         content_by_lua '
             ngx.header["Cache-Control"] = "max-age=3600"
-            ngx.say("OK")
+            ngx.say("TEST 1")
         ';
     }
 --- request
@@ -40,6 +40,8 @@ GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
 X-Ledge-Cache: SUBZERO from .*
+--- response_body
+TEST 1
 
 
 === TEST 2: Hot request; X-Cache: HIT / X-Ledge-Cache: HOT
@@ -53,13 +55,15 @@ X-Ledge-Cache: SUBZERO from .*
     }
 
     location /__ledge_origin {
-        echo "OK";
+        echo "TEST 2";
     }
 --- request
 GET /cache
 --- response_headers_like
 X-Cache: HIT from .*
 X-Ledge-Cache: HOT from .*
+--- response_body
+TEST 1
 
 
 === TEST 3: No-cache request; X-Cache: MISS / X-Ledge-Cache: IGNORED
@@ -75,7 +79,7 @@ X-Ledge-Cache: HOT from .*
     location /__ledge_origin {
         content_by_lua '
             ngx.header["Cache-Control"] = "max-age=3600"
-            ngx.say("OK")
+            ngx.say("TEST 3")
         ';
     }
 --- more_headers
@@ -85,6 +89,8 @@ GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
 X-Ledge-Cache: IGNORED from .*
+--- response_body
+TEST 3
 
 
 === TEST 4: Cold request (expired but known); X-Cache: MISS / X-Ledge-Cache: COLD
@@ -109,7 +115,7 @@ X-Ledge-Cache: IGNORED from .*
     location /__ledge_origin {
         content_by_lua '
             ngx.header["Cache-Control"] = "max-age=3600, must-revalidate"
-            ngx.say("OK")
+            ngx.say("TEST 4")
         ';
     }
 --- request
@@ -117,6 +123,8 @@ GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
 X-Ledge-Cache: COLD from .*
+--- response_body
+TEST 4
 
 
 === TEST 5: X-Cache: MISS / X-Ledge-Cache: REVALIDATED
@@ -130,10 +138,12 @@ X-Ledge-Cache: COLD from .*
     }
 
     location /__ledge_origin {
-        echo "OK";
+        echo "TEST 5";
     }
 --- request
 GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
 X-Ledge-Cache: REVALIDATED from .*
+--- response_body
+TEST 5
