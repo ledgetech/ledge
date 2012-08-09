@@ -15,15 +15,15 @@ Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](
 Download and install:
 
 * [Redis](http://redis.io/download) >= 2.4.14
-* [OpenResty](http://openresty.org/) >= 1.0.15.7
+* [OpenResty](http://openresty.org/) >= 1.2.1.9
 
 Review the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
 
 Clone this repo and [lua-resty-rack](https://github.com/pintsized/lua-resty-rack) into a path defined by [lua_package_path](http://wiki.nginx.org/HttpLuaModule#lua_package_path) in `nginx.conf`.
 
-### Usage
+### Basic usage
 
-In `nginx.conf`, first define your upstream server as a `location` block. Note from the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation that named locations such as @foo cannot be used due to a limitation in the Nginx core. Instead, use a regular location (the default is `/__ledge`), and mark it as `internal`.
+Ledge can be used to cache any `location` blocks in Nginx, the most typical case being one which uses the [proxy module](http://wiki.nginx.org/HttpProxyModule), allowing you to cache upstream resources.
 
 ```nginx
 server {
@@ -51,23 +51,7 @@ server {
 }
 ```
 
-You can of course use anything available to you in Nginx as your origin `location`, here we are using the proxy module to fetch from our origin server.
-
-Finally create the `location` block (inside the same `server` block), and configure Ledge by installing it with `resty.rack`.
-
-```lua
-location / {
-	content_by_lua '
-		rack = require "resty.rack"
-		ledge = require "ledge.ledge"
-		
-		rack.use(ledge)
-		rack.run()
-	';
-}
-```
-
-If you are using OpenResty >= 1.2.1.5, you can load the modules globally during `init_by_lua`, which will improve performance.
+To place Ledge caching in front of everything on this server, first initialise `resty.rack` and `ledge.ledge` during `init_by_lua`, and then start Ledge with the `content_by_lua` directive.
 
 ```lua
 http {
@@ -77,11 +61,18 @@ http {
     ';
 
     server {
+        listen 80;
+        server_name example.com;
+
         location / {
             content_by_lua '
                 rack.use(ledge)
                 rack.run()
             ';
+        }
+
+        location /__ledge_origin {
+            ...
         }
     }
 }
@@ -165,10 +156,6 @@ Broadcast when an item was found in cache and loaded into `res`.
 
 Broadcast when Ledge is about to proxy to the origin.
 
-#### before_save
-
-Broadcast when about to save a cacheable response.
-
 #### origin_fetched
 
 Broadcast when the response was successfully fetched from the origin, but before it was saved to cache (and before __before_save__!). This is useful when the response must be modified to alter its cacheability. For example:
@@ -183,6 +170,10 @@ end)
 ```
 
 This blindly decides that a non-cacheable response can be cached. Probably only useful when origin servers aren't cooperating.
+
+#### before_save
+
+Broadcast when about to save a cacheable response.
 
 #### response_ready
 
@@ -287,6 +278,75 @@ Note that `cache_key_spec` cannot currently be set globally with `ledge.gset` (b
 
 Specifies how long cache items are retained regardless of their TTL. You can use the [volatile-lru](http://antirez.com/post/redis-as-LRU-cache.html) Redis configuration to evict the least recently used cache items when under memory pressure. Therefore this setting is really about serving stale content with `ORIGIN_MODE_AVOID` or `ORIGIN_MODE_BYPASS` set.
 
+## Logging / Debugging
+
+For cacheable responses, Ledge will add headers indicating the cache status.
+
+### X-Cache
+
+This header follows the convention set by other HTTP cache servers. It indicates simply `HIT` or `MISS` and the host name in question, preserving upstream values when more than one cache server is in play. For example:
+
+* `X-Cache: HIT from ledge.tld` A cache hit, with no (known) cache layer upstream.
+* `X-Cache: HIT from ledge.tld, HIT from proxy.upstream.tld` A cache hit, also hit upstream.
+* `X-Cache: MISS from ledge.tld, HIT from proxy.upstream.tld` A cache miss, but hit upstream.
+* `X-Cache: MISS from ledge.tld, MISS from proxy.upstream.tld` Regenerated at the origin.
+
+### X-Ledge-Cache
+
+This custom header provides a little more information about the cache status.
+
+* `X-Cache-Ledge: REVALIDATED from ledge.tld` The cache was revalidated. The item is fresh (and may have been fetched).
+* `X-Cache-Ledge: IGNORED from ledge.tld` The cache was ignored (no-cache). The item is fresh (and was fetched).
+* `X-Cache-Ledge: HOT from ledge.tld` The ttl is greater than 0.
+* `X-Cache-Ledge: WARM from ledge:tld` ttl + max_stale is greater than 0.
+* `X-Cache-Ledge: COLD from ledge:tld` ttl + max_stale is less than 0, but we have an old cache item.
+* `X-Cache-Ledge: SUBZERO from ledge:tld` We have nothing for this key.
+* `X-Cache-Ledge: PRIVATE from ledge:tld` The response is not cacheable. You will never see this in the headers, but it will be available in the log (see below).
+
+### Log variables
+
+Variables for Nginx to include in the access log must be instantiated in the config file first. If the following variables are defined, Ledge will update them with useful values.
+
+#### `$ledge_version`
+
+In the format `ledge/REV`.
+
+#### `$ledge_cache`
+
+As the X-Cache header above, but also present (MISS) for non cacheable responses.
+
+#### `$ledge_cache_state`
+
+As the `X-Cache-Ledge` header above, with the addition of `PRIVATE` for non-cacheable responses.
+
+#### `$ledge_origin_action`
+
+* `NONE` We served from cache.
+* `FETCHED` We went to the origin.
+* `COLLAPSED` We received a shared (newly cached) response after waiting for another connection to fetch. __(not yet implemented)__
+
+#### Example
+
+```nginx
+http {
+    log_format ledge '$remote_addr - $remote_user [$time_local]  '
+        '"$request" $status $bytes_sent '"$http_referer" "$http_user_agent" '
+        '"$ledge_version" "$ledge_cache" "$ledge_cache_state" "$ledge_origin_action"';
+
+    access_log logs/access.log ledge;
+
+    server {
+        set $ledge_version 0;
+        set $ledge_cache 0;
+        set $ledge_cache_state 0;
+        set $ledge_origin_action 0;
+
+        location / {
+            ...
+        }
+    }
+}
+```
 
 ## Known limitations
 
