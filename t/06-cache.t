@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4); 
+plan tests => repeat_each() * (blocks() * 5); 
 
 my $pwd = cwd();
 
@@ -23,7 +23,13 @@ __DATA__
 --- http_config eval: $::HttpConfig
 --- config
     location /cache {
+        set $ledge_origin_action 0;
+
         content_by_lua '
+            -- Pass the ledge_origin_action logging var to a header for us to test.
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
             rack.use(ledge)
             rack.run()
         ';
@@ -40,6 +46,7 @@ GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
 X-Ledge-Cache: SUBZERO from .*
+X-Ledge-Origin-Action: FETCHED
 --- response_body
 TEST 1
 
@@ -48,7 +55,11 @@ TEST 1
 --- http_config eval: $::HttpConfig
 --- config
     location /cache {
+        set $ledge_origin_action 0;
         content_by_lua '
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
             rack.use(ledge)
             rack.run()
         ';
@@ -62,6 +73,7 @@ GET /cache
 --- response_headers_like
 X-Cache: HIT from .*
 X-Ledge-Cache: HOT from .*
+X-Ledge-Origin-Action: NONE
 --- response_body
 TEST 1
 
@@ -70,7 +82,11 @@ TEST 1
 --- http_config eval: $::HttpConfig
 --- config
     location /cache {
+        set $ledge_origin_action 0;
         content_by_lua '
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
             rack.use(ledge)
             rack.run()
         ';
@@ -89,6 +105,7 @@ GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
 X-Ledge-Cache: IGNORED from .*
+X-Ledge-Origin-Action: FETCHED
 --- response_body
 TEST 3
 
@@ -97,6 +114,7 @@ TEST 3
 --- http_config eval: $::HttpConfig
 --- config
     location /cache {
+        set $ledge_origin_action 0;
         content_by_lua '
             local resty_redis = require "resty.redis"
             local redis = resty_redis:new()
@@ -107,6 +125,9 @@ TEST 3
             redis:hset(ledge.cache_key(), "expires", tostring(ngx.time() - 100))
             redis:close()
 
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
             rack.use(ledge)
             rack.run()
         ';
@@ -123,6 +144,7 @@ GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
 X-Ledge-Cache: COLD from .*
+X-Ledge-Origin-Action: FETCHED
 --- response_body
 TEST 4
 
@@ -131,7 +153,11 @@ TEST 4
 --- http_config eval: $::HttpConfig
 --- config
     location /cache {
+        set $ledge_origin_action 0;
         content_by_lua '
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
             rack.use(ledge)
             rack.run()
         ';
@@ -145,5 +171,36 @@ GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
 X-Ledge-Cache: REVALIDATED from .*
+X-Ledge-Origin-Action: FETCHED
 --- response_body
 TEST 5
+
+
+=== TEST 6: Non-cacheable response (no X-*-Cache headers).
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache {
+        set $ledge_origin_action 0;
+        content_by_lua '
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
+            rack.use(ledge)
+            rack.run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "no-cache"
+            ngx.say("TEST 6")
+        ';
+    }
+--- request
+GET /cache
+--- response_headers_like
+X-Cache: 
+X-Ledge-Cache: 
+X-Ledge-Origin-Action: FETCHED
+--- response_body
+TEST 6
