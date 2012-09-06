@@ -92,31 +92,6 @@ Sets a configuration option.
 ledge.set("origin_location", "/__my_origin")
 ```
 
-### ledge.gset(param, vaue)
-
-**Syntax:** `ledge.gset(param, value)`
-
-Sets a configuration option globally. This is only relevant during `init_by_lua`, allowing global options to be set once when the server reloads, rather than per request.
-
-```lua
-http {
-    init_by_lua '
-        rack = require "resty.rack"
-        ledge = require "ledge.ledge"
-        ledge.gset("redis_host", 192.168.1.234)
-    ';
-
-    server {
-        location / {
-            content_by_lua '
-                rack.use(ledge)
-                rack.run()
-            ';
-        }
-    }
-}
-```
-
 ### ledge.get(param)
 
 **Syntax:** `local value = ledge.get(param)`
@@ -269,8 +244,6 @@ ledge.set("cache_key_spec", {
     ngx.md5(ngx.var.args)
 })
 ```
-
-Note that `cache_key_spec` cannot currently be set globally with `ledge.gset` (because `ngx.var` is not available during `init_by_lua`).
 
 ### keep_cache_for
 
