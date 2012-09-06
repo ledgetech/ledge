@@ -12,7 +12,7 @@ our $HttpConfig = qq{
 	init_by_lua "
 		rack = require 'resty.rack'
 		ledge = require 'ledge.ledge'
-		ledge.gset('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+		ledge.set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
 	";
 };
 

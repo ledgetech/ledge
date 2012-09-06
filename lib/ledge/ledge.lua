@@ -502,14 +502,12 @@ end
 
 -- Set a config parameter
 function set(param, value)
-    if not ngx.ctx.ledge then create_ledge_ctx() end
-    ngx.ctx.ledge.config[param] = value
-end
-
-
--- Set a global config parameter. Only for use during init_by_lua.
-function gset(param, value)
-    g_config[param] = value
+    if ngx.get_phase() == "init" then
+        g_config[param] = value
+    else
+        if not ngx.ctx.ledge then create_ledge_ctx() end
+        ngx.ctx.ledge.config[param] = value
+    end
 end
 
 
