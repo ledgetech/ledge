@@ -57,6 +57,22 @@ function call()
                 res.cache_state = CACHE_STATE_IGNORED
                 return false
             end
+
+            if req.header["Cache-Control"] then
+                local max_age = req.header["Cache-Control"]:match("max%-age=\"?(%d+)\"?")
+                if max_age then
+                    max_age = tonumber(max_age)
+                    -- max-age=0 means we wish to ignore cache completely
+                    if max_age == 0 then
+                        res.cache_state = CACHE_STATE_IGNORED
+                        return false
+                    else
+                        -- We'll test this against Age when reading from cache.
+                        req.max_age = max_age
+                    end
+                end
+            end
+
             return true
         end
 
@@ -233,13 +249,19 @@ function read(req, res)
         res.header["Age"] = ngx.time() - ngx.parse_http_time(res.header["Date"])
     end
 
+    -- If our response is older than the request max-age, we ignore cache
+    if req.max_age and req.max_age < res.header["Age"] then
+        res.cache_state = CACHE_STATE_IGNORED
+        return nil
+    end
+
     -- If we must-revalidate, set the ttl to 0 to trigger a fetch.
     if res.header["Cache-Control"] and res.header["Cache-Control"]:find("must%-revalidate") then
         -- TODO: To be useful here, we should issue a conditional GET to the origin, if we get 
         -- a 304, return the current response (with a 200, since this revalidation was server, 
         -- not client specififed). This allows us to revalidate but not transfer the body
         -- from a distant origin without needing too.
-        res.cache_state = CACHE_STATE_REVALIDATED
+        res.cache_state = CACHE_STATE_IGNORED
         return nil
     end
 

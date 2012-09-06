@@ -149,7 +149,7 @@ X-Ledge-Origin-Action: FETCHED
 TEST 4
 
 
-=== TEST 5: X-Cache: MISS / X-Ledge-Cache: REVALIDATED
+=== TEST 5: X-Cache: MISS / X-Ledge-Cache: IGNORED
 --- http_config eval: $::HttpConfig
 --- config
     location /cache {
@@ -170,7 +170,7 @@ TEST 4
 GET /cache
 --- response_headers_like
 X-Cache: MISS from .*
-X-Ledge-Cache: REVALIDATED from .*
+X-Ledge-Cache: IGNORED from .*
 X-Ledge-Origin-Action: FETCHED
 --- response_body
 TEST 5
@@ -204,3 +204,92 @@ X-Ledge-Cache:
 X-Ledge-Origin-Action: FETCHED
 --- response_body
 TEST 6
+
+
+=== TEST 7: HTTP 1.0 request with Pragma: no-cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache {
+        set $ledge_origin_action 0;
+        content_by_lua '
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
+            rack.use(ledge)
+            rack.run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.say("TEST 7")
+        ';
+    }
+--- more_headers
+Pragma: no-cache
+--- request
+GET /cache HTTP/1.0
+--- response_headers_like
+X-Cache: MISS from .*
+X-Ledge-Cache: IGNORED from .*
+X-Ledge-Origin-Action: FETCHED
+--- response_body
+TEST 7
+
+
+=== TEST 8: Request with Cache-Control: max-age=0 (revalidate)
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache {
+        set $ledge_origin_action 0;
+        content_by_lua '
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
+            rack.use(ledge)
+            rack.run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.say("TEST 8")
+        ';
+    }
+--- more_headers
+Cache-Control: max-age=0
+--- request
+GET /cache
+--- response_headers_like
+X-Cache: MISS from .*
+X-Ledge-Cache: IGNORED from .*
+X-Ledge-Origin-Action: FETCHED
+--- response_body
+TEST 8
+
+
+=== TEST 9: Request with Cache-Control: max-age=100 (HIT)
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache {
+        set $ledge_origin_action 0;
+        content_by_lua '
+            ledge.bind("response_ready", function(req, res)
+                res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
+            end)
+            rack.use(ledge)
+            rack.run()
+        ';
+    }
+--- more_headers
+Cache-Control: max-age=100
+--- request
+GET /cache
+--- response_headers_like
+X-Cache: HIT from .*
+X-Ledge-Cache: HOT from .*
+X-Ledge-Origin-Action: NONE
+--- response_body
+TEST 8
