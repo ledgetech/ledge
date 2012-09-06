@@ -22,7 +22,7 @@ ORIGIN_ACTION_FETCHED   = 1 -- Went to the origin.
 ORIGIN_ACTION_COLLAPSED = 2 -- Waited on a similar request to the origin, and shared the reponse.
 
 -- Configuration defaults.
--- Can be overriden during init_by_lua with ledge.gset(param, value).
+-- Can be overriden during init_by_lua with ledge.set(param, value).
 local g_config = {
     origin_location = "/__ledge_origin",
     redis_host      = "127.0.0.1",
