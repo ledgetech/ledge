@@ -269,7 +269,7 @@ This header follows the convention set by other HTTP cache servers. It indicates
 This custom header provides a little more information about the cache status.
 
 * `X-Cache-Ledge: REVALIDATED from ledge.tld` The cache was revalidated. The item is fresh (and may have been fetched).
-* `X-Cache-Ledge: IGNORED from ledge.tld` The cache was ignored (no-cache). The item is fresh (and was fetched).
+* `X-Cache-Ledge: IGNORED from ledge.tld` The cache was ignored (no-cache / max-age=0 / must-revalidate). The item is fresh (and was fetched).
 * `X-Cache-Ledge: HOT from ledge.tld` The ttl is greater than 0.
 * `X-Cache-Ledge: WARM from ledge:tld` ttl + max_stale is greater than 0.
 * `X-Cache-Ledge: COLD from ledge:tld` ttl + max_stale is less than 0, but we have an old cache item.
@@ -326,7 +326,6 @@ http {
 The following major items are currently not implemented, but on the short term TODO list.
 
 * No support for validation (If-Modified-Since, If-None-Match etc).
-* Incomplete logic when determining cacheability of requests / responses.
 * No support for logic around the Vary header.
 
 
