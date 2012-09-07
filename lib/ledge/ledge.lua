@@ -4,7 +4,7 @@ _VERSION = '0.04'
 
 -- Cache states
 CACHE_STATE_PRIVATE     = -12
-CACHE_STATE_IGNORED     = -11
+CACHE_STATE_RELOADED     = -11
 CACHE_STATE_REVALIDATED = -10
 CACHE_STATE_SUBZERO     = -1
 CACHE_STATE_COLD        = 0
@@ -54,7 +54,7 @@ function call()
             if get("origin_mode") < ORIGIN_MODE_NORMAL then return true end
 
             if req.header["Cache-Control"] == "no-cache" or req.header["Pragma"] == "no-cache" then
-                res.cache_state = CACHE_STATE_IGNORED
+                res.cache_state = CACHE_STATE_RELOADED
                 return false
             end
 
@@ -64,7 +64,7 @@ function call()
                     max_age = tonumber(max_age)
                     -- max-age=0 means we wish to ignore cache completely
                     if max_age == 0 then
-                        res.cache_state = CACHE_STATE_IGNORED
+                        res.cache_state = CACHE_STATE_RELOADED
                         return false
                     else
                         -- We'll test this against Age when reading from cache.
@@ -251,7 +251,7 @@ function read(req, res)
 
     -- If our response is older than the request max-age, we ignore cache
     if req.max_age and req.max_age < res.header["Age"] then
-        res.cache_state = CACHE_STATE_IGNORED
+        res.cache_state = CACHE_STATE_RELOADED
         return nil
     end
 
@@ -261,7 +261,7 @@ function read(req, res)
         -- a 304, return the current response (with a 200, since this revalidation was server, 
         -- not client specififed). This allows us to revalidate but not transfer the body
         -- from a distant origin without needing too.
-        res.cache_state = CACHE_STATE_IGNORED
+        res.cache_state = CACHE_STATE_REVALIDATED
         return nil
     end
 
@@ -481,8 +481,8 @@ function cache_state_string(state)
         return "HOT"
     elseif state == CACHE_STATE_REVALIDATED then
         return "REVALIDATED"
-    elseif state == CACHE_STATE_IGNORED then
-        return "IGNORED"
+    elseif state == CACHE_STATE_RELOADED then
+        return "RELOADED"
     else
         ngx.log(ngx.WARN, "unknown cache state: " .. tostring(state))
         return ""
