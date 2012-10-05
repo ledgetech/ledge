@@ -10,9 +10,9 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 our $HttpConfig = qq{
 	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
 	init_by_lua "
-		rack = require 'resty.rack'
-		ledge = require 'ledge.ledge'
-		ledge.set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+		ledge_mod = require 'ledge.ledge'
+        ledge = ledge_mod:new()
+		ledge:set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
 	";
 };
 
@@ -35,8 +35,8 @@ GET /sanity_1
 --- config
 	location /sanity_2 {
         content_by_lua '
-            rack.use(ledge)
-            rack.run()
+            ledge = ledge_mod:new()
+            ledge.go()
         ';
     }
     location /__ledge_origin {
