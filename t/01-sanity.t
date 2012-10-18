@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2); 
+plan tests => repeat_each() * (blocks() * 2) + 1; 
 
 my $pwd = cwd();
 
@@ -10,9 +10,9 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 our $HttpConfig = qq{
 	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
 	init_by_lua "
-		rack = require 'resty.rack'
-		ledge = require 'ledge.ledge'
-		ledge.set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+		ledge_mod = require 'ledge.ledge'
+        ledge = ledge_mod:new()
+		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
 	";
 };
 
@@ -30,13 +30,12 @@ GET /sanity_1
 --- no_error_log
 [error]
 
-=== TEST 2: Run module using Rack without errors.
+=== TEST 2: Run module without errors, returning origin content.
 --- http_config eval: $::HttpConfig
 --- config
 	location /sanity_2 {
         content_by_lua '
-            rack.use(ledge)
-            rack.run()
+            ledge:run()
         ';
     }
     location /__ledge_origin {
@@ -46,3 +45,5 @@ GET /sanity_1
 GET /sanity_2
 --- no_error_log
 [error]
+--- response_body
+OK

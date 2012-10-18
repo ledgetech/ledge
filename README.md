@@ -29,27 +29,27 @@ Ledge can be used to cache any defined `location` blocks in Nginx, the most typi
 
 ```nginx
 server {
-	listen 80;
-	server_name example.com;
-	
-	location /__ledge_origin {
-		internal;
-		rewrite ^/__ledge_origin(.*)$ $1 break;
-		proxy_set_header X-Real-IP  $remote_addr;
-		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-		proxy_set_header Host $host;
-		proxy_read_timeout 30s;
-		
-		# Keep the origin Date header for more accurate Age calculation.
-		proxy_pass_header Date;
-		
-		# http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.38
-		# If the response is being forwarded through a proxy, the proxy application MUST NOT
-		# modify the Server response-header.
-		proxy_pass_header Server;
-		
-		proxy_pass $scheme://YOUR.UPSTREAM.IP.ADDRESS:80;
-	}
+    listen 80;
+    server_name example.com;
+    
+    location /__ledge_origin {
+        internal;
+        rewrite ^/__ledge_origin(.*)$ $1 break;
+        proxy_set_header X-Real-IP  $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Host $host;
+        proxy_read_timeout 30s;
+        
+        # Keep the origin Date header for more accurate Age calculation.
+        proxy_pass_header Date;
+        
+        # http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.38
+        # If the response is being forwarded through a proxy, the proxy application MUST NOT
+        # modify the Server response-header.
+        proxy_pass_header Server;
+        
+        proxy_pass $scheme://YOUR.UPSTREAM.IP.ADDRESS:80;
+    }
 }
 ```
 

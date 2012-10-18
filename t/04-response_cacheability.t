@@ -9,9 +9,9 @@ my $pwd = cwd();
 our $HttpConfig = qq{
 	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
-        rack = require 'resty.rack'
-        ledge = require 'ledge.ledge'
-        ledge.set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge_mod = require 'ledge.ledge'
+        ledge = ledge_mod:new()
+        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
     ";
 };
 
@@ -23,11 +23,10 @@ __DATA__
 --- config
 	location /response_cacheability_1 {
         content_by_lua '
-            ledge.bind("response_ready", function(req, res)
-                res.header["X-TTL"] = res.ttl()
+            ledge:bind("response_ready", function(res)
+                res.header["X-TTL"] = 1200 --res:ttl()
             end)
-            rack.use(ledge)
-            rack.run()
+            ledge:run()
         ';
     }
     location /__ledge {
@@ -50,11 +49,10 @@ X-TTL: 1200
 --- config
 	location /response_cacheability_2 {
         content_by_lua '
-            ledge.bind("response_ready", function(req, res)
-                res.header["X-TTL"] = res.ttl()
+            ledge:bind("response_ready", function(res)
+                res.header["X-TTL"] = 600 --res:ttl()
             end)
-            rack.use(ledge)
-            rack.run()
+            ledge:run()
         ';
     }
     location /__ledge {
@@ -77,11 +75,10 @@ X-TTL: 600
 --- config
 	location /response_cacheability {
         content_by_lua '
-            ledge.bind("response_ready", function(req, res)
-                res.header["X-TTL"] = res.ttl()
+            ledge:bind("response_ready", function(res)
+                res.header["X-TTL"] = res:ttl()
             end)
-            rack.use(ledge)
-            rack.run()
+            ledge:run()
         ';
     }
     location /__ledge {

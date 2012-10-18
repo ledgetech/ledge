@@ -10,9 +10,9 @@ our $HttpConfig = qq{
 	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         cjson = require 'cjson'
-        rack = require 'resty.rack'
-        ledge = require 'ledge.ledge'
-        ledge.set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge_mod = require 'ledge.ledge'
+        ledge = ledge_mod:new()
+        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
     ";
 };
 
@@ -24,8 +24,7 @@ __DATA__
 --- config
 	location /age {
         content_by_lua '
-            rack.use(ledge)
-            rack.run()
+            ledge:run()
         ';
     }
     location /__ledge_origin {
@@ -43,8 +42,7 @@ Age:
 --- config
 	location /age {
         content_by_lua '
-            rack.use(ledge)
-            rack.run()
+            ledge:run()
         ';
     }
     location /__ledge_origin {
