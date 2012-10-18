@@ -38,7 +38,7 @@ function new(self)
 end
 
 
-function go(self)
+function run(self)
     -- Enter the ST_INIT state
     self:ST_INIT()
 end

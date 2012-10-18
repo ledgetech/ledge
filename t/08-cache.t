@@ -30,7 +30,7 @@ __DATA__
             ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
 
@@ -59,7 +59,7 @@ TEST 1
             ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
 
@@ -85,7 +85,7 @@ TEST 1
             ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
 
@@ -126,7 +126,7 @@ TEST 3
             ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
 
@@ -155,7 +155,7 @@ TEST 4
             ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
 
@@ -184,7 +184,7 @@ TEST 6
             ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
 

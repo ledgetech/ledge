@@ -27,7 +27,7 @@ location /events_1 {
         ledge:bind("response_ready", function(res)
             res.body = "UPDATED"
         end)
-        ledge:go()
+        ledge:run()
     ';
 }
 location /__ledge_origin {

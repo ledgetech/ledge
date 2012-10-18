@@ -24,7 +24,7 @@ __DATA__
 --- config
 	location /age {
         content_by_lua '
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge_origin {
@@ -42,7 +42,7 @@ Age:
 --- config
 	location /age {
         content_by_lua '
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge_origin {

@@ -35,7 +35,7 @@ GET /sanity_1
 --- config
 	location /sanity_2 {
         content_by_lua '
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge_origin {

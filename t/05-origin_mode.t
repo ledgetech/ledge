@@ -24,7 +24,7 @@ __DATA__
 	location /origin_mode {
         content_by_lua '
             ledge:config_set("origin_mode", ledge.ORIGIN_MODE_NORMAL)
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge_origin {
@@ -43,7 +43,7 @@ OK
 	location /origin_mode {
         content_by_lua '
             ledge:config_set("origin_mode", ledge.ORIGIN_MODE_AVOID)
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge_origin {
@@ -63,7 +63,7 @@ OK
 	location /origin_mode {
         content_by_lua '
             ledge:config_set("origin_mode", ledge.ORIGIN_MODE_BYPASS)
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge_origin {
@@ -82,7 +82,7 @@ OK
 	location /origin_mode_bypass {
         content_by_lua '
             ledge:config_set("origin_mode", ledge.ORIGIN_MODE_BYPASS)
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge_origin {

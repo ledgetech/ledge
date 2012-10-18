@@ -24,7 +24,7 @@ __DATA__
 --- config
 	location /hop_by_hop_headers {
         content_by_lua '
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge_origin {

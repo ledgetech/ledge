@@ -26,7 +26,7 @@ __DATA__
             ledge:bind("response_ready", function(res)
                 res.header["X-TTL"] = 1200 --res:ttl()
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge {
@@ -52,7 +52,7 @@ X-TTL: 1200
             ledge:bind("response_ready", function(res)
                 res.header["X-TTL"] = 600 --res:ttl()
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge {
@@ -78,7 +78,7 @@ X-TTL: 600
             ledge:bind("response_ready", function(res)
                 res.header["X-TTL"] = res:ttl()
             end)
-            ledge:go()
+            ledge:run()
         ';
     }
     location /__ledge {
