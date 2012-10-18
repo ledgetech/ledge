@@ -39,7 +39,7 @@ end
 
 
 function run(self)
-    -- Enter the ST_INIT state
+    -- Off we go then.. enter the ST_INIT state.
     self:ST_INIT()
 end
 
@@ -78,10 +78,12 @@ end
 
 function redis_connect(self)
     -- Connect to Redis. The connection is kept alive later.
-    ngx.ctx.redis = resty_redis:new()
-    if self:config_get("redis_timeout") then ngx.ctx.redis:set_timeout(self:config_get("redis_timeout")) end
+    self:ctx().redis = resty_redis:new()
+    if self:config_get("redis_timeout") then 
+        self:ctx().redis:set_timeout(self:config_get("redis_timeout")) 
+    end
 
-    local ok, err = ngx.ctx.redis:connect(
+    local ok, err = self:ctx().redis:connect(
         self:config_get("redis_socket") or self:config_get("redis_host"), 
         self:config_get("redis_port")
     )
@@ -94,7 +96,9 @@ function redis_connect(self)
     end
 
     -- redis:select always returns OK
-    if self:config_get("redis_database") > 0 then ngx.ctx.redis:select(self:config_get("redis_database")) end
+    if self:config_get("redis_database") > 0 then 
+        self:ctx().redis:select(self:config_get("redis_database")) 
+    end
 end
 
 
@@ -103,15 +107,15 @@ function redis_close(self)
     local ok, err = nil
     if self:config_get("redis_keepalive_timeout") then
         if self:config_get("redis_keepalive_pool_size") then
-            ok, err = ngx.ctx.redis:set_keepalive(
+            ok, err = self:ctx().redis:set_keepalive(
                 self:config_get("redis_keepalive_timeout"), 
                 self:config_get("redis_keepalive_pool_size")
             )
         else
-            ok, err = ngx.ctx.redis:set_keepalive(self:config_get("redis_keepalive_timeout"))
+            ok, err = self:ctx().redis:set_keepalive(self:config_get("redis_keepalive_timeout"))
         end
     else
-        ok, err = ngx.ctx.redis:set_keepalive()
+        ok, err = self:ctx().redis:set_keepalive()
     end
 
     if not ok then
@@ -284,7 +288,7 @@ function read_from_cache(self)
     local res = response:new()
 
     -- Fetch from Redis, pipeline to reduce overhead
-    local cache_parts, err = ngx.ctx.redis:hgetall(cache_key(self))
+    local cache_parts, err = self:ctx().redis:hgetall(cache_key(self))
     if not cache_parts then
         ngx.log(ngx.ERR, "Failed to read cache item: " .. err)
     end
@@ -416,7 +420,7 @@ function save_to_cache(self, res)
         end
     end
 
-    local redis = ngx.ctx.redis
+    local redis = self:ctx().redis
 
     -- Save atomically
     redis:multi()
@@ -450,7 +454,7 @@ end
 
 
 function delete_from_cache(self)
-    ngx.ctx.redis:del(cache_key(self))
+    self:ctx().redis:del(cache_key(self))
 end
 
 
