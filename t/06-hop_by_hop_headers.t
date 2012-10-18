@@ -11,7 +11,8 @@ our $HttpConfig = qq{
     init_by_lua "
         cjson = require 'cjson'
         ledge_mod = require 'ledge.ledge'
-        ledge_mod.set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge = ledge_mod:new()
+        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
     ";
 };
 
@@ -23,8 +24,7 @@ __DATA__
 --- config
 	location /hop_by_hop_headers {
         content_by_lua '
-            ledge = ledge_mod:new()
-            ledge.go()
+            ledge:go()
         ';
     }
     location /__ledge_origin {

@@ -11,7 +11,8 @@ our $HttpConfig = qq{
 	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
 	init_by_lua "
 		ledge_mod = require 'ledge.ledge'
-		ledge_mod.set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge = ledge_mod:new()
+		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
 	";
 };
 
@@ -25,12 +26,11 @@ __DATA__
         set $ledge_origin_action 0;
 
         content_by_lua '
-            ledge = ledge_mod:new()
             -- Pass the ledge_origin_action logging var to a header for us to test.
-            ledge.bind("response_ready", function(res)
+            ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge.go()
+            ledge:go()
         ';
     }
 
@@ -56,11 +56,10 @@ TEST 1
     location /cache {
         set $ledge_origin_action 0;
         content_by_lua '
-            ledge = ledge_mod:new()
-            ledge.bind("response_ready", function(res)
+            ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge.go()
+            ledge:go()
         ';
     }
 
@@ -83,11 +82,10 @@ TEST 1
     location /cache {
         set $ledge_origin_action 0;
         content_by_lua '
-            ledge = ledge_mod:new()
-            ledge.bind("response_ready", function(res)
+            ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge.go()
+            ledge:go()
         ';
     }
 
@@ -117,7 +115,6 @@ TEST 3
         content_by_lua '
             local resty_redis = require "resty.redis"
             local redis = resty_redis:new()
-            ledge = ledge_mod:new()
 
             redis:connect(ledge.get("redis_host"), ledge.get("redis_port"))
             redis:select(ledge.get("redis_database"))
@@ -126,10 +123,10 @@ TEST 3
             redis:hset(ledge.cache_key(), "expires", tostring(ngx.time() - 100))
             redis:close()
 
-            ledge.bind("response_ready", function(res)
+            ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge.go()
+            ledge:go()
         ';
     }
 
@@ -155,11 +152,10 @@ TEST 4
     location /cache_6 {
         set $ledge_origin_action 0;
         content_by_lua '
-            ledge = ledge_mod:new()
-            ledge.bind("response_ready", function(res)
+            ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge.go()
+            ledge:go()
         ';
     }
 
@@ -185,11 +181,10 @@ TEST 6
     location /cache {
         set $ledge_origin_action 0;
         content_by_lua '
-            ledge = ledge_mod:new()
-            ledge.bind("response_ready", function(res)
+            ledge:bind("response_ready", function(res)
                 res.header["X-Ledge-Origin-Action"] = ngx.var.ledge_origin_action
             end)
-            ledge.go()
+            ledge:go()
         ';
     }
 
