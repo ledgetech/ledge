@@ -481,17 +481,17 @@ function serve(self)
 
         -- Otherwise send the response as normal.
         ngx.status = res.status
+        
         if res.header then
             for k,v in pairs(res.header) do
                 ngx.header[k] = v 
             end 
         end 
-        local cjson = require "cjson"
-        local state_history = self:ctx().state_history
-        ngx.header["X-Ledge"] = cjson.encode(state_history)
+        
         if res.body then
             ngx.print(res.body)
         end
+
         ngx.eof()
     end
 end
