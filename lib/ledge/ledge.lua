@@ -454,7 +454,7 @@ end
 
 
 function delete_from_cache(self)
-    self:ctx().redis:del(cache_key(self))
+    self:ctx().redis:del(self:cache_key())
 end
 
 
