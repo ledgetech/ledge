@@ -62,7 +62,7 @@ end
 
 -- Keeps track of the transition history.
 function transition(self, state)
-    table.insert(self:ctx().state_history, state)
+    self:ctx().state_history[state] = true
 end
 
 
@@ -469,6 +469,23 @@ function serve(self)
             res.header["Via"] = via .. ", " .. res.header["Via"]
         else
             res.header["Via"] = via
+        end
+
+        -- X-Cache header
+        -- Don't set if this isn't a cacheable response (ST_DELETING). Set to MISS is
+        -- we went through ST_FETCHING, otherwise HIT.
+        local st_hist = self:ctx().state_history
+        if not st_hist["ST_DELETING"] then
+            local x_cache = "HIT from " .. ngx.var.hostname
+            if st_hist["ST_FETCHING"] then
+                x_cache = "MISS from " .. ngx.var.hostname
+            end
+
+            if res.header["X-Cache"] ~= nil then
+                res.header["X-Cache"] = x_cache .. ", " .. res.header["X-Cache"]
+            else
+                res.header["X-Cache"] = x_cache
+            end
         end
 
         self:emit("response_ready", res)
