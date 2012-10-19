@@ -239,8 +239,6 @@ Broadcast when about to save a cacheable response.
 
 Ledge is finished and about to return. Last chance to jump in before rack sends the response.
 
-## Configuration options
-
 
 ## Logging / Debugging
 
