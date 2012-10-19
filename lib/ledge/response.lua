@@ -15,6 +15,7 @@ local RESPONSE_STATE_HOT         = 2
 local class = ledge.response
 local mt = { __index = class }
 
+
 function new(self)
     local header = {}
 
@@ -25,13 +26,19 @@ function new(self)
 
     header_mt.__index = function(t, k)
         k = k:lower():gsub("-", "_")
-        return header_mt.normalised[k]
+        if header_mt.normalised[k] then
+            return rawget(t, header_mt.normalised[k])
+        end
     end
 
     header_mt.__newindex = function(t, k, v)
-        rawset(t, k, v)
-        k = k:lower():gsub("-", "_")
-        header_mt.normalised[k] = v
+        k_low = k:lower():gsub("-", "_")
+        if not header_mt.normalised[k_low] then
+            header_mt.normalised[k_low] = k 
+            rawset(t, k, v)
+        else
+            rawset(t, header_mt.normalised[k_low], v)
+        end
     end
 
     setmetatable(header, header_mt)
@@ -57,7 +64,7 @@ function is_cacheable(self)
 
     for k,v in pairs(nocache_headers) do
         for i,h in ipairs(v) do
-            if (self.header[k] and self.header[k] == h) then
+            if self.header[k] and self.header[k] == h then
                 return false
             end
         end
