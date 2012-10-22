@@ -325,7 +325,7 @@ function read_from_cache(self)
         res.header["Age"] = ngx.time() - ngx.parse_http_time(res.header["Date"])
     end
 
-    --emit("cache_accessed", res)
+    self:emit("cache_accessed", res)
 
     return res
 end
@@ -334,7 +334,7 @@ end
 -- Fetches a resource from the origin server.
 function fetch_from_origin(self)
     local res = response:new()
-    --emit("origin_required")
+    self:emit("origin_required")
 
     -- If we're in BYPASS mode, we can't fetch anything.
     if self:config_get("origin_mode") == ORIGIN_MODE_BYPASS then
@@ -372,7 +372,7 @@ end
 
 
 function save_to_cache(self, res)
-    --emit("before_save", res)
+    self:emit("before_save", res)
 
     -- These "hop-by-hop" response headers MUST NOT be cached:
     -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
