@@ -18,18 +18,43 @@ our $HttpConfig = qq{
 run_tests();
 
 __DATA__
-=== TEST 1: TTL from s-maxage (overrides max-age / Expires)
+=== TEST 1: Header case insensitivity
 --- http_config eval: $::HttpConfig
 --- config
-	location /response_cacheability_1 {
+location /response_1 {
+    content_by_lua '
+        ledge:bind("origin_fetched", function(res)
+            if res.header["X_tesT"] == "foo" then
+                res.header["x-TESt"] = "bar"
+            end
+        end)
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["X-Test"] = "foo"
+        ngx.say("OK")
+    ';
+}
+--- request
+GET /response_1
+--- response_headers
+X-Test: bar
+
+
+=== TEST 2: TTL from s-maxage (overrides max-age / Expires)
+--- http_config eval: $::HttpConfig
+--- config
+	location /response_2 {
         content_by_lua '
             ledge:bind("response_ready", function(res)
-                res.header["X-TTL"] = 1200 --res:ttl()
+                res.header["X-TTL"] = res:ttl()
             end)
             ledge:run()
         ';
     }
-    location /__ledge {
+    location /__ledge_origin {
         content_by_lua '
             ngx.header["Expires"] = ngx.http_time(ngx.time() + 300)
             ngx.header["Cache-Control"] = "max-age=600, s-maxage=1200"
@@ -39,23 +64,23 @@ __DATA__
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /response_cacheability_1
+GET /response_2
 --- response_headers
 X-TTL: 1200
 
 
-=== TEST 2: TTL from max-age (overrides Expires)
+=== TEST 3: TTL from max-age (overrides Expires)
 --- http_config eval: $::HttpConfig
 --- config
-	location /response_cacheability_2 {
+	location /response_3 {
         content_by_lua '
             ledge:bind("response_ready", function(res)
-                res.header["X-TTL"] = 600 --res:ttl()
+                res.header["X-TTL"] = res:ttl()
             end)
             ledge:run()
         ';
     }
-    location /__ledge {
+    location /__ledge_origin {
         content_by_lua '
             ngx.header["Expires"] = ngx.http_time(ngx.time() + 300)
             ngx.header["Cache-Control"] = "max-age=600"
@@ -65,15 +90,15 @@ X-TTL: 1200
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /response_cacheability_2
+GET /response_3
 --- response_headers
 X-TTL: 600
 
 
-=== TEST 3: TTL from Expires
+=== TEST 4: TTL from Expires
 --- http_config eval: $::HttpConfig
 --- config
-	location /response_cacheability {
+	location /response_4 {
         content_by_lua '
             ledge:bind("response_ready", function(res)
                 res.header["X-TTL"] = res:ttl()
@@ -84,13 +109,12 @@ X-TTL: 600
     location /__ledge {
         content_by_lua '
             ngx.header["Expires"] = ngx.http_time(ngx.time() + 300)
-            ngx.header["Cache-Control"] = "something"
             ngx.say("OK")
         ';
     }
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /response_cacheability_3
+GET /response_4
 --- response_headers
 X-TTL: 300
