@@ -24,8 +24,12 @@ __DATA__
 location /response_1 {
     content_by_lua '
         ledge:bind("origin_fetched", function(res)
-            if res.header["X_tesT"] == "foo" then
-                res.header["x-TESt"] = "bar"
+            if res.header["X_tesT"] == "1" then
+                res.header["x-TESt"] = "2"
+            end
+
+            if res.header["X-TEST"] == "2" then
+                res.header["x_test"] = "3"
             end
         end)
         ledge:run()
@@ -33,14 +37,14 @@ location /response_1 {
 }
 location /__ledge_origin {
     content_by_lua '
-        ngx.header["X-Test"] = "foo"
+        ngx.header["X-Test"] = "1"
         ngx.say("OK")
     ';
 }
 --- request
 GET /response_1
 --- response_headers
-X-Test: bar
+X-Test: 3
 
 
 === TEST 2: TTL from s-maxage (overrides max-age / Expires)

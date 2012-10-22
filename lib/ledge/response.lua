@@ -19,11 +19,12 @@ local mt = { __index = class }
 function new(self)
     local header = {}
 
-    -- For case insensitve response headers, keep things proxied and normalised.
+    -- Header metatable for field case insensitivity.
     local header_mt = {
         normalised = {},
     }
 
+    -- If we've seen this key in any case before, return it.
     header_mt.__index = function(t, k)
         k = k:lower():gsub("-", "_")
         if header_mt.normalised[k] then
@@ -31,6 +32,12 @@ function new(self)
         end
     end
 
+    -- First check the normalised table. If there's no match (first time) add an entry for 
+    -- our current case in the normalised table. This is to preserve the human (prettier) case
+    -- instead of outputting lowercased / underscored header names.
+    --
+    -- If there's a match, we're being updated, just with a different case for the key. We use
+    -- the normalised table to give us the original key, and perorm a rawset().
     header_mt.__newindex = function(t, k, v)
         k_low = k:lower():gsub("-", "_")
         if not header_mt.normalised[k_low] then
