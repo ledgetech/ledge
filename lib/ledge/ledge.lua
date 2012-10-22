@@ -46,17 +46,20 @@ end
 
 -- UTILITIES --------------------------------------------------
 
+
 -- A safe place in ngx.ctx for the current module instance (self).
 function ctx(self)
     local id = tostring(self)
-    if not ngx.ctx[id] then
-        ngx.ctx[id] = {
+    local ctx = ngx.ctx[id]
+    if not ctx then
+        ctx = {
             events = {},
             config = {},
             state_history = {},
         }
+        ngx.ctx[id] = ctx
     end
-    return ngx.ctx[id]
+    return ctx
 end
 
 
