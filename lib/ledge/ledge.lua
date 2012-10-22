@@ -287,7 +287,7 @@ end
 function read_from_cache(self)
     local res = response:new()
 
-    -- Fetch from Redis, pipeline to reduce overhead
+    -- Fetch from Redis
     local cache_parts, err = self:ctx().redis:hgetall(cache_key(self))
     if not cache_parts then
         ngx.log(ngx.ERR, "Failed to read cache item: " .. err)
@@ -295,23 +295,27 @@ function read_from_cache(self)
 
     local ttl = nil
     local time_in_cache = 0
+    local time_since_generated = 0
 
     -- The Redis replies is a sequence of messages, so we iterate over pairs
     -- to get hash key/values.
     for i = 1, #cache_parts, 2 do
-        if cache_parts[i] == 'body' then
-            res.body = cache_parts[i+1]
-        elseif cache_parts[i] == 'status' then
-            res.status = tonumber(cache_parts[i+1])
-        elseif cache_parts[i] == 'expires' then
-            res.remaining_ttl = tonumber(cache_parts[i+1]) - ngx.time()
-        elseif cache_parts[i] == 'saved_ts' then
-            time_in_cache = ngx.time() - tonumber(cache_parts[i+1])
+        -- Look for the "known" fields
+        if cache_parts[i] == "body" then
+            res.body = cache_parts[i + 1]
+        elseif cache_parts[i] == "status" then
+            res.status = tonumber(cache_parts[i + 1])
+        elseif cache_parts[i] == "expires" then
+            res.remaining_ttl = tonumber(cache_parts[i + 1]) - ngx.time()
+        elseif cache_parts[i] == "saved_ts" then
+            time_in_cache = ngx.time() - tonumber(cache_parts[i + 1])
+        elseif cache_parts[i] == "generated_ts" then
+            time_since_generated = ngx.time() - tonumber(cache_parts[i + 1])
         else
-            -- Everything else will be a header, with a h: prefix.
-            local _, _, header = cache_parts[i]:find('h:(.*)')
+            -- Unknown fields will be headers, starting with "h:" prefix.
+            local header = cache_parts[i]:sub(3)
             if header then
-                res.header[header] = cache_parts[i+1]
+                res.header[header] = cache_parts[i + 1]
             end
         end
     end
@@ -321,8 +325,8 @@ function read_from_cache(self)
         -- We have end-to-end Age headers, add our time_in_cache.
         res.header["Age"] = tonumber(res.header["Age"]) + time_in_cache
     elseif res.header["Date"] then
-        -- We have no advertised Age, use the Date to generate it.
-        res.header["Age"] = ngx.time() - ngx.parse_http_time(res.header["Date"])
+        -- We have no advertised Age, use the generated timestamp.
+        res.header["Age"] = time_since_generated
     end
 
     self:emit("cache_accessed", res)
@@ -437,6 +441,7 @@ function save_to_cache(self, res)
         'status', res.status,
         'uri', uri,
         'expires', expires,
+        'generated_ts', ngx.parse_http_time(res.header["Date"]),
         'saved_ts', ngx.time(),
         unpack(h)
     )
