@@ -148,6 +148,54 @@ function request_accepts_cache(self)
 end
 
 
+function must_revalidate(self)
+    local cc = ngx.req.get_headers()["Cache-Control"]
+    if cc == "max-age=0" then
+        return true
+    else
+        local res = self:get_response()
+        if res.header["Cache-Control"]:find("revalidate") then
+            return true
+        elseif cc and res.header["Age"] and res.header["Age"] > tonumber(cc:match("max%-age=(%d+)")) then
+            return true
+        end
+    end
+    return false
+end
+
+
+function can_revalidate_locally(self)
+    local req_h = ngx.req.get_headers()
+    if  req_h["If-Modified-Since"] or req_h["If-None-Match"] then
+        return true
+    else
+        return false
+    end
+end
+
+
+function is_valid_locally(self)
+    local req_h = ngx.req.get_headers()
+    local res = self:get_response()
+    
+    if res.header["Last-Modified"] and req_h["If-Modified-Since"] then
+        -- If Last-Modified is newer than If-Modified-Since.
+        if ngx.parse_http_time(res.header["Last-Modified"]) 
+            > ngx.parse_http_time(req_h["If-Modified-Since"]) then
+            return false
+        end
+    end
+
+    if res.header["Etag"] and req_h["If-None-Match"] then
+        if res.header["Etag"] ~= req_h["If-None-Match"] then
+            return false
+        end
+    end
+
+    return true
+end
+
+
 function set_response(self, res, name)
     local name = name or "response"
     self:ctx()[name] = res
@@ -244,9 +292,64 @@ end
 function ST_USING_CACHE(self)
     self:transition("ST_USING_CACHE")
 
-    -- TODO: Validation
+    if self:must_revalidate() then
+        if self:can_revalidate_locally() then
+            return self:ST_REVALIDATING_LOCALLY()
+        else
+            return self:ST_REVALIDATING_UPSTREAM()
+        end
+    else
+        return self:ST_SERVING()
+    end
+end
 
-    return self:ST_SERVING()
+
+function ST_REVALIDATING_LOCALLY(self)
+    self:transition("ST_REVALIDATING_LOCALLY")
+
+    if self:is_valid_locally() then
+        return self:ST_SERVING_NOT_MODIFIED()
+    else
+        return self:ST_REVALIDATING_UPSTREAM()
+    end
+end
+
+
+function ST_REVALIDATING_UPSTREAM(self)
+    self:transition("ST_REVALIDATING_UPSTREAM")
+
+    local cached_res = self:get_response()
+
+    -- We SHOULD use our validator upstream, so we save the client validators
+    -- before fetching, restoring them afterwards.
+    -- TODO: Patch OpenResty to accept additional headers for subrequests.
+    local req_ims = ngx.req.get_headers()["If-Modified-Since"]
+    local req_inm = ngx.req.get_headers()["If-None-Match"]
+
+    ngx.req.set_header("If-Modified-Since", cached_res.header["Last-Modified"])
+    ngx.req.set_header("If-None-Match", cached_res.header["Etag"])
+
+    -- Perform the conditional request.
+    local res = self:fetch_from_origin()
+
+    -- Restore validators from the request.
+    ngx.req.set_header("If-Modified-Since", req_ims)
+    ngx.req.set_header("If-None-Match", req_inm)
+
+    if res.status == ngx.HTTP_NOT_MODIFIED then
+        -- We can use our cached response, returning 200 to the client.
+        return self:ST_SERVING()
+    else
+        -- TODO: We should validate this response locally in case we can 304.
+
+        -- We have a new (modified) response to save and serve.
+        self:set_response(res)
+        if res:is_cacheable() then
+            return self:ST_SAVING()
+        else
+            return self:ST_DELETING()
+        end
+    end
 end
 
 
@@ -281,6 +384,14 @@ function ST_SERVING(self)
     self:transition("ST_SERVING")
     self:redis_close()
     return self:serve()
+end
+
+
+function ST_SERVING_NOT_MODIFIED(self)
+    self:transition("ST_SERVING_NOT_MODIFIED")
+
+    self:get_response().status = ngx.HTTP_NOT_MODIFIED
+    return self:ST_SERVING()
 end
 
 
