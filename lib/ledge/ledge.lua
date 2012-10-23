@@ -66,7 +66,6 @@ end
 -- Keeps track of the transition history.
 function transition(self, state)
     self:ctx().state_history[state] = true
-    print(state)
 end
 
 
@@ -159,7 +158,7 @@ function must_revalidate(self)
             return true
         elseif cc and res.header["Age"] then
             local max_age = cc:match("max%-age=(%d+)")
-            if max_age and res.header["Age"] > max_age then
+            if max_age and res.header["Age"] > tonumber(max_age) then
                 return true
             end
         end
