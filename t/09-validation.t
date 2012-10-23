@@ -253,3 +253,31 @@ GET /validation
 --- error_code: 200
 --- response_body
 TEST 8
+
+
+=== TEST 9: Validators on a cache miss (should never 304).
+--- http_config eval: $::HttpConfig
+--- config
+location /validation_9 {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        if ngx.req.get_headers()["Cache-Control"] == "max-age=0" and
+            ngx.req.get_headers()["If-None-Match"] == "test9" then
+            ngx.exit(ngx.HTTP_NOT_MODIFIED)
+        else
+            ngx.say("TEST 9")
+        end
+    ';
+}
+--- more_headers
+Cache-Control: max-age=0
+If-None-Match: test9
+--- request
+GET /validation_9
+--- error_code: 200
+--- response_body
+TEST 9

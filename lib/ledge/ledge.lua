@@ -279,6 +279,8 @@ function ST_ACCEPTING_CACHE(self)
     local res = self:read_from_cache()
     
     if not res or res.remaining_ttl <= 0 then
+        -- Never attempt validation if we have no cache to serve.
+        self:remove_client_validators()
         return self:ST_FETCHING()
     else
         self:set_response(res)
@@ -315,13 +317,7 @@ end
 
 function ST_REVALIDATING_UPSTREAM(self)
     self:transition("ST_REVALIDATING_UPSTREAM")
-
-    local cached_res = self:get_response()
-
-    -- TODO: Patch OpenResty to accept additional headers for subrequests.
-    ngx.req.set_header("If-Modified-Since", cached_res.header["Last-Modified"])
-    ngx.req.set_header("If-None-Match", cached_res.header["Etag"])
-
+    self:add_validators_from_cache()
     return self:ST_FETCHING()
 end
 
@@ -423,6 +419,21 @@ function read_from_cache(self)
     self:emit("cache_accessed", res)
 
     return res
+end
+
+
+function remove_client_validators(self)
+    ngx.req.set_header("If-Modified-Since", nil)
+    ngx.req.set_header("If-None-Match", nil)
+end
+
+
+function add_validators_from_cache(self)
+    local cached_res = self:get_response()
+
+    -- TODO: Patch OpenResty to accept additional headers for subrequests.
+    ngx.req.set_header("If-Modified-Since", cached_res.header["Last-Modified"])
+    ngx.req.set_header("If-None-Match", cached_res.header["Etag"])
 end
 
 
