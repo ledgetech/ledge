@@ -28,7 +28,7 @@ __DATA__
         ';
     }
     location /__ledge_origin {
-        more_set_headers  "Cache-Control public, max-age=600";
+        more_set_headers  "Cache-Control: public, max-age=600";
         echo "OK";
     }
 --- request
