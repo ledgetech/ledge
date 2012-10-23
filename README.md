@@ -253,27 +253,6 @@ This header follows the convention set by other HTTP cache servers. It indicates
 * `X-Cache: MISS from ledge.tld, HIT from proxy.upstream.tld` A cache miss, but hit upstream.
 * `X-Cache: MISS from ledge.tld, MISS from proxy.upstream.tld` Regenerated at the origin.
 
-## Known limitations
-
-The following major items are currently not implemented, but on the short term TODO list.
-
-* No support for validation (If-Modified-Since, If-None-Match etc).
-* No support for logic around the Vary header.
-
-## Planned features
-
-Once the core functionality is more stable, there are plans for:
-
-* A plugin mechanism for modules to hook into events.
-* Some bundled plugins to solve common problems:
- * ESI parser.
- * CSS Combining.
- * Stats gathering and reporting.
- * ...
-* Stale while revalidate.
-* Collapse forwarding.
-* ...
- 
 ## Author
 
 James Hurst <james@pintsized.co.uk>
