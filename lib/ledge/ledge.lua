@@ -66,6 +66,7 @@ end
 -- Keeps track of the transition history.
 function transition(self, state)
     self:ctx().state_history[state] = true
+    print(state)
 end
 
 
@@ -156,8 +157,11 @@ function must_revalidate(self)
         local res = self:get_response()
         if res.header["Cache-Control"]:find("revalidate") then
             return true
-        elseif cc and res.header["Age"] and res.header["Age"] > tonumber(cc:match("max%-age=(%d+)")) then
-            return true
+        elseif cc and res.header["Age"] then
+            local max_age = cc:match("max%-age=(%d+)")
+            if max_age and res.header["Age"] > max_age then
+                return true
+            end
         end
     end
     return false
@@ -320,36 +324,11 @@ function ST_REVALIDATING_UPSTREAM(self)
 
     local cached_res = self:get_response()
 
-    -- We SHOULD use our validator upstream, so we save the client validators
-    -- before fetching, restoring them afterwards.
     -- TODO: Patch OpenResty to accept additional headers for subrequests.
-    local req_ims = ngx.req.get_headers()["If-Modified-Since"]
-    local req_inm = ngx.req.get_headers()["If-None-Match"]
-
     ngx.req.set_header("If-Modified-Since", cached_res.header["Last-Modified"])
     ngx.req.set_header("If-None-Match", cached_res.header["Etag"])
 
-    -- Perform the conditional request.
-    local res = self:fetch_from_origin()
-
-    -- Restore validators from the request.
-    ngx.req.set_header("If-Modified-Since", req_ims)
-    ngx.req.set_header("If-None-Match", req_inm)
-
-    if res.status == ngx.HTTP_NOT_MODIFIED then
-        -- We can use our cached response, returning 200 to the client.
-        return self:ST_SERVING()
-    else
-        -- TODO: We should validate this response locally in case we can 304.
-
-        -- We have a new (modified) response to save and serve.
-        self:set_response(res)
-        if res:is_cacheable() then
-            return self:ST_SAVING()
-        else
-            return self:ST_DELETING()
-        end
-    end
+    return self:ST_FETCHING()
 end
 
 
@@ -357,11 +336,15 @@ function ST_FETCHING(self)
     self:transition("ST_FETCHING")
 
     local res = self:fetch_from_origin()
-    self:set_response(res)
-    if res:is_cacheable() then
-        return self:ST_SAVING()
+    if res.status == ngx.HTTP_NOT_MODIFIED then
+        return self:ST_SERVING()
     else
-        return self:ST_DELETING()
+        self:set_response(res)
+        if res:is_cacheable() then
+            return self:ST_SAVING()
+        else
+            return self:ST_DELETING()
+        end
     end
 end
 
