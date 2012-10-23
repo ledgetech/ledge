@@ -8,11 +8,6 @@ ORIGIN_MODE_BYPASS  = 1 -- Never goes to the origin, serve from cache where poss
 ORIGIN_MODE_AVOID   = 2 -- Avoids going to the origin, serving from cache where possible.
 ORIGIN_MODE_NORMAL  = 4 -- Assume the origin is happy, use at will.
 
--- Origin actions
-ORIGIN_ACTION_NONE      = -1 -- No need for the origin (cache HIT).
-ORIGIN_ACTION_FETCHED   = 1 -- Went to the origin.
-ORIGIN_ACTION_COLLAPSED = 2 -- Waited on a similar request to the origin, and shared the reponse.
-
 
 local resty_redis = require("resty.redis")
 local response = require("ledge.response")
