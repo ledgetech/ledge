@@ -89,10 +89,17 @@ function ttl(self)
     -- Header precedence is Cache-Control: s-maxage=NUM, Cache-Control: max-age=NUM,
     -- and finally Expires: HTTP_TIMESTRING.
     if self.header["Cache-Control"] then
-        for _,p in ipairs({ "s%-maxage", "max%-age" }) do
-            for h in self.header["Cache-Control"]:gmatch(p .. "=\"?(%d+)\"?") do 
-                return tonumber(h)
-            end
+        local max_ages = {}
+        for max_age in ngx.re.gmatch(self.header["Cache-Control"], 
+            "(s\\-maxage|max\\-age)=(\\d+)", 
+            "io") do
+            max_ages[max_age[1]] = max_age[2]
+        end
+
+        if max_ages["s-maxage"] then
+            return tonumber(max_ages["s-maxage"])
+        elseif max_ages["max-age"] then
+            return tonumber(max_ages["max-age"])
         end
     end
 

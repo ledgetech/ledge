@@ -151,7 +151,7 @@ function must_revalidate(self)
         local res = self:get_response()
         if res.header["Cache-Control"]:find("revalidate") then
             return true
-        elseif cc and res.header["Age"] then
+        elseif type(cc) == "string" and res.header["Age"] then
             local max_age = cc:match("max%-age=(%d+)")
             if max_age and res.header["Age"] > tonumber(max_age) then
                 return true
