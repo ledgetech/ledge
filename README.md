@@ -1,16 +1,19 @@
 # Ledge
 
-A [Lua](http://www.lua.org) module for [OpenResty](http://openresty.org), providing scriptable HTTP cache (edge) functionality for [Nginx](http://nginx.org).
+A [Lua](http://www.lua.org) module for [OpenResty](http://openresty.org), providing scriptable HTTP cache (edge) functionality for [Nginx](http://nginx.org), using [Redis](http://redis.io) as the cache / metadata store. 
 
 The aim is to provide an efficient and extensible RFC compliant caching HTTP proxy server, including clear expressive configuration and event handling via Lua scripting.
 
 ## Status
 
-This library is considered experimental and under active development, functionality may change without notice.
+The latest version is [v0.06](https://github.com/pintsized/ledge/tree/v0.06).
+
+This library is considered experimental and under active development, functionality may change without much notice. However the tagged releases always pass tests and appear "stable", so checking out the latest tag should mean things work as advertised.
 
 ### Features
 
 * RFC 2616 compliant proxying and caching based on policies derived from HTTP request and response headers (please [raise an issue](https://github.com/pintsized/ledge/issues) if you spot a case we haven't covered).
+* Cache items and metadata stored in [Redis](http://redis.io).
 * Mechanisms to override cache policies at various stages using Lua script.
 * Basic ESI support:
 	* Comments removal
