@@ -390,6 +390,8 @@ function read_from_cache(self)
         -- Look for the "known" fields
         if cache_parts[i] == "body" then
             res.body = cache_parts[i + 1]
+        elseif cache_parts[i] == "uri" then
+            res.uri = cache_parts[i + 1]
         elseif cache_parts[i] == "status" then
             res.status = tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "expires" then
