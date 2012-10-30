@@ -1,6 +1,6 @@
 module("ledge.ledge", package.seeall)
 
-_VERSION = '0.05'
+_VERSION = '0.06'
 
 
 -- Origin modes, for serving stale content during maintenance periods or emergencies.
