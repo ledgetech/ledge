@@ -13,9 +13,9 @@ This library is considered experimental and under active development, functional
 * RFC 2616 compliant proxying and caching based on policies derived from HTTP request and response headers (please [raise an issue](https://github.com/pintsized/ledge/issues) if you spot a case we haven't covered).
 * Mechanisms to override cache policies at various stages using Lua script.
 * Basic ESI support:
-** Comments removal
-** `<esi:remove>`
-** `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present.
+	* Comments removal
+	* `<esi:remove>`
+	* `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present.
 * End-to-end revalidation (specific and unspecified).
 * Offline modes (bypass, avoid).
 
