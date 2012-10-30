@@ -621,6 +621,35 @@ function serve(self)
 end
 
 
+-- EVENT HANDLERS ----------------------------------------------------------
+
+
+function do_esi(res)
+    local body = res.body
+    
+    body = body:gsub("(<!%-%-esi(.-)%-%->)", "%2") -- ngx.re.gsub doesn't have ungreedy modifier
+    body = ngx.re.gsub(body, "(<esi:remove>.*</esi:remove>)", "", "sioj")
+
+    local esi_uris = {}
+    for tag in ngx.re.gmatch(body, "<esi:include src=\"(.+)\".*/>", "ioj") do
+        table.insert(esi_uris, { tag[1] })
+    end
+
+    if table.getn(esi_uris) > 0 then
+        -- Only works for relative URIs right now
+        -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
+        local esi_fragments = { ngx.location.capture_multi(esi_uris) }
+
+        body = ngx.re.gsub(body, "(<esi:include.*/>)", function(tag)
+            return table.remove(esi_fragments, 1).body
+        end, "ioj")
+    end
+
+    if res.header["Content-Length"] then res.header["Content-Length"] = #body end
+    res.body = body
+end
+
+
 -- to prevent casual use of module globals
 getmetatable(ledge.ledge).__newindex = function(t, k, v)
     error("Attempt to write to undeclared variable '" .. k .. "': " .. debug.traceback())

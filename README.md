@@ -2,13 +2,29 @@
 
 A [Lua](http://www.lua.org) module for [OpenResty](http://openresty.org), providing scriptable HTTP cache (edge) functionality for [Nginx](http://nginx.org).
 
-The aim is to provide an efficient RFC compliant caching HTTP proxy server for Nginx, extendable with Lua script, providing clear expressive configuration and event handling.
-
-Using the scriptable events, additional modules for things like [ESI](http://en.wikipedia.org/wiki/Edge_Side_Includes) processing will be included.
+The aim is to provide an efficient and extensible RFC compliant caching HTTP proxy server, including clear expressive configuration and event handling via Lua scripting.
 
 ## Status
 
 This library is considered experimental and under active development, functionality may change without notice.
+
+### Features
+
+* RFC 2616 compliant proxying and caching based on policies derived from HTTP request and response headers (please [raise an issue](https://github.com/pintsized/ledge/issues) if you spot a case we haven't covered).
+* Mechanisms to override cache policies at various stages using Lua script.
+* Basic ESI support:
+** Comments removal
+** `<esi:remove>`
+** `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present.
+* End-to-end revalidation (specific and unspecified).
+* Offline modes (bypass, avoid).
+
+### TODO
+
+* Configurable "stale" policies and background revalidate.
+* Collapse forwarding.
+* Caching POST responses (servable to subsequent GET / HEAD requests).
+* Improved logging / stats.
 
 Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
 
@@ -239,6 +255,29 @@ Broadcast when about to save a cacheable response.
 
 Ledge is finished and about to return. Last chance to jump in before rack sends the response.
 
+## ESI
+
+You can enable ESI processing with a single line of config during `content_by_lua`.
+
+```lua
+ledge:bind("response_ready", ledge.do_esi)
+ledge:run()
+```
+
+The processor will strip comments labelled as `<!--esi ... -->`, remove items marked up with `<esi:remove>...</esi:remove>`, and fetch / include fragments marked up with `<esi:include src="/fragment_uri" />`. For example:
+
+```xml
+<esi:remove>
+  <a href="http://www.example.com/link_to_resource_for_non_esi">Link to resource</a>
+</esi:remove>
+<!--esi
+<esi:include src="http://example.com/link_to_resource_fragment" />
+-->
+```
+
+In the above case, with ESI disabled the client will display a link to the embedded resource. With ESI enabled, the link will be removed, as well as the comments around the `<esi:include>` tag. The fragment `src` URI will be fetched (non-blocking and in parallel if multiple fragments are present), and the `<esi:include>` tag will be replaced with the resulting body.
+
+Note that currently fragments to be included must be relative URIs. Absolute URIs and example config for proxying to arbitrary upstream services for fragments are on the short term roadmap.
 
 ## Logging / Debugging
 
