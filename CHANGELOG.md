@@ -1,5 +1,17 @@
 ## Changelog
 
+### v0.06 (30 Oct 2012)
+
+* Refactor: Complete code base refactor and new usage syntax. Too many changes to list.
+* Feature (#26): Age header calculation.
+* Feature (#30): Revalidation (end-to-end specific and unspecified).
+* Feature (#24): Offline mode now throws a 503 when necessary.
+* Feature: More complete request cache acceptance / response cacheability criteria.
+* Feature (#27): Hop-by-hop headers no longer cached.
+* Feature: ESI processer.
+
+### v0.05 (no tag)
+
 ### v0.04 (20 Jul 2012)
 
 * Feature: Offline / maintenance modes.
