@@ -271,10 +271,10 @@ The processor will strip comments labelled as `<!--esi ... -->`, remove items ma
 
 ```xml
 <esi:remove>
-  <a href="http://www.example.com/link_to_resource_for_non_esi">Link to resource</a>
+  <a href="/link_to_resource_for_non_esi">Link to resource</a>
 </esi:remove>
 <!--esi
-<esi:include src="http://example.com/link_to_resource_fragment" />
+<esi:include src="/link_to_resource_fragment" />
 -->
 ```
 
