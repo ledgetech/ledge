@@ -76,6 +76,15 @@ function full_uri()
 end
 
 
+function visible_hostname()
+    local name = ngx.var.visible_hostname or ngx.var.hostname
+    if ngx.var.server_port ~= "80" and ngx.var.server_port ~= "443" then 
+        name = name .. ":" .. ngx.var.server_port
+    end
+    return name
+end
+
+
 function redis_connect(self)
     -- Connect to Redis. The connection is kept alive later.
     self:ctx().redis = resty_redis:new()
@@ -640,8 +649,7 @@ function serve(self)
         assert(res.status, "Response has no status.")
 
         -- Via header
-        local name = ngx.var.visible_hostname or ngx.var.hostname
-        local via = "1.1 " .. name .. " (ledge/" .. _VERSION .. ")"
+        local via = "1.1 " .. visible_hostname() .. " (ledge/" .. _VERSION .. ")"
         if  (res.header["Via"] ~= nil) then
             res.header["Via"] = via .. ", " .. res.header["Via"]
         else
@@ -697,8 +705,7 @@ function add_warning(self, code, text)
         res.header["Warning"] = {}
     end
 
-    local name = ngx.var.visible_hostname or "(" .. ngx.var.hostname .. ")"
-    local header = code .. ' ' .. name .. ' "' .. text .. '"' 
+    local header = code .. ' ' .. visible_hostname() .. ' "' .. text .. '"' 
     table.insert(res.header["Warning"], header)
 end
 

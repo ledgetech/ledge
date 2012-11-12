@@ -37,7 +37,7 @@ location /__ledge_origin {
 GET /esi_1
 --- response_body: COMMENTED
 --- response_headers_like 
-Warning: ^214 \(.*\) "Transformation applied"$  
+Warning: ^214 .* "Transformation applied"$  
 
 
 === TEST 2: Multi line comments removed
@@ -67,7 +67,7 @@ GET /esi_2
 
 3
 --- response_headers_like 
-Warning: ^214 \(.*\) "Transformation applied"$  
+Warning: ^214 .* "Transformation applied"$  
 
 
 === TEST 3: Single line <esi:remove> removed.
@@ -87,7 +87,7 @@ location /__ledge_origin {
 GET /esi_3
 --- response_body
 --- response_headers_like 
-Warning: ^214 \(.*\) "Transformation applied"$  
+Warning: ^214 .* "Transformation applied"$  
 
 === TEST 4: Multi line <esi:remove> removed.
 --- http_config eval: $::HttpConfig
@@ -109,7 +109,7 @@ location /__ledge_origin {
 --- request
 GET /esi_4
 --- response_headers_like 
-Warning: ^214 \(.*\) "Transformation applied"$  
+Warning: ^214 .* "Transformation applied"$  
 --- response_body
 1
 
@@ -137,7 +137,7 @@ location /__ledge_origin {
 --- request
 GET /esi_5
 --- response_headers_like 
-Warning: ^214 \(.*\) "Transformation applied"$  
+Warning: ^214 .* "Transformation applied"$  
 --- response_body
 1
 FRAGMENT
@@ -177,7 +177,7 @@ location /__ledge_origin {
 --- request
 GET /esi_6
 --- response_headers_like 
-Warning: ^214 \(.*\) "Transformation applied"$  
+Warning: ^214 .* "Transformation applied"$  
 --- response_body
 FRAGMENT_3
 FRAGMENT_1
