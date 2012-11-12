@@ -25,8 +25,9 @@ function new(self)
         redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
         redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
-        keep_cache_for = 86400 * 30,    -- Max time to Keep cache items past expiry + stale (sec)
-        origin_mode = ORIGIN_MODE_NORMAL,
+        keep_cache_for  = 86400 * 30,    -- Max time to Keep cache items past expiry + stale (sec)
+        origin_mode     = ORIGIN_MODE_NORMAL,
+        max_stale       = nil,          -- Warning: Violates HTTP spec
     }
 
     return setmetatable({ config = config }, mt)
@@ -77,12 +78,12 @@ end
 function redis_connect(self)
     -- Connect to Redis. The connection is kept alive later.
     self:ctx().redis = resty_redis:new()
-    if self:config_get("redis_timeout") then 
-        self:ctx().redis:set_timeout(self:config_get("redis_timeout")) 
+    if self:config_get("redis_timeout") then
+        self:ctx().redis:set_timeout(self:config_get("redis_timeout"))
     end
 
     local ok, err = self:ctx().redis:connect(
-        self:config_get("redis_socket") or self:config_get("redis_host"), 
+        self:config_get("redis_socket") or self:config_get("redis_host"),
         self:config_get("redis_port")
     )
 
@@ -94,8 +95,8 @@ function redis_connect(self)
     end
 
     -- redis:select always returns OK
-    if self:config_get("redis_database") > 0 then 
-        self:ctx().redis:select(self:config_get("redis_database")) 
+    if self:config_get("redis_database") > 0 then
+        self:ctx().redis:select(self:config_get("redis_database"))
     end
 end
 
@@ -106,7 +107,7 @@ function redis_close(self)
     if self:config_get("redis_keepalive_timeout") then
         if self:config_get("redis_keepalive_pool_size") then
             ok, err = self:ctx().redis:set_keepalive(
-                self:config_get("redis_keepalive_timeout"), 
+                self:config_get("redis_keepalive_timeout"),
                 self:config_get("redis_keepalive_pool_size")
             )
         else
@@ -122,15 +123,43 @@ function redis_close(self)
 end
 
 
+function accepts_stale(self, res)
+    -- max_stale config overrides everything
+    local max_stale = self:config_get("max_stale")
+    if max_stale and max_stale > 0 then
+        return max_stale
+    end
+
+    -- Check response for headers that prevent serving stale
+    if res.header["Cache-Control"] then
+        local cc = res.header["Cache-Control"]
+        if cc:find("revalidate") or cc:find("s-maxage") then
+            return nil
+        end
+    end
+
+    -- Check for max-stale request header
+    local h = ngx.req.get_headers()
+    if not h["Cache-Control"] then
+        return nil
+    end
+    max_stale = ngx.re.match(h["Cache-Control"], "max\\-stale=(\\d+)", "io")
+    if max_stale ~= nil then
+        return tonumber(max_stale[1])
+    end
+    return nil
+end
+
+
 function request_accepts_cache(self)
     local method = ngx.req.get_method()
-    if method ~= "GET" and method ~= "HEAD" then 
-        return false 
+    if method ~= "GET" and method ~= "HEAD" then
+        return false
     end
 
     -- Ignore the client requirements if we're not in "NORMAL" mode.
-    if self:config_get("origin_mode") < ORIGIN_MODE_NORMAL then 
-        return true 
+    if self:config_get("origin_mode") < ORIGIN_MODE_NORMAL then
+        return true
     end
 
     -- Check for no-cache
@@ -175,10 +204,10 @@ end
 function is_valid_locally(self)
     local req_h = ngx.req.get_headers()
     local res = self:get_response()
-    
+
     if res.header["Last-Modified"] and req_h["If-Modified-Since"] then
         -- If Last-Modified is newer than If-Modified-Since.
-        if ngx.parse_http_time(res.header["Last-Modified"]) 
+        if ngx.parse_http_time(res.header["Last-Modified"])
             > ngx.parse_http_time(req_h["If-Modified-Since"]) then
             return false
         end
@@ -207,7 +236,7 @@ end
 
 
 function cache_key(self)
-    if not self.ctx().cache_key then 
+    if not self.ctx().cache_key then
         -- Generate the cache key, from a given or default spec. The default is:
         -- ledge:cache_obj:GET:http:example.com:/about:p=3&q=searchterms
         local key_spec = self:config_get("cache_key_spec") or {
@@ -235,7 +264,7 @@ function config_set(self, param, value)
 end
 
 
--- Gets a config parameter. 
+-- Gets a config parameter.
 function config_get(self, param)
     return self:ctx().config[param] or self.config[param] or nil
 end
@@ -272,22 +301,45 @@ function ST_INIT(self)
     end
 end
 
-
 function ST_ACCEPTING_CACHE(self)
     self:transition("ST_ACCEPTING_CACHE")
 
     local res = self:read_from_cache()
-    
-    if not res or res.remaining_ttl <= 0 then
+
+    if not res then
         -- Never attempt validation if we have no cache to serve.
         self:remove_client_validators()
         return self:ST_FETCHING()
+    elseif res.remaining_ttl <= 0 then
+        -- Cache Expired
+        return self:ST_CACHE_EXPIRED(res)
     else
         self:set_response(res)
         return self:ST_USING_CACHE()
     end
 end
 
+function ST_CACHE_EXPIRED(self,res)
+    self:transition("ST_CACHE_EXPIRED")
+
+    local stale = self:accepts_stale(res)
+    if stale ~= nil and (res.remaining_ttl + stale) > 0 then
+        -- Return stale content
+        self:set_response(res)
+        return self:ST_SERVING_STALE()
+    end
+    -- Fetch from origin
+    self:remove_client_validators()
+    return self:ST_FETCHING()
+end
+
+function ST_SERVING_STALE(self)
+    self:transition("ST_SERVING_STALE")
+
+    self:add_warning('110', 'Response is stale')
+    -- TODO: Background revalidate
+    return self:ST_SERVING()
+end
 
 function ST_USING_CACHE(self)
     self:transition("ST_USING_CACHE")
@@ -464,7 +516,7 @@ function fetch_from_origin(self)
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
-        -- A received message that does not have a Date header field MUST be assigned 
+        -- A received message that does not have a Date header field MUST be assigned
         -- one by the recipient if the message will be cached by that recipient
         if not res.header["Date"] or not ngx.parse_http_time(res.header["Date"]) then
             ngx.log(ngx.WARN, "no Date header from upstream, generating locally")
@@ -494,21 +546,21 @@ function save_to_cache(self, res)
         "Transfer-Encoding",
         "Upgrade",
 
-        -- We also choose not to cache the content length, it is set by Nginx 
+        -- We also choose not to cache the content length, it is set by Nginx
         -- based on the response body.
         "Content-Length",
     }
-   
+
     -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
     if res.header["Cache-Control"] and res.header["Cache-Control"]:find("=") then
         local patterns = { "no%-cache", "no%-store", "private" }
         for _,p in ipairs(patterns) do
-            for h in res.header["Cache-Control"]:gmatch(p .. "=\"?([%a-]+)\"?") do 
+            for h in res.header["Cache-Control"]:gmatch(p .. "=\"?([%a-]+)\"?") do
                 table.insert(uncacheable_headers, h)
             end
         end
     end
-    
+
     -- Utility to search in uncacheable_headers.
     local function is_uncacheable(t, h)
         for _, v in ipairs(t) do
@@ -540,8 +592,8 @@ function save_to_cache(self, res)
     local expires = ttl + ngx.time()
     local uri = full_uri()
 
-    redis:hmset(cache_key(self), 
-        'body', res.body, 
+    redis:hmset(cache_key(self),
+        'body', res.body,
         'status', res.status,
         'uri', uri,
         'expires', expires,
@@ -603,17 +655,17 @@ function serve(self)
         -- to generate a response.
         if res.status >= 500 or (res.status >= 300 and res.body == nil) then
             ngx.exit(res.status)
-        end 
+        end
 
         -- Otherwise send the response as normal.
         ngx.status = res.status
-        
+
         if res.header then
             for k,v in pairs(res.header) do
-                ngx.header[k] = v 
-            end 
-        end 
-        
+                ngx.header[k] = v
+            end
+        end
+
         if res.body then
             ngx.print(res.body)
         end
@@ -622,13 +674,23 @@ function serve(self)
     end
 end
 
+function add_warning(self, code, text)
+    local res = self:get_response()
+    if not res.header["Warning"] then
+        res.header["Warning"] = {}
+    end
+
+    local name = (ngx.var.server_name == '') and ngx.var.hostname or ngx.var.server_name
+    table.insert(res.header["Warning"], code..' '..name..' "'..text..'"')
+
+end
 
 -- EVENT HANDLERS ----------------------------------------------------------
 
 
 function do_esi(res)
     local body = res.body
-    
+
     body = body:gsub("(<!%-%-esi(.-)%-%->)", "%2") -- ngx.re.gsub doesn't have ungreedy modifier
     body = ngx.re.gsub(body, "(<esi:remove>.*</esi:remove>)", "", "sioj")
 
