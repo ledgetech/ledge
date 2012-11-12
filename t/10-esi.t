@@ -13,6 +13,7 @@ our $HttpConfig = qq{
 		ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
 		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('enable_esi', true)
 	";
 };
 
@@ -24,7 +25,6 @@ __DATA__
 --- config
 location /esi_1 {
     content_by_lua '
-        ledge:bind("response_ready", ledge.do_esi)
         ledge:run()
     ';
 }
@@ -43,7 +43,6 @@ GET /esi_1
 --- config
 location /esi_2 {
     content_by_lua '
-        ledge:bind("response_ready", ledge.do_esi)
         ledge:run()
     ';
 }
@@ -72,7 +71,6 @@ GET /esi_2
 --- config
 location /esi_3 {
     content_by_lua '
-        ledge:bind("response_ready", ledge.do_esi)
         ledge:run()
     ';
 }
@@ -91,7 +89,6 @@ GET /esi_3
 --- config
 location /esi_4 {
     content_by_lua '
-        ledge:bind("response_ready", ledge.do_esi)
         ledge:run()
     ';
 }
@@ -117,7 +114,6 @@ GET /esi_4
 --- config
 location /esi_5 {
     content_by_lua '
-        ledge:bind("response_ready", ledge.do_esi)
         ledge:run()
     ';
 }
@@ -144,7 +140,6 @@ FRAGMENT
 --- config
 location /esi_6 {
     content_by_lua '
-        ledge:bind("response_ready", ledge.do_esi)
         ledge:run()
     ';
 }
@@ -177,3 +172,21 @@ FRAGMENT_3
 FRAGMENT_1
 FRAGMENT_2
 
+
+=== TEST 7: Leave instructions intact if ESI is not enabled.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_7 {
+    content_by_lua '
+        ledge:config_set("enable_esi", false)
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.print("<!--esiCOMMENTED-->")
+    ';
+}
+--- request
+GET /esi_7
+--- response_body: <!--esiCOMMENTED-->

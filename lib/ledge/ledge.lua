@@ -25,9 +25,10 @@ function new(self)
         redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
         redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
-        keep_cache_for  = 86400 * 30,    -- Max time to Keep cache items past expiry + stale (sec)
+        keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
         origin_mode     = ORIGIN_MODE_NORMAL,
         max_stale       = nil,          -- Warning: Violates HTTP spec
+        enable_esi      = false,
     }
 
     return setmetatable({ config = config }, mt)
@@ -266,7 +267,12 @@ end
 
 -- Gets a config parameter.
 function config_get(self, param)
-    return self:ctx().config[param] or self.config[param] or nil
+    local p = self:ctx().config[param]
+    if p == nil then
+        return self.config[param]
+    else
+        return p
+    end
 end
 
 
@@ -301,6 +307,7 @@ function ST_INIT(self)
     end
 end
 
+
 function ST_ACCEPTING_CACHE(self)
     self:transition("ST_ACCEPTING_CACHE")
 
@@ -319,6 +326,7 @@ function ST_ACCEPTING_CACHE(self)
     end
 end
 
+
 function ST_CACHE_EXPIRED(self,res)
     self:transition("ST_CACHE_EXPIRED")
 
@@ -333,6 +341,7 @@ function ST_CACHE_EXPIRED(self,res)
     return self:ST_FETCHING()
 end
 
+
 function ST_SERVING_STALE(self)
     self:transition("ST_SERVING_STALE")
 
@@ -340,6 +349,7 @@ function ST_SERVING_STALE(self)
     -- TODO: Background revalidate
     return self:ST_SERVING()
 end
+
 
 function ST_USING_CACHE(self)
     self:transition("ST_USING_CACHE")
@@ -407,6 +417,11 @@ end
 
 function ST_SERVING(self)
     self:transition("ST_SERVING")
+    
+    if self:config_get("enable_esi") then
+        self:process_esi()
+    end
+    
     self:redis_close()
     return self:serve()
 end
@@ -625,7 +640,8 @@ function serve(self)
         assert(res.status, "Response has no status.")
 
         -- Via header
-        local via = "1.1 " .. ngx.var.hostname .. " (ledge/" .. _VERSION .. ")"
+        local name = ngx.var.visible_hostname or ngx.var.hostname
+        local via = "1.1 " .. name .. " (ledge/" .. _VERSION .. ")"
         if  (res.header["Via"] ~= nil) then
             res.header["Via"] = via .. ", " .. res.header["Via"]
         else
@@ -674,21 +690,20 @@ function serve(self)
     end
 end
 
+
 function add_warning(self, code, text)
     local res = self:get_response()
     if not res.header["Warning"] then
         res.header["Warning"] = {}
     end
 
-    local name = (ngx.var.server_name == '') and ngx.var.hostname or ngx.var.server_name
-    table.insert(res.header["Warning"], code..' '..name..' "'..text..'"')
-
+    local name = ngx.var.visible_hostname or ngx.var.hostname
+    table.insert(res.header["Warning"], code..' '..name or ngx.var.hostname..' "'..text..'"')
 end
 
--- EVENT HANDLERS ----------------------------------------------------------
 
-
-function do_esi(res)
+function process_esi(self)
+    local res = self:get_response()
     local body = res.body
 
     body = body:gsub("(<!%-%-esi(.-)%-%->)", "%2") -- ngx.re.gsub doesn't have ungreedy modifier
@@ -711,6 +726,9 @@ function do_esi(res)
 
     if res.header["Content-Length"] then res.header["Content-Length"] = #body end
     res.body = body
+    
+    self:add_warning(214, "Transformation applied")
+    self:set_response(res)
 end
 
 
