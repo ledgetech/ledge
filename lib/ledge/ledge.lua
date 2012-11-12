@@ -697,8 +697,9 @@ function add_warning(self, code, text)
         res.header["Warning"] = {}
     end
 
-    local name = ngx.var.visible_hostname or ngx.var.hostname
-    table.insert(res.header["Warning"], code..' '..name or ngx.var.hostname..' "'..text..'"')
+    local name = ngx.var.visible_hostname or "(" .. ngx.var.hostname .. ")"
+    local header = code .. ' ' .. name .. ' "' .. text .. '"' 
+    table.insert(res.header["Warning"], header)
 end
 
 
