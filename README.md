@@ -215,6 +215,15 @@ ledge:config_set("cache_key_spec", {
 
 Specifies how long cache items are retained regardless of their TTL. You can use the [volatile-lru](http://antirez.com/post/redis-as-LRU-cache.html) Redis configuration to evict the least recently used cache items when under memory pressure. Therefore this setting is really about serving stale content with `ORIGIN_MODE_AVOID` or `ORIGIN_MODE_BYPASS` set.
 
+#### max_stale
+
+*Default:* `nil`
+
+Specifies, in seconds, how far past expiry to serve cached content.
+If set to `nil` then determine this from the `Cache-Control: max-stale=xx` request header.
+
+WARNING: Any setting other than `nil` violates the HTTP spec.
+
 ## Events
 
 Ledge provides a set of events which are broadcast at the various stages of cacheing / proxying. A `response` table is passed through to functions bound to these events, providing the opportunity to manipulate the response as needed.
