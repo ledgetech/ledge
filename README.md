@@ -224,6 +224,27 @@ If set to `nil` then determine this from the `Cache-Control: max-stale=xx` reque
 
 WARNING: Any setting other than `nil` violates the HTTP spec.
 
+#### enable_esi
+
+*Default:* `false`
+
+Enables ESI processing. The processor will strip comments labelled as `<!--esi ... -->`, remove items marked up with `<esi:remove>...</esi:remove>`, and fetch / include fragments marked up with `<esi:include src="/fragment_uri" />`. For example:
+
+```xml
+<esi:remove>
+  <a href="/link_to_resource_for_non_esi">Link to resource</a>
+</esi:remove>
+<!--esi
+<esi:include src="/link_to_resource_fragment" />
+-->
+```
+
+In the above case, with ESI disabled the client will display a link to the embedded resource. With ESI enabled, the link will be removed, as well as the comments around the `<esi:include>` tag. The fragment `src` URI will be fetched (non-blocking and in parallel if multiple fragments are present), and the `<esi:include>` tag will be replaced with the resulting body.
+
+Note that currently fragments to be included must be relative URIs. Absolute URIs and example config for proxying to arbitrary upstream services for fragments are on the short term roadmap.
+
+The processor runs ESI instruction detection on the slow path (i.e. when saving to cache), so only instructions which are present are processed on cache HITs. If nothing was detected during saving, enabling ESI will have no performance impact on regular serving of cache items.
+
 ## Events
 
 Ledge provides a set of events which are broadcast at the various stages of cacheing / proxying. A `response` table is passed through to functions bound to these events, providing the opportunity to manipulate the response as needed.
@@ -267,29 +288,6 @@ Broadcast when about to save a cacheable response.
 
 Ledge is finished and about to return. Last chance to jump in before rack sends the response.
 
-## ESI
-
-You can enable ESI processing with a single line of config during `content_by_lua`.
-
-```lua
-ledge:bind("response_ready", ledge.do_esi)
-ledge:run()
-```
-
-The processor will strip comments labelled as `<!--esi ... -->`, remove items marked up with `<esi:remove>...</esi:remove>`, and fetch / include fragments marked up with `<esi:include src="/fragment_uri" />`. For example:
-
-```xml
-<esi:remove>
-  <a href="/link_to_resource_for_non_esi">Link to resource</a>
-</esi:remove>
-<!--esi
-<esi:include src="/link_to_resource_fragment" />
--->
-```
-
-In the above case, with ESI disabled the client will display a link to the embedded resource. With ESI enabled, the link will be removed, as well as the comments around the `<esi:include>` tag. The fragment `src` URI will be fetched (non-blocking and in parallel if multiple fragments are present), and the `<esi:include>` tag will be replaced with the resulting body.
-
-Note that currently fragments to be included must be relative URIs. Absolute URIs and example config for proxying to arbitrary upstream services for fragments are on the short term roadmap.
 
 ## Logging / Debugging
 
