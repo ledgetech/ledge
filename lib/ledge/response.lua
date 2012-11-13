@@ -55,6 +55,11 @@ function new(self)
                             header = header, 
                             remaining_ttl = 0,
                             state = RESPONSE_STATE_UNKNOWN,
+                            __esi = {
+                                has_esi_comment = nil,
+                                has_esi_remove = nil,
+                                has_esi_include = nil,
+                            },
     }, mt)
 end
 
@@ -110,4 +115,42 @@ function ttl(self)
     end
 
     return 0
+end
+
+-- Test for presence of esi comments and keep the result.
+function has_esi_comment(self)
+    if not self.__esi.has_esi_comment then
+        if ngx.re.match(self.body, "<!--esi", "ioj") then
+            self.__esi.has_esi_comment = true
+        else
+            self.__esi.has_esi_comment = false
+        end
+    end
+    return self.__esi.has_esi_comment
+end
+
+
+-- Test for the presence of esi:remove and keep the result.
+function has_esi_remove(self)
+    if not self.__esi.has_esi_remove then
+        if ngx.re.match(self.body, "<esi:remove>", "ioj") then
+            self.__esi.has_esi_remove = true
+        else
+            self.__esi.has_esi_remove = false
+        end
+    end
+    return self.__esi.has_esi_remove
+end
+
+
+-- Test for the presence of esi:include and keep the result.
+function has_esi_include(self)
+    if not self.__esi.has_esi_include then
+        if ngx.re.match(self.body, "<esi:include", "ioj") then
+            self.__esi.has_esi_include = true
+        else
+            self.__esi.has_esi_include = false
+        end
+    end
+    return self.__esi.has_esi_include
 end

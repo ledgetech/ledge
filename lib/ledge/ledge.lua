@@ -713,30 +713,46 @@ end
 function process_esi(self)
     local res = self:get_response()
     local body = res.body
+    local transformed = false
 
-    body = body:gsub("(<!%-%-esi(.-)%-%->)", "%2") -- ngx.re.gsub doesn't have ungreedy modifier
-    body = ngx.re.gsub(body, "(<esi:remove>.*</esi:remove>)", "", "sioj")
+    -- Only perform trasnformations if we know there's work to do. This is determined
+    -- during fetch (slow path).
 
-    local esi_uris = {}
-    for tag in ngx.re.gmatch(body, "<esi:include src=\"(.+)\".*/>", "ioj") do
-        table.insert(esi_uris, { tag[1] })
+    if res:has_esi_comment() then
+        body = body:gsub("(<!%-%-esi(.-)%-%->)", "%2") -- ngx.re.gsub lacks ungreedy modifier
+        transformed = true
     end
 
-    if table.getn(esi_uris) > 0 then
-        -- Only works for relative URIs right now
-        -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
-        local esi_fragments = { ngx.location.capture_multi(esi_uris) }
-
-        body = ngx.re.gsub(body, "(<esi:include.*/>)", function(tag)
-            return table.remove(esi_fragments, 1).body
-        end, "ioj")
+    if res:has_esi_remove() then
+        body = ngx.re.gsub(body, "(<esi:remove>.*</esi:remove>)", "", "sioj")
+        transformed = true
     end
 
-    if res.header["Content-Length"] then res.header["Content-Length"] = #body end
-    res.body = body
-    
-    self:add_warning(214, "Transformation applied")
-    self:set_response(res)
+    if res:has_esi_include() then
+        local esi_uris = {}
+        for tag in ngx.re.gmatch(body, "<esi:include src=\"(.+)\".*/>", "ioj") do
+            table.insert(esi_uris, { tag[1] })
+        end
+
+        if table.getn(esi_uris) > 0 then
+            -- Only works for relative URIs right now
+            -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
+            local esi_fragments = { ngx.location.capture_multi(esi_uris) }
+
+            body = ngx.re.gsub(body, "(<esi:include.*/>)", function(tag)
+                return table.remove(esi_fragments, 1).body
+            end, "ioj")
+        end
+        transformed = true
+    end
+
+    if transformed then
+        if res.header["Content-Length"] then res.header["Content-Length"] = #body end
+        res.body = body
+
+        self:add_warning(214, "Transformation applied")
+        self:set_response(res)
+    end
 end
 
 
