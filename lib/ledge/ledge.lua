@@ -747,18 +747,18 @@ function process_esi(self)
     -- during fetch (slow path).
 
     if res:has_esi_comment() then
-        body = body:gsub("(<!%-%-esi(.-)%-%->)", "%2") -- ngx.re.gsub lacks ungreedy modifier
+        body = ngx.re.gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")
         transformed = true
     end
 
     if res:has_esi_remove() then
-        body = body:gsub("(<esi:remove>(.-)</esi:remove>)", "")
+        body = ngx.re.gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
         transformed = true
     end
 
     if res:has_esi_include() then
         local esi_uris = {}
-        for tag in ngx.re.gmatch(body, "<esi:include src=\"(.+)\".*/>", "ioj") do
+        for tag in ngx.re.gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
             table.insert(esi_uris, { tag[1] })
         end
 
