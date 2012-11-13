@@ -752,7 +752,7 @@ function process_esi(self)
     end
 
     if res:has_esi_remove() then
-        body = ngx.re.gsub(body, "(<esi:remove>.*</esi:remove>)", "", "sioj")
+        body = body:gsub("(<esi:remove>(.-)</esi:remove>)", "")
         transformed = true
     end
 
