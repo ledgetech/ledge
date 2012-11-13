@@ -1,18 +1,30 @@
-module("ledge.ledge", package.seeall)
+local setmetatable = setmetatable
+local error = error
+local assert = assert
+local require = require
+local ipairs = ipairs
+local pairs = pairs
+local unpack = unpack
+local tostring = tostring
+local tonumber = tonumber
+local type = type
+local table = table
+local ngx = ngx
+
+module(...)
 
 _VERSION = '0.06'
 
-
--- Origin modes, for serving stale content during maintenance periods or emergencies.
-ORIGIN_MODE_BYPASS  = 1 -- Never goes to the origin, serve from cache where possible or 503.
-ORIGIN_MODE_AVOID   = 2 -- Avoids going to the origin, serving from cache where possible.
-ORIGIN_MODE_NORMAL  = 4 -- Assume the origin is happy, use at will.
-
+local mt = { __index = _M }
 
 local resty_redis = require("resty.redis")
 local response = require("ledge.response")
-local class = ledge.ledge
-local mt = { __index = class }
+
+
+-- Origin modes, for serving stale content during maintenance periods or emergencies.
+ORIGIN_MODE_BYPASS = 1 -- Never goes to the origin, serve from cache where possible or 503.
+ORIGIN_MODE_AVOID  = 2 -- Avoids going to the origin, serving from cache where possible.
+ORIGIN_MODE_NORMAL = 4 -- Assume the origin is happy, use at will.
 
 
 function new(self)
@@ -772,7 +784,12 @@ function process_esi(self)
 end
 
 
--- to prevent casual use of module globals
-getmetatable(ledge.ledge).__newindex = function(t, k, v)
-    error("Attempt to write to undeclared variable '" .. k .. "': " .. debug.traceback())
-end
+local class_mt = { 
+    -- to prevent use of casual module global variables
+    __newindex = function (table, key, val)
+        error('attempt to write to undeclared variable "' .. key .. '"')
+    end 
+}
+
+
+setmetatable(_M, class_mt)

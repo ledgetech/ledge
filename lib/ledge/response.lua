@@ -1,8 +1,20 @@
-module("ledge.response", package.seeall)
+local pairs = pairs
+local ipairs = ipairs
+local setmetatable = setmetatable
+local rawset = rawset
+local rawget = rawget
+local tonumber = tonumber
+local error = error
+local ngx = ngx
 
-_VERSION = '0.1'
+module(...)
 
--- Cache states
+_VERSION = '0.2'
+
+local mt = { __index = _M }
+
+
+-- Response states
 local RESPONSE_STATE_UNKNOWN     = -99
 local RESPONSE_STATE_PRIVATE     = -12
 local RESPONSE_STATE_RELOADED    = -11
@@ -11,9 +23,6 @@ local RESPONSE_STATE_SUBZERO     = -1
 local RESPONSE_STATE_COLD        = 0
 local RESPONSE_STATE_WARM        = 1
 local RESPONSE_STATE_HOT         = 2
-
-local class = ledge.response
-local mt = { __index = class }
 
 
 function new(self)
@@ -39,7 +48,7 @@ function new(self)
     -- If there's a match, we're being updated, just with a different case for the key. We use
     -- the normalised table to give us the original key, and perorm a rawset().
     header_mt.__newindex = function(t, k, v)
-        k_low = k:lower():gsub("-", "_")
+        local k_low = k:lower():gsub("-", "_")
         if not header_mt.normalised[k_low] then
             header_mt.normalised[k_low] = k 
             rawset(t, k, v)
@@ -155,3 +164,14 @@ function has_esi_include(self)
     end
     return self.esi.has_esi_include
 end
+
+
+local class_mt = {
+    -- to prevent use of casual module global variables
+    __newindex = function (table, key, val)
+        error('attempt to write to undeclared variable "' .. key .. '"')
+    end
+}
+
+
+setmetatable(_M, class_mt)
