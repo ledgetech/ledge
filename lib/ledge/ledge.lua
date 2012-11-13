@@ -17,7 +17,7 @@ _VERSION = '0.06'
 
 local mt = { __index = _M }
 
-local resty_redis = require("resty.redis")
+local redis = require("resty.redis")
 local response = require("ledge.response")
 
 
@@ -99,7 +99,7 @@ end
 
 function redis_connect(self)
     -- Connect to Redis. The connection is kept alive later.
-    self:ctx().redis = resty_redis:new()
+    self:ctx().redis = redis:new()
     if self:config_get("redis_timeout") then
         self:ctx().redis:set_timeout(self:config_get("redis_timeout"))
     end
