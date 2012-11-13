@@ -476,6 +476,12 @@ function read_from_cache(self)
             time_in_cache = ngx.time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "generated_ts" then
             time_since_generated = ngx.time() - tonumber(cache_parts[i + 1])
+        elseif cache_parts[i] == "esi_comment" then
+            res.esi.has_esi_comment = not not cache_parts[i + 1]
+        elseif cache_parts[i] == "esi_remove" then
+            res.esi.has_esi_remove = not not cache_parts[i + 1]
+        elseif cache_parts[i] == "esi_include" then
+            res.esi.has_esi_include = not not cache_parts[i + 1]
         else
             -- Unknown fields will be headers, starting with "h:" prefix.
             local header = cache_parts[i]:sub(3)
@@ -625,6 +631,16 @@ function save_to_cache(self, res)
         'saved_ts', ngx.time(),
         unpack(h)
     )
+    
+    -- If ESI is enabled, store detected ESI features on the slow path.
+    if self:config_get("enable_esi") == true then
+        redis:hmset(cache_key(self),
+            'esi_comment', tostring(res:has_esi_comment()),
+            'esi_remove', tostring(res:has_esi_remove()),
+            'esi_include', tostring(res:has_esi_include())
+        )
+    end
+
     redis:expire(cache_key(self), ttl + tonumber(self:config_get("keep_cache_for")))
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
