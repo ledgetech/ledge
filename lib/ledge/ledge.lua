@@ -90,7 +90,7 @@ end
 
 function visible_hostname()
     local name = ngx.var.visible_hostname or ngx.var.hostname
-    if ngx.var.server_port ~= "80" and ngx.var.server_port ~= "443" then 
+    if ngx.var.server_port ~= "80" and ngx.var.server_port ~= "443" then
         name = name .. ":" .. ngx.var.server_port
     end
     return name
@@ -438,11 +438,11 @@ end
 
 function ST_SERVING(self)
     self:transition("ST_SERVING")
-    
+
     if self:config_get("enable_esi") then
         self:process_esi()
     end
-    
+
     self:redis_close()
     return self:serve()
 end
@@ -466,6 +466,11 @@ function read_from_cache(self)
     local cache_parts, err = self:ctx().redis:hgetall(cache_key(self))
     if not cache_parts then
         ngx.log(ngx.ERR, "Failed to read cache item: " .. err)
+    end
+
+    -- No cache entry for this key
+    if #cache_parts == 0 then
+        return nil
     end
 
     local ttl = nil
@@ -643,7 +648,7 @@ function save_to_cache(self, res)
         'saved_ts', ngx.time(),
         unpack(h)
     )
-    
+
     -- If ESI is enabled, store detected ESI features on the slow path.
     if self:config_get("enable_esi") == true then
         redis:hmset(cache_key(self),
@@ -733,7 +738,7 @@ function add_warning(self, code, text)
         res.header["Warning"] = {}
     end
 
-    local header = code .. ' ' .. visible_hostname() .. ' "' .. text .. '"' 
+    local header = code .. ' ' .. visible_hostname() .. ' "' .. text .. '"'
     table.insert(res.header["Warning"], header)
 end
 
@@ -784,11 +789,11 @@ function process_esi(self)
 end
 
 
-local class_mt = { 
+local class_mt = {
     -- to prevent use of casual module global variables
     __newindex = function (table, key, val)
         error('attempt to write to undeclared variable "' .. key .. '"')
-    end 
+    end
 }
 
 

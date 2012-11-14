@@ -276,3 +276,24 @@ Cache-Control: max-stale=1000
 GET /stale_mv
 --- response_body
 TEST 10
+
+
+=== TEST 11: Do not attempt to serve stale with no cache entry
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_subzero {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.say("TEST 11")
+    ';
+}
+--- more_headers
+Cache-Control: max-stale=1000
+--- request
+GET /stale_subzero
+--- response_body
+TEST 11
