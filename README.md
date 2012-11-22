@@ -22,12 +22,12 @@ This library is considered experimental and under active development, functional
 * End-to-end revalidation (specific and unspecified).
 * Offline modes (bypass, avoid).
 * Serving stale content.
+* Caching POST responses (servable to subsequent GET / HEAD requests).
 
 ### TODO
 
 * Background revalidate.
 * Collapse forwarding.
-* Caching POST responses (servable to subsequent GET / HEAD requests).
 * Improved logging / stats.
 
 Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
