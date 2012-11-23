@@ -19,6 +19,7 @@ This library is considered experimental and under active development, functional
 	* Comments removal
 	* `<esi:remove>`
 	* `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present.
+	* Fragments properly affect downstream cache lifetime / revalidation for the parent resource.
 * End-to-end revalidation (specific and unspecified).
 * Offline modes (bypass, avoid).
 * Serving stale content.
