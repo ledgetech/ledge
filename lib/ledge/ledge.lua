@@ -773,6 +773,15 @@ function process_esi(self)
             -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
             local esi_fragments = { ngx.location.capture_multi(esi_uris) }
 
+            -- Create response objects.
+            for i,fragment in ipairs(esi_fragments) do
+                esi_fragments[i] = response:new(fragment)
+            end
+
+            -- Ensure that our cacheability is reduced shortest / newest from 
+            -- all fragments.
+            res:minimise_lifetime(esi_fragments)
+
             body = ngx.re.gsub(body, "(<esi:include.*/>)", function(tag)
                 return table.remove(esi_fragments, 1).body
             end, "ioj")

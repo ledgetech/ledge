@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 1; 
+plan tests => repeat_each() * (blocks() * 3); 
 
 my $pwd = cwd();
 
@@ -201,3 +201,40 @@ location /__ledge_origin {
 --- request
 GET /esi_7
 --- response_body: <!--esiCOMMENTED-->
+
+
+=== TEST 8: Response cacheability is as short/new as the shortest/newest fragment.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_8 {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /fragment_1 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.header["Last-Modified"] = "Fri, 23 Nov 2012 00:00:00 GMT"
+        ngx.say("FRAGMENT_1")
+    ';
+}
+location /fragment_2 {
+    content_by_lua '
+        ngx.header["Expires"] = ngx.http_time(ngx.time() + 30)
+        ngx.say("FRAGMENT_2")
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Last-Modified"] = "Fri, 21 Nov 2012 00:00:00 GMT"
+        ngx.say("<esi:include src=\\"/fragment_1\\" />")
+        ngx.say("<esi:include src=\\"/fragment_2\\" />")
+    ';
+}
+--- request
+GET /esi_8
+--- response_headers_like 
+Warning: ^214 .* "Transformation applied"$  
+Cache-Control: max-age=30
+Last-Modified: Fri, 23 Nov 2012 00:00:00 GMT

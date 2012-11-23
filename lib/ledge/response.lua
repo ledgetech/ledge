@@ -25,8 +25,16 @@ local RESPONSE_STATE_WARM        = 1
 local RESPONSE_STATE_HOT         = 2
 
 
-function new(self)
+function new(self, response)
+    local body = ""
     local header = {}
+    local status = nil
+
+    if response then
+        body = response.body
+        header = response.header
+        status = response.status
+    end
 
     -- Header metatable for field case insensitivity.
     local header_mt = {
@@ -59,8 +67,8 @@ function new(self)
 
     setmetatable(header, header_mt)
 
-    return setmetatable({   status = nil, 
-                            body = "", 
+    return setmetatable({   status = status, 
+                            body = body,
                             header = header, 
                             remaining_ttl = 0,
                             state = RESPONSE_STATE_UNKNOWN,
@@ -163,6 +171,28 @@ function has_esi_include(self)
         end
     end
     return self.esi.has_esi_include
+end
+
+
+-- Reduce the cache lifetime and Last-Modified of this response to match
+-- the newest / shortest in a given table of responses. Useful for esi:include.
+-- TODO: This is a little crude, in that it wipes out other cache freshness headers,
+-- and blindly sets Cache-Control to a new value (ignoring other tokens).
+function minimise_lifetime(self, responses)
+    for _,res in ipairs(responses) do
+        local ttl = res:ttl()
+        if ttl < self:ttl() then
+            self.header["Cache-Control"] = "max-age="..ttl
+            self.header["Expires"] = nil
+        end
+
+        if res.header["Last-Modified"] and self.header["Last-Modified"] then
+            local res_lm = ngx.parse_http_time(res.header["Last-Modified"])
+            if res_lm > ngx.parse_http_time(self.header["Last-Modified"]) then
+                self.header["Last-Modified"] = res.header["Last-Modified"]
+            end
+        end
+    end
 end
 
 
