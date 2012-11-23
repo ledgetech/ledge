@@ -181,7 +181,6 @@ The default spec is:
 
 ```lua
 {
-    ngx.var.request_method,
     ngx.var.scheme,
     ngx.var.host,
     ngx.var.uri,
@@ -192,8 +191,8 @@ The default spec is:
 Which will generate cache keys in Redis such as:
 
 ```
-ledge:cache_obj:HEAD:http:example.com:/about
-ledge:cache_obj:HEAD:http:example.com:/about:p=2&q=foo
+ledge:cache_obj:http:example.com:/about
+ledge:cache_obj:http:example.com:/about:p=2&q=foo
 ```
 
 If you're doing SSL termination at Nginx and your origin pages look the same for HTTPS and HTTP traffic, you could simply provide a cache key spec omitting `ngx.car.scheme`, to avoid splitting the cache.
@@ -202,7 +201,6 @@ Another case might be to use a hash algorithm for the args, if you're worried ab
 
 ```lua
 ledge:config_set("cache_key_spec", {
-    ngx.var.request_method,
     --ngx.var.scheme,
     ngx.var.host,
     ngx.var.uri,
