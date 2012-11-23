@@ -153,23 +153,15 @@ function accepts_stale(self, res)
     end
 
     -- Check response for headers that prevent serving stale
-    if res.header["Cache-Control"] then
-        local cc = res.header["Cache-Control"]
-        if cc:find("revalidate") or cc:find("s-maxage") then
-            return nil
-        end
+    local res_cc = res.header["Cache-Control"]
+    if self:header_has_directive(res_cc, 'revalidate') or self:header_has_directive(res_cc, 's-maxage') then
+        return nil
     end
 
     -- Check for max-stale request header
-    local h = ngx.req.get_headers()
-    if not h["Cache-Control"] then
-        return nil
-    end
-    max_stale = ngx.re.match(h["Cache-Control"], "max\\-stale=(\\d+)", "io")
-    if max_stale ~= nil then
-        return tonumber(max_stale[1])
-    end
-    return nil
+    local req_cc = ngx.req.get_headers()['Cache-Control']
+    return self:get_numeric_header_token(req_cc, 'max-stale')
+
 end
 
 
@@ -313,6 +305,39 @@ function emit(self, event, res)
     end
 end
 
+-- Header Utility Functions
+
+function header_has_directive(self, header, directive)
+    if header then
+        -- Just checking the directive appears in the header, e.g. no-cache, private etc.
+        return (header:find(directive, 1, true) ~= nil)
+    end
+    return false
+end
+
+function get_header_token(self, header, directive)
+    if self:header_has_directive(header, directive) then
+        -- Want the string value from a token
+        local value = ngx.re.match(header, directive:gsub('-','\\-').."=([^\\d]+)", "io")
+        if value ~= nil then
+            return value[1]
+        end
+        return nil
+    end
+    return nil
+end
+
+function get_numeric_header_token(self, header, directive)
+    if self:header_has_directive(header, directive) then
+        -- Want the numeric value from a token
+        local value = ngx.re.match(header, directive:gsub('-','\\-').."=(\\d+)", "io")
+        if value ~= nil then
+            return tonumber(value[1])
+        end
+        return 0
+    end
+    return 0
+end
 
 -- STATES ------------------------------------------------------
 
