@@ -251,10 +251,9 @@ end
 
 function cache_key(self)
     if not self.ctx().cache_key then
-        -- Generate the cache key, from a given or default spec. The default is:
-        -- ledge:cache_obj:GET:http:example.com:/about:p=3&q=searchterms
+        -- Generate the cache key. The default spec is:
+        -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
         local key_spec = self:config_get("cache_key_spec") or {
-            ngx.var.request_method,
             ngx.var.scheme,
             ngx.var.host,
             ngx.var.uri,
@@ -449,7 +448,9 @@ end
 
 function ST_SAVING(self)
     self:transition("ST_SAVING")
-    self:save_to_cache(self:get_response())
+    if ngx.req.get_method() ~= "HEAD" then
+        self:save_to_cache(self:get_response())
+    end
     return self:ST_SERVING()
 end
 
@@ -796,6 +797,15 @@ function process_esi(self)
             -- Only works for relative URIs right now
             -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
             local esi_fragments = { ngx.location.capture_multi(esi_uris) }
+
+            -- Create response objects.
+            for i,fragment in ipairs(esi_fragments) do
+                esi_fragments[i] = response:new(fragment)
+            end
+
+            -- Ensure that our cacheability is reduced shortest / newest from 
+            -- all fragments.
+            res:minimise_lifetime(esi_fragments)
 
             body = ngx.re.gsub(body, "(<esi:include.*/>)", function(tag)
                 return table.remove(esi_fragments, 1).body

@@ -19,15 +19,16 @@ This library is considered experimental and under active development, functional
 	* Comments removal
 	* `<esi:remove>`
 	* `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present.
+	* Fragments properly affect downstream cache lifetime / revalidation for the parent resource.
 * End-to-end revalidation (specific and unspecified).
 * Offline modes (bypass, avoid).
 * Serving stale content.
+* Caching POST responses (servable to subsequent GET / HEAD requests).
 
 ### TODO
 
 * Background revalidate.
 * Collapse forwarding.
-* Caching POST responses (servable to subsequent GET / HEAD requests).
 * Improved logging / stats.
 
 Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
@@ -181,7 +182,6 @@ The default spec is:
 
 ```lua
 {
-    ngx.var.request_method,
     ngx.var.scheme,
     ngx.var.host,
     ngx.var.uri,
@@ -192,8 +192,8 @@ The default spec is:
 Which will generate cache keys in Redis such as:
 
 ```
-ledge:cache_obj:HEAD:http:example.com:/about
-ledge:cache_obj:HEAD:http:example.com:/about:p=2&q=foo
+ledge:cache_obj:http:example.com:/about
+ledge:cache_obj:http:example.com:/about:p=2&q=foo
 ```
 
 If you're doing SSL termination at Nginx and your origin pages look the same for HTTPS and HTTP traffic, you could simply provide a cache key spec omitting `ngx.car.scheme`, to avoid splitting the cache.
@@ -202,7 +202,6 @@ Another case might be to use a hash algorithm for the args, if you're worried ab
 
 ```lua
 ledge:config_set("cache_key_spec", {
-    ngx.var.request_method,
     --ngx.var.scheme,
     ngx.var.host,
     ngx.var.uri,
