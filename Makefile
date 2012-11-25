@@ -1,4 +1,4 @@
-OPENRESTY_PREFIX=/usr/local/openresty-debug
+OPENRESTY_PREFIX=/usr/local/openresty
 TEST_LEDGE_REDIS_DATABASE=1
 
 PREFIX ?=          /usr/local

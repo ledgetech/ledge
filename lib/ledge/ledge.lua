@@ -161,7 +161,6 @@ function accepts_stale(self, res)
     -- Check for max-stale request header
     local req_cc = ngx.req.get_headers()['Cache-Control']
     return self:get_numeric_header_token(req_cc, 'max-stale')
-
 end
 
 
@@ -365,18 +364,26 @@ function ST_ACCEPTING_CACHE(self)
     elseif res.remaining_ttl <= 0 then
         -- Cache Expired
         return self:ST_CACHE_EXPIRED(res)
+    elseif res.remaining_ttl - self:get_numeric_header_token(ngx.req.get_headers()['Cache-Control'], 'min-fresh')  <= 0 then
+        -- min-fresh makes this expired
+        return self:ST_CACHE_EXPIRED(res)
     else
         self:set_response(res)
         return self:ST_USING_CACHE()
     end
 end
 
+function calculate_stale_ttl(self, res)
+    local stale = self:accepts_stale(res) or 0
+    local min_fresh = self:get_numeric_header_token(ngx.req.get_headers()['Cache-Control'], 'min-fresh')
+
+    return (res.remaining_ttl - min_fresh) + stale
+end
 
 function ST_CACHE_EXPIRED(self,res)
     self:transition("ST_CACHE_EXPIRED")
 
-    local stale = self:accepts_stale(res)
-    if stale ~= nil and (res.remaining_ttl + stale) > 0 then
+    if self:calculate_stale_ttl(res) > 0 then
         -- Return stale content
         self:set_response(res)
         return self:ST_SERVING_STALE()
@@ -431,6 +438,10 @@ end
 
 function ST_FETCHING(self)
     self:transition("ST_FETCHING")
+
+    if self:header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
+        ngx.exit(ngx.HTTP_GATEWAY_TIMEOUT)
+    end
 
     local res = self:fetch_from_origin()
     if res.status == ngx.HTTP_NOT_MODIFIED then
@@ -803,7 +814,7 @@ function process_esi(self)
                 esi_fragments[i] = response:new(fragment)
             end
 
-            -- Ensure that our cacheability is reduced shortest / newest from 
+            -- Ensure that our cacheability is reduced shortest / newest from
             -- all fragments.
             res:minimise_lifetime(esi_fragments)
 
