@@ -164,6 +164,14 @@ function accepts_stale(self, res)
 end
 
 
+function calculate_stale_ttl(self, res)
+    local stale = self:accepts_stale(res) or 0
+    local min_fresh = self:get_numeric_header_token(ngx.req.get_headers()['Cache-Control'], 'min-fresh')
+
+    return (res.remaining_ttl - min_fresh) + stale
+end
+
+
 function request_accepts_cache(self)
     local method = ngx.req.get_method()
     if method ~= "GET" and method ~= "HEAD" then
@@ -373,12 +381,6 @@ function ST_ACCEPTING_CACHE(self)
     end
 end
 
-function calculate_stale_ttl(self, res)
-    local stale = self:accepts_stale(res) or 0
-    local min_fresh = self:get_numeric_header_token(ngx.req.get_headers()['Cache-Control'], 'min-fresh')
-
-    return (res.remaining_ttl - min_fresh) + stale
-end
 
 function ST_CACHE_EXPIRED(self,res)
     self:transition("ST_CACHE_EXPIRED")
