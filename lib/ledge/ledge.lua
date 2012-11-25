@@ -41,6 +41,7 @@ function new(self)
         keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
         origin_mode     = ORIGIN_MODE_NORMAL,
         max_stale       = nil,          -- Warning: Violates HTTP spec
+        background_revalidate = false,
         enable_esi      = false,
     }
 
@@ -406,7 +407,10 @@ function ST_SERVING_STALE(self)
     self:transition("ST_SERVING_STALE")
 
     self:add_warning('110', 'Response is stale')
-    self:ctx()['bg_thread'] = ngx.thread.spawn(ST_BG_FETCHING, self)
+
+    if self:config_get('background_revalidate') then
+        self:ctx()['bg_thread'] = ngx.thread.spawn(ST_BG_FETCHING, self)
+    end
 
     return self:ST_SERVING()
 end
@@ -446,9 +450,6 @@ end
 
 function ST_BG_FETCHING(self)
     self:transition("ST_BG_FETCHING")
-
-    -- Yield here so the main thread continues to serve the stale response
-    coroutine.yield(coroutine.running())
 
     if self:header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
         return
