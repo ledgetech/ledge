@@ -10,6 +10,7 @@ local tonumber = tonumber
 local type = type
 local table = table
 local ngx = ngx
+local coroutine = coroutine
 
 module(...)
 
@@ -40,6 +41,7 @@ function new(self)
         keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
         origin_mode     = ORIGIN_MODE_NORMAL,
         max_stale       = nil,          -- Warning: Violates HTTP spec
+        background_revalidate = false,
         enable_esi      = false,
     }
 
@@ -124,6 +126,11 @@ end
 
 
 function redis_close(self)
+    -- Background revalidation running, don't close redis yet
+    if self:ctx()['bg_thread'] ~= nil then
+        ngx.thread.wait(self:ctx()['bg_thread'])
+    end
+
     -- Keep the Redis connection based on keepalive settings.
     local ok, err = nil
     if self:config_get("redis_keepalive_timeout") then
@@ -161,7 +168,14 @@ function accepts_stale(self, res)
     -- Check for max-stale request header
     local req_cc = ngx.req.get_headers()['Cache-Control']
     return self:get_numeric_header_token(req_cc, 'max-stale')
+end
 
+
+function calculate_stale_ttl(self, res)
+    local stale = self:accepts_stale(res) or 0
+    local min_fresh = self:get_numeric_header_token(ngx.req.get_headers()['Cache-Control'], 'min-fresh')
+
+    return (res.remaining_ttl - min_fresh) + stale
 end
 
 
@@ -365,6 +379,9 @@ function ST_ACCEPTING_CACHE(self)
     elseif res.remaining_ttl <= 0 then
         -- Cache Expired
         return self:ST_CACHE_EXPIRED(res)
+    elseif res.remaining_ttl - self:get_numeric_header_token(ngx.req.get_headers()['Cache-Control'], 'min-fresh')  <= 0 then
+        -- min-fresh makes this expired
+        return self:ST_CACHE_EXPIRED(res)
     else
         self:set_response(res)
         return self:ST_USING_CACHE()
@@ -375,8 +392,7 @@ end
 function ST_CACHE_EXPIRED(self,res)
     self:transition("ST_CACHE_EXPIRED")
 
-    local stale = self:accepts_stale(res)
-    if stale ~= nil and (res.remaining_ttl + stale) > 0 then
+    if self:calculate_stale_ttl(res) > 0 then
         -- Return stale content
         self:set_response(res)
         return self:ST_SERVING_STALE()
@@ -391,7 +407,11 @@ function ST_SERVING_STALE(self)
     self:transition("ST_SERVING_STALE")
 
     self:add_warning('110', 'Response is stale')
-    -- TODO: Background revalidate
+
+    if self:config_get('background_revalidate') then
+        self:ctx()['bg_thread'] = ngx.thread.spawn(ST_BG_FETCHING, self)
+    end
+
     return self:ST_SERVING()
 end
 
@@ -428,9 +448,34 @@ function ST_REVALIDATING_UPSTREAM(self)
     return self:ST_FETCHING()
 end
 
+function ST_BG_FETCHING(self)
+    self:transition("ST_BG_FETCHING")
+
+    if self:header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
+        return
+    end
+
+    self:remove_client_validators()
+    local res = self:fetch_from_origin()
+    if res.status == ngx.HTTP_NOT_MODIFIED then
+        return
+    else
+        self:set_response(res)
+        if res:is_cacheable() then
+            return self:ST_SAVING()
+        else
+            return self:ST_DELETING()
+        end
+    end
+end
+
 
 function ST_FETCHING(self)
     self:transition("ST_FETCHING")
+
+    if self:header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
+        ngx.exit(ngx.HTTP_GATEWAY_TIMEOUT)
+    end
 
     local res = self:fetch_from_origin()
     if res.status == ngx.HTTP_NOT_MODIFIED then
@@ -451,6 +496,11 @@ function ST_SAVING(self)
     if ngx.req.get_method() ~= "HEAD" then
         self:save_to_cache(self:get_response())
     end
+
+    -- Do not serve if we are background revalidating
+    if self:ctx().state_history['ST_BG_FETCHING'] then
+        return
+    end
     return self:ST_SERVING()
 end
 
@@ -458,6 +508,11 @@ end
 function ST_DELETING(self)
     self:transition("ST_DELETING")
     self:delete_from_cache()
+
+    -- Do not serve if we are background revalidating
+    if self:ctx().state_history['ST_BG_FETCHING'] then
+        return
+    end
     return self:ST_SERVING()
 end
 
@@ -469,8 +524,8 @@ function ST_SERVING(self)
         self:process_esi()
     end
 
+    self:serve()
     self:redis_close()
-    return self:serve()
 end
 
 
@@ -803,7 +858,7 @@ function process_esi(self)
                 esi_fragments[i] = response:new(fragment)
             end
 
-            -- Ensure that our cacheability is reduced shortest / newest from 
+            -- Ensure that our cacheability is reduced shortest / newest from
             -- all fragments.
             res:minimise_lifetime(esi_fragments)
 
