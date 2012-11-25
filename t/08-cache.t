@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3); 
+plan tests => 18;
 
 my $pwd = cwd();
 
@@ -101,7 +101,7 @@ TEST 3
             -- Hack the expires to 100 seconds in the past
             redis:hset(ledge:cache_key(), "expires", tostring(ngx.time() - 100))
             redis:close()
-            
+
             ledge:run()
         ';
     }
@@ -138,8 +138,48 @@ TEST 4
 --- request
 GET /cache_6
 --- response_headers_like
-X-Cache: 
+X-Cache:
 --- response_body
 TEST 6
 
+=== TEST 7: only-if-cached should return 504 on cache miss
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_7 {
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.say("TEST 7")
+        ';
+    }
+--- more_headers
+Cache-Control: only-if-cached
+--- request
+GET /cache_7
+--- error_code: 504
+
+=== TEST 8: min-fresh reduces calculated ttl
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache {
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.say("TEST 8")
+        ';
+    }
+--- more_headers
+Cache-Control: min-fresh=9999
+--- request
+GET /cache
+--- response_body
+TEST 8
 
