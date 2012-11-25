@@ -10,6 +10,7 @@ local tonumber = tonumber
 local type = type
 local table = table
 local ngx = ngx
+local coroutine = coroutine
 
 module(...)
 
@@ -124,6 +125,11 @@ end
 
 
 function redis_close(self)
+    -- Background revalidation running, don't close redis yet
+    if self:ctx()['bg_thread'] ~= nil then
+        ngx.thread.wait(self:ctx()['bg_thread'])
+    end
+
     -- Keep the Redis connection based on keepalive settings.
     local ok, err = nil
     if self:config_get("redis_keepalive_timeout") then
@@ -400,7 +406,8 @@ function ST_SERVING_STALE(self)
     self:transition("ST_SERVING_STALE")
 
     self:add_warning('110', 'Response is stale')
-    -- TODO: Background revalidate
+    self:ctx()['bg_thread'] = ngx.thread.spawn(ST_BG_FETCHING, self)
+
     return self:ST_SERVING()
 end
 
@@ -437,6 +444,30 @@ function ST_REVALIDATING_UPSTREAM(self)
     return self:ST_FETCHING()
 end
 
+function ST_BG_FETCHING(self)
+    self:transition("ST_BG_FETCHING")
+
+    -- Yield here so the main thread continues to serve the stale response
+    coroutine.yield(coroutine.running())
+
+    if self:header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
+        return
+    end
+
+    self:remove_client_validators()
+    local res = self:fetch_from_origin()
+    if res.status == ngx.HTTP_NOT_MODIFIED then
+        return
+    else
+        self:set_response(res)
+        if res:is_cacheable() then
+            return self:ST_SAVING()
+        else
+            return self:ST_DELETING()
+        end
+    end
+end
+
 
 function ST_FETCHING(self)
     self:transition("ST_FETCHING")
@@ -464,6 +495,11 @@ function ST_SAVING(self)
     if ngx.req.get_method() ~= "HEAD" then
         self:save_to_cache(self:get_response())
     end
+
+    -- Do not serve if we are background revalidating
+    if self:ctx().state_history['ST_BG_FETCHING'] then
+        return
+    end
     return self:ST_SERVING()
 end
 
@@ -471,6 +507,11 @@ end
 function ST_DELETING(self)
     self:transition("ST_DELETING")
     self:delete_from_cache()
+
+    -- Do not serve if we are background revalidating
+    if self:ctx().state_history['ST_BG_FETCHING'] then
+        return
+    end
     return self:ST_SERVING()
 end
 
@@ -482,8 +523,8 @@ function ST_SERVING(self)
         self:process_esi()
     end
 
+    self:serve()
     self:redis_close()
-    return self:serve()
 end
 
 
