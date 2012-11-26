@@ -10,7 +10,6 @@ local tonumber = tonumber
 local type = type
 local table = table
 local ngx = ngx
-local coroutine = coroutine
 
 module(...)
 
@@ -161,7 +160,8 @@ function accepts_stale(self, res)
 
     -- Check response for headers that prevent serving stale
     local res_cc = res.header["Cache-Control"]
-    if self:header_has_directive(res_cc, 'revalidate') or self:header_has_directive(res_cc, 's-maxage') then
+    if self:header_has_directive(res_cc, 'revalidate') or 
+        self:header_has_directive(res_cc, 's-maxage') then
         return nil
     end
 
@@ -173,7 +173,10 @@ end
 
 function calculate_stale_ttl(self, res)
     local stale = self:accepts_stale(res) or 0
-    local min_fresh = self:get_numeric_header_token(ngx.req.get_headers()['Cache-Control'], 'min-fresh')
+    local min_fresh = self:get_numeric_header_token(
+        ngx.req.get_headers()['Cache-Control'], 
+        'min-fresh'
+    )
 
     return (res.remaining_ttl - min_fresh) + stale
 end
@@ -318,7 +321,9 @@ function emit(self, event, res)
     end
 end
 
+
 -- Header Utility Functions
+
 
 function header_has_directive(self, header, directive)
     if header then
@@ -327,6 +332,7 @@ function header_has_directive(self, header, directive)
     end
     return false
 end
+
 
 function get_header_token(self, header, directive)
     if self:header_has_directive(header, directive) then
@@ -340,6 +346,7 @@ function get_header_token(self, header, directive)
     return nil
 end
 
+
 function get_numeric_header_token(self, header, directive)
     if self:header_has_directive(header, directive) then
         -- Want the numeric value from a token
@@ -351,6 +358,7 @@ function get_numeric_header_token(self, header, directive)
     end
     return 0
 end
+
 
 -- STATES ------------------------------------------------------
 
@@ -379,7 +387,10 @@ function ST_ACCEPTING_CACHE(self)
     elseif res.remaining_ttl <= 0 then
         -- Cache Expired
         return self:ST_CACHE_EXPIRED(res)
-    elseif res.remaining_ttl - self:get_numeric_header_token(ngx.req.get_headers()['Cache-Control'], 'min-fresh')  <= 0 then
+    elseif res.remaining_ttl -  self:get_numeric_header_token(
+                                    ngx.req.get_headers()['Cache-Control'], 
+                                    'min-fresh'
+                                ) <= 0 then
         -- min-fresh makes this expired
         return self:ST_CACHE_EXPIRED(res)
     else
@@ -447,6 +458,7 @@ function ST_REVALIDATING_UPSTREAM(self)
     self:add_validators_from_cache()
     return self:ST_FETCHING()
 end
+
 
 function ST_BG_FETCHING(self)
     self:transition("ST_BG_FETCHING")
