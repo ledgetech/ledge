@@ -642,8 +642,15 @@ function fetch_from_origin(self)
         return res
     end
 
+    local method = ngx['HTTP_' .. ngx.req.get_method()]
+    -- Unrecognised request method, do not proxy
+    if not method then
+        res.status = ngx.HTTP_METHOD_NOT_IMPLEMENTED
+        return res
+    end
+
     local origin = ngx.location.capture(self:config_get("origin_location")..relative_uri(), {
-        method = ngx['HTTP_' .. ngx.req.get_method()], -- Method as ngx.HTTP_x constant.
+        method = method,
         body = ngx.req.get_body_data(),
     })
 
