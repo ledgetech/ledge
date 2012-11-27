@@ -183,7 +183,9 @@ function minimise_lifetime(self, responses)
         local ttl = res:ttl()
         if ttl < self:ttl() then
             self.header["Cache-Control"] = "max-age="..ttl
-            self.header["Expires"] = nil
+            if self.header["Expires"] then
+                self.header["Expires"] = ngx.http_time(ngx.time() + ttl)
+            end
         end
 
         if res.header["Last-Modified"] and self.header["Last-Modified"] then

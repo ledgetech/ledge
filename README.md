@@ -6,8 +6,6 @@ The aim is to provide an efficient and extensible RFC compliant caching HTTP pro
 
 ## Status
 
-The latest version is [v0.06](https://github.com/pintsized/ledge/tree/v0.06).
-
 This library is considered experimental and under active development, functionality may change without much notice. However the tagged releases always pass tests and appear "stable", so checking out the latest tag should mean things work as advertised.
 
 ### Features
@@ -23,11 +21,11 @@ This library is considered experimental and under active development, functional
 * End-to-end revalidation (specific and unspecified).
 * Offline modes (bypass, avoid).
 * Serving stale content.
+* Background revalidation.
 * Caching POST responses (servable to subsequent GET / HEAD requests).
 
 ### TODO
 
-* Background revalidate.
 * Collapse forwarding.
 * Improved logging / stats.
 
@@ -38,7 +36,7 @@ Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](
 Download and install:
 
 * [Redis](http://redis.io/download) >= 2.4.14
-* [OpenResty](http://openresty.org/) >= 1.2.1.9
+* [OpenResty](http://openresty.org/) >= 1.2.4.3 (devel)
 
 Review the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
 
@@ -244,6 +242,7 @@ In the above case, with ESI disabled the client will display a link to the embed
 Note that currently fragments to be included must be relative URIs. Absolute URIs and example config for proxying to arbitrary upstream services for fragments are on the short term roadmap.
 
 The processor runs ESI instruction detection on the slow path (i.e. when saving to cache), so only instructions which are present are processed on cache HITs. If nothing was detected during saving, enabling ESI will have no performance impact on regular serving of cache items.
+
 
 ## Events
 
