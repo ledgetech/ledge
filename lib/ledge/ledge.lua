@@ -54,6 +54,12 @@ function run(self)
 end
 
 
+function purge(self)
+    -- Purge request
+    self:ST_PURGING()
+end
+
+
 -- UTILITIES --------------------------------------------------
 
 
@@ -549,6 +555,19 @@ function ST_SERVING_NOT_MODIFIED(self)
 end
 
 
+function ST_PURGING(self)
+    self:transition("ST_PURGING")
+
+    self:redis_connect()
+    local status_code = ngx.HTTP_OK
+    if self:delete_from_cache() == 0 then
+        status_code = ngx.HTTP_NOT_FOUND
+    end
+    self:redis_close()
+    ngx.exit(status_code)
+end
+
+
 -- ACTIONS ---------------------------------------------------------
 
 
@@ -772,7 +791,7 @@ end
 
 
 function delete_from_cache(self)
-    self:ctx().redis:del(self:cache_key())
+    return self:ctx().redis:del(self:cache_key())
 end
 
 
