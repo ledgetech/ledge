@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 3; 
+plan tests => 16;
 
 my $pwd = cwd();
 
@@ -19,7 +19,7 @@ our $HttpConfig = qq{
 run_tests();
 
 __DATA__
-=== TEST 1: GET 
+=== TEST 1: GET
 --- http_config eval: $::HttpConfig
 --- config
 location /req_method_1 {
@@ -40,7 +40,7 @@ GET /req_method_1
 GET
 
 
-=== TEST 2: HEAD gets GET request 
+=== TEST 2: HEAD gets GET request
 --- http_config eval: $::HttpConfig
 --- config
 location /req_method_1 {
@@ -54,7 +54,7 @@ GET /req_method_1
 Etag: req_method_1
 
 
-=== TEST 3: HEAD revalidate 
+=== TEST 3: HEAD revalidate
 --- http_config eval: $::HttpConfig
 --- config
 location /req_method_1 {
@@ -129,3 +129,15 @@ GET /req_method_1
 Etag: req_method_posted
 --- response_body
 POST
+
+=== TEST 7: 501 on unrecognised method
+--- http_config eval: $::HttpConfig
+--- config
+location /req_method_1 {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request
+FOOBAR /req_method_1
+--- error_code: 501

@@ -23,6 +23,7 @@ This library is considered experimental and under active development, functional
 * Serving stale content.
 * Background revalidation.
 * Caching POST responses (servable to subsequent GET / HEAD requests).
+* PURGE requests to remove URLs from cache
 
 ### TODO
 
@@ -97,6 +98,21 @@ http {
     }
 }
 ```
+
+To enable ```PURGE``` requests compatible with Squid
+````nginx
+if ($request_method = 'PURGE') {
+    rewrite (.*) /_purge/$1 last;
+}
+location /_purge {
+    internal;
+    allow 127.0.0.1;
+    deny all;
+    rewrite /_purge/(.*) $1 break;
+    content_by_lua 'ledge:purge()';
+}
+````
+Standard nginx access control options can be used to restrict purge requests.
 
 ## Configuration options
 
@@ -221,6 +237,14 @@ Specifies, in seconds, how far past expiry to serve cached content.
 If set to `nil` then determine this from the `Cache-Control: max-stale=xx` request header.
 
 WARNING: Any setting other than `nil` violates the HTTP spec.
+
+#### background_revalidate
+
+*Default:* `false`
+
+Enables or disables revalidating requests served from stale in the background.
+
+Note: This blocks processing the next request on the same *connection* until the background request has completed
 
 #### enable_esi
 
