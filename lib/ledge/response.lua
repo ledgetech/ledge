@@ -176,8 +176,6 @@ end
 
 -- Reduce the cache lifetime and Last-Modified of this response to match
 -- the newest / shortest in a given table of responses. Useful for esi:include.
--- TODO: This is a little crude, in that it wipes out other cache freshness headers,
--- and blindly sets Cache-Control to a new value (ignoring other tokens).
 function minimise_lifetime(self, responses)
     for _,res in ipairs(responses) do
         local ttl = res:ttl()
@@ -186,6 +184,11 @@ function minimise_lifetime(self, responses)
             if self.header["Expires"] then
                 self.header["Expires"] = ngx.http_time(ngx.time() + ttl)
             end
+        end
+        
+        if res.header["Age"] and self.header["Age"] and 
+            (tonumber(res.header["Age"]) < tonumber(self.header["Age"])) then
+            self.header["Age"] = res.header["Age"]
         end
 
         if res.header["Last-Modified"] and self.header["Last-Modified"] then
