@@ -273,7 +273,7 @@ end
 
 
 function cache_key(self)
-    if not self.ctx().cache_key then
+    if not self:ctx().cache_key then
         -- Generate the cache key. The default spec is:
         -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
         local key_spec = self:config_get("cache_key_spec") or {
