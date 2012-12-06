@@ -215,7 +215,7 @@ function must_revalidate(self)
         return true
     else
         local res = self:get_response()
-        if res.header["Cache-Control"]:find("revalidate") then
+        if self:header_has_directive(res.header["Cache-Control"], "revalidate") then
             return true
         elseif type(cc) == "string" and res.header["Age"] then
             local max_age = cc:match("max%-age=(%d+)")
