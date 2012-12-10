@@ -13,9 +13,10 @@ This library is considered experimental and under active development, functional
 * RFC 2616 compliant proxying and caching based on policies derived from HTTP request and response headers (please [raise an issue](https://github.com/pintsized/ledge/issues) if you spot a case we haven't covered).
 * Cache items and metadata stored in [Redis](http://redis.io).
 * Mechanisms to override cache policies at various stages using Lua script.
-* Partial ESI support:
-	* Comments removal
-	* `<esi:remove>`
+* ESI support:
+	* Variable substitution (strings only currently).
+	* Comments removal.
+	* `<esi:remove>` tags removed.
 	* `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present.
 	* Fragments properly affect downstream cache lifetime / revalidation for the parent resource.
 * End-to-end revalidation (specific and unspecified).
@@ -23,7 +24,7 @@ This library is considered experimental and under active development, functional
 * Serving stale content.
 * Background revalidation.
 * Caching POST responses (servable to subsequent GET / HEAD requests).
-* PURGE requests to remove URLs from cache
+* PURGE requests to remove URLs from cache.
 
 ### TODO
 
@@ -257,13 +258,13 @@ Enables ESI processing. The processor will strip comments labelled as `<!--esi .
   <a href="/link_to_resource_for_non_esi">Link to resource</a>
 </esi:remove>
 <!--esi
-<esi:include src="/link_to_resource_fragment" />
+<esi:include src="/link_to_resource_fragment?$(QUERY_STRING)" />
 -->
 ```
 
-In the above case, with ESI disabled the client will display a link to the embedded resource. With ESI enabled, the link will be removed, as well as the comments around the `<esi:include>` tag. The fragment `src` URI will be fetched (non-blocking and in parallel if multiple fragments are present), and the `<esi:include>` tag will be replaced with the resulting body.
+In the above case, with ESI disabled the client will display a link to the embedded resource. With ESI enabled, the link will be removed, as well as the comments around the `<esi:include>` tag. The fragment `src` URI will be fetched (non-blocking and in parallel if multiple fragments are present), and the `<esi:include>` tag will be replaced with the resulting body. Note the ESI variable substitution for `$(QUERY_STRING)`, allowing you to proxy the parent resource parameters to fragments if required.
 
-Note that currently fragments to be included must be relative URIs. Absolute URIs and example config for proxying to arbitrary upstream services for fragments are on the short term roadmap.
+Currently fragments to be included must be relative URIs. A workaround is to define a relative URI prefix which you pick up in your Nginx config, proxying to an additional origin.
 
 The processor runs ESI instruction detection on the slow path (i.e. when saving to cache), so only instructions which are present are processed on cache HITs. If nothing was detected during saving, enabling ESI will have no performance impact on regular serving of cache items.
 
