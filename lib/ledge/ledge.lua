@@ -611,6 +611,8 @@ function read_from_cache(self)
             res.esi.has_esi_remove = not not cache_parts[i + 1]
         elseif cache_parts[i] == "esi_include" then
             res.esi.has_esi_include = not not cache_parts[i + 1]
+        elseif cache_parts[i] == "esi_vars" then
+            res.esi.has_esi_vars = not not cache_parts[i + 1]
         else
             -- Unknown fields will be headers, starting with "h:" prefix.
             local header = cache_parts[i]:sub(3)
@@ -773,7 +775,8 @@ function save_to_cache(self, res)
         redis:hmset(cache_key(self),
             'esi_comment', tostring(res:has_esi_comment()),
             'esi_remove', tostring(res:has_esi_remove()),
-            'esi_include', tostring(res:has_esi_include())
+            'esi_include', tostring(res:has_esi_include()),
+            'esi_vars', tostring(res:has_esi_vars())
         )
     end
 
@@ -869,6 +872,52 @@ function process_esi(self)
 
     -- Only perform trasnformations if we know there's work to do. This is determined
     -- during fetch (slow path).
+    
+    if res:has_esi_vars() then
+
+        -- Function to replace vars with runtime values
+        -- TODO: Possibly handle the dictionary / list syntax rather than just strings?
+        -- For now we just return string presentations of the obvious things, until a 
+        -- need is determined.
+        local replace = function(var)
+            if var == "$(QUERY_STRING)" then
+                return ngx.var.args or ""
+            elseif var:sub(1, 7) == "$(HTTP_" then
+                -- Look for a HTTP_var that matches
+                local _, _, header = var:find("%$%(HTTP%_(.+)%)")
+                if header then
+                    return ngx.var["http_" .. header] or ""
+                else
+                    return ""
+                end
+            else
+                return ""
+            end
+        end
+        
+        -- For every esi:vars block, substitute any number of variables found.
+        body = ngx.re.gsub(body, "<esi:vars>(.*)</esi:vars>", function(var_block)
+            return ngx.re.gsub(var_block[1], 
+                "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)", 
+                function(m)
+                    return replace(m[0]) 
+                end,
+                "soj")
+        end, "soj")
+        
+        -- Remove vars tags that are left over
+        body = ngx.re.gsub(body, "(<esi:vars>|</esi:vars>)", "", "soj")
+
+        -- Replace vars inline in any other esi: tags.
+        body = ngx.re.gsub(body, 
+            "(<esi:.*)(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))(.*/>)", 
+            function(m)
+                return m[1] .. replace(m[2]) .. m[3] 
+            end, 
+            "oj")
+
+        transformed = true
+    end
 
     if res:has_esi_comment() then
         body = ngx.re.gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")

@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3); 
+plan tests => repeat_each() * (blocks() * 3) - 1; 
 
 my $pwd = cwd();
 
@@ -238,3 +238,36 @@ GET /esi_8
 Warning: ^214 .* "Transformation applied"$  
 Cache-Control: max-age=30
 Last-Modified: Fri, 23 Nov 2012 00:00:00 GMT
+
+
+=== TEST 9: Variable evaluation
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_9 {
+    content_by_lua 'ledge:run()';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
+        ngx.say("<esi:include src=\\"/fragment1?$(QUERY_STRING)\\" />")
+        ngx.say("<esi:vars>$(QUERY_STRING)")
+        ngx.say("$(QUERY_STRING)")
+        ngx.say("</esi:vars>")
+        ngx.say("$(QUERY_STRING)")
+    ';
+}
+location /fragment1 {
+    content_by_lua '
+        ngx.say("FRAGMENT:"..ngx.var.args)
+    ';
+}
+--- request
+GET /esi_9?t=1
+--- response_body
+t=1
+FRAGMENT:t=1
+
+t=1
+t=1
+
+$(QUERY_STRING)

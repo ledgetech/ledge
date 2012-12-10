@@ -76,6 +76,7 @@ function new(self, response)
                                 has_esi_comment = nil,
                                 has_esi_remove = nil,
                                 has_esi_include = nil,
+                                has_esi_vars = nil,
                             },
     }, mt)
 end
@@ -158,6 +159,18 @@ function has_esi_remove(self)
         end
     end
     return self.esi.has_esi_remove
+end
+
+
+function has_esi_vars(self)
+    if self.esi.has_esi_vars == nil then
+        if ngx.re.match(self.body, "<esi:.*\\$\\([A-Z_].+\\)", "soj") then
+            self.esi.has_esi_vars = true
+        else
+            self.esi.has_esi_vars = false
+        end
+    end
+    return self.esi.has_esi_vars
 end
 
 
