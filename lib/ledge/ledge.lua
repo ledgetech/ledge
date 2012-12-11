@@ -131,11 +131,6 @@ end
 
 
 function redis_close(self)
-    -- Background revalidation running, don't close redis yet
-    if self:ctx()['bg_thread'] ~= nil then
-        ngx.thread.wait(self:ctx()['bg_thread'])
-    end
-
     -- Keep the Redis connection based on keepalive settings.
     local ok, err = nil
     if self:config_get("redis_keepalive_timeout") then
@@ -166,7 +161,7 @@ function accepts_stale(self, res)
 
     -- Check response for headers that prevent serving stale
     local res_cc = res.header["Cache-Control"]
-    if self:header_has_directive(res_cc, 'revalidate') or 
+    if self:header_has_directive(res_cc, 'revalidate') or
         self:header_has_directive(res_cc, 's-maxage') then
         return nil
     end
@@ -180,7 +175,7 @@ end
 function calculate_stale_ttl(self, res)
     local stale = self:accepts_stale(res) or 0
     local min_fresh = self:get_numeric_header_token(
-        ngx.req.get_headers()['Cache-Control'], 
+        ngx.req.get_headers()['Cache-Control'],
         'min-fresh'
     )
 
@@ -394,7 +389,7 @@ function ST_ACCEPTING_CACHE(self)
         -- Cache Expired
         return self:ST_CACHE_EXPIRED(res)
     elseif res.remaining_ttl -  self:get_numeric_header_token(
-                                    ngx.req.get_headers()['Cache-Control'], 
+                                    ngx.req.get_headers()['Cache-Control'],
                                     'min-fresh'
                                 ) <= 0 then
         -- min-fresh makes this expired
@@ -425,8 +420,9 @@ function ST_SERVING_STALE(self)
 
     self:add_warning('110', 'Response is stale')
 
-    if self:config_get('background_revalidate') then
-        self:ctx()['bg_thread'] = ngx.thread.spawn(ST_BG_FETCHING, self)
+    -- Never background revalidate sub-requests, its pointless and just blocks the main request
+    if self:config_get('background_revalidate') and not ngx.is_subrequest then
+        self:ctx()['do_bg_revalidate'] = true
     end
 
     return self:ST_SERVING()
@@ -543,6 +539,9 @@ function ST_SERVING(self)
     end
 
     self:serve()
+    if self:ctx()['do_bg_revalidate'] then
+        self:ST_BG_FETCHING()
+    end
     self:redis_close()
 end
 
@@ -816,9 +815,9 @@ function serve(self)
         -- we went through ST_FETCHING, otherwise HIT.
         local st_hist = self:ctx().state_history
         if not st_hist["ST_DELETING"] then
-            local x_cache = "HIT from " .. ngx.var.hostname
+            local x_cache = "HIT from " .. visible_hostname()
             if st_hist["ST_FETCHING"] then
-                x_cache = "MISS from " .. ngx.var.hostname
+                x_cache = "MISS from " .. visible_hostname()
             end
 
             if res.header["X-Cache"] ~= nil then
@@ -872,12 +871,12 @@ function process_esi(self)
 
     -- Only perform trasnformations if we know there's work to do. This is determined
     -- during fetch (slow path).
-    
+
     if res:has_esi_vars() then
 
         -- Function to replace vars with runtime values
         -- TODO: Possibly handle the dictionary / list syntax rather than just strings?
-        -- For now we just return string presentations of the obvious things, until a 
+        -- For now we just return string presentations of the obvious things, until a
         -- need is determined.
         local replace = function(var)
             if var == "$(QUERY_STRING)" then
@@ -894,26 +893,26 @@ function process_esi(self)
                 return ""
             end
         end
-        
+
         -- For every esi:vars block, substitute any number of variables found.
         body = ngx.re.gsub(body, "<esi:vars>(.*)</esi:vars>", function(var_block)
-            return ngx.re.gsub(var_block[1], 
-                "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)", 
+            return ngx.re.gsub(var_block[1],
+                "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)",
                 function(m)
-                    return replace(m[0]) 
+                    return replace(m[0])
                 end,
                 "soj")
         end, "soj")
-        
+
         -- Remove vars tags that are left over
         body = ngx.re.gsub(body, "(<esi:vars>|</esi:vars>)", "", "soj")
 
         -- Replace vars inline in any other esi: tags.
-        body = ngx.re.gsub(body, 
-            "(<esi:.*)(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))(.*/>)", 
+        body = ngx.re.gsub(body,
+            "(<esi:.*)(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))(.*/>)",
             function(m)
-                return m[1] .. replace(m[2]) .. m[3] 
-            end, 
+                return m[1] .. replace(m[2]) .. m[3]
+            end,
             "oj")
 
         transformed = true
