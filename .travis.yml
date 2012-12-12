@@ -1,0 +1,16 @@
+language: perl
+perl:
+  - "5.16"
+
+services:
+  - redis-server
+
+env: PERL_CPANM_OPT="--notest --force --skip-satisfied"
+before_install:
+  # bootstrap modules needed to manipulate dist
+  - "cpanm Test::Nginx"
+  - "wget http://lawlr.us/openresty_1.2.4.11-1_amd64.deb && sudo dpkg -i openresty_1.2.4.11-1_amd64.deb"
+  - "sudo ln -s /usr/sbin/openresty /usr/sbin/nginx"
+
+notifications:
+  email: false
