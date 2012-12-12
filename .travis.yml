@@ -8,9 +8,11 @@ services:
 env: PERL_CPANM_OPT="--notest --force --skip-satisfied"
 before_install:
   # bootstrap modules needed to manipulate dist
-  - "cpanm Test::Nginx"
   - "wget http://lawlr.us/openresty_1.2.4.11-1_i386.deb && sudo dpkg -i openresty_1.2.4.11-1_i386.deb"
   - "sudo ln -s /usr/sbin/openresty /usr/sbin/nginx" # Nginx::Test runs 'nginx' binary, ours is called 'openresty'
+
+install:
+  - "cpanm Test::Nginx"
 
 notifications:
   email: false
