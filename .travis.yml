@@ -9,8 +9,7 @@ services:
 
 # Set cpanm running opts, switch nginx binary to `openresty`
 env: 
-  - PERL_CPANM_OPT="--notest --force --skip-satisfied"
-  - TEST_NGINX_BINARY="openresty"
+  - PERL_CPANM_OPT="--notest --force --skip-satisfied" TEST_NGINX_BINARY="openresty"
 
 # Install openresty package from squiz repo
 before_install:
