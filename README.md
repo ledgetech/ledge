@@ -8,6 +8,8 @@ The aim is to provide an efficient and extensible RFC compliant caching HTTP pro
 
 This library is considered experimental and under active development, functionality may change without much notice. However the tagged releases always pass tests and appear "stable", so checking out the latest tag should mean things work as advertised.
 
+[![Build Status](https://travis-ci.org/benagricola/ledge.png?branch=master)](https://travis-ci.org/benagricola/ledge)
+
 ### Features
 
 * RFC 2616 compliant proxying and caching based on policies derived from HTTP request and response headers (please [raise an issue](https://github.com/pintsized/ledge/issues) if you spot a case we haven't covered).
