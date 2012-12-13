@@ -15,4 +15,5 @@ install:
   - "cpanm Test::Nginx"
 
 notifications:
-  email: false
+  email:
+    - ledge@lawlr.us
