@@ -197,15 +197,17 @@ function redis_connect_read(self)
     end
 
     -- Try connection to default redis instance first, ideally local unix socket server
-    local ok,err self:ctx().redis:connect(
+    local ok,err = self:ctx().redis:connect(
         self:config_get("redis_socket") or self:config_get("redis_host"),
         self:config_get("redis_port")
     )
+
     -- Failed, try using sentinel to get a working slave
     if not ok and self:config_get("redis_use_sentinel") then
         local redis_host, redis_port = self:sentinel_get_slave()
         return self:ctx().redis:connect(redis_host, redis_port)
     end
+
     return ok,err
 end
 
@@ -868,13 +870,15 @@ function save_to_cache(self, res)
         end
     end
 
-    if not self:ctx().redis_master then
+    local redis = self:ctx().redis
+    if not self:ctx().redis_master and self:config_get("redis_use_sentinel") then
         local ok,err = self:redis_connect_master()
         if not ok then
             ngx.log(ngx.ERR, "Failed to save item, no Master connection: " .. err)
         end
+        redis = self:ctx().redis_master
     end
-    local redis = self:ctx().redis_master
+
 
     -- Save atomically
     redis:multi()
@@ -920,13 +924,15 @@ end
 
 
 function delete_from_cache(self)
-    if not self:ctx().redis_master then
+    local redis = self:ctx().redis
+    if not self:ctx().redis_master and self:config_get("redis_use_sentinel") then
         local ok,err = self:redis_connect_master()
         if not ok then
             ngx.log(ngx.ERR, "Failed to delete item, no Master connection: " .. err)
         end
+        redis = self:ctx().redis_master
     end
-    return self:ctx().redis_master:del(self:cache_key())
+    return redis:del(self:cache_key())
 end
 
 
