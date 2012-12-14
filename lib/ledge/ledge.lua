@@ -32,6 +32,10 @@ function new(self)
         origin_location = "/__ledge_origin",
         redis_host      = "127.0.0.1",
         redis_port      = 6379,
+        sentinel_host   = "127.0.0.1",
+        sentinel_port   = 26379,
+        sentinel_timeout = 100  -- 100ms default timeout
+        sentinel_master = 'redisledge',
         redis_socket    = nil,
         redis_database  = 0,
         redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
@@ -103,8 +107,37 @@ function visible_hostname()
     return name
 end
 
+function redis_get_master(self)
+    local redis_host =  self:config_get("redis_host")
+    local redis_port = self:config_get("redis_port")
+
+    -- Get master host from sentinel
+    local sentinel = redis:new()
+    sentinel.add_commands('sentinel');
+    local ok, err = sentinel:connect(
+        self:config_get("sentinel_host"),
+        self:config_get("sentinel_port")
+    )
+    if ok then
+        local res, err = sentinel:sentinel('get-master-addr-by-name', self:config_get("sentinel_master") )
+        if not err then
+           redis_host = res[1]
+           redis_port = res[2]
+        else
+            ngx.log(ngx.WARN, "Failed to get Master  for '"..self:config_get("sentinel_master").."' - "..err)
+        end
+    else
+        ngx.log(ngx.WARN, "Failed to connect to sentinel "..self:config_get("sentinel_host")..':'..self:config_get("sentinel_port") )
+    end
+    return redis_host, redis_port
+end
 
 function redis_connect(self)
+
+
+    local redis_master = self:redis_get_master()
+
+
     -- Connect to Redis. The connection is kept alive later.
     self:ctx().redis = redis:new()
     if self:config_get("redis_timeout") then
@@ -112,8 +145,8 @@ function redis_connect(self)
     end
 
     local ok, err = self:ctx().redis:connect(
-        self:config_get("redis_socket") or self:config_get("redis_host"),
-        self:config_get("redis_port")
+        redis_socket or redis_host,
+        redis_port
     )
 
     -- If we couldn't connect for any reason, redirect to the origin directly.
