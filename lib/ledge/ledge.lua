@@ -34,7 +34,7 @@ function new(self)
         redis_port      = 6379,
         sentinel_host   = "127.0.0.1",
         sentinel_port   = 26379,
-        sentinel_timeout = 100  -- 100ms default timeout
+        sentinel_timeout = 100,  -- 100ms default timeout
         sentinel_master = 'redisledge',
         redis_socket    = nil,
         redis_database  = 0,
@@ -135,8 +135,7 @@ end
 function redis_connect(self)
 
 
-    local redis_master = self:redis_get_master()
-
+    local redis_host, redis_port = self:redis_get_master()
 
     -- Connect to Redis. The connection is kept alive later.
     self:ctx().redis = redis:new()
@@ -145,7 +144,7 @@ function redis_connect(self)
     end
 
     local ok, err = self:ctx().redis:connect(
-        redis_socket or redis_host,
+        redis_host,
         redis_port
     )
 
