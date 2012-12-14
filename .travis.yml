@@ -19,6 +19,9 @@ before_install:
 install:
   - "cpanm Test::Nginx"
 
+# Run the tests as superuser to avoid log writing issues
+script: "sudo make test"
+
 notifications:
   email:
     - ledge@lawlr.us
