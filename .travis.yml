@@ -22,7 +22,3 @@ install:
 
 # Run the tests as superuser to avoid log writing issues, try to preserve environment
 script: "sudo -E make test"
-
-notifications:
-  email:
-    - ledge@lawlr.us
