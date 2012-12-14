@@ -34,7 +34,6 @@ function new(self)
         redis_port      = 6379,
         sentinel_host   = "127.0.0.1",
         sentinel_port   = 26379,
-        sentinel_timeout = 100,  -- 100ms default timeout
         sentinel_master = 'redisledge',
         redis_socket    = nil,
         redis_database  = 0,
@@ -107,46 +106,74 @@ function visible_hostname()
     return name
 end
 
-function redis_get_master(self)
-    local redis_host =  self:config_get("redis_host")
-    local redis_port = self:config_get("redis_port")
+function sentinel_connect(self)
+    self:ctx().sentinel = redis:new()
+    if self:config_get("redis_timeout") then
+        self:ctx().sentinel:set_timeout(self:config_get("redis_timeout"))
+    end
 
-    -- Get master host from sentinel
-    local sentinel = redis:new()
-    sentinel.add_commands('sentinel');
-    local ok, err = sentinel:connect(
+    self:ctx().sentinel.add_commands('sentinel');
+    local ok, err = self:ctx().sentinel:connect(
         self:config_get("sentinel_host"),
         self:config_get("sentinel_port")
     )
-    if ok then
-        local res, err = sentinel:sentinel('get-master-addr-by-name', self:config_get("sentinel_master") )
-        if not err then
-           redis_host = res[1]
-           redis_port = res[2]
-        else
-            ngx.log(ngx.WARN, "Failed to get Master  for '"..self:config_get("sentinel_master").."' - "..err)
-        end
-    else
-        ngx.log(ngx.WARN, "Failed to connect to sentinel "..self:config_get("sentinel_host")..':'..self:config_get("sentinel_port") )
+    if not ok then
+        ngx.log(ngx.WARN, err .. ", no sentinel connection")
     end
+    return ok,err
+end
+
+function sentinel_get_master(self)
+    local redis_host =  self:config_get("redis_host")
+    local redis_port = self:config_get("redis_port")
+
+    if not self:ctx().sentinel then
+        local ok,err = self:sentinel_connect()
+        if not ok then
+            return redis_host, redis_port
+        end
+    end
+
+    local res, err = self:ctx().sentinel:sentinel('get-master-addr-by-name', self:config_get("sentinel_master") )
+    if not err then
+       redis_host = res[1]
+       redis_port = res[2]
+    else
+        ngx.log(ngx.WARN, "Failed to get Master  for '"..self:config_get("sentinel_master").."' - "..err)
+    end
+
     return redis_host, redis_port
 end
 
-function redis_connect(self)
 
+function sentinel_get_slave(self)
 
-    local redis_host, redis_port = self:redis_get_master()
+    local redis_host =  self:config_get("redis_host")
+    local redis_port = self:config_get("redis_port")
 
-    -- Connect to Redis. The connection is kept alive later.
-    self:ctx().redis = redis:new()
-    if self:config_get("redis_timeout") then
-        self:ctx().redis:set_timeout(self:config_get("redis_timeout"))
+    if not self:ctx().sentinel then
+        local ok,err = self:sentinel_connect()
+        if not ok then
+            return redis_host, redis_port
+        end
     end
 
-    local ok, err = self:ctx().redis:connect(
-        redis_host,
-        redis_port
-    )
+    local res, err = self:ctx().sentinel:sentinel('slaves', self:config_get("sentinel_master") )
+    if not err then
+        local ip = 4
+        local port = 6
+        redis_host = res[1][ip]
+        redis_port = res[1][port]
+    else
+        ngx.log(ngx.WARN, "Failed to get Slave  for '"..self:config_get("sentinel_master").."' - "..err)
+    end
+
+    return redis_host, redis_port
+end
+
+
+function redis_connect(self)
+    local ok,err = self:redis_connect_read()
 
     -- If we couldn't connect for any reason, redirect to the origin directly.
     -- This means if Redis goes down, the site stands a chance of still being up.
@@ -159,6 +186,43 @@ function redis_connect(self)
     if self:config_get("redis_database") > 0 then
         self:ctx().redis:select(self:config_get("redis_database"))
     end
+end
+
+
+function redis_connect_read(self)
+    -- Connect to Redis. The connection is kept alive later.
+    self:ctx().redis = redis:new()
+    if self:config_get("redis_timeout") then
+        self:ctx().redis:set_timeout(self:config_get("redis_timeout"))
+    end
+
+    -- Try connection to default redis instance first, ideally local unix socket server
+    local ok,err self:ctx().redis:connect(
+        self:config_get("redis_socket") or self:config_get("redis_host"),
+        self:config_get("redis_port")
+    )
+    -- Failed, try using sentinel to get a working slave
+    if not ok and self:config_get("redis_use_sentinel") then
+        local redis_host, redis_port = self:sentinel_get_slave()
+        return self:ctx().redis:connect(redis_host, redis_port)
+    end
+    return ok,err
+end
+
+
+function redis_connect_master(self)
+    local redis_host, redis_port = self:sentinel_get_master()
+
+    -- Connect to Redis. The connection is kept alive later.
+    self:ctx().redis_master = redis:new()
+    if self:config_get("redis_timeout") then
+        self:ctx().redis_master:set_timeout(self:config_get("redis_timeout"))
+    end
+
+    return self:ctx().redis_master:connect(
+        redis_host,
+        redis_port
+    )
 end
 
 
@@ -180,6 +244,31 @@ function redis_close(self)
 
     if not ok then
         ngx.log(ngx.WARN, "couldn't set keepalive, "..err)
+    end
+    if self:ctx().redis_master ~= nil then
+        self:redis_close_master()
+    end
+end
+
+
+function redis_close_master(self)
+    -- Keep the Redis connection based on keepalive settings.
+    local ok, err = nil
+    if self:config_get("redis_keepalive_timeout") then
+        if self:config_get("redis_keepalive_pool_size") then
+            ok, err = self:ctx().redis_master:set_keepalive(
+                self:config_get("redis_keepalive_timeout"),
+                self:config_get("redis_keepalive_pool_size")
+            )
+        else
+            ok, err = self:ctx().redis_master:set_keepalive(self:config_get("redis_keepalive_timeout"))
+        end
+    else
+        ok, err = self:ctx().redis_master:set_keepalive()
+    end
+
+    if not ok then
+        ngx.log(ngx.WARN, "couldn't set Master keepalive, "..err)
     end
 end
 
@@ -779,7 +868,13 @@ function save_to_cache(self, res)
         end
     end
 
-    local redis = self:ctx().redis
+    if not self:ctx().redis_master then
+        local ok,err = self:redis_connect_master()
+        if not ok then
+            ngx.log(ngx.ERR, "Failed to save item, no Master connection: " .. err)
+        end
+    end
+    local redis = self:ctx().redis_master
 
     -- Save atomically
     redis:multi()
@@ -825,7 +920,13 @@ end
 
 
 function delete_from_cache(self)
-    return self:ctx().redis:del(self:cache_key())
+    if not self:ctx().redis_master then
+        local ok,err = self:redis_connect_master()
+        if not ok then
+            ngx.log(ngx.ERR, "Failed to delete item, no Master connection: " .. err)
+        end
+    end
+    return self:ctx().redis_master:del(self:cache_key())
 end
 
 
