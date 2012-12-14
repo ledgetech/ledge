@@ -1,0 +1,24 @@
+# Use perl to run tests
+language: perl
+perl:
+  - "5.16"
+
+# Make sure redis is started
+services:
+  - redis-server
+
+# Set cpanm running opts, switch nginx binary to `/usr/sbin/openresty`
+env: 
+  - PERL_CPANM_OPT="--notest --force --skip-satisfied" TEST_NGINX_BINARY="openresty"
+
+# Install openresty package from squiz repo
+before_install:
+  - "PACKAGE='openresty_1.2.4.11-1_i386.deb'; wget http://packages.squiz.co.uk/ubuntu/12.04/$PACKAGE && sudo dpkg -i $PACKAGE"
+  - "which openresty"
+
+# Install Test::Nginx suite via cpanm
+install:
+  - "cpanm Test::Nginx"
+
+# Run the tests as superuser to avoid log writing issues, try to preserve environment
+script: "sudo -E make test"
