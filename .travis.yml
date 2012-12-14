@@ -9,7 +9,7 @@ services:
 
 # Set cpanm running opts, switch nginx binary to `/usr/sbin/openresty`
 env: 
-  - PERL_CPANM_OPT="--notest --force --skip-satisfied" TEST_NGINX_BINARY="/usr/sbin/openresty"
+  - PERL_CPANM_OPT="--notest --force --skip-satisfied" TEST_NGINX_BINARY="openresty"
 
 # Install openresty package from squiz repo
 before_install:
@@ -20,8 +20,8 @@ before_install:
 install:
   - "cpanm Test::Nginx"
 
-# Run the tests as superuser to avoid log writing issues
-script: "sudo make test"
+# Run the tests as superuser to avoid log writing issues, try to preserve environment
+script: "sudo -E make test"
 
 notifications:
   email:
