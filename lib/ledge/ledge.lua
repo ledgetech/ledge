@@ -616,7 +616,17 @@ function read_from_cache(self)
             -- Unknown fields will be headers, starting with "h:" prefix.
             local header = cache_parts[i]:sub(3)
             if header then
-                res.header[header] = cache_parts[i + 1]
+                if header:sub(2,2) == ':' then
+                    -- Multiple headers, we also need to preserve the order?
+                    local index = tonumber(header:sub(1,1))
+                    header = header:sub(3)
+                    if res.header[header] == nil then
+                        res.header[header] = {}
+                    end
+                    res.header[header][index]= cache_parts[i + 1]
+                else
+                    res.header[header] = cache_parts[i + 1]
+                end
             end
         end
     end
@@ -742,8 +752,16 @@ function save_to_cache(self, res)
     local h = {}
     for header,header_value in pairs(res.header) do
         if not is_uncacheable(uncacheable_headers, header) then
-            table.insert(h, 'h:'..header)
-            table.insert(h, header_value)
+            if type(header_value) == 'table' then
+                -- Multiple headers are represented as a table of values
+                for i = 1, #header_value do
+                    table.insert(h, 'h:'..i..':'..header)
+                    table.insert(h, header_value[i])
+                end
+            else
+                table.insert(h, 'h:'..header)
+                table.insert(h, header_value)
+            end
         end
     end
 
