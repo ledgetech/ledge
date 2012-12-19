@@ -147,10 +147,10 @@ end
 
 
 function sentinel_get_slave(self)
-
     local redis_host =  self:config_get("redis_host")
     local redis_port = self:config_get("redis_port")
 
+    -- Return defaults if couldn't connect to sentinel, this is stupid but whatever
     if not self:ctx().sentinel then
         local ok,err = self:sentinel_connect()
         if not ok then
@@ -158,12 +158,22 @@ function sentinel_get_slave(self)
         end
     end
 
+    -- Get list of slaves
     local res, err = self:ctx().sentinel:sentinel('slaves', self:config_get("sentinel_master") )
     if not err then
         local ip = 4
         local port = 6
-        redis_host = res[1][ip]
-        redis_port = res[1][port]
+        local status = 10
+
+        for i = 1, #res, 2 do
+            if res[i][status]:find('s_down') == nil then
+                return res[i][ip], res[i][port]
+            end
+        end
+        -- Couldn't find a slave, try to get the master
+        if redis_host == self:config_get("redis_host") then
+            redis_host, redis_port = self:sentinel_get_master()
+        end
     else
         ngx.log(ngx.WARN, "Failed to get Slave  for '"..self:config_get("sentinel_master").."' - "..err)
     end
@@ -714,6 +724,7 @@ function read_from_cache(self)
     -- The Redis replies is a sequence of messages, so we iterate over pairs
     -- to get hash key/values.
     for i = 1, #cache_parts, 2 do
+
         -- Look for the "known" fields
         if cache_parts[i] == "body" then
             res.body = cache_parts[i + 1]
@@ -739,7 +750,17 @@ function read_from_cache(self)
             -- Unknown fields will be headers, starting with "h:" prefix.
             local header = cache_parts[i]:sub(3)
             if header then
-                res.header[header] = cache_parts[i + 1]
+                if header:sub(2,2) == ':' then
+                    -- Multiple headers, we also need to preserve the order?
+                    local index = tonumber(header:sub(1,1))
+                    header = header:sub(3)
+                    if res.header[header] == nil then
+                        res.header[header] = {}
+                    end
+                    res.header[header][index]= cache_parts[i + 1]
+                else
+                    res.header[header] = cache_parts[i + 1]
+                end
             end
         end
     end
@@ -865,8 +886,16 @@ function save_to_cache(self, res)
     local h = {}
     for header,header_value in pairs(res.header) do
         if not is_uncacheable(uncacheable_headers, header) then
-            table.insert(h, 'h:'..header)
-            table.insert(h, header_value)
+            if type(header_value) == 'table' then
+                -- Mutliple headers are represented as a table of values
+                for i = 1, #header_value do
+                    table.insert(h, 'h:'..i..':'..header)
+                    table.insert(h, header_value[i])
+                end
+            else
+                table.insert(h, 'h:'..header)
+                table.insert(h, header_value)
+            end
         end
     end
 
