@@ -38,7 +38,7 @@ function new(self)
         sentinel_master    = 'redisledge',
         redis_socket    = nil,
         redis_database  = 0,
-        redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
+        redis_timeout   = 100,          -- Nil value defaults to 60s or lua_socket_read_timeout
         redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
         keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
