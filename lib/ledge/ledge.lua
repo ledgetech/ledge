@@ -680,8 +680,7 @@ function fetch_from_origin(self)
     end
 
     local origin = ngx.location.capture(self:config_get("origin_location")..relative_uri(), {
-        method = method,
-        body = ngx.req.get_body_data(),
+        method = method
     })
 
     res.status = origin.status
