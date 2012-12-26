@@ -704,7 +704,7 @@ function read_from_cache(self)
             local header = cache_parts[i]:sub(3)
             if header then
                 if header:sub(2,2) == ':' then
-                    -- Multiple headers, we also need to preserve the order?
+                    -- Multiple headers are represented as a table of values
                     local index = tonumber(header:sub(1,1))
                     header = header:sub(3)
                     if res.header[header] == nil then
