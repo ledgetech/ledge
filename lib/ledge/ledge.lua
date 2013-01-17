@@ -17,8 +17,9 @@ _VERSION = '0.06'
 
 local mt = { __index = _M }
 
-local redis = require("resty.redis")
-local response = require("ledge.response")
+local redis = require "resty.redis"
+local response = require "ledge.response"
+local h_util = require "ledge.header_util"
 
 
 -- Origin modes, for serving stale content during maintenance periods or emergencies.
@@ -48,21 +49,6 @@ function new(self)
 end
 
 
-function run(self)
-    -- Off we go then.. enter the ST_INIT state.
-    self:ST_INIT()
-end
-
-
-function purge(self)
-    -- Purge request
-    self:ST_PURGING()
-end
-
-
--- UTILITIES --------------------------------------------------
-
-
 -- A safe place in ngx.ctx for the current module instance (self).
 function ctx(self)
     local id = tostring(self)
@@ -72,16 +58,11 @@ function ctx(self)
             events = {},
             config = {},
             state_history = {},
+            current_state = "",
         }
         ngx.ctx[id] = ctx
     end
     return ctx
-end
-
-
--- Keeps track of the transition history.
-function transition(self, state)
-    self:ctx().state_history[state] = true
 end
 
 
@@ -152,7 +133,9 @@ function redis_close(self)
 end
 
 
-function accepts_stale(self, res)
+function accepts_stale(self)
+    local res = self:get_response(res)
+
     -- max_stale config overrides everything
     local max_stale = self:config_get("max_stale")
     if max_stale and max_stale > 0 then
@@ -161,20 +144,20 @@ function accepts_stale(self, res)
 
     -- Check response for headers that prevent serving stale
     local res_cc = res.header["Cache-Control"]
-    if self:header_has_directive(res_cc, 'revalidate') or
-        self:header_has_directive(res_cc, 's-maxage') then
+    if h_util.header_has_directive(res_cc, 'revalidate') or
+        h_util.header_has_directive(res_cc, 's-maxage') then
         return nil
     end
 
     -- Check for max-stale request header
     local req_cc = ngx.req.get_headers()['Cache-Control']
-    return self:get_numeric_header_token(req_cc, 'max-stale')
+    return h_util.get_numeric_header_token(req_cc, 'max-stale')
 end
 
 
 function calculate_stale_ttl(self, res)
     local stale = self:accepts_stale(res) or 0
-    local min_fresh = self:get_numeric_header_token(
+    local min_fresh = h_util.get_numeric_header_token(
         ngx.req.get_headers()['Cache-Control'],
         'min-fresh'
     )
@@ -210,7 +193,7 @@ function must_revalidate(self)
         return true
     else
         local res = self:get_response()
-        if self:header_has_directive(res.header["Cache-Control"], "revalidate") then
+        if h_util.header_has_directive(res.header["Cache-Control"], "revalidate") then
             return true
         elseif type(cc) == "string" and res.header["Age"] then
             local max_age = cc:match("max%-age=(%d+)")
@@ -326,44 +309,317 @@ end
 -- Header Utility Functions
 
 
-function header_has_directive(self, header, directive)
-    if header then
-        -- Just checking the directive appears in the header, e.g. no-cache, private etc.
-        return (header:find(directive, 1, true) ~= nil)
-    end
-    return false
+
+
+function run(self)
+    -- Off we go then.. enter the "checking_request_accepts_cache" state.
+    --self:ST_INIT()
+    self:e "init"
 end
 
 
-function get_header_token(self, header, directive)
-    if self:header_has_directive(header, directive) then
-        -- Want the string value from a token
-        local value = ngx.re.match(header, directive:gsub('-','\\-').."=([^\\d]+)", "io")
-        if value ~= nil then
-            return value[1]
+-- Pre-transitions: Actions to always perform before transitioning.
+pre_transitions = {
+    exiting = { action = "redis_close" },
+    serving_stale = { action = "add_stale_warning" },
+    fetching = { action = "fetch" },
+    serving = { action = "serve" },
+}
+
+
+-- Events: Transition table, indexed by an event. 
+-- Filter transitions by previous state "when", and run actions using "but_first". 
+-- Requires at least "begin" to transition.
+events = {
+    init = {
+        { begin = "checking_request_accepts_cache", but_first = "redis_connect" }
+    },
+
+    cache_accepted = {
+        { when = "checking_request_accepts_cache", begin = "checking_cache", 
+            but_first = "read_cache" },
+        { when = "validating_locally", begin = "serving" }
+    },
+
+    cache_not_accepted = {
+        { begin = "fetching" }
+    },
+
+    cache_missing = {
+        { begin = "fetching", but_first = "remove_client_validators" }
+    },
+
+    cache_expired = {
+        { when = "checking_cache", begin = "checking_can_serve_stale" },
+        { when = "checking_can_serve_stale", begin = "fetching", 
+            but_first = "remove_client_validators" }
+    },
+
+    cache_valid = {
+        { when = "checking_cache", begin = "considering_revalidation" }
+    },
+
+    response_fetched = {
+        { begin = "serving", but_first = "update_cache" }
+    },
+
+    must_revalidate = {
+        { when = "considering_revalidation", begin = "considering_local_revalidation" },
+        { when = "considering_local_revalidation", begin = "revalidating_upstream" },
+    },
+
+    can_revalidate_locally = {
+        { begin = "revalidating_locally" },
+    },
+
+    not_modified = {
+        { when = "revalidating_locally", begin = "serving_not_modified" },
+        { when = "re_revalidating_locally", begin = "serving_not_modified" },
+        { when = "revalidating_upstream", begin = "re_revalidating_locally" },
+        { when = "revalidating_in_background", begin = "exiting" },
+    },
+
+    modified = {
+        { when = "revalidating_locally", begin = "revalidating_upstream" },
+        { when = "re_revalidating_locally", begin = "serving" },
+        { when = "revalidating_upstream", begin = "re_revalidating_locally", 
+            but_first = "update_cache" },
+        { when = "revalidating_in_background", begin = "exiting", 
+            but_first = "update_cache" }
+    },
+
+    can_serve = {
+        { begin = "serving" }
+    },
+
+    serve_stale = {
+        { when = "checking_can_serve_stale", begin = "serving_stale" }
+    },
+
+    served = {
+        { when = "serving_stale", begin = "revalidating_in_background" },
+        { begin = "exiting" },
+    },
+}
+
+
+-- Actions: Associate module functions callable by the state machine.
+actions = {
+    redis_connect = function(self)
+        return self:redis_connect()
+    end,
+
+    redis_close = function(self)
+        return self:redis_close()
+    end,
+
+    read_cache = function(self)
+        local res = self:read_from_cache() 
+        self:set_response(res)
+    end,
+
+    fetch = function(self)
+        local res = self:fetch_from_origin()
+        self:set_response(res)
+
+        -- TODO: remove this
+        self:ctx().state_history["ST_FETCHING"] = true
+    end,
+
+    remove_client_validators = function(self)
+    end,
+
+    add_stale_warning = function(self)
+        return self:add_warning("110")
+    end,
+
+    serve = function(self)
+        return self:serve()
+    end,
+
+    background_revalidate = function(self)
+    end,
+
+    update_cache = function(self)
+        local res = self:get_response()
+        if res:is_cacheable() then
+            self:save_to_cache(res)
+        else
+            self:delete_from_cache(res)
+
+            -- TODO: Remove this
+            self:ctx().state_history["ST_DELETING"] = true
         end
-        return nil
-    end
-    return nil
-end
+    end,
+}
 
 
-function get_numeric_header_token(self, header, directive)
-    if self:header_has_directive(header, directive) then
-        -- Want the numeric value from a token
-        local value = ngx.re.match(header, directive:gsub('-','\\-').."=(\\d+)", "io")
-        if value ~= nil then
-            return tonumber(value[1])
+-- Decision states: Represented as functions which should simply make a decision, 
+-- and return calling self:e with the event that has occurred.
+-- Place any further logic in actions triggered by the transition table.
+states = {
+    checking_request_accepts_cache = function(self)
+        if self:request_accepts_cache() then
+            return self:e "cache_accepted"
+        else
+            return self:e "cache_not_accepted"
         end
-        return 0
+    end,
+    
+    checking_cache = function(self)
+        local res = self:get_response()
+
+        if not res then
+            return self:e "cache_missing"
+        elseif res:has_expired() then
+            return self:e "cache_expired"
+        else
+            return self:e "cache_valid"
+        end
+    end,
+
+    fetching = function(self)
+        local res = self:get_response()
+
+        if res.status == ngx.HTTP_NOT_MODIFIED then
+            return self:e "can_serve"
+        else
+            return self:e "response_fetched"
+        end
+    end,
+
+    considering_revalidation = function(self)
+        if self:must_revalidate() then
+            return self:e "must_revalidate"
+        else
+            -- Is this right?
+            return self:e "can_serve"
+        end
+    end,
+
+    considering_local_revalidation = function(self)
+        if self:can_revalidate_locally() then
+            return self:e "can_revalidate_locally"
+        else
+            return self:e "must_revalidate"
+        end
+    end,
+
+    revalidating_locally = function(self)
+        if self:is_valid_locally() then
+            return self:e "not_modified"
+        else
+            return self:e "modified"
+        end
+    end,
+
+    re_revalidating_locally = function(self)
+        -- How do we compare against the new response?
+        if self:is_valid_locally() then
+            return self:e "not_modified"
+        else
+            return self:e "modified"
+        end
+    end,
+    
+    revalidating_upstream = function(self)
+        local res = self:get_response()
+
+        if res.status == ngx.HTTP_NOT_MODIFIED then
+            return self:e "can_serve"
+        else
+            return self:e "response_fetched"
+        end
+    end,
+
+    revalidating_in_background = function(self)
+    end,
+
+    checking_can_serve_stale = function(self)
+        if self:accepts_stale() then
+            return self:e "serve_stale"
+        else
+            return self:e "cache_expired"
+        end
+    end,
+
+    serving = function(self)
+        return self:e "served"
+    end,
+
+    serving_not_modified = function(self)
+        return self:e "served"
+    end,
+
+    serving_stale = function(self)
+        return self:e "served"
+    end,
+
+    exiting = function(self)
+    end,
+}
+
+
+function t(self, state)
+    assert("function" == type(self.states[state]), "State '" .. state .. "' function not defined")
+    local current_state = self:ctx().current_state -- May be nil
+
+    -- Check for any transition pre-tasks
+    local pre_t = self.pre_transitions[state]
+    if pre_t and (pre_t["from"] == nil or current_state == pre_t["from"]) then
+
+        assert("function" == type(self.actions[pre_t["action"]]), 
+            "Action " .. pre_t["action"] .. " is not a function")
+
+        ngx.log(ngx.NOTICE, "#t: " .. pre_t["action"])
+        self.actions[pre_t["action"]](self)
     end
-    return 0
+
+    ngx.log(ngx.NOTICE,"#t: " .. state)
+    self:ctx().current_state = state
+    return self.states[state](self)
 end
 
 
--- STATES ------------------------------------------------------
+function e(self, event)
+    local current_state = self:ctx().current_state
+    
+    for _, trans in ipairs(self.events[event]) do
+        if trans["when"] == nil or trans["when"] == current_state then
+            assert(trans["begin"], 
+                "#e: Nothing to begin after '" .. event .. "' when '" .. current_state .. "'")
+
+            if trans["but_first"] then
+                assert("function" == type(self.actions[trans["but_first"]]), 
+                    "No action function defined for '" .. trans["but_first"] .. "'")
+                ngx.log(ngx.NOTICE, "#a: " .. trans["but_first"])
+                self.actions[trans["but_first"]](self)
+            end
+
+            return self:t(trans["begin"])
+        end
+    end
+end
+
+--[[
+
+DEPRECATED. DON'T FORGET TO DEAL WITH THESE.
+
+function purge(self)
+    -- Purge request
+    self:ST_PURGING()
+end
+
+-- Keeps track of the transition history.
+function transition(self, state)
+    self:ctx().state_history[state] = true
+end
+
+]]--
 
 
+
+--[[
 function ST_INIT(self)
     self:transition("ST_INIT")
     self:redis_connect()
@@ -374,7 +630,6 @@ function ST_INIT(self)
         return self:ST_FETCHING()
     end
 end
-
 
 function ST_ACCEPTING_CACHE(self)
     self:transition("ST_ACCEPTING_CACHE")
@@ -388,7 +643,7 @@ function ST_ACCEPTING_CACHE(self)
     elseif res.remaining_ttl <= 0 then
         -- Cache Expired
         return self:ST_CACHE_EXPIRED(res)
-    elseif res.remaining_ttl -  self:get_numeric_header_token(
+    elseif res.remaining_ttl -  h_util.get_numeric_header_token(
                                     ngx.req.get_headers()['Cache-Control'],
                                     'min-fresh'
                                 ) <= 0 then
@@ -465,7 +720,7 @@ end
 function ST_BG_FETCHING(self)
     self:transition("ST_BG_FETCHING")
 
-    if self:header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
+    if h_util.header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
         return
     end
 
@@ -487,7 +742,7 @@ end
 function ST_FETCHING(self)
     self:transition("ST_FETCHING")
 
-    if self:header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
+    if h_util.header_has_directive(ngx.req.get_headers()['Cache-Control'], 'only-if-cached') then
         ngx.exit(ngx.HTTP_GATEWAY_TIMEOUT)
     end
 
@@ -565,7 +820,7 @@ function ST_PURGING(self)
     self:redis_close()
     ngx.exit(status_code)
 end
-
+--]]
 
 -- ACTIONS ---------------------------------------------------------
 
@@ -816,7 +1071,7 @@ end
 
 function serve(self)
     if not ngx.headers_sent then
-        local res = self:get_response()
+        local res = self:get_response() -- or self:get_response("fetched")
         assert(res.status, "Response has no status.")
 
         -- Via header
@@ -870,13 +1125,17 @@ function serve(self)
 end
 
 
-function add_warning(self, code, text)
+function add_warning(self, code)
     local res = self:get_response()
     if not res.header["Warning"] then
         res.header["Warning"] = {}
     end
 
-    local header = code .. ' ' .. visible_hostname() .. ' "' .. text .. '"'
+    local warnings = {
+        ["110"] = "Response is stale",
+    }
+
+    local header = code .. ' ' .. visible_hostname() .. ' "' .. warnings[code] .. '"'
     table.insert(res.header["Warning"], header)
 end
 

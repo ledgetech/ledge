@@ -1,3 +1,4 @@
+local require = require
 local pairs = pairs
 local ipairs = ipairs
 local setmetatable = setmetatable
@@ -12,6 +13,8 @@ module(...)
 _VERSION = '0.2'
 
 local mt = { __index = _M }
+
+local h_util = require "ledge.header_util"
 
 
 -- Response states
@@ -133,6 +136,18 @@ function ttl(self)
     end
 
     return 0
+end
+
+
+function has_expired(self)
+    if self.remaining_ttl <= 0 then
+        return true
+    end
+
+    local cc = ngx.req.get_headers()["Cache-Control"]
+    if self.remaining_ttl - h_util.get_numeric_header_token(cc, "min-fresh") <= 0 then
+        return true
+    end
 end
 
 
