@@ -142,6 +142,7 @@ X-Cache:
 --- response_body
 TEST 6
 
+
 === TEST 7: only-if-cached should return 504 on cache miss
 --- http_config eval: $::HttpConfig
 --- config

@@ -57,6 +57,7 @@ function ctx(self)
             events = {},
             config = {},
             state_history = {},
+            event_history = {},
             current_state = "",
         }
         ngx.ctx[id] = ctx
@@ -130,6 +131,7 @@ function redis_close(self)
         ngx.log(ngx.WARN, "couldn't set keepalive, "..err)
     end
 end
+
 
 function accepts_stale(self, res)
     -- max_stale config overrides everything
@@ -335,6 +337,7 @@ end
 
 
 -- Pre-transitions: Actions to always perform before transitioning.
+--TODO: Perhaps actions need to be listed in an order? We can only have one right now.
 pre_transitions = {
     exiting = { action = "redis_close" },
     fetching = { action = "fetch" },
@@ -394,8 +397,23 @@ events = {
     },
 
     response_fetched = {
-        { after = "revalidating_in_background", begin = "exiting", but_first = "update_cache" },
-        { begin = "serving", but_first = "update_cache" }
+        { begin = "updating_cache" }
+    },
+
+    response_cacheable = {
+        { after = "revalidating_in_background", begin = "exiting", but_first = "save_to_cache" },
+        { begin = "serving", but_first = "save_to_cache" },
+    },
+
+    response_not_cacheable = {
+        { after = "revalidating_in_background", begin = "exiting", 
+            but_first = "delete_from_cache" },
+        { begin = "serving", but_first = "delete_from_cache" },
+    },
+
+    response_body_missing = {
+        { after = "revalidating_in_background", begin = "exiting" },
+        { begin = "serving" },
     },
 
     must_revalidate = {
@@ -413,18 +431,12 @@ events = {
         { when = "re_revalidating_locally", begin = "serving_not_modified" },
         --{ when = "revalidating_upstream", begin = "re_revalidating_locally" },
         -- TODO: Add in re-revalidation. Current tests aren't expecting this.
-        { when = "revalidating_upstream", begin = "serving" },
-        { when = "revalidating_in_background", begin = "exiting" },
     },
 
     modified = {
         { when = "revalidating_locally", begin = "revalidating_upstream", 
             but_first = "add_validators_from_cache" },
         { when = "re_revalidating_locally", begin = "serving" },
-        { when = "revalidating_upstream", begin = "re_revalidating_locally", 
-            but_first = "update_cache" },
-        { when = "revalidating_in_background", begin = "exiting", 
-            but_first = "update_cache" }
     },
 
     can_serve = {
@@ -480,9 +492,6 @@ actions = {
         if res.status ~= ngx.HTTP_NOT_MODIFIED then
             self:set_response(res)
         end
-
-        -- TODO: remove this
-        self:ctx().state_history["ST_FETCHING"] = true
     end,
 
     remove_client_validators = function(self)
@@ -508,18 +517,13 @@ actions = {
         end
     end,
 
-    update_cache = function(self)
+    save_to_cache = function(self)
         local res = self:get_response()
-        if ngx.req.get_method() ~= "HEAD" then
-            if res:is_cacheable() then
-                self:save_to_cache(res)
-            else
-                self:delete_from_cache(res)
+        return self:save_to_cache(res)
+    end,
 
-                -- TODO: Remove this
-                self:ctx().state_history["ST_DELETING"] = true
-            end
-        end
+    delete_from_cache = function(self)
+        return self:delete_from_cache()
     end,
 
     set_http_ok = function(self)
@@ -660,6 +664,19 @@ states = {
         end
     end,
 
+    updating_cache = function(self)
+        if ngx.req.get_method() ~= "HEAD" then
+            local res = self:get_response()
+            if res:is_cacheable() then
+                return self:e "response_cacheable"
+            else
+                return self:e "response_not_cacheable"
+            end
+        else
+            return self:e "response_body_missing"
+        end
+    end,
+
     serving = function(self)
         return self:e "served"
     end,
@@ -683,40 +700,44 @@ states = {
 function t(self, state)
     assert("function" == type(self.states[state]), 
         "State '" .. state .. "' function not defined")
-    local current_state = self:ctx().current_state -- May be nil
+
+    local ctx = self:ctx()
 
     -- Check for any transition pre-tasks
     local pre_t = self.pre_transitions[state]
-    if pre_t and (pre_t["from"] == nil or current_state == pre_t["from"]) then
+    if pre_t and (pre_t["from"] == nil or ctx.current_state == pre_t["from"]) then
 
         assert("function" == type(self.actions[pre_t["action"]]), 
             "Action " .. pre_t["action"] .. " is not a function")
 
---        ngx.log(ngx.NOTICE, "#t: " .. pre_t["action"])
+        ngx.log(ngx.NOTICE, "#t: " .. pre_t["action"])
         self.actions[pre_t["action"]](self)
     end
 
-  --  ngx.log(ngx.NOTICE,"#t: " .. state)
-    self:ctx().state_history[state] = true
-    self:ctx().current_state = state
+    ngx.log(ngx.NOTICE,"#t: " .. state)
+
+    ctx.state_history[state] = true
+    ctx.current_state = state
     return self.states[state](self)
 end
 
 
 function e(self, event)
-    local current_state = self:ctx().current_state
-    local state_history = self:ctx().state_history
+    ngx.log(ngx.NOTICE, "#e: " .. event)
+
+    local ctx = self:ctx()
+    ctx.event_history[event] = true
     
     for _, trans in ipairs(self.events[event]) do
-        if trans["when"] == nil or trans["when"] == current_state then
-            if not trans["after"] or state_history[trans["after"]] then 
+        if trans["when"] == nil or trans["when"] == ctx.current_state then
+            if not trans["after"] or ctx.state_history[trans["after"]] then 
                 assert(trans["begin"], 
-                "#e: Nothing to begin after '" .. event .. "' when '" .. current_state .. "'")
+                "#e: Nothing to begin after '"..event.."' when '"..ctx.current_state.."'")
 
                 if trans["but_first"] then
                     assert("function" == type(self.actions[trans["but_first"]]), 
                     "No action function defined for '" .. trans["but_first"] .. "'")
-    --                ngx.log(ngx.NOTICE, "#a: " .. trans["but_first"])
+                    ngx.log(ngx.NOTICE, "#a: " .. trans["but_first"])
                     self.actions[trans["but_first"]](self)
                 end
 
@@ -984,12 +1005,11 @@ function serve(self)
         end
 
         -- X-Cache header
-        -- Don't set if this isn't a cacheable response (ST_DELETING). Set to MISS is
-        -- we went through ST_FETCHING, otherwise HIT.
-        local st_hist = self:ctx().state_history
-        if not st_hist["ST_DELETING"] then
+        -- Don't set if this isn't a cacheable response. Set to MISS is we fetched.
+        local ctx = self:ctx()
+        if not ctx.event_history["response_not_cacheable"] then
             local x_cache = "HIT from " .. visible_hostname()
-            if st_hist["ST_FETCHING"] then
+            if ctx.state_history["fetching"] then
                 x_cache = "MISS from " .. visible_hostname()
             end
 
