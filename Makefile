@@ -1,5 +1,6 @@
 OPENRESTY_PREFIX=/usr/local/openresty-debug
 TEST_LEDGE_REDIS_DATABASE=1
+TEST_FILE ?= t
 
 PREFIX ?=          /usr/local
 LUA_INCLUDE_DIR ?= $(PREFIX)/include
@@ -16,4 +17,4 @@ install: all
 
 test: all
 	redis-cli -n $(TEST_LEDGE_REDIS_DATABASE) flushdb
-	PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$$PATH TEST_LEDGE_REDIS_DATABASE=$(TEST_LEDGE_REDIS_DATABASE) TEST_NGINX_NO_SHUFFLE=1 prove -I../test-nginx/lib -r t
+	PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$$PATH TEST_LEDGE_REDIS_DATABASE=$(TEST_LEDGE_REDIS_DATABASE) TEST_NGINX_NO_SHUFFLE=1 prove -I../test-nginx/lib -r $(TEST_FILE)
