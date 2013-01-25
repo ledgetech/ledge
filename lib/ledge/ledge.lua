@@ -371,7 +371,7 @@ events = {
     cache_accepted = {
         { when = "checking_request", begin = "checking_cache", 
             but_first = "read_cache" },
-        { when = "validating_locally", begin = "serving" }
+        { when = "revalidating_locally", begin = "serving" }
     },
 
     cache_not_accepted = {
@@ -698,18 +698,11 @@ states = {
 
 
 function t(self, state)
-    assert("function" == type(self.states[state]), 
-        "State '" .. state .. "' function not defined")
-
     local ctx = self:ctx()
 
     -- Check for any transition pre-tasks
     local pre_t = self.pre_transitions[state]
     if pre_t and (pre_t["from"] == nil or ctx.current_state == pre_t["from"]) then
-
-        assert("function" == type(self.actions[pre_t["action"]]), 
-            "Action " .. pre_t["action"] .. " is not a function")
-
         ngx.log(ngx.NOTICE, "#t: " .. pre_t["action"])
         self.actions[pre_t["action"]](self)
     end
@@ -731,12 +724,7 @@ function e(self, event)
     for _, trans in ipairs(self.events[event]) do
         if trans["when"] == nil or trans["when"] == ctx.current_state then
             if not trans["after"] or ctx.state_history[trans["after"]] then 
-                assert(trans["begin"], 
-                "#e: Nothing to begin after '"..event.."' when '"..ctx.current_state.."'")
-
                 if trans["but_first"] then
-                    assert("function" == type(self.actions[trans["but_first"]]), 
-                    "No action function defined for '" .. trans["but_first"] .. "'")
                     ngx.log(ngx.NOTICE, "#a: " .. trans["but_first"])
                     self.actions[trans["but_first"]](self)
                 end
