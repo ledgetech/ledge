@@ -24,7 +24,6 @@ __DATA__
 --- config
 location /cached {
     content_by_lua '
-
         ledge:run()
     ';
 }
@@ -43,15 +42,14 @@ TEST 1
 === TEST 2: Purge cache
 --- http_config eval: $::HttpConfig
 --- config
-location /purge {
-    rewrite /purge(.*) $1 break;
+location /cached {
     content_by_lua '
-        ledge:purge()
+        ledge:run()
     ';
 }
 
 --- request
-PURGE /purge/cached
+PURGE /cached
 --- error_code: 200
 
 === TEST 3: Cache has been purged
@@ -76,13 +74,12 @@ TEST 3
 === TEST 4: Purge on unknown key returns 404
 --- http_config eval: $::HttpConfig
 --- config
-location /purge {
-    rewrite /purge(.*) $1 break;
+location /foobar {
     content_by_lua '
-        ledge:purge()
+        ledge:run()
     ';
 }
 
 --- request
-PURGE /purge/foobar
+PURGE /foobar
 --- error_code: 404

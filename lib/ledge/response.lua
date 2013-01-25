@@ -151,6 +151,24 @@ function has_expired(self)
 end
 
 
+-- The amount of additional stale time allowed for this response considering
+-- the current requests 'min-fresh'.
+function stale_ttl(self)
+    -- Check response for headers that prevent serving stale
+    local cc = self.header["Cache-Control"]
+    if h_util.header_has_directive(cc, "revalidate") or
+        h_util.header_has_directive(cc, "s-maxage") then
+        return 0
+    end
+
+    local min_fresh = h_util.get_numeric_header_token(
+        ngx.req.get_headers()["Cache-Control"], "min-fresh"
+    )
+
+    return self.remaining_ttl - min_fresh
+end
+
+
 -- Test for presence of esi comments and keep the result.
 function has_esi_comment(self)
     if self.esi.has_esi_comment == nil then

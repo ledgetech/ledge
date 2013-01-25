@@ -77,6 +77,33 @@ GET /stale
 TEST 1
 
 
+=== TEST 1: Prime cache for subsequent tests
+--- http_config eval: $::HttpConfig
+--- config
+location /stale {
+    content_by_lua '
+
+        ledge:bind("before_save", function(res)
+            -- immediately expire cache entries
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 1")
+    ';
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale
+--- response_body
+TEST 1
+
+
 === TEST 3: Honour max_stale ledge config option
 --- http_config eval: $::StaleHttpConfig
 --- config
@@ -95,6 +122,34 @@ GET /stale
 --- response_body
 TEST 1
 
+
+=== TEST 1: Prime cache for subsequent tests
+--- http_config eval: $::HttpConfig
+--- config
+location /stale {
+    content_by_lua '
+
+        ledge:bind("before_save", function(res)
+            -- immediately expire cache entries
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 1")
+    ';
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale
+--- response_body
+TEST 1
+
+
 === TEST 4: max_stale config overrides request header
 --- http_config eval: $::StaleHttpConfig
 --- config
@@ -110,6 +165,33 @@ location /__ledge_origin {
 }
 --- more_headers
 Cache-Control: max-stale=0
+--- request
+GET /stale
+--- response_body
+TEST 1
+
+
+=== TEST 1: Prime cache for subsequent tests
+--- http_config eval: $::HttpConfig
+--- config
+location /stale {
+    content_by_lua '
+
+        ledge:bind("before_save", function(res)
+            -- immediately expire cache entries
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 1")
+    ';
+}
+--- more_headers
+Cache-Control: no-cache
 --- request
 GET /stale
 --- response_body
@@ -133,6 +215,7 @@ location /__ledge_origin {
 GET /stale
 --- response_headers_like
 Warning: 110 .*
+
 
 === TEST 5: Reset cache for subsequent tests
 --- http_config eval: $::HttpConfig
