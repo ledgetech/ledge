@@ -343,8 +343,6 @@ pre_transitions = {
     fetching = { action = "fetch" },
     revalidating_upstream = { action = "fetch" },
     serving_not_modified = { action = "set_http_not_modified" },
-    serving = { action = "serve" },
-    serving_stale = { action = "serve" },
 }
 
 
@@ -371,7 +369,7 @@ events = {
     cache_accepted = {
         { when = "checking_request", begin = "checking_cache", 
             but_first = "read_cache" },
-        { when = "revalidating_locally", begin = "serving" }
+        { when = "revalidating_locally", begin = "preparing_response" }
     },
 
     cache_not_accepted = {
@@ -402,13 +400,13 @@ events = {
 
     response_cacheable = {
         { after = "revalidating_in_background", begin = "exiting", but_first = "save_to_cache" },
-        { begin = "serving", but_first = "save_to_cache" },
+        { begin = "preparing_response", but_first = "save_to_cache" },
     },
 
     response_not_cacheable = {
         { after = "revalidating_in_background", begin = "exiting", 
             but_first = "delete_from_cache" },
-        { begin = "serving", but_first = "delete_from_cache" },
+        { begin = "preparing_response", but_first = "delete_from_cache" },
     },
 
     response_body_missing = {
@@ -436,11 +434,16 @@ events = {
     modified = {
         { when = "revalidating_locally", begin = "revalidating_upstream", 
             but_first = "add_validators_from_cache" },
-        { when = "re_revalidating_locally", begin = "serving" },
+        { when = "re_revalidating_locally", begin = "preparing_response" },
     },
 
-    can_serve = {
-        { begin = "serving" }
+    esi_detected = {
+        { begin = "serving", but_first = "process_esi" }
+    },
+
+    response_ready = {
+        { when = "preparing_response", begin = "serving" },
+        { begin = "preparing_response" },
     },
 
     serve_stale = {
@@ -526,6 +529,10 @@ actions = {
         return self:delete_from_cache()
     end,
 
+    process_esi = function(self)
+        return self:process_esi()
+    end,
+
     set_http_ok = function(self)
         ngx.status = ngx.HTTP_OK
     end,
@@ -594,7 +601,7 @@ states = {
         local res = self:get_response()
 
         if res.status == ngx.HTTP_NOT_MODIFIED then
-            return self:e "can_serve"
+            return self:e "response_ready"
         else
             return self:e "response_fetched"
         end
@@ -613,7 +620,7 @@ states = {
             return self:e "must_revalidate"
         else
             -- Is this right?
-            return self:e "can_serve"
+            return self:e "response_ready"
         end
     end,
 
@@ -646,7 +653,7 @@ states = {
         local res = self:get_response()
 
         if res.status == ngx.HTTP_NOT_MODIFIED then
-            return self:e "can_serve"
+            return self:e "response_ready"
         else
             return self:e "response_fetched"
         end
@@ -677,7 +684,20 @@ states = {
         end
     end,
 
+    preparing_response = function(self)
+        if self:config_get("enable_esi") == true then
+            local res = self:get_response()
+            if res:has_esi_vars() or res:has_esi_comment() or
+                res:has_esi_remove() or res:has_esi_include() then
+                return self:e "esi_detected"
+            end
+        end
+
+        return self:e "response_ready"
+    end,
+
     serving = function(self)
+        self:serve()
         return self:e "served"
     end,
 
@@ -686,8 +706,7 @@ states = {
     end,
 
     serving_stale = function(self)
-        -- TODO: Does looping around like this make sense?
-        -- In fact, does can_serve and serve_stale make sense? Is "ready_to_serve" clearer?
+        self:serve()
         return self:e "served"
     end,
 
@@ -703,7 +722,7 @@ function t(self, state)
     -- Check for any transition pre-tasks
     local pre_t = self.pre_transitions[state]
     if pre_t and (pre_t["from"] == nil or ctx.current_state == pre_t["from"]) then
-        ngx.log(ngx.DEBUG, "#t: " .. pre_t["action"])
+        ngx.log(ngx.DEBUG, "#a: " .. pre_t["action"])
         self.actions[pre_t["action"]](self)
     end
 
@@ -975,11 +994,6 @@ end
 
 
 function serve(self)
-    -- TODO: Would be nice to not just wedge this in here...
-    if self:config_get("enable_esi") then
-        self:process_esi()
-    end
-
     if not ngx.headers_sent then
         local res = self:get_response() -- or self:get_response("fetched")
         assert(res.status, "Response has no status.")
@@ -1053,13 +1067,11 @@ end
 function process_esi(self)
     local res = self:get_response()
     local body = res.body
-    local transformed = false
 
-    -- Only perform trasnformations if we know there's work to do. This is determined
+    -- Only perform transformations if we know there's work to do. This is determined
     -- during fetch (slow path).
 
     if res:has_esi_vars() then
-
         -- Function to replace vars with runtime values
         -- TODO: Possibly handle the dictionary / list syntax rather than just strings?
         -- For now we just return string presentations of the obvious things, until a
@@ -1100,18 +1112,14 @@ function process_esi(self)
                 return m[1] .. replace(m[2]) .. m[3]
             end,
             "oj")
-
-        transformed = true
     end
 
     if res:has_esi_comment() then
         body = ngx.re.gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")
-        transformed = true
     end
 
     if res:has_esi_remove() then
         body = ngx.re.gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
-        transformed = true
     end
 
     if res:has_esi_include() then
@@ -1138,17 +1146,13 @@ function process_esi(self)
                 return table.remove(esi_fragments, 1).body
             end, "ioj")
         end
-        transformed = true
     end
 
-    if transformed then
-        if res.header["Content-Length"] then res.header["Content-Length"] = #body end
-        res.body = body
-        self:set_response(res)
-        self:add_warning("214")
-    end
+    if res.header["Content-Length"] then res.header["Content-Length"] = #body end
+    res.body = body
+    self:set_response(res)
+    self:add_warning("214")
 end
-
 
 local class_mt = {
     -- to prevent use of casual module global variables
