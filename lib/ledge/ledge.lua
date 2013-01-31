@@ -703,11 +703,11 @@ function t(self, state)
     -- Check for any transition pre-tasks
     local pre_t = self.pre_transitions[state]
     if pre_t and (pre_t["from"] == nil or ctx.current_state == pre_t["from"]) then
-        ngx.log(ngx.NOTICE, "#t: " .. pre_t["action"])
+        ngx.log(ngx.DEBUG, "#t: " .. pre_t["action"])
         self.actions[pre_t["action"]](self)
     end
 
-    ngx.log(ngx.NOTICE,"#t: " .. state)
+    ngx.log(ngx.DEBUG, "#t: " .. state)
 
     ctx.state_history[state] = true
     ctx.current_state = state
@@ -716,7 +716,7 @@ end
 
 
 function e(self, event)
-    ngx.log(ngx.NOTICE, "#e: " .. event)
+    ngx.log(ngx.DEBUG, "#e: " .. event)
 
     local ctx = self:ctx()
     ctx.event_history[event] = true
@@ -725,7 +725,7 @@ function e(self, event)
         if trans["when"] == nil or trans["when"] == ctx.current_state then
             if not trans["after"] or ctx.state_history[trans["after"]] then 
                 if trans["but_first"] then
-                    ngx.log(ngx.NOTICE, "#a: " .. trans["but_first"])
+                    ngx.log(ngx.DEBUG, "#a: " .. trans["but_first"])
                     self.actions[trans["but_first"]](self)
                 end
 
