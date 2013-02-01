@@ -342,7 +342,6 @@ pre_transitions = {
     exiting = { action = "redis_close" },
     fetching = { action = "fetch" },
     revalidating_upstream = { action = "fetch" },
-    serving_not_modified = { action = "set_http_not_modified" },
 }
 
 
@@ -425,8 +424,8 @@ events = {
     },
 
     not_modified = {
-        { when = "revalidating_locally", begin = "serving_not_modified" },
-        { when = "re_revalidating_locally", begin = "serving_not_modified" },
+        { when = "revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
+        { when = "re_revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
         --{ when = "revalidating_upstream", begin = "re_revalidating_locally" },
         -- TODO: Add in re-revalidation. Current tests aren't expecting this.
     },
@@ -697,10 +696,6 @@ states = {
 
     serving = function(self)
         self:serve()
-        return self:e "served"
-    end,
-
-    serving_not_modified = function(self)
         return self:e "served"
     end,
 
