@@ -97,7 +97,7 @@ http {
         
         -- Options made here affect all uses of the module, and are only loaded once.
         
-        ledge:config_set("redis_host", "unix:/path/to/redis.sock")
+        ledge:config_set("redis_socket", "unix:/path/to/redis.sock")
         ledge:config_set("redis_port", 6069)
         ledge:config_set("redis_database", 3)
     ';
