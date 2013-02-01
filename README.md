@@ -6,7 +6,7 @@ The aim is to provide an efficient and extensible RFC compliant caching HTTP pro
 
 ## Status
 
-This library is considered experimental and under active development, functionality may change without much notice. However the tagged releases always pass tests and appear "stable", so checking out the latest tag should mean things work as advertised.
+This library is considered experimental and under active development, functionality may change without much notice.
 
 [![Build Status](https://travis-ci.org/pintsized/ledge.png?branch=master)](https://travis-ci.org/pintsized/ledge)
 
@@ -19,64 +19,30 @@ This library is considered experimental and under active development, functional
 	* Variable substitution (strings only currently).
 	* Comments removal.
 	* `<esi:remove>` tags removed.
-	* `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present.
+	* `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present (relative URIs only currently, see [this workaround](#absolute-uris).
 	* Fragments properly affect downstream cache lifetime / revalidation for the parent resource.
 * End-to-end revalidation (specific and unspecified).
 * Offline modes (bypass, avoid).
 * Serving stale content.
 * Background revalidation.
 * Caching POST responses (servable to subsequent GET / HEAD requests).
-* PURGE requests to remove URLs from cache.
+* Squid-like PURGE requests to remove resources from cache.
 
 ### TODO
 
 * Collapse forwarding.
-* Improved logging / stats.
+* Vary header support.
+* Redis sentinel configuration (automatic failover).
 
 Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
 
-## Installation
+## Basic usage
 
-Download and install:
+Ledge can be used to cache any defined `location` blocks in Nginx, the most typical case being one which uses the [proxy module](http://wiki.nginx.org/HttpProxyModule), allowing you to cache upstream resources. The idea being that your actual resources are defined as `internal` locations, and a Ledge enabled location is invoked in their place. 
 
-* [Redis](http://redis.io/download) >= 2.4.14
-* [OpenResty](http://openresty.org/) >= 1.2.4.3 (devel)
+Simply create an instance of the module during `init_by_lua`, and then instruct Ledge to handle the response with one or more `content_by_lua` directive(s), each potentially containing their own bespoke configuration without risk of collision.
 
-Review the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
-
-Clone this repo into a path defined by [lua_package_path](http://wiki.nginx.org/HttpLuaModule#lua_package_path) in `nginx.conf`.
-
-### Basic usage
-
-Ledge can be used to cache any defined `location` blocks in Nginx, the most typical case being one which uses the [proxy module](http://wiki.nginx.org/HttpProxyModule), allowing you to cache upstream resources.
-
-```nginx
-server {
-    listen 80;
-    server_name example.com;
-    
-    location /__ledge_origin {
-        internal;
-        rewrite ^/__ledge_origin(.*)$ $1 break;
-        proxy_set_header X-Real-IP  $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header Host $host;
-        proxy_read_timeout 30s;
-        
-        # Keep the origin Date header for more accurate Age calculation.
-        proxy_pass_header Date;
-        
-        # http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.38
-        # If the response is being forwarded through a proxy, the proxy application MUST NOT
-        # modify the Server response-header.
-        proxy_pass_header Server;
-        
-        proxy_pass $scheme://YOUR.UPSTREAM.IP.ADDRESS:80;
-    }
-}
-```
-
-To place Ledge caching in front of everything on this server, create an instance of Ledge during `init_by_lua`, and then instruct Ledge to handle response within one or more `content_by_lua` directive(s).
+### Simple example
 
 ```nginx
 http {
@@ -90,32 +56,131 @@ http {
         server_name example.com;
 
         location / {
-            content_by_lua '
-                ledge:run()
-            ';
+            content_by_lua 'ledge:run()';
         }
 
         location /__ledge_origin {
-            # As above
-        }
+			internal;
+	        rewrite ^/__ledge_origin(.*)$ $1 break;
+	        proxy_set_header X-Real-IP  $remote_addr;
+	        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+	        proxy_set_header Host $host;
+	        proxy_read_timeout 30s;
+	        
+	        # Keep the origin Date header for more accurate Age calculation.
+	        proxy_pass_header Date;
+	        
+	        # http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.38
+	        # If the response is being forwarded through a proxy, the proxy application MUST NOT
+	        # modify the Server response-header.
+	        proxy_pass_header Server;
+	        
+	        proxy_pass $scheme://YOUR.UPSTREAM.IP.ADDRESS:80;
+		}
     }
 }
 ```
 
-To enable ```PURGE``` requests compatible with Squid
-````nginx
-if ($request_method = 'PURGE') {
-    rewrite (.*) /_purge/$1 last;
+## Configuration and scripting
+
+Out of the box Ledge will do more than just blindly cache things. It does its best to honour the (suprisingly complex on closer inspection) RFC suggestions and requirements for effective caching, including properly responding to cache control mechanisms in the request and response headers, which provide the tools for local revalidation, end-to-end revalidation, serving of stale resources and more.
+
+Sometimes however, we want more flexibility for cache behaviours. Perhaps the origin is having problems, and needs extra cache protection. Or perhaps the origin is running on old tech, with poor support for HTTP caching in the first place.
+
+### Example of scripted configuration
+
+```nginx
+http {
+    init_by_lua '
+        ledge_mod = require "ledge.ledge"
+        ledge = ledge_mod:new()
+        
+        -- Options made here affect all uses of the module, and are only loaded once.
+        
+        ledge:config_set("redis_host", "unix:/path/to/redis.sock")
+        ledge:config_set("redis_port", 6069)
+        ledge:config_set("redis_database", 3)
+    ';
+
+    server {
+        listen 80;
+        server_name example.com;
+
+        location / {
+            content_by_lua '
+            	-- Our origin doesn't set cache headers, so we'll add them when we've fetched.
+            	-- By adding "Last-Modified" clients will subsequently send conditional requests,
+            	-- allowing Ledge to respond "304 Not Modified" without transferring the body.
+            	
+            	ledge:bind("origin_fetched", function(res)
+				    res.header["Cache-Control"] = "max-age=3600"
+				    res.header["Last-Modified"] = ngx.http_time(ngx.time())
+				end)
+            	
+            	ledge:run()
+            ';
+        }
+        
+        # User profile area
+        location /profile {
+        	content_by_lua '
+        		-- This location can't be cached, but it has ESI fragments which can be.
+        		
+        		ledge:config_set("enable_esi", true)
+        		ledge:run()
+        	';
+        }
+        
+        # User profile ESI fragments
+        location /profile_fragments {
+        	content_by_lua '
+        		-- These fragments can be cached for a day
+        		
+        		ledge:bind("origin_fetched", function(res)
+				    res.header["Cache-Control"] = "max-age=86400"
+				    res.header["Last-Modified"] = ngx.http_time(ngx.time())
+				end)
+				
+				-- But they are delivered from a different server
+				
+				ledge:config_set("origin_location", "/__ledge_esi")
+				
+				-- Also, they may be requested over HTTPS, but the content is the same over HTTP.
+				-- So lets avoid splitting the cache by ommitting "scheme".
+				
+				ledge:config_set("cache_key_spec", {
+				    --ngx.var.scheme,
+				    ngx.var.host,
+				    ngx.var.uri,
+				    ngx.var.args
+				})
+			'
+		}
+
+        location /__ledge_origin {
+			internal;
+	        # As Above
+		}
+		
+		location /__ledge_esi {
+			internal;
+			# Some proxy to somewhere else...
+		}
+    }
 }
-location /_purge {
-    internal;
-    allow 127.0.0.1;
-    deny all;
-    rewrite /_purge/(.*) $1 break;
-    content_by_lua 'ledge:purge()';
-}
-````
-Standard nginx access control options can be used to restrict purge requests.
+```
+
+## Installation
+
+Download and install:
+
+* [Redis](http://redis.io/download) >= 2.4.14
+* [OpenResty](http://openresty.org/) >= 1.2.4.3 (devel)
+
+Review the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
+
+Clone this repo into a path defined by [lua_package_path](http://wiki.nginx.org/HttpLuaModule#lua_package_path) in `nginx.conf`.
+
 
 ## Configuration options
 
@@ -266,9 +331,10 @@ Enables ESI processing. The processor will strip comments labelled as `<!--esi .
 
 In the above case, with ESI disabled the client will display a link to the embedded resource. With ESI enabled, the link will be removed, as well as the comments around the `<esi:include>` tag. The fragment `src` URI will be fetched (non-blocking and in parallel if multiple fragments are present), and the `<esi:include>` tag will be replaced with the resulting body. Note the ESI variable substitution for `$(QUERY_STRING)`, allowing you to proxy the parent resource parameters to fragments if required.
 
-Currently fragments to be included must be relative URIs. A workaround is to define a relative URI prefix which you pick up in your Nginx config, proxying to an additional origin.
-
 The processor runs ESI instruction detection on the slow path (i.e. when saving to cache), so only instructions which are present are processed on cache HITs. If nothing was detected during saving, enabling ESI will have no performance impact on regular serving of cache items.
+
+### Absolute URIs ###
+Currently fragments to be included must be relative URIs. A workaround is to define a relative URI prefix which you pick up in your Nginx config, proxying to an additional origin.
 
 
 ## Events
@@ -314,10 +380,22 @@ Broadcast when about to save a cacheable response.
 
 Ledge is finished and about to return. Last chance to jump in before rack sends the response.
 
+## Protecing purge requests
 
-## Logging / Debugging
+Ledge will respond to requests using the (fake) HTTP method `PURGE`. If the resource exists it will be deleted and Ledge will exit with `200 OK`. If the resource doesn't exists, it will exit with `404 Not Found`.
 
-For cacheable responses, Ledge will add headers indicating the cache status.
+This is mostly useful for internal tools which expect to work with Squid, and you probably want to restrict usage in some way.
+
+```nginx
+limit_except GET POST PUT DELETE {
+  allow  127.0.0.1;
+  deny   all;
+}
+```
+
+## Logging
+
+For cacheable responses, Ledge will add headers indicating the cache status. These can be added to your Nginx log file in the normal way.
 
 ### X-Cache
 
