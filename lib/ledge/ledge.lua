@@ -336,18 +336,14 @@ function run(self)
 end
 
 
--- Pre-transitions: Actions to always perform before transitioning.
---TODO: Perhaps actions need to be listed in an order? We can only have one right now.
-pre_transitions = {
-    exiting = { action = "redis_close" },
-    fetching = { action = "fetch" },
-    revalidating_upstream = { action = "fetch" },
-}
-
-
--- Events: Transition table, indexed by an event. 
--- Filter transitions by previous state "when", and run actions using "but_first". 
--- Requires at least "begin" to transition.
+-----------------------------------------------------------------------------------
+-- Event transition table.
+------------------------------------------------------------------------------------
+-- Use "begin" to transition based on an event. Filter transitions by current state 
+-- "when" and/or any previous state "after", and run actions using "but_first". 
+-- Transitions are processed in the order found, so place more specific entries
+-- for a given event before more generic ones.
+------------------------------------------------------------------------------------
 events = {
     init = {
         { begin = "checking_request", but_first = "redis_connect" }
@@ -474,7 +470,20 @@ events = {
 }
 
 
--- Actions: Associate module functions callable by the state machine.
+------------------------------------------------------------------------------------
+-- Pre-transitions. Actions to always perform before transitioning.
+------------------------------------------------------------------------------------
+--TODO: Perhaps actions need to be listed in an order? We can only have one right now.
+pre_transitions = {
+    exiting = { action = "redis_close" },
+    fetching = { action = "fetch" },
+    revalidating_upstream = { action = "fetch" },
+}
+
+
+------------------------------------------------------------------------------------
+-- Actions. Functions which can be called on transition.
+------------------------------------------------------------------------------------
 actions = {
     redis_connect = function(self)
         return self:redis_connect()
@@ -554,9 +563,13 @@ actions = {
 }
 
 
--- Decision states: Represented as functions which should simply make a decision, 
--- and return calling self:e with the event that has occurred.
--- Place any further logic in actions triggered by the transition table.
+------------------------------------------------------------------------------------
+-- Decision states.
+------------------------------------------------------------------------------------
+-- Represented as functions which should simply make a decision, and return calling 
+-- self:e(ev) with the event that has occurred. Place any further logic in actions 
+-- triggered by the transition table.
+------------------------------------------------------------------------------------
 states = {
     checking_request = function(self)
         if ngx.req.get_method() == "PURGE" then
@@ -710,6 +723,7 @@ states = {
 }
 
 
+-- Transition to a new state.
 function t(self, state)
     local ctx = self:ctx()
 
@@ -728,6 +742,7 @@ function t(self, state)
 end
 
 
+-- Process state transitions and actions based on the event fired.
 function e(self, event)
     ngx.log(ngx.DEBUG, "#e: " .. event)
 
