@@ -687,8 +687,7 @@ states = {
     preparing_response = function(self)
         if self:config_get("enable_esi") == true then
             local res = self:get_response()
-            if res:has_esi_vars() or res:has_esi_comment() or
-                res:has_esi_remove() or res:has_esi_include() then
+            if res:has_esi() then
                 return self:e "esi_detected"
             end
         end

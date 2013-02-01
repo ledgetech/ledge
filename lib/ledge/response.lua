@@ -220,6 +220,12 @@ function has_esi_include(self)
 end
 
 
+function has_esi(self)
+    return self:has_esi_vars() or self:has_esi_comment() or 
+        self:has_esi_include() or self:has_esi_remove()
+end
+
+
 -- Reduce the cache lifetime and Last-Modified of this response to match
 -- the newest / shortest in a given table of responses. Useful for esi:include.
 function minimise_lifetime(self, responses)
