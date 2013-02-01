@@ -17,17 +17,6 @@ local mt = { __index = _M }
 local h_util = require "ledge.header_util"
 
 
--- Response states
-local RESPONSE_STATE_UNKNOWN     = -99
-local RESPONSE_STATE_PRIVATE     = -12
-local RESPONSE_STATE_RELOADED    = -11
-local RESPONSE_STATE_REVALIDATED = -10
-local RESPONSE_STATE_SUBZERO     = -1
-local RESPONSE_STATE_COLD        = 0
-local RESPONSE_STATE_WARM        = 1
-local RESPONSE_STATE_HOT         = 2
-
-
 function new(self, response)
     local body = ""
     local header = {}
@@ -74,7 +63,6 @@ function new(self, response)
                             body = body,
                             header = header, 
                             remaining_ttl = 0,
-                            state = RESPONSE_STATE_UNKNOWN,
                             esi = {
                                 has_esi_comment = nil,
                                 has_esi_remove = nil,

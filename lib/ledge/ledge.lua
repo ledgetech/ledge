@@ -165,32 +165,6 @@ function calculate_stale_ttl(self)
 end
 
 
---[[
-function accepts_stale_for(self)
-    local stale = 0
-
-    -- max_stale config overrides everything
-    local max_stale = self:config_get("max_stale")
-    if max_stale and max_stale > 0 then
-        stale = max_stale
-    end
-   
-    -- Otherwise we only serve stale if the request asks for it
-    -- and the response permits it.
-    local res = self:get_response(res)
-   
-    -- First check the response allows serving stale
-    local ttl = res:stale_ttl()
-    if ttl > 0 then
-        return ttl + h_util.get_numeric_header_token(
-            ngx.req.get_headers()["Cache-Control"], "max-stale"
-        )
-    else
-        return 0
-    end
-end
-]]--
-
 function request_accepts_cache(self)
     local method = ngx.req.get_method()
     if method ~= "GET" and method ~= "HEAD" then
@@ -506,11 +480,16 @@ actions = {
     end,
 
     remove_client_validators = function(self)
-        return self:remove_client_validators()
+        ngx.req.set_header("If-Modified-Since", nil)
+        ngx.req.set_header("If-None-Match", nil)
     end,
 
     add_validators_from_cache = function(self)
-        return self:add_validators_from_cache()
+        local cached_res = self:get_response()
+
+        -- TODO: Patch OpenResty to accept additional headers for subrequests.
+        ngx.req.set_header("If-Modified-Since", cached_res.header["Last-Modified"])
+        ngx.req.set_header("If-None-Match", cached_res.header["Etag"])
     end,
 
     add_stale_warning = function(self)
@@ -837,21 +816,6 @@ function read_from_cache(self)
     self:emit("cache_accessed", res)
 
     return res
-end
-
-
-function remove_client_validators(self)
-    ngx.req.set_header("If-Modified-Since", nil)
-    ngx.req.set_header("If-None-Match", nil)
-end
-
-
-function add_validators_from_cache(self)
-    local cached_res = self:get_response()
-
-    -- TODO: Patch OpenResty to accept additional headers for subrequests.
-    ngx.req.set_header("If-Modified-Since", cached_res.header["Last-Modified"])
-    ngx.req.set_header("If-None-Match", cached_res.header["Etag"])
 end
 
 
