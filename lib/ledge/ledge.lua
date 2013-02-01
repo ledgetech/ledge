@@ -761,6 +761,12 @@ function read_from_cache(self)
     local time_in_cache = 0
     local time_since_generated = 0
 
+    -- nil values here indicate esi is unknown, so prime them to false
+    res.esi.has_esi_comment = false
+    res.esi.has_esi_include = false
+    res.esi.has_esi_vars = false
+    res.esi.has_esi_remove = false
+
     -- The Redis replies is a sequence of messages, so we iterate over pairs
     -- to get hash key/values.
     for i = 1, #cache_parts, 2 do
@@ -778,13 +784,13 @@ function read_from_cache(self)
         elseif cache_parts[i] == "generated_ts" then
             time_since_generated = ngx.time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "esi_comment" then
-            res.esi.has_esi_comment = not not cache_parts[i + 1]
+            res.esi.has_esi_comment = true
         elseif cache_parts[i] == "esi_remove" then
-            res.esi.has_esi_remove = not not cache_parts[i + 1]
+            res.esi.has_esi_remove = true
         elseif cache_parts[i] == "esi_include" then
-            res.esi.has_esi_include = not not cache_parts[i + 1]
+            res.esi.has_esi_include = true
         elseif cache_parts[i] == "esi_vars" then
-            res.esi.has_esi_vars = not not cache_parts[i + 1]
+            res.esi.has_esi_vars = true
         else
             -- Unknown fields will be headers, starting with "h:" prefix.
             local header = cache_parts[i]:sub(3)
@@ -940,12 +946,10 @@ function save_to_cache(self, res)
 
     -- If ESI is enabled, store detected ESI features on the slow path.
     if self:config_get("enable_esi") == true then
-        redis:hmset(cache_key(self),
-            'esi_comment', tostring(res:has_esi_comment()),
-            'esi_remove', tostring(res:has_esi_remove()),
-            'esi_include', tostring(res:has_esi_include()),
-            'esi_vars', tostring(res:has_esi_vars())
-        )
+        if res:has_esi_comment() then redis:hmset(cache_key(self), "esi_comment", 1) end
+        if res:has_esi_remove() then redis:hmset(cache_key(self), "esi_remove", 1) end
+        if res:has_esi_include() then redis:hmset(cache_key(self), "esi_include", 1) end
+        if res:has_esi_vars() then redis:hmset(cache_key(self), "esi_vars", 1) end
     end
 
     redis:expire(cache_key(self), ttl + tonumber(self:config_get("keep_cache_for")))
