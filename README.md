@@ -223,6 +223,12 @@ One of:
 
 *Default:* `127.0.0.1`
 
+Both IP addresses and domain names can be used. In case of domain names, the Nginx core's dynamic resolver must be configured in your nginx.conf, e.g:
+
+```nginx
+resolver 8.8.8.8;  # use Google's public DNS nameserver
+```
+
 #### redis_port
 
 *Default:* `6379`
@@ -232,6 +238,10 @@ One of:
 *Default:* `nil`
 
 `connect()` will use TCP by default, unless `redis_socket` is defined.
+
+#### redis_password
+
+*Default:* `nil`
 
 #### redis_database
 
