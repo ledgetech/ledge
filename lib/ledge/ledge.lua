@@ -34,6 +34,7 @@ function new(self)
         redis_host      = "127.0.0.1",
         redis_port      = 6379,
         redis_socket    = nil,
+        redis_pass      = nil,
         redis_database  = 0,
         redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
         redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
@@ -102,6 +103,16 @@ function redis_connect(self)
     if not ok then
         ngx.log(ngx.WARN, err .. ", internally redirecting to the origin")
         return ngx.exec(self:config_get("origin_location")..relative_uri())
+    end
+
+    -- If we should check if we need to use authentication
+    -- If it fails then redirect to the origin directly
+    if self:config_get("redis_pass") then
+        local auth, auth_err = self:ctx().redis:auth(self:config_get("redis_pass"))
+        if not auth then
+            ngx.log(ngx.WARN, auth_err .. ", failed to authenticate")
+            return ngx.exec(self:config_get("origin_location")..relative_uri())
+        end
     end
 
     -- redis:select always returns OK
