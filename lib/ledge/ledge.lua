@@ -277,6 +277,11 @@ function cache_key(self)
 end
 
 
+function fetching_key(self)
+    return self:cache_key() .. ":fetching"
+end
+
+
 -- Set a config parameter
 function config_set(self, param, value)
     if ngx.get_phase() == "init" then
@@ -369,6 +374,26 @@ events = {
         { when = "checking_cache", begin = "considering_revalidation" }
     },
 
+    can_fetch_but_try_collapse = {
+        { begin = "requesting_collapse_lock" }
+    },
+
+    obtained_collapse_lock = {
+        { begin = "fetching_as_surrogate" },
+    },
+
+    subscribed_to_collapse_channel = {
+        { begin = "waiting_on_collapse_channel" },
+    },
+
+    collapsed_response_ready = {
+        { begin = "checking_cache" },
+    },
+
+    collapsed_response_failed = {
+        { begin = "fetching" },
+    },
+
     can_fetch = {
         { begin = "fetching" }
     },
@@ -378,19 +403,29 @@ events = {
     },
 
     response_cacheable = {
+        { after = "fetching_as_surrogate", begin = "publishing_collapse_success", 
+            but_first = "save_to_cache" },
         { after = "revalidating_in_background", begin = "exiting", but_first = "save_to_cache" },
         { begin = "preparing_response", but_first = "save_to_cache" },
     },
 
     response_not_cacheable = {
+        { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
+            but_first = "delete_from_cache" },
         { after = "revalidating_in_background", begin = "exiting", 
             but_first = "delete_from_cache" },
         { begin = "preparing_response", but_first = "delete_from_cache" },
     },
 
     response_body_missing = {
+        { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
+            but_first = "delete_from_cache" },
         { after = "revalidating_in_background", begin = "exiting" },
         { begin = "serving" },
+    },
+
+    published = {
+        { begin = "preparing_response" }
     },
 
     must_revalidate = {
@@ -526,6 +561,10 @@ actions = {
         return self:delete_from_cache()
     end,
 
+    release_collapse_lock = function(self)
+        self:ctx().redis:del(self:fetching_key())
+    end,
+
     process_esi = function(self)
         return self:process_esi()
     end,
@@ -595,7 +634,72 @@ states = {
             return self:e "http_gateway_timeout"
         end
 
+        if self:config_get("collapsed_forwarding") then
+            return self:e "can_fetch_but_try_collapse"
+        end
+
         return self:e "can_fetch"
+    end,
+
+    requesting_collapse_lock = function(self)
+        local redis = self:ctx().redis
+        redis:watch(self:fetching_key()..":watch")
+
+        -- We use a Lua script to either acquire a lock or subscribe to
+        -- the collapsing channel. This avoids race condition with locking.
+        -- Params: lock_key, timeout, channel
+        local obtain_lock = [[
+        local lock = redis.call("GET", KEYS[1])
+        if not lock then    
+            return redis.call("SETEX", KEYS[1], ARGV[1], "locked")
+        else
+            return "BUSY"
+        end
+        ]]
+
+        local timeout = 60 -- TODO: This window needs to be sanely configurable.
+
+        local res, err = redis:eval(obtain_lock, 1, self:fetching_key(), timeout, self:cache_key())
+
+        if res == "OK" then
+            return self:e "obtained_collapse_lock"
+        elseif res == "BUSY" then
+            redis:multi()
+            redis:subscribe(self:cache_key())
+            local res, err = redis:exec()
+            if res then
+                return self:e "subscribed_to_collapse_channel"
+            else
+                return self:e "missed_chance_to_subscribe"
+            end
+        end
+    end,
+
+    -- TODO: Too much "action" here.
+
+    publishing_collapse_success = function(self)
+        self:ctx().redis:del(self:fetching_key())
+        self:ctx().redis:del(self:fetching_key()..":watch")
+        self:ctx().redis:publish(self:cache_key(), "collapsed_response_ready")
+        self:e "published"
+    end,
+
+    publishing_collapse_failure = function(self)
+        self:ctx().redis:del(self:fetching_key())
+        self:ctx().redis:del(self:fetching_key()..":watch")
+        self:ctx().redis:publish(self:cache_key(), "collapsed_response_failed")
+        self:e "published"
+    end,
+
+    fetching_as_surrogate = function(self)
+        return self:e "can_fetch"
+    end,
+
+    waiting_on_collapse_channel = function(self)
+        local res, err = self:ctx().redis:read_reply()
+        self:ctx().redis:unsubscribe()
+        ngx.log(ngx.DEBUG, err)
+        return self:e(res[3]) -- either "collapsed_response_ready" or "collapsed_response_failed"
     end,
 
     fetching = function(self)
@@ -737,6 +841,13 @@ function e(self, event)
 
     local ctx = self:ctx()
     ctx.event_history[event] = true
+
+    -- It's possible for states to call undefined events at run time. Try to handle this nicely.
+    if not self.events[event] then
+        ngx.log(ngx.CRIT, event .. " is not defined.")
+        ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
+        self:t("exiting")
+    end
     
     for _, trans in ipairs(self.events[event]) do
         if trans["when"] == nil or trans["when"] == ctx.current_state then
@@ -838,6 +949,11 @@ end
 
 -- Fetches a resource from the origin server.
 function fetch_from_origin(self)
+    if ngx.req.get_headers()["X-Sleep"] then
+        ngx.sleep(ngx.req.get_headers()["X-Sleep"])
+    end
+
+
     local res = response:new()
     self:emit("origin_required")
 
@@ -873,6 +989,14 @@ function fetch_from_origin(self)
     self:emit("origin_fetched", res)
 
     return res
+end
+
+
+function collapsed_request_in_progress(self)
+    if self:ctx().redis:exists(self:fetching_key()) == 1 then
+        return true
+    end
+    return false
 end
 
 
