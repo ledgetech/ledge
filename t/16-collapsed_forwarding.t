@@ -8,15 +8,15 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
-	lua_package_path "$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/lib/?.lua;;";
     lua_shared_dict test 1m;
-	init_by_lua "
+    init_by_lua "
         local test = ngx.shared.test
         
         test:set('collapsed_count',0)
         test:set('uncollapsed_count',0)
 
-		ledge_mod = require 'ledge.ledge'
+        ledge_mod = require 'ledge.ledge'
 
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
@@ -49,7 +49,7 @@ our $HttpConfig = qq{
                 ngx.say('UNKNOWN:' .. res)
             end
         end
-	";
+    ";
 };
 
 run_tests();
