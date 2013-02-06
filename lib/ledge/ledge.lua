@@ -387,7 +387,7 @@ events = {
     },
 
     collapsed_response_ready = {
-        { begin = "checking_cache" },
+        { begin = "checking_cache", but_first = "read_cache" }
     },
 
     collapsed_response_failed = {
