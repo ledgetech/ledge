@@ -15,6 +15,7 @@ env:
 before_install:
   - "PACKAGE='openresty_1.2.4.11-1_i386.deb'; wget http://packages.squiz.co.uk/ubuntu/12.04/$PACKAGE && sudo dpkg -i $PACKAGE"
   - "which openresty"
+  - "redis-server --version"
 
 # Install Test::Nginx suite via cpanm
 install:
