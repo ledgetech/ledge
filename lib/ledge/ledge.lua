@@ -661,9 +661,11 @@ states = {
 
         local res, err = redis:eval(obtain_lock, 1, self:fetching_key(), timeout, self:cache_key())
 
-        if res == "OK" then
+        if not res then
+            return self:e "err_obtaining_collapse_lock"
+        elseif res == "OK" then
             return self:e "obtained_collapse_lock"
-        elseif res == "BUSY" then
+        elseif res == "BUSY" then 
             redis:multi()
             redis:subscribe(self:cache_key())
             local res, err = redis:exec()
