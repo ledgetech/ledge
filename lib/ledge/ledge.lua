@@ -951,11 +951,6 @@ end
 
 -- Fetches a resource from the origin server.
 function fetch_from_origin(self)
-    if ngx.req.get_headers()["X-Sleep"] then
-        ngx.sleep(ngx.req.get_headers()["X-Sleep"])
-    end
-
-
     local res = response:new()
     self:emit("origin_required")
 
