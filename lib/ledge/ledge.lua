@@ -351,8 +351,7 @@ events = {
     },
 
     cache_accepted = {
-        { when = "checking_request", begin = "checking_cache", 
-            but_first = "read_cache" },
+        { when = "checking_request", begin = "checking_cache" },
         { when = "revalidating_locally", begin = "preparing_response" }
     },
 
@@ -387,7 +386,7 @@ events = {
     },
 
     collapsed_response_ready = {
-        { begin = "checking_cache", but_first = "read_cache" }
+        { begin = "checking_cache" },
     },
 
     collapsed_response_failed = {
@@ -497,6 +496,7 @@ pre_transitions = {
     exiting = { action = "redis_close" },
     fetching = { action = "fetch" },
     revalidating_upstream = { action = "fetch" },
+    checking_cache = { action = "read_cache" },
 }
 
 
