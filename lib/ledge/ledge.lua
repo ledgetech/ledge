@@ -43,6 +43,8 @@ function new(self)
         origin_mode     = ORIGIN_MODE_NORMAL,
         max_stale       = nil,          -- Warning: Violates HTTP spec
         enable_esi      = false,
+        enable_collapsed_forwarding = false,
+        collapsed_forwarding_window = 60,
     }
 
     return setmetatable({ config = config }, mt)
@@ -643,32 +645,39 @@ states = {
 
     requesting_collapse_lock = function(self)
         local redis = self:ctx().redis
+
+        -- Watch a key before we attempt to lock. If we fail to lock, we need to subscribe
+        -- for updates, but there's a chance we might miss the message.
+        -- This "watch" allows us to abort the "subscribe" transaction if we've missed
+        -- the opportunity.
         redis:watch(self:fetching_key()..":watch")
 
-        -- We use a Lua script to either acquire a lock or subscribe to
-        -- the collapsing channel. This avoids race condition with locking.
-        -- Params: lock_key, timeout, channel
-        local obtain_lock = [[
-        local lock = redis.call("GET", KEYS[1])
-        if not lock then    
-            return redis.call("SETEX", KEYS[1], ARGV[1], "locked")
-        else
-            return "BUSY"
-        end
+        -- We use a Lua script to emulate SETNEX (set if not exists with expiry).
+        -- This avoids a race window between the GET / SETEX.
+        -- Params: key, expiry
+        -- Return: OK or BUSY
+        local SETNEX = [[
+            local lock = redis.call("GET", KEYS[1])
+            if not lock then    
+                return redis.call("SETEX", KEYS[1], ARGV[1], "locked")
+            else
+                return "BUSY"
+            end
         ]]
 
-        local timeout = 60 -- TODO: This window needs to be sanely configurable.
-
-        local res, err = redis:eval(obtain_lock, 1, self:fetching_key(), timeout, self:cache_key())
+        local timeout = self:config_get("collapsed_forwarding_window")
+        local res, err = redis:eval(SETNEX, 1, self:fetching_key(), timeout)
 
         if not res then
             return self:e "err_obtaining_collapse_lock"
         elseif res == "OK" then
             return self:e "obtained_collapse_lock"
         elseif res == "BUSY" then 
+            -- Subscribe inside a transaction, abort if the :watch key has changed.
             redis:multi()
             redis:subscribe(self:cache_key())
             local res, err = redis:exec()
+
             if res then
                 return self:e "subscribed_to_collapse_channel"
             else
@@ -700,8 +709,8 @@ states = {
     waiting_on_collapse_channel = function(self)
         local res, err = self:ctx().redis:read_reply()
         self:ctx().redis:unsubscribe()
-        ngx.log(ngx.DEBUG, err)
-        return self:e(res[3]) -- either "collapsed_response_ready" or "collapsed_response_failed"
+        -- res[3] == either "collapsed_response_ready" or "collapsed_response_failed"
+        return self:e(res[3]) 
     end,
 
     fetching = function(self)

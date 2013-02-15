@@ -342,9 +342,26 @@ In the above case, with ESI disabled the client will display a link to the embed
 
 The processor runs ESI instruction detection on the slow path (i.e. when saving to cache), so only instructions which are present are processed on cache HITs. If nothing was detected during saving, enabling ESI will have no performance impact on regular serving of cache items.
 
-### Absolute URIs ###
+##### Absolute URIs #####
 Currently fragments to be included must be relative URIs. A workaround is to define a relative URI prefix which you pick up in your Nginx config, proxying to an additional origin.
 
+#### enable_collapsed_forwarding
+
+*Default:* `false`
+
+With this enabled, Ledge will attempt to collapse similar origin requests for known (previously) cacheable resources into a single upstream request. Subsequent concurrent requests for the same resource will wait for the primary request, and then serve the newly cached content. 
+
+This is useful in reducing load at the origin if requests are expensive. The longer the origin request, the more useful this is, since the greater the chance of concurrent requests.
+
+Ledge wont collapse requests for resources that it hasn't seen before and weren't cacheble last time. If the resource has become non-cacheable since the last requet, the waiting requests will go to the origin themselves (having waited on the first request to find this out).
+
+#### collapsed_forwarding_window
+
+*Default:* `60`s
+
+When collapsed forwarding is enabled, if a fatal error occurs during the origin request, the collapsed requests may never receive the response they are waiting for. This setting puts a limit on how long they will wait, and how long before new requests will decide to try the origin for themselves. 
+
+If this is set shorter than your origin takes to respond, then you may get more upstream requests than desired. Fatal errors (server reboot etc) may result in hanging connections for up to the maximum time set. Normal errors (such as upstream timeouts) work independently of this setting.
 
 ## Events
 
