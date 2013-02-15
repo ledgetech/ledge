@@ -36,7 +36,7 @@ function new(self)
         redis_socket    = nil,
         redis_password  = nil,
         redis_database  = 0,
-        redis_timeout   = nil,          -- Defaults to 60s or lua_socket_read_timeout
+        redis_timeout   = 100,          -- Connect and read timeout (ms)
         redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
         keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
@@ -44,7 +44,7 @@ function new(self)
         max_stale       = nil,          -- Warning: Violates HTTP spec
         enable_esi      = false,
         enable_collapsed_forwarding = false,
-        collapsed_forwarding_window = 60,
+        collapsed_forwarding_window = 60 * 1000,   -- Window for collapsed requests (ms)
     }
 
     return setmetatable({ config = config }, mt)
@@ -379,20 +379,25 @@ events = {
         { begin = "requesting_collapse_lock" }
     },
 
-    obtained_collapse_lock = {
+    collapsed_forwarding_failed = {
+        { begin = "fetching" },
+    },
+
+    obtained_collapsed_forwarding_lock = {
         { begin = "fetching_as_surrogate" },
     },
 
-    subscribed_to_collapse_channel = {
-        { begin = "waiting_on_collapse_channel" },
+    subscribed_to_collapsed_forwarding_channel = {
+        { begin = "waiting_on_collapsed_forwarding_channel" },
+    },
+
+    collapsed_forwarding_channel_closed = {
+        -- Chances are the item is now in cache
+        { begin = "checking_cache" },
     },
 
     collapsed_response_ready = {
         { begin = "checking_cache" },
-    },
-
-    collapsed_response_failed = {
-        { begin = "fetching" },
     },
 
     can_fetch = {
@@ -636,7 +641,7 @@ states = {
             return self:e "http_gateway_timeout"
         end
 
-        if self:config_get("collapsed_forwarding") then
+        if self:config_get("enable_collapsed_forwarding") then
             return self:e "can_fetch_but_try_collapse"
         end
 
@@ -645,12 +650,22 @@ states = {
 
     requesting_collapse_lock = function(self)
         local redis = self:ctx().redis
+        local lock_key = self:fetching_key()
+        
+        local timeout = tonumber(self:config_get("collapsed_forwarding_window"))
+        if not timeout then
+            ngx.log(ngx.ERR, "collapsed_forwarding_window must be a number")
+            return self:e "collapsed_forwarding_failed"
+        end
 
-        -- Watch a key before we attempt to lock. If we fail to lock, we need to subscribe
+        -- Watch the lock key before we attempt to lock. If we fail to lock, we need to subscribe
         -- for updates, but there's a chance we might miss the message.
         -- This "watch" allows us to abort the "subscribe" transaction if we've missed
         -- the opportunity.
-        redis:watch(self:fetching_key()..":watch")
+        --
+        -- We must unwatch later for paths without transactions, else subsequent transactions
+        -- on this connection could fail.
+        redis:watch(lock_key)
 
         -- We use a Lua script to emulate SETNEX (set if not exists with expiry).
         -- This avoids a race window between the GET / SETEX.
@@ -665,23 +680,22 @@ states = {
             end
         ]]
 
-        local timeout = self:config_get("collapsed_forwarding_window")
-        local res, err = redis:eval(SETNEX, 1, self:fetching_key(), timeout)
+        local res, err = redis:eval(SETNEX, 1, lock_key, timeout)
 
-        if not res then
-            return self:e "err_obtaining_collapse_lock"
-        elseif res == "OK" then
-            return self:e "obtained_collapse_lock"
-        elseif res == "BUSY" then 
-            -- Subscribe inside a transaction, abort if the :watch key has changed.
+        if not res then -- Lua script failed
+            redis:unwatch()
+            ngx.log(ngx.ERR, err)
+            return self:e "collapsed_forwarding_failed"
+        elseif res == "OK" then -- We have the lock
+            redis:unwatch()
+            return self:e "obtained_collapsed_forwarding_lock"
+        elseif res == "BUSY" then -- Lock is busy
             redis:multi()
             redis:subscribe(self:cache_key())
-            local res, err = redis:exec()
-
-            if res then
-                return self:e "subscribed_to_collapse_channel"
-            else
-                return self:e "missed_chance_to_subscribe"
+            if redis:exec() ~= ngx.null then -- We subscribed before the lock was freed
+                return self:e "subscribed_to_collapsed_forwarding_channel"
+            else -- Lock was freed before we subscribed
+                return self:e "collapsed_forwarding_channel_closed"
             end
         end
     end,
@@ -689,16 +703,16 @@ states = {
     -- TODO: Too much "action" here.
 
     publishing_collapse_success = function(self)
-        self:ctx().redis:del(self:fetching_key())
-        self:ctx().redis:del(self:fetching_key()..":watch")
-        self:ctx().redis:publish(self:cache_key(), "collapsed_response_ready")
+        local redis = self:ctx().redis
+        redis:del(self:fetching_key()) -- Clear the lock
+        redis:publish(self:cache_key(), "collapsed_response_ready")
         self:e "published"
     end,
 
     publishing_collapse_failure = function(self)
-        self:ctx().redis:del(self:fetching_key())
-        self:ctx().redis:del(self:fetching_key()..":watch")
-        self:ctx().redis:publish(self:cache_key(), "collapsed_response_failed")
+        local redis = self:ctx().redis
+        redis:del(self:fetching_key()) -- Clear the lock
+        redis:publish(self:cache_key(), "collapsed_forwarding_failed")
         self:e "published"
     end,
 
@@ -706,11 +720,21 @@ states = {
         return self:e "can_fetch"
     end,
 
-    waiting_on_collapse_channel = function(self)
-        local res, err = self:ctx().redis:read_reply()
-        self:ctx().redis:unsubscribe()
-        -- res[3] == either "collapsed_response_ready" or "collapsed_response_failed"
-        return self:e(res[3]) 
+    waiting_on_collapsed_forwarding_channel = function(self)
+        local redis = self:ctx().redis
+
+        -- Extend the timeout to the size of the window
+        redis:set_timeout(self:config_get("collapsed_forwarding_window"))
+        local res, err = redis:read_reply() -- block until we here something or timeout
+        if not res then
+            return self:e "http_gateway_timeout"
+        else
+            redis:set_timeout(self:config_get("redis_timeout"))
+            redis:unsubscribe()
+
+            -- Returns either "collapsed_response_ready" or "collapsed_forwarding_failed"
+            return self:e(res[3]) 
+        end
     end,
 
     fetching = function(self)
@@ -998,14 +1022,6 @@ function fetch_from_origin(self)
 end
 
 
-function collapsed_request_in_progress(self)
-    if self:ctx().redis:exists(self:fetching_key()) == 1 then
-        return true
-    end
-    return false
-end
-
-
 function save_to_cache(self, res)
     self:emit("before_save", res)
 
@@ -1099,9 +1115,8 @@ function save_to_cache(self, res)
     redis:zadd('ledge:uris_by_expiry', expires, uri)
 
     -- Run transaction
-    local replies, err = redis:exec()
-    if not replies then
-        ngx.log(ngx.ERR, "Failed to save cache item: " .. err)
+    if redis:exec() == ngx.null then
+        ngx.log(ngx.ERR, "Failed to save cache item")
     end
 end
 

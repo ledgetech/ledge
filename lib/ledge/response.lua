@@ -129,6 +129,7 @@ end
 
 function has_expired(self)
     if self.remaining_ttl <= 0 then
+        ngx.log(ngx.DEBUG, self.remaining_ttl)
         return true
     end
 

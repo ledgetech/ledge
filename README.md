@@ -249,9 +249,9 @@ resolver 8.8.8.8;  # use Google's public DNS nameserver
 
 #### redis_timeout
 
-*Default:* `nil`
+*Default:* `100ms`
 
-ngx_lua defaults to *60s*, overridable per worker process by using the `lua_socket_read_timeout` directive. Only set this if you want fine grained control over Redis timeouts (rather than all cosocket connections).
+If set to `nil`, ngx_lua defaults to *60s*, overridable per worker process by using the `lua_socket_read_timeout` directive.
 
 #### redis_keepalive_timeout
 
@@ -357,7 +357,7 @@ Ledge wont collapse requests for resources that it hasn't seen before and weren'
 
 #### collapsed_forwarding_window
 
-*Default:* `60`s
+*Default:* `60000`ms
 
 When collapsed forwarding is enabled, if a fatal error occurs during the origin request, the collapsed requests may never receive the response they are waiting for. This setting puts a limit on how long they will wait, and how long before new requests will decide to try the origin for themselves. 
 

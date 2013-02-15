@@ -70,7 +70,7 @@ __DATA__
     location /_ledge {
         rewrite ^/_ledge$ / break;
         content_by_lua '
-            ledge:config_set("collapsed_forwarding",true)
+            ledge:config_set("enable_collapsed_forwarding",true)
             ledge:run()
         ';
     }
@@ -129,4 +129,3 @@ GET /testnocollapse
 PRIME:1
 MASTER:2
 CHILD:3
-
