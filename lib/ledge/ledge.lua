@@ -331,7 +331,8 @@ end
 -- Event transition table.
 ------------------------------------------------------------------------------------
 -- Use "begin" to transition based on an event. Filter transitions by current state 
--- "when" and/or any previous state "after", and run actions using "but_first". 
+-- "when", and/or any previous state "after", and/or a previously fired event 
+-- "in_case", and run actions using "but_first". 
 -- Transitions are processed in the order found, so place more specific entries
 -- for a given event before more generic ones.
 ------------------------------------------------------------------------------------
@@ -376,7 +377,8 @@ events = {
     },
 
     can_fetch_but_try_collapse = {
-        { begin = "requesting_collapse_lock" }
+        { in_case = "cache_expired", begin = "requesting_collapse_lock" },
+        { begin = "fetching" },
     },
 
     collapsed_forwarding_failed = {
@@ -725,7 +727,7 @@ states = {
 
         -- Extend the timeout to the size of the window
         redis:set_timeout(self:config_get("collapsed_forwarding_window"))
-        local res, err = redis:read_reply() -- block until we here something or timeout
+        local res, err = redis:read_reply() -- block until we hear something or timeout
         if not res then
             return self:e "http_gateway_timeout"
         else
@@ -887,12 +889,14 @@ function e(self, event)
     for _, trans in ipairs(self.events[event]) do
         if trans["when"] == nil or trans["when"] == ctx.current_state then
             if not trans["after"] or ctx.state_history[trans["after"]] then 
-                if trans["but_first"] then
-                    ngx.log(ngx.DEBUG, "#a: " .. trans["but_first"])
-                    self.actions[trans["but_first"]](self)
-                end
+                if not trans["in_case"] or ctx.event_history[trans["in_case"]] then
+                    if trans["but_first"] then
+                        ngx.log(ngx.DEBUG, "#a: " .. trans["but_first"])
+                        self.actions[trans["but_first"]](self)
+                    end
 
-                return self:t(trans["begin"])
+                    return self:t(trans["begin"])
+                end
             end
         end
     end

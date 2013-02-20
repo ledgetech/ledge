@@ -66,6 +66,14 @@ OK
                         end
                     end
 
+                    -- Check "in_case" previous event
+                    if trans["in_case"] then
+                        if not ledge.events[trans["in_case"]] then
+                            ngx.say("Event "..trans["in_case"].." filtered for but is not in transition table")
+                        end
+                    end
+
+
                     -- Check actions
                     if trans["but_first"] then
                         if "function" ~= type(ledge.actions[trans["but_first"]]) then
