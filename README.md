@@ -406,7 +406,7 @@ Broadcast when about to save a cacheable response.
 
 Ledge is finished and about to return. Last chance to jump in before rack sends the response.
 
-## Protecing purge requests
+## Protecting purge requests
 
 Ledge will respond to requests using the (fake) HTTP method `PURGE`. If the resource exists it will be deleted and Ledge will exit with `200 OK`. If the resource doesn't exists, it will exit with `404 Not Found`.
 
