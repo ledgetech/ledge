@@ -750,7 +750,7 @@ states = {
     end,
 
     purging = function(self)
-        if self:delete_from_cache() > 0 then
+        if self:expire() then
             return self:e "purged"
         else
             return self:e "nothing_to_purge"
@@ -1127,6 +1127,18 @@ end
 
 function delete_from_cache(self)
     return self:ctx().redis:del(self:cache_key())
+end
+
+
+function expire(self)
+    local cache_key = self:cache_key()
+    local redis = self:ctx().redis
+    if redis:exists(cache_key) == 1 then
+        redis:hset(cache_key, "expires", tostring(ngx.time() - 1))
+        return true
+    else
+        return false
+    end
 end
 
 

@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 18;
+plan tests => 19;
 
 my $pwd = cwd();
 
@@ -87,21 +87,31 @@ X-Cache: MISS from .*
 TEST 3
 
 
+=== TEST 4a: PURGE
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache {
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.say("TEST 4")
+        ';
+    }
+--- request
+PURGE /cache
+--- error_code: 200
+
+
 === TEST 4: Cold request (expired but known); X-Cache: MISS
 --- http_config eval: $::HttpConfig
 --- config
     location /cache {
         content_by_lua '
-            local resty_redis = require "resty.redis"
-            local redis = resty_redis:new()
-
-            redis:connect(ledge:config_get("redis_host"), ledge:config_get("redis_port"))
-            redis:select(ledge:config_get("redis_database"))
-
-            -- Hack the expires to 100 seconds in the past
-            redis:hset(ledge:cache_key(), "expires", tostring(ngx.time() - 100))
-            redis:close()
-
             ledge:run()
         ';
     }
