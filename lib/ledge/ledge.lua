@@ -745,7 +745,7 @@ states = {
         local SETNEX = [[
             local lock = redis.call("GET", KEYS[1])
             if not lock then    
-                return redis.call("SETEX", KEYS[1], ARGV[1], "locked")
+                return redis.call("PSETEX", KEYS[1], ARGV[1], "locked")
             else
                 return "BUSY"
             end
