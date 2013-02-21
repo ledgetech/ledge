@@ -29,10 +29,16 @@ This library is considered experimental and under active development, functional
 * Caching POST responses (servable to subsequent GET / HEAD requests).
 * Squid-like PURGE requests to remove resources from cache.
 
-### TODO
+### Limitations
 
-* Vary header support.
+Beware of blindly caching large response bodies (videos etc). This could cause excessive memory usage spikes in Nginx, and obviously fill up your Redis instance, potentially forcing evictions. There are a few ideas being kicked around to mitigate this, including adding a streaming API to `ngx.location.capture`. Generally though, massive files don't suit cache so well since they tend to be static and latency constraints give way to bandwidth.
+
+### Next up...
+
 * Redis sentinel configuration (automatic failover).
+* Vary header support.
+* The large response body problem.
+
 
 Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
 
@@ -173,8 +179,8 @@ http {
 
 Download and install:
 
-* [Redis](http://redis.io/download) >= 2.4.14
-* [OpenResty](http://openresty.org/) >= 1.2.4.3 (devel)
+* [Redis](http://redis.io/download) >= 2.6.x
+* [OpenResty](http://openresty.org/) >= 1.2.6.x
 
 Review the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
 
