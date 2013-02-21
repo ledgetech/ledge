@@ -25,12 +25,12 @@ This library is considered experimental and under active development, functional
 * Offline modes (bypass, avoid).
 * Serving stale content.
 * Background revalidation.
+* Collapsed forwarding (concurrent similar requests collapsed into a single upstream request).
 * Caching POST responses (servable to subsequent GET / HEAD requests).
 * Squid-like PURGE requests to remove resources from cache.
 
 ### TODO
 
-* Collapse forwarding.
 * Vary header support.
 * Redis sentinel configuration (automatic failover).
 
