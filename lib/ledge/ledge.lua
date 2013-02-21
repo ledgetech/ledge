@@ -327,89 +327,120 @@ function run(self)
 end
 
 
------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 -- Event transition table.
-------------------------------------------------------------------------------------
--- Use "begin" to transition based on an event. Filter transitions by current state 
--- "when", and/or any previous state "after", and/or a previously fired event 
--- "in_case", and run actions using "but_first". 
--- Transitions are processed in the order found, so place more specific entries
--- for a given event before more generic ones.
-------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
+-- Use "begin" to transition based on an event. Filter transitions by current state "when", and/or 
+-- any previous state "after", and/or a previously fired event "in_case", and run actions using 
+-- "but_first". Transitions are processed in the order found, so place more specific entries for a 
+-- given event before more generic ones.
+---------------------------------------------------------------------------------------------------
 events = {
+    -- Initial transition, always connect to redis then start checking the request.
     init = {
         { begin = "checking_request", but_first = "redis_connect" }
     },
 
+    -- PURGE method detected.
     purge_requested = {
         { begin = "purging" },
     },
 
+    -- Succesfully purged (expired) a cache entry. Exit 200 OK.
     purged = {
         { begin = "exiting", but_first = "set_http_ok" },
     },
 
+    -- URI to purge was not found. Exit 404 Not Found.
     nothing_to_purge = {
         { begin = "exiting", but_first = "set_http_not_found" },
     },
 
+    -- The request accepts cache. If we've already validated locally, we can think about serving.
+    -- Otherwise we need to check the cache situtation.
     cache_accepted = {
-        { when = "checking_request", begin = "checking_cache" },
         { when = "revalidating_locally", begin = "preparing_response" }
+        { begin = "checking_cache" },
     },
 
+    -- This request doesn't accept cache, so we need to see about fetching directly.
     cache_not_accepted = {
         { begin = "checking_can_fetch" }
     },
 
+    -- We don't know anything about this URI, so we've got to see about fetching. Since we have
+    -- nothing to validate against, remove the client validators so that we don't get a conditional
+    -- response upstream.
     cache_missing = {
         { begin = "checking_can_fetch", but_first = "remove_client_validators" }
     },
 
+    -- This URI was cacheable last time, but has expired. So see about serving stale, but failing
+    -- that, see about fetching and don't forget to remove client validators as per "cache_missing".
     cache_expired = {
         { when = "checking_cache", begin = "checking_can_serve_stale" },
         { when = "checking_can_serve_stale", begin = "checking_can_fetch", 
             but_first = "remove_client_validators" }
     },
 
+    -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
     cache_valid = {
         { when = "checking_cache", begin = "considering_revalidation" }
     },
 
+    -- We need to fetch, and there are no settings telling us we shouldn't, but collapsed forwarding
+    -- is on, so if cache is accepted and in an "expired" state (i.e. not missing), lets try
+    -- to collapse. Otherwise we just start fetching.
     can_fetch_but_try_collapse = {
         { in_case = "cache_expired", begin = "requesting_collapse_lock" },
         { begin = "fetching" },
     },
 
-    collapsed_forwarding_failed = {
-        { begin = "fetching" },
-    },
-
+    -- We have the lock on this "fetch". We might be the only one. We'll never know. But we fetch
+    -- as "surrogate" in case others are listening.
     obtained_collapsed_forwarding_lock = {
         { begin = "fetching_as_surrogate" },
     },
 
+    -- Another request is currently fetching, so we've subscribed to updates on this URI. We need
+    -- to block until we hear something (or timeout).
     subscribed_to_collapsed_forwarding_channel = {
         { begin = "waiting_on_collapsed_forwarding_channel" },
     },
 
+    -- Another request was fetching when we asked, but by the time we subscribed the channel was
+    -- closed (small window, but potentially possible). Chances are the item is now in cache, 
+    -- so start there.
     collapsed_forwarding_channel_closed = {
-        -- Chances are the item is now in cache
         { begin = "checking_cache" },
     },
 
+    -- We were waiting on a collapse channel, and got a message saying the response is now ready. 
+    -- The item will now be fresh in cache.
     collapsed_response_ready = {
         { begin = "checking_cache" },
     },
+    
+    -- We were waiting on another request (collapsed), but it came back as a non-cacheable response
+    -- (i.e. the previously cached item is no longer cacheable). So go fetch for ourselves.
+    collapsed_forwarding_failed = {
+        { begin = "fetching" },
+    },
 
+    -- We need to fetch and nothing is telling us we shouldn't. Collapsed forwarding is not enabled.
     can_fetch = {
         { begin = "fetching" }
     },
 
+    -- We've fetched and got a response. We don't know about it's cacheabilty yet, but we must
+    -- "update" in one form or another.
     response_fetched = {
         { begin = "updating_cache" }
     },
 
+    -- We deduced that the new response can cached. We always "save_to_cache". If we were fetching
+    -- as a surrogate (collapsing) make sure we tell any others concerned. If we were performing
+    -- a background revalidate (having served stale), we can just exit. Otherwise see about serving.
     response_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_success", 
             but_first = "save_to_cache" },
@@ -417,6 +448,8 @@ events = {
         { begin = "preparing_response", but_first = "save_to_cache" },
     },
 
+    -- We've deduced that the new response cannot be cached. Essentially this is as per
+    -- "response_cacheable", except we "delete" rather than "save".
     response_not_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
@@ -425,6 +458,9 @@ events = {
         { begin = "preparing_response", but_first = "delete_from_cache" },
     },
 
+    -- A missing response body means a HEAD request or a 304 Not Modified upstream response, for
+    -- example. Generally we pass this on, but in case we're collapsing or background revalidating,
+    -- ensure we either clean up the collapsees or exit respectively.
     response_body_missing = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
@@ -432,20 +468,28 @@ events = {
         { begin = "serving" },
     },
 
+    -- We were the collapser, so digressed into being a surrogate. We're done now and have published
+    -- this fact, so carry on.
     published = {
         { begin = "preparing_response" }
     },
 
+    -- We've got some validators (If-Modified-Since etc). First try local revalidation (i.e. against
+    -- our own cache. If we've done that and still must_revalidate, then revalidate upstream by
+    -- using validators created from our cache data (Last-Modified etc).
     must_revalidate = {
         { when = "considering_revalidation", begin = "considering_local_revalidation" },
         { when = "considering_local_revalidation", begin = "revalidating_upstream",
             but_first = "add_validators_from_cache" },
     },
 
+    -- We can validate locally, so do it. This doesn't imply it's valid, merely that we have
+    -- the correct parameters to attempt validation.
     can_revalidate_locally = {
         { begin = "revalidating_locally" },
     },
 
+    -- The response has not been modified against the validators given. Exit 304 Not Modified.
     not_modified = {
         { when = "revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
         { when = "re_revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
@@ -453,30 +497,42 @@ events = {
         -- TODO: Add in re-revalidation. Current tests aren't expecting this.
     },
 
+    -- The validated response has changed. If we've found this out 
     modified = {
         { when = "revalidating_locally", begin = "revalidating_upstream", 
             but_first = "add_validators_from_cache" },
         { when = "re_revalidating_locally", begin = "preparing_response" },
     },
 
+    -- We've found ESI instructions in the response body (on the last save). Serve, but do
+    -- any ESI processing first.
     esi_detected = {
         { begin = "serving", but_first = "process_esi" }
     },
 
+    -- We have a response we can use. If it has been prepared, serve. If not, prepare it.
     response_ready = {
         { when = "preparing_response", begin = "serving" },
         { begin = "preparing_response" },
     },
 
+    -- We've deduced we can serve a stale version of this URI. Ensure we add a warning to the
+    -- response headers.
+    -- TODO: "serve_stale" isn't really an event?
     serve_stale = {
         { when = "checking_can_serve_stale", begin = "serving_stale",
             but_first = "add_stale_warning" }
     },
 
+    -- We have sent the response. If it was stale, we go back around the fetching path
+    -- so that a background revalidation can occur. Otherwise exit.
     served = {
         { when = "serving_stale", begin = "checking_can_fetch" },
         { begin = "exiting" },
     },
+
+
+    -- Useful events for exiting with a common status.
 
     http_ok = {
         { begin = "exiting", but_first = "set_http_ok" }
@@ -497,10 +553,10 @@ events = {
 }
 
 
-------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 -- Pre-transitions. Actions to always perform before transitioning.
-------------------------------------------------------------------------------------
---TODO: Perhaps actions need to be listed in an order? We can only have one right now.
+---------------------------------------------------------------------------------------------------
+-- TODO: Perhaps actions need to be listed in an order? We can only have one right now.
 pre_transitions = {
     exiting = { action = "redis_close" },
     fetching = { action = "fetch" },
@@ -509,9 +565,9 @@ pre_transitions = {
 }
 
 
-------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 -- Actions. Functions which can be called on transition.
-------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 actions = {
     redis_connect = function(self)
         return self:redis_connect()
@@ -600,13 +656,13 @@ actions = {
 }
 
 
-------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 -- Decision states.
-------------------------------------------------------------------------------------
--- Represented as functions which should simply make a decision, and return calling 
--- self:e(ev) with the event that has occurred. Place any further logic in actions 
--- triggered by the transition table.
-------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
+-- Represented as functions which should simply make a decision, and return calling self:e(ev) with 
+-- the event that has occurred. Place any further logic in actions triggered by the transition 
+-- table.
+---------------------------------------------------------------------------------------------------
 states = {
     checking_request = function(self)
         if ngx.req.get_method() == "PURGE" then
@@ -701,8 +757,6 @@ states = {
             end
         end
     end,
-
-    -- TODO: Too much "action" here.
 
     publishing_collapse_success = function(self)
         local redis = self:ctx().redis
