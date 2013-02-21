@@ -438,6 +438,10 @@ events = {
         { begin = "updating_cache" },
     },
 
+    upstream_error = {
+        { begin = "exiting" , but_first = "set_http_status_from_response" },
+    },
+
     -- We deduced that the new response can cached. We always "save_to_cache". If we were fetching
     -- as a surrogate (collapsing) make sure we tell any others concerned. If we were performing
     -- a background revalidate (having served stale), we can just exit. Otherwise see about serving.
@@ -653,6 +657,15 @@ actions = {
     set_http_gateway_timeout = function(self)
         ngx.status = ngx.HTTP_GATEWAY_TIMEOUT
     end,
+
+    set_http_status_from_response = function(self)
+        local res = self:get_response()
+        if res.status then
+            ngx.status = res.status
+        else
+            res.status = ngx.HTTP_INTERNAL_SERVER_ERROR
+        end
+    end,
 }
 
 
@@ -796,7 +809,9 @@ states = {
     fetching = function(self)
         local res = self:get_response()
 
-        if res.status == ngx.HTTP_NOT_MODIFIED then
+        if res.status >= 500 then
+            return self:e "upstream_error"
+        elseif res.status == ngx.HTTP_NOT_MODIFIED then
             return self:e "response_ready"
         else
             return self:e "response_fetched"
