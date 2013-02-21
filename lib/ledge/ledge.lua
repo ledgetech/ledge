@@ -338,7 +338,7 @@ end
 events = {
     -- Initial transition, always connect to redis then start checking the request.
     init = {
-        { begin = "checking_request", but_first = "redis_connect" }
+        { begin = "checking_request", but_first = "redis_connect" },
     },
 
     -- PURGE method detected.
@@ -359,20 +359,20 @@ events = {
     -- The request accepts cache. If we've already validated locally, we can think about serving.
     -- Otherwise we need to check the cache situtation.
     cache_accepted = {
-        { when = "revalidating_locally", begin = "preparing_response" }
+        { when = "revalidating_locally", begin = "preparing_response" },
         { begin = "checking_cache" },
     },
 
     -- This request doesn't accept cache, so we need to see about fetching directly.
     cache_not_accepted = {
-        { begin = "checking_can_fetch" }
+        { begin = "checking_can_fetch" },
     },
 
     -- We don't know anything about this URI, so we've got to see about fetching. Since we have
     -- nothing to validate against, remove the client validators so that we don't get a conditional
     -- response upstream.
     cache_missing = {
-        { begin = "checking_can_fetch", but_first = "remove_client_validators" }
+        { begin = "checking_can_fetch", but_first = "remove_client_validators" },
     },
 
     -- This URI was cacheable last time, but has expired. So see about serving stale, but failing
@@ -380,12 +380,12 @@ events = {
     cache_expired = {
         { when = "checking_cache", begin = "checking_can_serve_stale" },
         { when = "checking_can_serve_stale", begin = "checking_can_fetch", 
-            but_first = "remove_client_validators" }
+            but_first = "remove_client_validators" },
     },
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
     cache_valid = {
-        { when = "checking_cache", begin = "considering_revalidation" }
+        { when = "checking_cache", begin = "considering_revalidation" },
     },
 
     -- We need to fetch, and there are no settings telling us we shouldn't, but collapsed forwarding
@@ -429,13 +429,13 @@ events = {
 
     -- We need to fetch and nothing is telling us we shouldn't. Collapsed forwarding is not enabled.
     can_fetch = {
-        { begin = "fetching" }
+        { begin = "fetching" },
     },
 
     -- We've fetched and got a response. We don't know about it's cacheabilty yet, but we must
     -- "update" in one form or another.
     response_fetched = {
-        { begin = "updating_cache" }
+        { begin = "updating_cache" },
     },
 
     -- We deduced that the new response can cached. We always "save_to_cache". If we were fetching
@@ -471,7 +471,7 @@ events = {
     -- We were the collapser, so digressed into being a surrogate. We're done now and have published
     -- this fact, so carry on.
     published = {
-        { begin = "preparing_response" }
+        { begin = "preparing_response" },
     },
 
     -- We've got some validators (If-Modified-Since etc). First try local revalidation (i.e. against
@@ -507,7 +507,7 @@ events = {
     -- We've found ESI instructions in the response body (on the last save). Serve, but do
     -- any ESI processing first.
     esi_detected = {
-        { begin = "serving", but_first = "process_esi" }
+        { begin = "serving", but_first = "process_esi" },
     },
 
     -- We have a response we can use. If it has been prepared, serve. If not, prepare it.
@@ -521,7 +521,7 @@ events = {
     -- TODO: "serve_stale" isn't really an event?
     serve_stale = {
         { when = "checking_can_serve_stale", begin = "serving_stale",
-            but_first = "add_stale_warning" }
+            but_first = "add_stale_warning" },
     },
 
     -- We have sent the response. If it was stale, we go back around the fetching path
@@ -535,19 +535,19 @@ events = {
     -- Useful events for exiting with a common status.
 
     http_ok = {
-        { begin = "exiting", but_first = "set_http_ok" }
+        { begin = "exiting", but_first = "set_http_ok" },
     },
 
     http_not_found = {
-        { begin = "exiting", but_first = "set_http_not_found" }
+        { begin = "exiting", but_first = "set_http_not_found" },
     },
 
     http_gateway_timeout = {
-        { begin = "exiting", but_first = "set_http_gateway_timeout" }
+        { begin = "exiting", but_first = "set_http_gateway_timeout" },
     },
 
     http_service_unavailable = {
-        { begin = "exiting", but_first = "set_http_service_unavailable" }
+        { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
 
 }
