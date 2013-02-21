@@ -438,6 +438,8 @@ events = {
         { begin = "updating_cache" },
     },
 
+    -- If we went upstream and errored, nothing we can do but ensure the status is passed along.
+    -- In future we may introduce stale-if-error here.
     upstream_error = {
         { begin = "exiting" , but_first = "set_http_status_from_response" },
     },
