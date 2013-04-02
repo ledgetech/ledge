@@ -37,7 +37,11 @@ function new(self)
         redis_timeout   = 100,          -- Connect and read timeout (ms)
         redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
+        redis_hosts = {
+            { host = "127.0.0.1", port = 6379, socket = nil, password = nil }
+        },
         redis_use_sentinel = false,
+        redis_sentinels = {},
 
         keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
         max_stale       = nil,          -- Warning: Violates HTTP spec
@@ -46,17 +50,7 @@ function new(self)
         collapsed_forwarding_window = 60 * 1000,   -- Window for collapsed requests (ms)
     }
 
-    local redis_hosts = {
-        { host = "127.0.0.1", port = 6379, socket = nil, password = nil }
-    }
-
-    local redis_sentinels {}
-
-    return setmetatable({ 
-        config = config, 
-        r_hosts = redis_hosts, 
-        r_sentinels = redis_sentinels 
-    }, mt)
+    return setmetatable({ config = config, }, mt)
 end
 
 
@@ -95,15 +89,6 @@ function config_get(self, param)
         return self.config[param]
     else
         return p
-    end
-end
-
-
-function redis_hosts(self, hosts)
-    if ngx.get_phase() == "init" then
-        self.r_hosts = hosts
-    else
-        self:ctx().r_hosts = hosts
     end
 end
 
