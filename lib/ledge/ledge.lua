@@ -31,23 +31,32 @@ ORIGIN_MODE_NORMAL = 4 -- Assume the origin is happy, use at will.
 function new(self)
     local config = {
         origin_location = "/__ledge_origin",
-        redis_host      = "127.0.0.1",
-        redis_port      = 6379,
-        redis_socket    = nil,
-        redis_password  = nil,
+        origin_mode     = ORIGIN_MODE_NORMAL,
+
         redis_database  = 0,
         redis_timeout   = 100,          -- Connect and read timeout (ms)
         redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
+        redis_use_sentinel = false,
+
         keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
-        origin_mode     = ORIGIN_MODE_NORMAL,
         max_stale       = nil,          -- Warning: Violates HTTP spec
         enable_esi      = false,
         enable_collapsed_forwarding = false,
         collapsed_forwarding_window = 60 * 1000,   -- Window for collapsed requests (ms)
     }
 
-    return setmetatable({ config = config }, mt)
+    local redis_hosts = {
+        { host = "127.0.0.1", port = 6379, socket = nil, password = nil }
+    }
+
+    local redis_sentinels {}
+
+    return setmetatable({ 
+        config = config, 
+        r_hosts = redis_hosts, 
+        r_sentinels = redis_sentinels 
+    }, mt)
 end
 
 
@@ -68,6 +77,57 @@ function ctx(self)
     return ctx
 end
 
+
+-- Set a config parameter
+function config_set(self, param, value)
+    if ngx.get_phase() == "init" then
+        self.config[param] = value
+    else
+        self:ctx().config[param] = value
+    end
+end
+
+
+-- Gets a config parameter.
+function config_get(self, param)
+    local p = self:ctx().config[param]
+    if p == nil then
+        return self.config[param]
+    else
+        return p
+    end
+end
+
+
+function redis_hosts(self, hosts)
+    if ngx.get_phase() == "init" then
+        self.r_hosts = hosts
+    else
+        self:ctx().r_hosts = hosts
+    end
+end
+
+
+function bind(self, event, callback)
+    local events = self:ctx().events
+    if not events[event] then events[event] = {} end
+    table.insert(events[event], callback)
+end
+
+
+function emit(self, event, res)
+    local events = self:ctx().events
+    for _, handler in ipairs(events[event] or {}) do
+        if type(handler) == "function" then
+            handler(res)
+        end
+    end
+end
+
+
+function run(self)
+    self:e "init"
+end
 
 function relative_uri()
     return ngx.var.uri .. ngx.var.is_args .. (ngx.var.query_string or "")
@@ -284,47 +344,6 @@ function fetching_key(self)
 end
 
 
--- Set a config parameter
-function config_set(self, param, value)
-    if ngx.get_phase() == "init" then
-        self.config[param] = value
-    else
-        self:ctx().config[param] = value
-    end
-end
-
-
--- Gets a config parameter.
-function config_get(self, param)
-    local p = self:ctx().config[param]
-    if p == nil then
-        return self.config[param]
-    else
-        return p
-    end
-end
-
-
-function bind(self, event, callback)
-    local events = self:ctx().events
-    if not events[event] then events[event] = {} end
-    table.insert(events[event], callback)
-end
-
-
-function emit(self, event, res)
-    local events = self:ctx().events
-    for _, handler in ipairs(events[event] or {}) do
-        if type(handler) == "function" then
-            handler(res)
-        end
-    end
-end
-
-
-function run(self)
-    self:e "init"
-end
 
 
 ---------------------------------------------------------------------------------------------------
