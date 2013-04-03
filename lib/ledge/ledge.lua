@@ -114,6 +114,7 @@ function run(self)
     self:e "init"
 end
 
+
 function relative_uri()
     return ngx.var.uri .. ngx.var.is_args .. (ngx.var.query_string or "")
 end
@@ -134,6 +135,77 @@ end
 
 
 function redis_connect(self)
+    local ok, err, redis, sentinel = nil
+
+    if self:config_get("redis_use_sentinel") then
+        ok, err, sentinel = self:_redis_connect(self:config_get("redis_sentinels"))
+
+        sentinel:add_commands("sentinel")
+        local res, err = sentinel:sentinel(
+            "get-master-addr-by-name", 
+            self:config_get("redis_sentinel_master_name")
+        )
+
+        if res ~= ngx.null then
+            ok, err, redis = self:_redis_connect({{ host = res[1], port = res[2] }})
+        else
+            -- try slaves
+        end
+    else
+        ok, err, redis = self:_redis_connect(self:config_get("redis_hosts"))
+
+        if not ok then
+            -- If we couldn't connect or authenticate, redirect to the origin directly.
+            -- This means if Redis goes down, the site stands a chance of still being up.
+            -- TODO: Make this configurable for situations where a 500 is better.
+            if not ok then
+                ngx.log(ngx.WARN, err .. ", internally redirecting to the origin")
+                return ngx.exec(self.config.origin_location..relative_uri())
+            end
+        end
+    end
+
+    local redis_database = self:config_get("redis_database")
+    if redis_database > 0 then
+        redis:select(redis_database)
+    end
+
+    self:ctx().redis = redis
+end
+
+
+function _redis_connect(self, hosts)
+    local redis = redis:new()
+
+    local timeout = self:config_get("redis_timeout")
+    if timeout then
+        redis:set_timeout(timeout)
+    end
+
+    local ok, err
+
+    for _, conn in ipairs(hosts) do
+        ngx.log(ngx.DEBUG, "Could try " .. conn.host .. ":"..conn.port)
+    end
+
+    for _, conn in ipairs(hosts) do
+        ok, err = redis:connect(conn.socket or conn.host, conn.port)
+        if ok then 
+            -- Attempt authentication.
+            if conn.password then
+                ok, err = redis:auth(conn.password)
+            end
+
+            ngx.log(ngx.DEBUG, "Connected to " .. conn.host .. ":"..conn.port)
+            break -- We're done
+        end
+    end
+
+    return ok, err, redis
+end
+
+--[[
+function old_redis_connect(self)
     -- Connect to Redis. The connection is kept alive later.
     self:ctx().redis = redis:new()
     if self:config_get("redis_timeout") then
@@ -166,7 +238,7 @@ function redis_connect(self)
         self:ctx().redis:select(self:config_get("redis_database"))
     end
 end
-
+]]--
 
 function redis_close(self)
     -- Keep the Redis connection based on keepalive settings.
