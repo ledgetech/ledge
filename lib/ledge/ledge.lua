@@ -62,7 +62,7 @@ function ctx(self)
             state_history = {},
             event_history = {},
             current_state = "",
-            client_validators,
+            client_validators = {},
         }
         ngx.ctx[id] = ctx
     end
@@ -500,7 +500,6 @@ events = {
     not_modified = {
         { when = "revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
         { when = "re_revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
-        { when = "revalidating_upstream", begin = "serving", but_first = "restore_client_validators" },
     },
 
     -- The validated response has changed. If we've found this out 
@@ -568,6 +567,7 @@ pre_transitions = {
     fetching = { action = "fetch" },
     revalidating_upstream = { action = "fetch" },
     checking_cache = { action = "read_cache" },
+    serving = { action = "restore_client_validators" },
 }
 
 
@@ -598,8 +598,8 @@ actions = {
     remove_client_validators = function(self)
         -- Keep these in case we need to restore them (after revalidating upstream)
         local client_validators = self:ctx().client_validators
-        client_validators["If-Modified-Since"] = ngx.req.get_header("If-Modified-Since")
-        client_validators["If-None-Match"] = ngx.req.get_header("If-None-Match")
+        client_validators["If-Modified-Since"] = ngx.var.http_if_modified_since
+        client_validators["If-None-Match"] = ngx.var.http_if_none_match
 
         ngx.req.set_header("If-Modified-Since", nil)
         ngx.req.set_header("If-None-Match", nil)
@@ -877,7 +877,7 @@ states = {
         local res = self:get_response()
 
         if res.status == ngx.HTTP_NOT_MODIFIED then
-            return self:e "not_modified"
+            return self:e "response_ready"
         else
             return self:e "response_fetched"
         end
