@@ -567,7 +567,8 @@ pre_transitions = {
     fetching = { action = "fetch" },
     revalidating_upstream = { action = "fetch" },
     checking_cache = { action = "read_cache" },
-    serving = { action = "restore_client_validators" },
+    -- This isn't great, but important until subrequests support arbitraty request headers
+    serving = { action = "restore_client_validators" }, 
 }
 
 
@@ -840,7 +841,7 @@ states = {
     end,
 
     considering_revalidation = function(self)
-        if self:must_revalidate() then
+        if self:must_revalidate() or self:can_revalidate_locally() then
             return self:e "must_revalidate"
         else
             -- Is this right?
