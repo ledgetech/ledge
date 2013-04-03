@@ -14,7 +14,6 @@ our $HttpConfig = qq{
         ledge = ledge_mod:new()
 		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
 	";
-    if_modified_since off;
 };
 
 run_tests();
@@ -42,7 +41,7 @@ GET /validation
 TEST 1
 
 
-=== TEST 2: Unspecified end-to-end revalidation (max-age=0 + no validator)
+=== TEST 2: Unspecified end-to-end revalidation (max-age=0 + no validator), upstream 200
 --- http_config eval: $::HttpConfig
 --- config
 location /validation {
@@ -64,6 +63,28 @@ Cache-Control: max-age=0
 GET /validation
 --- response_body
 TEST 2
+
+
+=== TEST 2b: Unspecified end-to-end revalidation (max-age=0 + no validator), upstream 304
+--- http_config eval: $::HttpConfig
+--- config
+location /validation {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.exit(ngx.HTTP_NOT_MODIFIED)
+    ';
+}
+--- more_headers
+Cache-Control: max-age=0
+--- request
+GET /validation
+--- response_body
+TEST 2
+--- error_code: 200
 
 
 === TEST 3: Revalidate against cache using IMS in the future.
