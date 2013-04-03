@@ -62,6 +62,7 @@ function ctx(self)
             state_history = {},
             event_history = {},
             current_state = "",
+            client_validators,
         }
         ngx.ctx[id] = ctx
     end
@@ -499,8 +500,7 @@ events = {
     not_modified = {
         { when = "revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
         { when = "re_revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
-        --{ when = "revalidating_upstream", begin = "re_revalidating_locally" },
-        -- TODO: Add in re-revalidation. Current tests aren't expecting this.
+        { when = "revalidating_upstream", begin = "serving", but_first = "restore_client_validators" },
     },
 
     -- The validated response has changed. If we've found this out 
@@ -596,8 +596,19 @@ actions = {
     end,
 
     remove_client_validators = function(self)
+        -- Keep these in case we need to restore them (after revalidating upstream)
+        local client_validators = self:ctx().client_validators
+        client_validators["If-Modified-Since"] = ngx.req.get_header("If-Modified-Since")
+        client_validators["If-None-Match"] = ngx.req.get_header("If-None-Match")
+
         ngx.req.set_header("If-Modified-Since", nil)
         ngx.req.set_header("If-None-Match", nil)
+    end,
+
+    restore_client_validators = function(self)
+        local client_validators = self:ctx().client_validators
+        ngx.req.set_header("If-Modified-Since", client_validators["If-Modified-Since"])
+        ngx.req.set_header("If-None-Match", client_validators["If-None-Match"])
     end,
 
     add_validators_from_cache = function(self)
@@ -866,7 +877,7 @@ states = {
         local res = self:get_response()
 
         if res.status == ngx.HTTP_NOT_MODIFIED then
-            return self:e "response_ready"
+            return self:e "not_modified"
         else
             return self:e "response_fetched"
         end
