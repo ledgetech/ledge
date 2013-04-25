@@ -485,9 +485,9 @@ events = {
     -- our own cache. If we've done that and still must_revalidate, then revalidate upstream by
     -- using validators created from our cache data (Last-Modified etc).
     must_revalidate = {
-        { when = "considering_revalidation", begin = "considering_local_revalidation" },
         { when = "considering_local_revalidation", begin = "revalidating_upstream",
             but_first = "add_validators_from_cache" },
+        { begin = "revalidating_upstream" },
     },
 
     -- We can validate locally, so do it. This doesn't imply it's valid, merely that we have
@@ -496,17 +496,20 @@ events = {
         { begin = "revalidating_locally" },
     },
 
+    no_validator_present = {
+        { begin = "preparing_response" },
+    },
+
     -- The response has not been modified against the validators given. Exit 304 Not Modified.
     not_modified = {
         { when = "revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
         { when = "re_revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
     },
 
-    -- The validated response has changed. If we've found this out 
+    -- Our cache has been modified as compared to the validators. But cache is valid, so just
+    -- serve it.
     modified = {
-        { when = "revalidating_locally", begin = "revalidating_upstream", 
-            but_first = "add_validators_from_cache" },
-        { when = "re_revalidating_locally", begin = "preparing_response" },
+        { when = "revalidating_locally", begin = "preparing_response" },
     },
 
     -- We've found ESI instructions in the response body (on the last save). Serve, but do
@@ -841,11 +844,12 @@ states = {
     end,
 
     considering_revalidation = function(self)
-        if self:must_revalidate() or self:can_revalidate_locally() then
+        if self:must_revalidate() then
             return self:e "must_revalidate"
+        elseif self:can_revalidate_locally() then
+            return self:e "can_revalidate_locally"
         else
-            -- Is this right?
-            return self:e "response_ready"
+            return self:e "no_validator_present"
         end
     end,
 

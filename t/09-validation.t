@@ -104,12 +104,34 @@ location /__ledge_origin {
         ngx.say("TEST 3")
     ';
 }
---- more_headers
-Cache-Control: max-age=0
 --- request
 GET /validation
 --- error_code: 304
 --- response_body
+
+
+=== TEST 3: Revalidate against cache using IMS in the past.
+--- http_config eval: $::HttpConfig
+--- config
+location /validation {
+    content_by_lua '
+        ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() - 100))
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Etag"] = "test3"
+        ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 80)
+        ngx.say("TEST 3")
+    ';
+}
+--- request
+GET /validation
+--- error_code: 200
+--- response_body
+TEST 2
 
 
 === TEST 4: Revalidate against cache using Etag.
@@ -129,7 +151,6 @@ location /__ledge_origin {
     ';
 }
 --- more_headers
-Cache-Control: max-age=0
 If-None-Match: test2
 --- request
 GET /validation
@@ -155,7 +176,6 @@ location /__ledge_origin {
     ';
 }
 --- more_headers
-Cache-Control: max-age=0
 If-None-Match: test2
 --- request
 GET /validation
@@ -295,7 +315,6 @@ location /__ledge_origin {
     ';
 }
 --- more_headers
-Cache-Control: max-age=0
 If-None-Match: test9
 --- request
 GET /validation_9
