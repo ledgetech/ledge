@@ -369,19 +369,16 @@ events = {
         { begin = "checking_can_fetch" },
     },
 
-    -- We don't know anything about this URI, so we've got to see about fetching. Since we have
-    -- nothing to validate against, remove the client validators so that we don't get a conditional
-    -- response upstream.
+    -- We don't know anything about this URI, so we've got to see about fetching. 
     cache_missing = {
-        { begin = "checking_can_fetch", but_first = "remove_client_validators" },
+        { begin = "checking_can_fetch" },
     },
 
     -- This URI was cacheable last time, but has expired. So see about serving stale, but failing
-    -- that, see about fetching and don't forget to remove client validators as per "cache_missing".
+    -- that, see about fetching.
     cache_expired = {
         { when = "checking_cache", begin = "checking_can_serve_stale" },
-        { when = "checking_can_serve_stale", begin = "checking_can_fetch", 
-            but_first = "remove_client_validators" },
+        { when = "checking_can_serve_stale", begin = "checking_can_fetch" }, 
     },
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
@@ -421,7 +418,7 @@ events = {
     collapsed_response_ready = {
         { begin = "checking_cache" },
     },
-    
+
     -- We were waiting on another request (collapsed), but it came back as a non-cacheable response
     -- (i.e. the previously cached item is no longer cacheable). So go fetch for ourselves.
     collapsed_forwarding_failed = {
@@ -447,16 +444,19 @@ events = {
 
     -- We deduced that the new response can cached. We always "save_to_cache". If we were fetching
     -- as a surrogate (collapsing) make sure we tell any others concerned. If we were performing
-    -- a background revalidate (having served stale), we can just exit. Otherwise see about serving.
+    -- a background revalidate (having served stale), we can just exit. Otherwise go back through
+    -- validationg in case we can 304 to the client.
     response_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_success", 
             but_first = "save_to_cache" },
-        { after = "revalidating_in_background", begin = "exiting", but_first = "save_to_cache" },
-        { begin = "preparing_response", but_first = "save_to_cache" },
+        { after = "revalidating_in_background", begin = "exiting", 
+            but_first = "save_to_cache" },
+        { begin = "considering_local_revalidation", 
+            but_first = "save_to_cache" },
     },
 
     -- We've deduced that the new response cannot be cached. Essentially this is as per
-    -- "response_cacheable", except we "delete" rather than "save".
+    -- "response_cacheable", except we "delete" rather than "save", and we don't try to revalidate.
     response_not_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
@@ -476,9 +476,9 @@ events = {
     },
 
     -- We were the collapser, so digressed into being a surrogate. We're done now and have published
-    -- this fact, so carry on.
+    -- this fact, so we pick up where it would have left off - attempting to 304 to the client.
     published = {
-        { begin = "preparing_response" },
+        { begin = "considering_local_revalidation" },
     },
 
     -- Client requests a max-age of 0 or stored response requires revalidation.
@@ -565,9 +565,12 @@ events = {
 pre_transitions = {
     exiting = { "redis_close" },
     checking_cache = { "read_cache" },
+    -- Never fetch with client validators, but put them back afterwards.
     fetching = { 
         "remove_client_validators", "fetch", "restore_client_validators"
     }, 
+    -- Use validators from cache when revalidating upstream, and restore client validators
+    -- afterwards.
     revalidating_upstream = { 
         "remove_client_validators", 
         "add_validators_from_cache", 
@@ -884,9 +887,11 @@ states = {
         local res = self:get_response()
 
         if res.status == ngx.HTTP_NOT_MODIFIED then
-            return self:e "not_modified" -- self:e "response_ready"
+            --return self:e "not_modified"
+            return self:e "response_ready"
         else
-            return self:e "modified" --self:e "response_fetched"
+            --return self:e "modified"
+            return self:e "response_fetched"
         end
     end,
 

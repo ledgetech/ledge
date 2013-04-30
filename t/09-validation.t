@@ -61,6 +61,7 @@ location /__ledge_origin {
 Cache-Control: max-age=0
 --- request
 GET /validation
+--- error_code: 200
 --- response_body
 TEST 2
 
