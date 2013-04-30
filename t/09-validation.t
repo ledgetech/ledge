@@ -96,35 +96,19 @@ location /validation {
         ledge:run()
     ';
 }
-location /__ledge_origin {
-    content_by_lua '
-        ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "test3"
-        ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 80)
-        ngx.say("TEST 3")
-    ';
-}
 --- request
 GET /validation
 --- error_code: 304
 --- response_body
 
 
-=== TEST 3: Revalidate against cache using IMS in the past.
+=== TEST 3b: Revalidate against cache using IMS in the past. Return 200 fresh cache.
 --- http_config eval: $::HttpConfig
 --- config
 location /validation {
     content_by_lua '
         ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() - 100))
         ledge:run()
-    ';
-}
-location /__ledge_origin {
-    content_by_lua '
-        ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "test3"
-        ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 80)
-        ngx.say("TEST 3")
     ';
 }
 --- request
@@ -142,14 +126,6 @@ location /validation {
         ledge:run()
     ';
 }
-location /__ledge_origin {
-    content_by_lua '
-        ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "test4"
-        ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 100)
-        ngx.say("TEST 4")
-    ';
-}
 --- more_headers
 If-None-Match: test2
 --- request
@@ -165,14 +141,6 @@ location /validation {
     content_by_lua '
         ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() + 100))
         ledge:run()
-    ';
-}
-location /__ledge_origin {
-    content_by_lua '
-        ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "test4"
-        ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 100)
-        ngx.say("TEST 4")
     ';
 }
 --- more_headers
@@ -322,3 +290,26 @@ GET /validation_9
 --- response_body
 TEST 9
 
+
+=== TEST 10: Re-Validation on an a cache miss using INM. Upstream 200, but valid once cached (so 304 to client).
+--- http_config eval: $::HttpConfig
+--- config
+location /validation10 {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Etag"] = "test10"
+        ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 60)
+        ngx.say("TEST 10")
+    ';
+}
+--- more_headers
+If-None-Match: test10
+--- request
+GET /validation10
+--- error_code: 304
+--- response_body

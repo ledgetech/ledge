@@ -481,12 +481,8 @@ events = {
         { begin = "preparing_response" },
     },
 
-    -- We've got some validators (If-Modified-Since etc). First try local revalidation (i.e. against
-    -- our own cache. If we've done that and still must_revalidate, then revalidate upstream by
-    -- using validators created from our cache data (Last-Modified etc).
+    -- Client requests a max-age of 0 or stored response requires revalidation.
     must_revalidate = {
-        { when = "considering_local_revalidation", begin = "revalidating_upstream",
-            but_first = "add_validators_from_cache" },
         { begin = "revalidating_upstream" },
     },
 
@@ -496,6 +492,7 @@ events = {
         { begin = "revalidating_locally" },
     },
 
+    -- Standard non-conditional request.
     no_validator_present = {
         { begin = "preparing_response" },
     },
@@ -571,7 +568,7 @@ pre_transitions = {
     revalidating_upstream = { action = "fetch" },
     checking_cache = { action = "read_cache" },
     -- This isn't great, but important until subrequests support arbitraty request headers
-    serving = { action = "restore_client_validators" }, 
+    --serving = { action = "restore_client_validators" }, 
 }
 
 
