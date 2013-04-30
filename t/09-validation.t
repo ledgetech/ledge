@@ -249,6 +249,31 @@ GET /validation
 TEST 8
 
 
+=== TEST 8b: Unspecified end-to-end revalidation using INM, upstream 200, validators now match (so 304 to client).
+--- http_config eval: $::HttpConfig
+--- config
+location /validation {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Etag"] = "test8b"
+        ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 60)
+        ngx.say("TEST 8b")
+    ';
+}
+--- more_headers
+Cache-Control: max-age=0
+If-None-Match: test8b
+--- request
+GET /validation
+--- error_code: 304
+--- response_body
+
+
 === TEST 9: Check revalidation re-saved.
 --- http_config eval: $::HttpConfig
 --- config
@@ -261,7 +286,7 @@ location /validation {
 GET /validation
 --- error_code: 200
 --- response_body
-TEST 8
+TEST 8b
 
 
 === TEST 9: Validators on a cache miss (should never 304).

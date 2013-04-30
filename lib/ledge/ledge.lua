@@ -507,6 +507,7 @@ events = {
     -- serve it.
     modified = {
         { when = "revalidating_locally", begin = "preparing_response" },
+        { when = "revalidating_upstream", begin = "considering_local_revalidation" },
     },
 
     -- We've found ESI instructions in the response body (on the last save). Serve, but do
@@ -561,14 +562,18 @@ events = {
 ---------------------------------------------------------------------------------------------------
 -- Pre-transitions. Actions to always perform before transitioning.
 ---------------------------------------------------------------------------------------------------
--- TODO: Perhaps actions need to be listed in an order? We can only have one right now.
 pre_transitions = {
-    exiting = { action = "redis_close" },
-    fetching = { action = "fetch" },
-    revalidating_upstream = { action = "fetch" },
-    checking_cache = { action = "read_cache" },
-    -- This isn't great, but important until subrequests support arbitraty request headers
-    --serving = { action = "restore_client_validators" }, 
+    exiting = { "redis_close" },
+    checking_cache = { "read_cache" },
+    fetching = { 
+        "remove_client_validators", "fetch", "restore_client_validators"
+    }, 
+    revalidating_upstream = { 
+        "remove_client_validators", 
+        "add_validators_from_cache", 
+        "fetch", 
+        "restore_client_validators"
+    },
 }
 
 
@@ -854,7 +859,7 @@ states = {
         if self:can_revalidate_locally() then
             return self:e "can_revalidate_locally"
         else
-            return self:e "must_revalidate"
+            return self:e "no_validator_present"
         end
     end,
 
@@ -879,9 +884,9 @@ states = {
         local res = self:get_response()
 
         if res.status == ngx.HTTP_NOT_MODIFIED then
-            return self:e "response_ready"
+            return self:e "not_modified" -- self:e "response_ready"
         else
-            return self:e "response_fetched"
+            return self:e "modified" --self:e "response_fetched"
         end
     end,
 
@@ -943,9 +948,12 @@ function t(self, state)
 
     -- Check for any transition pre-tasks
     local pre_t = self.pre_transitions[state]
-    if pre_t and (pre_t["from"] == nil or ctx.current_state == pre_t["from"]) then
-        ngx.log(ngx.DEBUG, "#a: " .. pre_t["action"])
-        self.actions[pre_t["action"]](self)
+
+    if pre_t then
+        for _,action in ipairs(pre_t) do
+            ngx.log(ngx.DEBUG, "#a: " .. action)
+            self.actions[action](self)
+        end
     end
 
     ngx.log(ngx.DEBUG, "#t: " .. state)
