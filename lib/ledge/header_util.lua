@@ -21,7 +21,7 @@ end
 function get_header_token(header, directive)
     if header_has_directive(header, directive) then
         -- Want the string value from a token
-        local value = ngx.re.match(header, directive:gsub('-','\\-').."=([^\\d]+)", "io")
+        local value = ngx.re.match(header, directive:gsub('-','\\-').."=\"?([a-z0-9_~!#%&'`\\$\\*\\+\\-\\|\\^\\.]+)\"?", "ioj")
         if value ~= nil then
             return value[1]
         end
@@ -34,7 +34,7 @@ end
 function get_numeric_header_token(header, directive)
     if header_has_directive(header, directive) then
         -- Want the numeric value from a token
-        local value = ngx.re.match(header, directive:gsub('-','\\-').."=(\\d+)", "io")
+        local value = ngx.re.match(header, directive:gsub('-','\\-').."=\"?(\\d+)\"?", "ioj")
         if value ~= nil then
             return tonumber(value[1])
         end
