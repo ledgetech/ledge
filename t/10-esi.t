@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 1; 
+plan tests => repeat_each() * (blocks() * 3) - 2; 
 
 my $pwd = cwd();
 
@@ -271,3 +271,197 @@ t=1
 t=1
 
 $(QUERY_STRING)
+
+
+=== TEST 10: Prime ESI in cache.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_10 {
+    content_by_lua '
+        ledge:config_set("enable_esi", true)
+        ledge:config_set("cache_key_spec", {
+            ngx.var.scheme,
+            ngx.var.host,
+            ngx.var.uri,
+        }) 
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Etag"] = "esi10"
+        ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    ';
+}
+--- request
+GET /esi_10?t=1
+--- response_body
+t=1
+--- response_headers_like
+X-Cache: MISS from .*
+
+
+=== TEST 10b: ESI still runs on cache HIT.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_10 {
+    content_by_lua '
+        ledge:config_set("enable_esi", true)
+        ledge:config_set("cache_key_spec", {
+            ngx.var.scheme,
+            ngx.var.host,
+            ngx.var.uri,
+        }) 
+        ledge:run()
+    ';
+}
+--- request
+GET /esi_10?t=2
+--- response_body
+t=2
+--- response_headers_like
+X-Cache: HIT from .*
+
+
+=== TEST 10c: ESI still runs on cache revalidation, upstream 200.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_10 {
+    content_by_lua '
+        ledge:config_set("enable_esi", true)
+        ledge:config_set("cache_key_spec", {
+            ngx.var.scheme,
+            ngx.var.host,
+            ngx.var.uri,
+        }) 
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Etag"] = "esi10c"
+        ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    ';
+}
+--- more_headers
+Cache-Control: max-age=0
+If-None-Match: esi10
+--- request
+GET /esi_10?t=3
+--- response_body
+t=3
+--- response_headers_like
+X-Cache: HIT from .*
+
+
+=== TEST 10d: ESI still runs on cache revalidation, upstream 200, locally valid.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_10 {
+    content_by_lua '
+        ledge:config_set("enable_esi", true)
+        ledge:config_set("cache_key_spec", {
+            ngx.var.scheme,
+            ngx.var.host,
+            ngx.var.uri,
+        }) 
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Etag"] = "esi10"
+        ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    ';
+}
+--- more_headers
+Cache-Control: max-age=0
+If-None-Match: esi10c
+--- request
+GET /esi_10?t=4
+--- response_body
+t=4
+--- response_headers_like
+X-Cache: HIT from .*
+
+
+=== TEST 10e: ESI still runs on cache revalidation, upstream 304, locally valid.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_10 {
+    content_by_lua '
+        ledge:config_set("enable_esi", true)
+        ledge:config_set("cache_key_spec", {
+            ngx.var.scheme,
+            ngx.var.host,
+            ngx.var.uri,
+        }) 
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.exit(ngx.HTTP_NOT_MODIFIED)
+    ';
+}
+--- more_headers
+Cache-Control: max-age=0
+If-None-Match: esi10
+--- request
+GET /esi_10?t=5
+--- response_body
+t=5
+--- response_headers_like
+X-Cache: HIT from .*
+
+
+=== TEST 11a: Prime fragment
+--- http_config eval: $::HttpConfig
+--- config
+location /fragment {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("FRAGMENT")
+    ';
+}
+--- request
+GET /fragment
+--- response_body
+FRAGMENT
+--- error_code: 200
+
+=== TEST 11b: Include fragment with client validators.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_11 {
+    content_by_lua '
+        ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() + 150))
+        ledge:run()
+    ';
+}
+location /fragment {
+    content_by_lua 'ledge:run()';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.say("1")
+        ngx.print("<esi:include src=\\"/fragment\\" />")
+        ngx.say("2")
+    ';
+}
+--- request
+GET /esi_11
+--- response_headers_like 
+Warning: ^214 .* "Transformation applied"$  
+--- response_body
+1
+FRAGMENT
+2

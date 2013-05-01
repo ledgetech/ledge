@@ -497,27 +497,30 @@ events = {
         { begin = "preparing_response" },
     },
 
-    -- The response has not been modified against the validators given. Exit 304 Not Modified.
+    -- The response has not been modified against the validators given. We'll exit 304 if we can
+    -- but go via preparing_response in case of ESI work to be done.
     not_modified = {
-        { when = "revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
-        { when = "re_revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
+        { when = "revalidating_locally", begin = "preparing_response" },
     },
 
     -- Our cache has been modified as compared to the validators. But cache is valid, so just
-    -- serve it.
+    -- serve it. If we've been upstream, re-compare against client validators.
     modified = {
         { when = "revalidating_locally", begin = "preparing_response" },
         { when = "revalidating_upstream", begin = "considering_local_revalidation" },
     },
 
     -- We've found ESI instructions in the response body (on the last save). Serve, but do
-    -- any ESI processing first.
+    -- any ESI processing first. If we got here we wont 304 to the client.
     esi_detected = {
         { begin = "serving", but_first = "process_esi" },
     },
 
-    -- We have a response we can use. If it has been prepared, serve. If not, prepare it.
+    -- We have a response we can use. If it has been prepared and we were not_modified, then exit 304.
+    -- If it has been prepared, serve. If not, prepare it.
     response_ready = {
+        { when = "preparing_response", in_case = "not_modified", 
+            begin = "exiting", but_first = "set_http_not_modified" },
         { when = "preparing_response", begin = "serving" },
         { begin = "preparing_response" },
     },
@@ -874,23 +877,12 @@ states = {
         end
     end,
 
-    re_revalidating_locally = function(self)
-        -- How do we compare against the new response?
-        if self:is_valid_locally() then
-            return self:e "not_modified"
-        else
-            return self:e "modified"
-        end
-    end,
-    
     revalidating_upstream = function(self)
         local res = self:get_response()
 
         if res.status == ngx.HTTP_NOT_MODIFIED then
-            --return self:e "not_modified"
             return self:e "response_ready"
         else
-            --return self:e "modified"
             return self:e "response_fetched"
         end
     end,
@@ -1377,7 +1369,11 @@ function process_esi(self)
         if table.getn(esi_uris) > 0 then
             -- Only works for relative URIs right now
             -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
+            --
+            
+            self.actions["remove_client_validators"](self)
             local esi_fragments = { ngx.location.capture_multi(esi_uris) }
+            self.actions["restore_client_validators"](self)
 
             -- Create response objects.
             for i,fragment in ipairs(esi_fragments) do

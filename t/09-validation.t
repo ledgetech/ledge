@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2); 
+plan tests => repeat_each() * (blocks() * 2) - 1; 
 
 my $pwd = cwd();
 
@@ -175,7 +175,7 @@ GET /validation
 TEST 2
 
 
-=== TEST 6: Specific end-to-end revalidation using INM, upstream 304.
+=== TEST 6: Specific end-to-end revalidation using INM (matching), upstream 304.
 --- http_config eval: $::HttpConfig
 --- config
 location /validation {
@@ -190,7 +190,28 @@ location /__ledge_origin {
 }
 --- more_headers
 Cache-Control: max-age=0
-If-None-Match: test6
+If-None-Match: test2
+--- request
+GET /validation
+--- error_code: 304
+
+
+=== TEST 6b: Specific end-to-end revalidation using INM (not matching), upstream 304.
+--- http_config eval: $::HttpConfig
+--- config
+location /validation {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.exit(ngx.HTTP_NOT_MODIFIED)
+    ';
+}
+--- more_headers
+Cache-Control: max-age=0
+If-None-Match: test6b
 --- request
 GET /validation
 --- error_code: 200
