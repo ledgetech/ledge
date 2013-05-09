@@ -10,14 +10,14 @@ Numerous bug fixes, improved tests and feature implementations over the last 7 m
 * Serving stale content.
 * PURGE requests.
 * Background revalidation.
-* Redis authentication (thanksjaakkos).
+* Redis authentication (thanks @jaakkos).
 * Major fixes to revalidation logic.
 * Avoid proxying with unknown HTTP methods.
 * Travis builds.
 * Lots more tests.
 * Probably more that I've forgotten.
 
-Thanks to hamishforbes and benagricola for numerous patches and tests.
+Thanks to @hamishforbes and @benagricola for numerous patches and tests.
 
 ### v0.06 (30 Oct 2012)
 
