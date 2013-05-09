@@ -376,3 +376,22 @@ If-None-Match: test10
 GET /validation10
 --- error_code: 304
 --- response_body
+
+
+=== TEST 11: Test badly formatted IMS is ignored.
+--- http_config eval: $::HttpConfig
+--- config
+location /validation10 {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- more_headers
+If-Modified-Since: 234qr12411224 
+--- request
+GET /validation10
+--- error_code: 200
+--- response_body
+TEST 10
+--- response_headers_like
+X-Cache: HIT from .*

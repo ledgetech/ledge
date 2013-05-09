@@ -220,11 +220,22 @@ end
 
 function can_revalidate_locally(self)
     local req_h = ngx.req.get_headers()
-    if  req_h["If-Modified-Since"] or req_h["If-None-Match"] then
-        return true
-    else
-        return false
+    local req_ims = req_h["If-Modified-Since"]
+
+    if req_ims then
+        if not ngx.parse_http_time(req_ims) then
+            -- Bad IMS HTTP datestamp, lets remove this.
+            ngx.req.set_header("If-Modified-Since", nil)
+        else
+            return true
+        end
     end
+
+    if req_h["If-None-Match"] then
+        return true
+    end
+    
+    return false
 end
 
 
@@ -232,11 +243,17 @@ function is_valid_locally(self)
     local req_h = ngx.req.get_headers()
     local res = self:get_response()
 
-    if res.header["Last-Modified"] and req_h["If-Modified-Since"] then
-        -- If Last-Modified is newer than If-Modified-Since.
-        if ngx.parse_http_time(res.header["Last-Modified"])
-            > ngx.parse_http_time(req_h["If-Modified-Since"]) then
-            return false
+    local res_lm = res.header["Last-Modified"]
+    local req_ims = req_h["If-Modified-Since"]
+
+    if res_lm and req_ims then
+        local res_lm_parsed = ngx.parse_http_time(res_lm)
+        local req_ims_parsed = ngx.parse_http_time(req_ims)
+
+        if res_lm_parsed and req_ims_parsed then
+            if res_lm_parsed > req_ims_parsed then
+                return false
+            end
         end
     end
 
