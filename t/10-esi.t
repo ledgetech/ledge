@@ -353,7 +353,7 @@ GET /esi_10?t=3
 --- response_body
 t=3
 --- response_headers_like
-X-Cache: HIT from .*
+X-Cache: MISS from .*
 
 
 === TEST 10d: ESI still runs on cache revalidation, upstream 200, locally valid.
@@ -373,7 +373,7 @@ location /esi_10 {
 location /__ledge_origin {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "esi10"
+        ngx.header["Etag"] = "esi10c"
         ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
     ';
 }
@@ -385,7 +385,7 @@ GET /esi_10?t=4
 --- response_body
 t=4
 --- response_headers_like
-X-Cache: HIT from .*
+X-Cache: MISS from .*
 
 
 === TEST 10e: ESI still runs on cache revalidation, upstream 304, locally valid.
@@ -415,7 +415,7 @@ GET /esi_10?t=5
 --- response_body
 t=5
 --- response_headers_like
-X-Cache: HIT from .*
+X-Cache: MISS from .*
 
 
 === TEST 11a: Prime fragment
