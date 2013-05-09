@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) - 1; 
+plan tests => repeat_each() * (blocks() * 3) - 9; 
 
 my $pwd = cwd();
 
@@ -39,6 +39,8 @@ location /__ledge_origin {
 GET /validation
 --- response_body
 TEST 1
+--- response_headers_like
+X-Cache: MISS from .*
 
 
 === TEST 2: Unspecified end-to-end revalidation (max-age=0 + no validator), upstream 200
@@ -64,6 +66,8 @@ GET /validation
 --- error_code: 200
 --- response_body
 TEST 2
+--- response_headers_like
+X-Cache: MISS from .*
 
 
 === TEST 2b: Unspecified end-to-end revalidation (max-age=0 + no validator), upstream 304
@@ -86,6 +90,8 @@ GET /validation
 --- response_body
 TEST 2
 --- error_code: 200
+--- response_headers_like
+X-Cache: MISS from .*
 
 
 === TEST 3: Revalidate against cache using IMS in the future.
@@ -117,6 +123,8 @@ GET /validation
 --- error_code: 200
 --- response_body
 TEST 2
+--- response_headers_like
+X-Cache: HIT from .*
 
 
 === TEST 4: Revalidate against cache using Etag.
@@ -173,6 +181,8 @@ GET /validation
 --- error_code: 200
 --- response_body
 TEST 2
+--- response_headers_like
+X-Cache: MISS from .*
 
 
 === TEST 6: Specific end-to-end revalidation using INM (matching), upstream 304.
@@ -217,6 +227,8 @@ GET /validation
 --- error_code: 200
 --- response_body
 TEST 2
+--- response_headers_like
+X-Cache: MISS from .*
 
 
 === TEST 7: Specific end-to-end revalidation using IMS, upstream 200.
@@ -269,6 +281,8 @@ GET /validation
 --- error_code: 200
 --- response_body
 TEST 8
+--- response_headers_like
+X-Cache: MISS from .*
 
 
 === TEST 8b: Unspecified end-to-end revalidation using INM, upstream 200, validators now match (so 304 to client).
@@ -309,6 +323,8 @@ GET /validation
 --- error_code: 200
 --- response_body
 TEST 8b
+--- response_headers_like
+X-Cache: HIT from .*
 
 
 === TEST 9: Validators on a cache miss (should never 304).
