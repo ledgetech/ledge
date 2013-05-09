@@ -1249,7 +1249,7 @@ function serve(self)
         local ctx = self:ctx()
         if not ctx.event_history["response_not_cacheable"] then
             local x_cache = "HIT from " .. visible_hostname()
-            if ctx.state_history["fetching"] then
+            if ctx.state_history["fetching"] or ctx.state_history["revalidating_upstream"] then
                 x_cache = "MISS from " .. visible_hostname()
             end
 
