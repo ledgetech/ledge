@@ -1,5 +1,24 @@
 ## Changelog
 
+### v0.07 (9 May 2013)
+
+Numerous bug fixes, improved tests and feature implementations over the last 7 months. I promise to do more tagging in future! Here's a summary:
+
+* Major refactor adding state-machine-like control to select code paths.
+* Collapsed forwarding.
+* ESI parser.
+* Serving stale content.
+* PURGE requests.
+* Background revalidation.
+* Redis authentication (thanksjaakkos).
+* Major fixes to revalidation logic.
+* Avoid proxying with unknown HTTP methods.
+* Travis builds.
+* Lots more tests.
+* Probably more that I've forgotten.
+
+Thanks to hamishforbes and benagricola for numerous patches and tests.
+
 ### v0.06 (30 Oct 2012)
 
 * Refactor: Complete code base refactor and new usage syntax. Too many changes to list.
