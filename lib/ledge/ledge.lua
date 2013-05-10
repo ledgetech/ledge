@@ -8,6 +8,7 @@ local unpack = unpack
 local tostring = tostring
 local tonumber = tonumber
 local type = type
+local next = next
 local table = table
 local ngx = ngx
 
@@ -135,47 +136,8 @@ function visible_hostname()
 end
 
 
-function redis_connect(self)
-    local ok, err, redis, sentinel = nil
-
-    if self:config_get("redis_use_sentinel") then
-        ok, err, sentinel = self:_redis_connect(self:config_get("redis_sentinels"))
-
-        sentinel:add_commands("sentinel")
-        local res, err = sentinel:sentinel(
-            "get-master-addr-by-name", 
-            self:config_get("redis_sentinel_master_name")
-        )
-
-        if res ~= ngx.null then
-            ok, err, redis = self:_redis_connect({{ host = res[1], port = res[2] }})
-        else
-            -- try slaves
-        end
-    else
-        ok, err, redis = self:_redis_connect(self:config_get("redis_hosts"))
-
-        if not ok then
-            -- If we couldn't connect or authenticate, redirect to the origin directly.
-            -- This means if Redis goes down, the site stands a chance of still being up.
-            -- TODO: Make this configurable for situations where a 500 is better.
-            if not ok then
-                ngx.log(ngx.WARN, err .. ", internally redirecting to the origin")
-                return ngx.exec(self.config.origin_location..relative_uri())
-            end
-        end
-    end
-
-    local redis_database = self:config_get("redis_database")
-    if redis_database > 0 then
-        redis:select(redis_database)
-    end
-
-    self:ctx().redis = redis
-end
-
-
-function _redis_connect(self, hosts)
+-- Tries hosts in the order given, and returns a redis connection (which may not be connected).
+function redis_connect(self, hosts)
     local redis = redis:new()
 
     local timeout = self:config_get("redis_timeout")
@@ -205,56 +167,35 @@ function _redis_connect(self, hosts)
     return ok, err, redis
 end
 
---[[
-function old_redis_connect(self)
-    -- Connect to Redis. The connection is kept alive later.
-    self:ctx().redis = redis:new()
-    if self:config_get("redis_timeout") then
-        self:ctx().redis:set_timeout(self:config_get("redis_timeout"))
+
+-- Close and optionally keepalive the redis (and sentinel if enabled) connection.
+function redis_close(self)
+    local redis = self:ctx().redis
+    local sentinel = self:ctx().sentinel
+    if redis then
+        self:_redis_close(redis)
     end
-
-    local ok, err = self:ctx().redis:connect(
-        self:config_get("redis_socket") or self:config_get("redis_host"),
-        self:config_get("redis_port")
-    )
-
-    if ok then
-        -- Attempt authentication.
-        local password = self:config_get("redis_password")
-        if password then
-            ok, err = self:ctx().redis:auth(password)
-        end
-    end
-
-    -- If we couldn't connect or authenticate, redirect to the origin directly.
-    -- This means if Redis goes down, the site stands a chance of still being up.
-    -- TODO: Make this configurable for situations where a 500 is better.
-    if not ok then
-        ngx.log(ngx.WARN, err .. ", internally redirecting to the origin")
-        return ngx.exec(self:config_get("origin_location")..relative_uri())
-    end
-
-    -- redis:select always returns OK
-    if self:config_get("redis_database") > 0 then
-        self:ctx().redis:select(self:config_get("redis_database"))
+    if sentinel then
+        self:_redis_close(sentinel)
     end
 end
-]]--
 
-function redis_close(self)
+
+function _redis_close(self, redis)
+    ngx.log(ngx.DEBUG, "Closing redis: " .. tostring(redis))
     -- Keep the Redis connection based on keepalive settings.
     local ok, err = nil
     if self:config_get("redis_keepalive_timeout") then
         if self:config_get("redis_keepalive_pool_size") then
-            ok, err = self:ctx().redis:set_keepalive(
-                self:config_get("redis_keepalive_timeout"),
-                self:config_get("redis_keepalive_pool_size")
+            ok, err = redis:set_keepalive(
+            self:config_get("redis_keepalive_timeout"),
+            self:config_get("redis_keepalive_pool_size")
             )
         else
-            ok, err = self:ctx().redis:set_keepalive(self:config_get("redis_keepalive_timeout"))
+            ok, err = redis:set_keepalive(self:config_get("redis_keepalive_timeout"))
         end
     else
-        ok, err = self:ctx().redis:set_keepalive()
+        ok, err = redis:set_keepalive()
     end
 
     if not ok then
@@ -430,9 +371,59 @@ end
 -- given event before more generic ones.
 ---------------------------------------------------------------------------------------------------
 events = {
-    -- Initial transition, always connect to redis then start checking the request.
+    -- Initial transition. Let's find out if we're connecting via Sentinel.
     init = {
-        { begin = "checking_request", but_first = "redis_connect" },
+        { begin = "considering_sentinel" },
+    },
+
+    -- We have sentinel config, so attempt connection.
+    sentinel_configured = {
+        { begin = "connecting_to_sentinel" },
+    },
+
+    -- We have no sentinel config, connect to redis hosts directly.
+    sentinel_not_configured = {
+        { begin = "connecting_to_redis" },
+    },
+
+    -- We successfully connected to sentinel, try selecting the master.
+    sentinel_connected = {
+        { begin = "selecting_redis_master" },
+    },
+    
+    -- We failed connecting to sentinel(s). Bail.
+    sentinel_connection_failed = {
+        { begin = "exiting", but_first = "set_http_service_unavailable" },
+    },
+
+    -- We found a master, connect to it.
+    redis_master_selected = {
+        { begin = "connecting_to_redis" },
+    },
+    
+    -- We failed to select a redis instance. If we were already trying slaves, then we have to bail.
+    -- If we were selecting the master, try selecting (as yet unpromoted) slaves.
+    redis_selection_failed = {
+        { after = "selecting_redis_slaves", begin = "exiting", 
+            but_first = "set_http_service_unavailable" },
+        { after = "selecting_redis_master", begin = "selecting_redis_slaves" },
+    },
+
+    -- We managed to find a slave. It will be read-only, but maybe we'll get lucky and have a HIT.
+    redis_slaves_selected = {
+        { begin = "connecting_to_redis" },
+    },
+
+    -- We failed to connect to redis. If we were trying a master at the time, lets give the
+    -- slaves a go. Otherwise, bail.
+    redis_connection_failed = {
+        { after = "selecting_redis_master", begin = "selecting_redis_slaves" },
+        { begin = "exiting", but_first = "set_http_service_unavailable" },
+    },
+
+    -- We're connected! Let's get on with it then... First step, analyse the request.
+    redis_connected = {
+        { begin = "checking_request" },
     },
 
     -- PURGE method detected.
@@ -795,6 +786,84 @@ actions = {
 -- table.
 ---------------------------------------------------------------------------------------------------
 states = {
+    considering_sentinel = function(self)
+        if self:config_get("redis_use_sentinel") then
+            return self:e "sentinel_configured"
+        else
+            return self:e "sentinel_not_configured"
+        end
+    end,
+
+    connecting_to_sentinel = function(self)
+        local hosts = self:config_get("redis_sentinels")
+        local ok, err, sentinel = self:redis_connect(hosts)
+        if not ok then
+            return self:e "sentinel_connection_failed"
+        else
+            sentinel:add_commands("sentinel")
+            self:ctx().sentinel = sentinel
+            return self:e "sentinel_connected"
+        end
+    end,
+
+    connecting_to_redis = function(self)
+        local hosts = self:config_get("redis_hosts")
+        local ok, err, redis = self:redis_connect(hosts)
+        if not ok then
+            return self:e "redis_connection_failed"
+        else
+            self:ctx().redis = redis
+            return self:e "redis_connected"
+        end
+    end,
+
+    selecting_redis_master = function(self)
+        local sentinel = self:ctx().sentinel
+        local res, err = sentinel:sentinel(
+            "get-master-addr-by-name",
+            self:config_get("redis_sentinel_master_name")
+         )
+         if res ~= ngx.null and res[1] and res[2] then
+             self:config_set("redis_hosts", {
+                 { host = res[1], port = res[2] },
+             })
+
+             return self:e "redis_master_selected"
+         else
+             return self:e "redis_selection_failed"
+         end
+    end,
+
+    selecting_redis_slaves = function(self)
+        local sentinel = self:ctx().sentinel
+        local res, err = sentinel:sentinel(
+            "slaves",
+            self:config_get("redis_sentinel_master_name")
+        )
+        if res ~= ngx.null then
+            local hosts = {}
+            for _,slave in ipairs(res) do
+                local host = {}
+                for i = 1, #slave, 2 do
+                    if slave[i] == "ip" then
+                        host.host = slave[i + 1]
+                    elseif slave[i] == "port" then
+                        host.port = slave[i + 1]
+                        break
+                    end
+                end
+                if host.host and host.port then
+                    table.insert(hosts, host)
+                end
+            end
+            if next(hosts) ~= nil then
+                self:config_set("redis_hosts", hosts)
+                self:e "redis_slaves_selected"
+            end
+        end
+        self:e "redis_selection_failed"
+    end,
+
     checking_request = function(self)
         if ngx.req.get_method() == "PURGE" then
             return self:e "purge_requested"
