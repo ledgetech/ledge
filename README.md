@@ -180,7 +180,7 @@ http {
 Download and install:
 
 * [Redis](http://redis.io/download) >= 2.6.x
-* [OpenResty](http://openresty.org/) >= 1.2.6.x
+* [OpenResty](http://openresty.org/) >= 1.2.7.x
 
 Review the [lua-nginx-module](http://wiki.nginx.org/HttpLuaModule) documentation on how to run Lua code in Nginx.
 

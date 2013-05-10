@@ -87,11 +87,13 @@ OK
                 if "function" ~= type(ledge.states[t]) then
                     ngx.say("Pre-transitions defined for missing state "..t)
                 end
-                if not v["action"] then
+                if type(v) ~= "table" or #v == 0 then
                     ngx.say("No pre-transition actions defined for "..t)
                 else
-                    if "function" ~= type(ledge.actions[v["action"]]) then
-                        ngx.say("Pre-transition action "..v["action"].." is not defined")
+                    for _,action in ipairs(v) do
+                        if "function" ~= type(ledge.actions[action]) then
+                            ngx.say("Pre-transition action "..action.." is not defined")
+                        end
                     end
                 end
             end

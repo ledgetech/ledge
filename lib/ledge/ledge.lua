@@ -13,7 +13,7 @@ local ngx = ngx
 
 module(...)
 
-_VERSION = '0.06'
+_VERSION = '0.07'
 
 local mt = { __index = _M }
 
@@ -65,6 +65,7 @@ function ctx(self)
             state_history = {},
             event_history = {},
             current_state = "",
+            client_validators = {},
         }
         ngx.ctx[id] = ctx
     end
@@ -336,11 +337,22 @@ end
 
 function can_revalidate_locally(self)
     local req_h = ngx.req.get_headers()
-    if  req_h["If-Modified-Since"] or req_h["If-None-Match"] then
-        return true
-    else
-        return false
+    local req_ims = req_h["If-Modified-Since"]
+
+    if req_ims then
+        if not ngx.parse_http_time(req_ims) then
+            -- Bad IMS HTTP datestamp, lets remove this.
+            ngx.req.set_header("If-Modified-Since", nil)
+        else
+            return true
+        end
     end
+
+    if req_h["If-None-Match"] then
+        return true
+    end
+    
+    return false
 end
 
 
@@ -348,11 +360,17 @@ function is_valid_locally(self)
     local req_h = ngx.req.get_headers()
     local res = self:get_response()
 
-    if res.header["Last-Modified"] and req_h["If-Modified-Since"] then
-        -- If Last-Modified is newer than If-Modified-Since.
-        if ngx.parse_http_time(res.header["Last-Modified"])
-            > ngx.parse_http_time(req_h["If-Modified-Since"]) then
-            return false
+    local res_lm = res.header["Last-Modified"]
+    local req_ims = req_h["If-Modified-Since"]
+
+    if res_lm and req_ims then
+        local res_lm_parsed = ngx.parse_http_time(res_lm)
+        local req_ims_parsed = ngx.parse_http_time(req_ims)
+
+        if res_lm_parsed and req_ims_parsed then
+            if res_lm_parsed > req_ims_parsed then
+                return false
+            end
         end
     end
 
@@ -444,19 +462,16 @@ events = {
         { begin = "checking_can_fetch" },
     },
 
-    -- We don't know anything about this URI, so we've got to see about fetching. Since we have
-    -- nothing to validate against, remove the client validators so that we don't get a conditional
-    -- response upstream.
+    -- We don't know anything about this URI, so we've got to see about fetching. 
     cache_missing = {
-        { begin = "checking_can_fetch", but_first = "remove_client_validators" },
+        { begin = "checking_can_fetch" },
     },
 
     -- This URI was cacheable last time, but has expired. So see about serving stale, but failing
-    -- that, see about fetching and don't forget to remove client validators as per "cache_missing".
+    -- that, see about fetching.
     cache_expired = {
         { when = "checking_cache", begin = "checking_can_serve_stale" },
-        { when = "checking_can_serve_stale", begin = "checking_can_fetch", 
-            but_first = "remove_client_validators" },
+        { when = "checking_can_serve_stale", begin = "checking_can_fetch" }, 
     },
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
@@ -496,7 +511,7 @@ events = {
     collapsed_response_ready = {
         { begin = "checking_cache" },
     },
-    
+
     -- We were waiting on another request (collapsed), but it came back as a non-cacheable response
     -- (i.e. the previously cached item is no longer cacheable). So go fetch for ourselves.
     collapsed_forwarding_failed = {
@@ -522,16 +537,19 @@ events = {
 
     -- We deduced that the new response can cached. We always "save_to_cache". If we were fetching
     -- as a surrogate (collapsing) make sure we tell any others concerned. If we were performing
-    -- a background revalidate (having served stale), we can just exit. Otherwise see about serving.
+    -- a background revalidate (having served stale), we can just exit. Otherwise go back through
+    -- validationg in case we can 304 to the client.
     response_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_success", 
             but_first = "save_to_cache" },
-        { after = "revalidating_in_background", begin = "exiting", but_first = "save_to_cache" },
-        { begin = "preparing_response", but_first = "save_to_cache" },
+        { after = "revalidating_in_background", begin = "exiting", 
+            but_first = "save_to_cache" },
+        { begin = "considering_local_revalidation", 
+            but_first = "save_to_cache" },
     },
 
     -- We've deduced that the new response cannot be cached. Essentially this is as per
-    -- "response_cacheable", except we "delete" rather than "save".
+    -- "response_cacheable", except we "delete" rather than "save", and we don't try to revalidate.
     response_not_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
@@ -551,18 +569,14 @@ events = {
     },
 
     -- We were the collapser, so digressed into being a surrogate. We're done now and have published
-    -- this fact, so carry on.
+    -- this fact, so we pick up where it would have left off - attempting to 304 to the client.
     published = {
-        { begin = "preparing_response" },
+        { begin = "considering_local_revalidation" },
     },
 
-    -- We've got some validators (If-Modified-Since etc). First try local revalidation (i.e. against
-    -- our own cache. If we've done that and still must_revalidate, then revalidate upstream by
-    -- using validators created from our cache data (Last-Modified etc).
+    -- Client requests a max-age of 0 or stored response requires revalidation.
     must_revalidate = {
-        { when = "considering_revalidation", begin = "considering_local_revalidation" },
-        { when = "considering_local_revalidation", begin = "revalidating_upstream",
-            but_first = "add_validators_from_cache" },
+        { begin = "revalidating_upstream" },
     },
 
     -- We can validate locally, so do it. This doesn't imply it's valid, merely that we have
@@ -571,29 +585,35 @@ events = {
         { begin = "revalidating_locally" },
     },
 
-    -- The response has not been modified against the validators given. Exit 304 Not Modified.
-    not_modified = {
-        { when = "revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
-        { when = "re_revalidating_locally", begin = "exiting", but_first = "set_http_not_modified" },
-        --{ when = "revalidating_upstream", begin = "re_revalidating_locally" },
-        -- TODO: Add in re-revalidation. Current tests aren't expecting this.
+    -- Standard non-conditional request.
+    no_validator_present = {
+        { begin = "preparing_response" },
     },
 
-    -- The validated response has changed. If we've found this out 
+    -- The response has not been modified against the validators given. We'll exit 304 if we can
+    -- but go via preparing_response in case of ESI work to be done.
+    not_modified = {
+        { when = "revalidating_locally", begin = "preparing_response" },
+    },
+
+    -- Our cache has been modified as compared to the validators. But cache is valid, so just
+    -- serve it. If we've been upstream, re-compare against client validators.
     modified = {
-        { when = "revalidating_locally", begin = "revalidating_upstream", 
-            but_first = "add_validators_from_cache" },
-        { when = "re_revalidating_locally", begin = "preparing_response" },
+        { when = "revalidating_locally", begin = "preparing_response" },
+        { when = "revalidating_upstream", begin = "considering_local_revalidation" },
     },
 
     -- We've found ESI instructions in the response body (on the last save). Serve, but do
-    -- any ESI processing first.
+    -- any ESI processing first. If we got here we wont 304 to the client.
     esi_detected = {
         { begin = "serving", but_first = "process_esi" },
     },
 
-    -- We have a response we can use. If it has been prepared, serve. If not, prepare it.
+    -- We have a response we can use. If it has been prepared and we were not_modified, then exit 304.
+    -- If it has been prepared, serve. If not, prepare it.
     response_ready = {
+        { when = "preparing_response", in_case = "not_modified", 
+            begin = "exiting", but_first = "set_http_not_modified" },
         { when = "preparing_response", begin = "serving" },
         { begin = "preparing_response" },
     },
@@ -638,12 +658,21 @@ events = {
 ---------------------------------------------------------------------------------------------------
 -- Pre-transitions. Actions to always perform before transitioning.
 ---------------------------------------------------------------------------------------------------
--- TODO: Perhaps actions need to be listed in an order? We can only have one right now.
 pre_transitions = {
-    exiting = { action = "redis_close" },
-    fetching = { action = "fetch" },
-    revalidating_upstream = { action = "fetch" },
-    checking_cache = { action = "read_cache" },
+    exiting = { "redis_close" },
+    checking_cache = { "read_cache" },
+    -- Never fetch with client validators, but put them back afterwards.
+    fetching = { 
+        "remove_client_validators", "fetch", "restore_client_validators"
+    }, 
+    -- Use validators from cache when revalidating upstream, and restore client validators
+    -- afterwards.
+    revalidating_upstream = { 
+        "remove_client_validators", 
+        "add_validators_from_cache", 
+        "fetch", 
+        "restore_client_validators"
+    },
 }
 
 
@@ -672,8 +701,19 @@ actions = {
     end,
 
     remove_client_validators = function(self)
+        -- Keep these in case we need to restore them (after revalidating upstream)
+        local client_validators = self:ctx().client_validators
+        client_validators["If-Modified-Since"] = ngx.var.http_if_modified_since
+        client_validators["If-None-Match"] = ngx.var.http_if_none_match
+
         ngx.req.set_header("If-Modified-Since", nil)
         ngx.req.set_header("If-None-Match", nil)
+    end,
+
+    restore_client_validators = function(self)
+        local client_validators = self:ctx().client_validators
+        ngx.req.set_header("If-Modified-Since", client_validators["If-Modified-Since"])
+        ngx.req.set_header("If-None-Match", client_validators["If-None-Match"])
     end,
 
     add_validators_from_cache = function(self)
@@ -907,9 +947,10 @@ states = {
     considering_revalidation = function(self)
         if self:must_revalidate() then
             return self:e "must_revalidate"
+        elseif self:can_revalidate_locally() then
+            return self:e "can_revalidate_locally"
         else
-            -- Is this right?
-            return self:e "response_ready"
+            return self:e "no_validator_present"
         end
     end,
 
@@ -917,7 +958,7 @@ states = {
         if self:can_revalidate_locally() then
             return self:e "can_revalidate_locally"
         else
-            return self:e "must_revalidate"
+            return self:e "no_validator_present"
         end
     end,
 
@@ -929,15 +970,6 @@ states = {
         end
     end,
 
-    re_revalidating_locally = function(self)
-        -- How do we compare against the new response?
-        if self:is_valid_locally() then
-            return self:e "not_modified"
-        else
-            return self:e "modified"
-        end
-    end,
-    
     revalidating_upstream = function(self)
         local res = self:get_response()
 
@@ -1006,9 +1038,12 @@ function t(self, state)
 
     -- Check for any transition pre-tasks
     local pre_t = self.pre_transitions[state]
-    if pre_t and (pre_t["from"] == nil or ctx.current_state == pre_t["from"]) then
-        ngx.log(ngx.DEBUG, "#a: " .. pre_t["action"])
-        self.actions[pre_t["action"]](self)
+
+    if pre_t then
+        for _,action in ipairs(pre_t) do
+            ngx.log(ngx.DEBUG, "#a: " .. action)
+            self.actions[action](self)
+        end
     end
 
     ngx.log(ngx.DEBUG, "#t: " .. state)
@@ -1307,7 +1342,7 @@ function serve(self)
         local ctx = self:ctx()
         if not ctx.event_history["response_not_cacheable"] then
             local x_cache = "HIT from " .. visible_hostname()
-            if ctx.state_history["fetching"] then
+            if ctx.state_history["fetching"] or ctx.state_history["revalidating_upstream"] then
                 x_cache = "MISS from " .. visible_hostname()
             end
 
@@ -1427,7 +1462,11 @@ function process_esi(self)
         if table.getn(esi_uris) > 0 then
             -- Only works for relative URIs right now
             -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
+            --
+            
+            self.actions["remove_client_validators"](self)
             local esi_fragments = { ngx.location.capture_multi(esi_uris) }
+            self.actions["restore_client_validators"](self)
 
             -- Create response objects.
             for i,fragment in ipairs(esi_fragments) do
