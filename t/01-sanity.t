@@ -31,26 +31,7 @@ GET /sanity_1
 [error]
 
 
-=== TEST 2: Run module without errors, returning origin content.
---- http_config eval: $::HttpConfig
---- config
-	location /sanity_2 {
-        content_by_lua '
-            ledge:run()
-        ';
-    }
-    location /__ledge_origin {
-        echo "OK";
-    }
---- request
-GET /sanity_2
---- no_error_log
-[error]
---- response_body
-OK
-
-
-=== TEST 3: Check state machine "compiles".
+=== TEST 2: Check state machine "compiles".
 --- http_config eval: $::HttpConfig
 --- config
 	location /sanity_2 {
@@ -107,3 +88,23 @@ GET /sanity_2
 [error]
 --- response_body
 OK
+
+
+=== TEST 3: Run module without errors, returning origin content.
+--- http_config eval: $::HttpConfig
+--- config
+	location /sanity_2 {
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location /__ledge_origin {
+        echo "OK";
+    }
+--- request
+GET /sanity_2
+--- no_error_log
+[error]
+--- response_body
+OK
+
