@@ -160,6 +160,13 @@ function redis_connect(self, hosts)
             end
 
             ngx.log(ngx.DEBUG, "Connected to " .. conn.host .. ":"..conn.port)
+
+            -- redis:select always returns OK
+            local database = self:config_get("redis_database")
+            if database > 0 then
+                redis:select(database)
+            end
+
             break -- We're done
         end
     end
