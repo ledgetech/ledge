@@ -183,7 +183,6 @@ end
 
 
 function _redis_close(self, redis)
-    ngx.log(ngx.DEBUG, "Closing redis: " .. tostring(redis))
     -- Keep the Redis connection based on keepalive settings.
     local ok, err = nil
     if self:config_get("redis_keepalive_timeout") then
