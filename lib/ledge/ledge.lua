@@ -148,18 +148,12 @@ function redis_connect(self, hosts)
     local ok, err
 
     for _, conn in ipairs(hosts) do
-        ngx.log(ngx.DEBUG, "Could try " .. conn.host .. ":"..conn.port)
-    end
-
-    for _, conn in ipairs(hosts) do
         ok, err = redis:connect(conn.socket or conn.host, conn.port)
         if ok then 
             -- Attempt authentication.
             if conn.password then
                 ok, err = redis:auth(conn.password)
             end
-
-            ngx.log(ngx.DEBUG, "Connected to " .. conn.host .. ":"..conn.port)
 
             -- redis:select always returns OK
             local database = self:config_get("redis_database")
