@@ -129,8 +129,9 @@ end
 
 function visible_hostname()
     local name = ngx.var.visible_hostname or ngx.var.hostname
-    if ngx.var.server_port ~= "80" and ngx.var.server_port ~= "443" then
-        name = name .. ":" .. ngx.var.server_port
+    local server_port = ngx.var.server_port
+    if server_port ~= "80" and server_port ~= "443" then
+        name = name .. ":" .. server_port
     end
     return name
 end
@@ -151,8 +152,9 @@ function redis_connect(self, hosts)
         ok, err = redis:connect(conn.socket or conn.host, conn.port)
         if ok then 
             -- Attempt authentication.
-            if conn.password then
-                ok, err = redis:auth(conn.password)
+            local password = conn.password
+            if password then
+                ok, err = redis:auth(password)
             end
 
             -- redis:select always returns OK
@@ -185,14 +187,13 @@ end
 function _redis_close(self, redis)
     -- Keep the Redis connection based on keepalive settings.
     local ok, err = nil
-    if self:config_get("redis_keepalive_timeout") then
+    local keepalive_timeout = self:config_get("redis_keepalive_timeout")
+    if keepalive_timeout then
         if self:config_get("redis_keepalive_pool_size") then
-            ok, err = redis:set_keepalive(
-            self:config_get("redis_keepalive_timeout"),
-            self:config_get("redis_keepalive_pool_size")
-            )
+            ok, err = redis:set_keepalive(keepalive_timeout, 
+                self:config_get("redis_keepalive_pool_size"))
         else
-            ok, err = redis:set_keepalive(self:config_get("redis_keepalive_timeout"))
+            ok, err = redis:set_keepalive(keepalive_timeout)
         end
     else
         ok, err = redis:set_keepalive()
@@ -263,11 +264,13 @@ function must_revalidate(self)
         return true
     else
         local res = self:get_response()
+        local res_age = res.header["Age"]
+
         if h_util.header_has_directive(res.header["Cache-Control"], "revalidate") then
             return true
-        elseif type(cc) == "string" and res.header["Age"] then
+        elseif type(cc) == "string" and res_age then
             local max_age = cc:match("max%-age=(%d+)")
-            if max_age and res.header["Age"] > tonumber(max_age) then
+            if max_age and res_age > tonumber(max_age) then
                 return true
             end
         end
@@ -1138,12 +1141,16 @@ function e(self, event)
     end
     
     for _, trans in ipairs(self.events[event]) do
-        if trans["when"] == nil or trans["when"] == ctx.current_state then
-            if not trans["after"] or ctx.state_history[trans["after"]] then 
-                if not trans["in_case"] or ctx.event_history[trans["in_case"]] then
-                    if trans["but_first"] then
-                        ngx.log(ngx.DEBUG, "#a: " .. trans["but_first"])
-                        self.actions[trans["but_first"]](self)
+        local t_when = trans["when"]
+        if t_when == nil or t_when == ctx.current_state then
+            local t_after = trans["after"]
+            if not t_after or ctx.state_history[t_after] then 
+                local t_in_case = trans["in_case"]
+                if not t_in_case or ctx.event_history[t_in_case] then
+                    local t_but_first = trans["but_first"]
+                    if t_but_first then
+                        ngx.log(ngx.DEBUG, "#a: " .. t_but_first)
+                        self.actions[t_but_first](self)
                     end
 
                     return self:t(trans["begin"])
@@ -1398,10 +1405,13 @@ function serve(self)
         local res = self:get_response() -- or self:get_response("fetched")
         assert(res.status, "Response has no status.")
 
+        local visible_hostname = visible_hostname()
+
         -- Via header
-        local via = "1.1 " .. visible_hostname() .. " (ledge/" .. _VERSION .. ")"
-        if  (res.header["Via"] ~= nil) then
-            res.header["Via"] = via .. ", " .. res.header["Via"]
+        local via = "1.1 " .. visible_hostname .. " (ledge/" .. _VERSION .. ")"
+        local res_via = res.header["Via"]
+        if  (res_via ~= nil) then
+            res.header["Via"] = via .. ", " .. res_via
         else
             res.header["Via"] = via
         end
@@ -1409,14 +1419,18 @@ function serve(self)
         -- X-Cache header
         -- Don't set if this isn't a cacheable response. Set to MISS is we fetched.
         local ctx = self:ctx()
+        local state_history = ctx.state_history
+
         if not ctx.event_history["response_not_cacheable"] then
-            local x_cache = "HIT from " .. visible_hostname()
-            if ctx.state_history["fetching"] or ctx.state_history["revalidating_upstream"] then
-                x_cache = "MISS from " .. visible_hostname()
+            local x_cache = "HIT from " .. visible_hostname
+            if state_history["fetching"] or state_history["revalidating_upstream"] then
+                x_cache = "MISS from " .. visible_hostname
             end
 
-            if res.header["X-Cache"] ~= nil then
-                res.header["X-Cache"] = x_cache .. ", " .. res.header["X-Cache"]
+            local res_x_cache = res.header["X-Cache"]
+
+            if res_x_cache ~= nil then
+                res.header["X-Cache"] = x_cache .. ", " .. res_x_cache
             else
                 res.header["X-Cache"] = x_cache
             end

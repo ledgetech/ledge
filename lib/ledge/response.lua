@@ -118,8 +118,9 @@ function ttl(self)
     end
 
     -- Fall back to Expires.
-    if self.header["Expires"] then 
-        local time = ngx.parse_http_time(self.header["Expires"])
+    local expires = self.header["Expires"]
+    if expires then 
+        local time = ngx.parse_http_time(expires)
         if time then return time - ngx.time() end
     end
 
