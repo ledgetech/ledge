@@ -840,7 +840,7 @@ states = {
             "slaves",
             self:config_get("redis_sentinel_master_name")
         )
-        if res ~= ngx.null then
+        if type(res) == "table" then
             local hosts = {}
             for _,slave in ipairs(res) do
                 local host = {}
