@@ -14,6 +14,7 @@ This library is considered experimental and under active development, functional
 
 * RFC 2616 compliant proxying and caching based on policies derived from HTTP request and response headers (please [raise an issue](https://github.com/pintsized/ledge/issues) if you spot a case we haven't covered).
 * Cache items and metadata stored in [Redis](http://redis.io).
+* Redis automatic failover with [Sentinel](http://redis.io/topics/sentinel).
 * Mechanisms to override cache policies at various stages using Lua script.
 * ESI support:
 	* Variable substitution (strings only currently).
@@ -35,7 +36,6 @@ Beware of blindly caching large response bodies (videos etc). This could cause e
 
 ### Next up...
 
-* Redis sentinel configuration (automatic failover).
 * Vary header support.
 * The large response body problem.
 
@@ -103,7 +103,9 @@ http {
         
         -- Options made here affect all uses of the module, and are only loaded once.
         
-        ledge:config_set("redis_socket", "unix:/path/to/redis.sock")
+        ledge:config_set("redis_hosts", {
+            { host = "127.0.0.1", port = 6380 }
+        })
         ledge:config_set("redis_database", 3)
     ';
 
@@ -225,29 +227,17 @@ One of:
 
 `ORIGIN_MODE_NORMAL` proxies to the origin as expected. `ORIGIN_MODE_AVOID` will disregard cache headers and expiry to try and use the cache items wherever possible, avoiding the origin. This is similar to "offline_mode" in Squid. `ORIGIN_MODE_BYPASS` assumes the origin is down (for maintenance or otherwise), using cache where possible and exiting with `503 Service Unavailable` otherwise.
 
-#### redis_host
+#### redis_hosts
 
-*Default:* `127.0.0.1`
+*Default:* `{ { host = "127.0.0.1", port = 6379, socket = nil, password = nil } }`
+
+A table of host tables, which will be tried in order. If a socket is supplied, this will overide host/port settings.
 
 Both IP addresses and domain names can be used. In case of domain names, the Nginx core's dynamic resolver must be configured in your nginx.conf, e.g:
 
 ```nginx
 resolver 8.8.8.8;  # use Google's public DNS nameserver
 ```
-
-#### redis_port
-
-*Default:* `6379`
-
-#### redis_socket
-
-*Default:* `nil`
-
-`connect()` will use TCP by default, unless `redis_socket` is defined.
-
-#### redis_password
-
-*Default:* `nil`
 
 #### redis_database
 
@@ -270,6 +260,30 @@ ngx_lua defaults to *60s*, overridable per worker process by using the `lua_sock
 *Default:* `nil`
 
 ngx_lua defaults to *30*, overridable per worker process by using the `lua_socket_pool_size` directive.
+
+#### redis_use_sentinel
+
+*Default:* `false`
+
+Use sentinel to obtain the details of a Redis server to be used. Please be sure to (read these docs)[http://redis.io/topics/sentinel] in order to understand the capabilities and behaviours of Sentinel
+
+#### redis_use_sentinel
+
+*Default:* `false`
+
+Use Sentinel to obtain the details of a Redis server to be used. Please be sure to (read these docs)[http://redis.io/topics/sentinel] in order to understand the capabilities and behaviours of Sentinel.
+
+#### redis_sentinels
+
+*Default:* `empty table`
+
+Provide a table of Sentinel hosts to try in order. Once connected Ledge will ask Sentinel for a master to use. If the master is down, it will try to connect to a slave instead (where writes will fail).
+
+#### redis_master_name
+
+*Default:* `mymaster`
+
+The name of the master to use. Again, refer to the (Sentinel docs)[http://redis.io/topics/sentinel] for an explanation.
 
 #### cache_key_spec
 
