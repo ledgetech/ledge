@@ -149,7 +149,7 @@ function redis_connect(self, hosts)
     local ok, err
 
     for _, conn in ipairs(hosts) do
-        ok, err = redis:connect(conn.socket or conn.host, conn.port)
+        ok, err = redis:connect(conn.socket or conn.host, conn.port or 0)
         if ok then 
             -- Attempt authentication.
             local password = conn.password

@@ -13,6 +13,7 @@ our $HttpConfig = qq{
 		ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
 		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
 	";
 };
 
@@ -103,6 +104,28 @@ OK
     }
 --- request
 GET /sanity_2
+--- no_error_log
+[error]
+--- response_body
+OK
+
+
+=== TEST 4: Run module against Redis on a Unix socket without errors.
+--- http_config eval: $::HttpConfig
+--- config
+	location /sanity_4 {
+        content_by_lua '
+            ledge:config_set("redis_hosts", { 
+                { socket = redis_socket },
+            })
+            ledge:run()
+        ';
+    }
+    location /__ledge_origin {
+        echo "OK";
+    }
+--- request
+GET /sanity_4
 --- no_error_log
 [error]
 --- response_body
