@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 9; 
+plan tests => repeat_each() * (blocks() * 3) - 7; 
 
 my $pwd = cwd();
 
@@ -94,7 +94,8 @@ TEST 2
 X-Cache: MISS from .*
 
 
-=== TEST 3: Revalidate against cache using IMS in the future.
+=== TEST 3: Revalidate against cache using IMS in the future. Check we still have headers
+with our 304, and no body.
 --- http_config eval: $::HttpConfig
 --- config
 location /validation {
@@ -106,6 +107,9 @@ location /validation {
 --- request
 GET /validation
 --- error_code: 304
+--- response_headers
+Cache-Control: max-age=3600
+Etag: test2
 --- response_body
 
 

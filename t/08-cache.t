@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 19;
+plan tests => 25;
 
 my $pwd = cwd();
 
@@ -194,3 +194,43 @@ GET /cache
 --- response_body
 TEST 8
 
+=== TEST 9a: Prime a 404 response into cache; X-Cache: MISS
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_9 {
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.status = ngx.HTTP_NOT_FOUND
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.say("TEST 9")
+        ';
+    }
+--- request
+GET /cache_9
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+TEST 9
+--- error_code: 404
+
+
+=== TEST 9b: Test we still have 404; X-Cache: HIT
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_9 {
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- request
+GET /cache_9
+--- response_headers_like
+X-Cache: HIT from .*
+--- response_body
+TEST 9
+--- error_code: 404

@@ -603,12 +603,15 @@ events = {
         { begin = "serving", but_first = "process_esi" },
     },
 
-    -- We have a response we can use. If it has been prepared and we were not_modified, then exit 304.
-    -- If it has been prepared, serve. If not, prepare it.
+    -- We have a response we can use. If we've already served (we are doing background work) then 
+    -- just exit. If it has been prepared and we were not_modified, then set 304 and serve.
+    -- If it has been prepared, set status accordingly and serve. If not, prepare it.
     response_ready = {
+        { in_case = "served", begin = "exiting" },
         { when = "preparing_response", in_case = "not_modified", 
-            begin = "exiting", but_first = "set_http_not_modified" },
-        { when = "preparing_response", begin = "serving" },
+            begin = "serving", but_first = "set_http_not_modified" },
+        { when = "preparing_response", begin = "serving", 
+            but_first = "set_http_status_from_response" },
         { begin = "preparing_response" },
     },
 
@@ -1443,22 +1446,13 @@ function serve(self)
 
         self:emit("response_ready", res)
 
-        -- If we have a 5xx or a 3/4xx and no body entity, exit allowing nginx config
-        -- to generate a response.
-        if res.status >= 500 or (res.status >= 300 and res.body == nil) then
-            ngx.exit(res.status)
-        end
-
-        -- Otherwise send the response as normal.
-        ngx.status = res.status
-
         if res.header then
             for k,v in pairs(res.header) do
                 ngx.header[k] = v
             end
         end
 
-        if res.body then
+        if res.status ~= 304 and res.body then
             ngx.print(res.body)
         end
 
