@@ -628,21 +628,26 @@ events = {
     },
 
 
-    -- Useful events for exiting with a common status.
+    -- Useful events for exiting with a common status. If we've already served (perhaps we're doing
+    -- background work, we just exit without re-setting the status (as this errors).
 
     http_ok = {
+        { in_case = "served", begin = "exiting" },
         { begin = "exiting", but_first = "set_http_ok" },
     },
 
     http_not_found = {
+        { in_case = "served", begin = "exiting" },
         { begin = "exiting", but_first = "set_http_not_found" },
     },
 
     http_gateway_timeout = {
+        { in_case = "served", begin = "exiting" },
         { begin = "exiting", but_first = "set_http_gateway_timeout" },
     },
 
     http_service_unavailable = {
+        { in_case = "served", begin = "exiting" },
         { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
 
