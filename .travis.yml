@@ -18,4 +18,4 @@ install:
   - "cpanm Test::Nginx" 
 
 before_script: "sudo stop redis-server" # Make sure the default redis is stopped
-script: "make start_redis_instances; make test; make stop_redis_instances"
+script: "make start_redis_instances; STATUS=$(make test); make stop_redis_instances; exit $STATUS"
