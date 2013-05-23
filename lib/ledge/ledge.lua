@@ -1444,6 +1444,10 @@ function serve(self)
             end
         end
 
+        if self:config_get("origin_mode") == ORIGIN_MODE_BYPASS then
+            self:add_warning("112")
+        end
+
         self:emit("response_ready", res)
 
         if res.header then
@@ -1470,6 +1474,7 @@ function add_warning(self, code)
     local warnings = {
         ["110"] = "Response is stale",
         ["214"] = "Transformation applied",
+        ["112"] = "Disconnected Operation",
     }
 
     local header = code .. ' ' .. visible_hostname() .. ' "' .. warnings[code] .. '"'
