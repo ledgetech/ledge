@@ -9,26 +9,23 @@ REDIS_SOCK          = /redis.sock
 REDIS_PID           = /redis.pid
 REDIS_LOG           = /redis.log
 
-# Define variables used during testing 
 TEST_LEDGE_REDIS_PORTS              ?= 6379 6380
 TEST_LEDGE_REDIS_DATABASE           ?= 1
 
 TEST_LEDGE_SENTINEL_PORTS           ?= 6381 6382 6383
-TEST_LEDGE_SENTINEL_CMD             ?= $(REDIS_CMD) --sentinel
 TEST_LEDGE_SENTINEL_MASTER_NAME     ?= mymaster
 TEST_LEDGE_SENTINEL_PROMOTION_TIME  ?= 20
 
 REDIS_FIRST_PORT         := $(firstword $(TEST_LEDGE_REDIS_PORTS))
-REDIS_SLAVE_ARG           = --slaveof 127.0.0.1 $(REDIS_FIRST_PORT)
+REDIS_SLAVE_ARG          := --slaveof 127.0.0.1 $(REDIS_FIRST_PORT)
+REDIS_CLI                := redis-cli -p $(REDIS_FIRST_PORT) -n $(TEST_LEDGE_REDIS_DATABASE)
 
-REDIS_CLI                 = redis-cli -p $(REDIS_FIRST_PORT) -n $(TEST_LEDGE_REDIS_DATABASE)
-
-TEST_LEDGE_REDIS_VARS = PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$(PATH) \
+TEST_LEDGE_REDIS_VARS     = PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$(PATH) \
 TEST_LEDGE_REDIS_SOCKET=unix://$(REDIS_PREFIX)$(REDIS_FIRST_PORT)$(REDIS_SOCK) \
 TEST_LEDGE_REDIS_DATABASE=$(TEST_LEDGE_REDIS_DATABASE) \
 TEST_NGINX_NO_SHUFFLE=1
 
-TEST_LEDGE_SENTINEL_VARS = PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$(PATH) \
+TEST_LEDGE_SENTINEL_VARS  = PATH=$(OPENRESTY_PREFIX)/nginx/sbin:$(PATH) \
 TEST_LEDGE_SENTINEL_PORT=$(firstword $(TEST_LEDGE_SENTINEL_PORTS)) \
 TEST_LEDGE_SENTINEL_MASTER_NAME=$(TEST_LEDGE_SENTINEL_MASTER_NAME) \
 TEST_LEDGE_REDIS_DATABASE=$(TEST_LEDGE_REDIS_DATABASE) \
@@ -45,7 +42,7 @@ endef
 
 export TEST_LEDGE_SENTINEL_CONFIG
 
-SENTINEL_CONFIG_FILE = /tmp/sentinel-config
+SENTINEL_CONFIG_FILE = /tmp/sentinel-test-config
 
 REDIS_PREFIX     = /tmp/redis-
 
@@ -55,7 +52,9 @@ LUA_LIB_DIR     ?= $(PREFIX)/lib/lua/$(LUA_VERSION)
 PROVE           ?= prove -I ../test-nginx/lib
 INSTALL         ?= install
 
-.PHONY: all install test check_ports sentinel_config start_redis_instances start_redis_instance stop_redis_instances stop_redis_instance test_ledge test_sentinel
+.PHONY: all install test check_ports sentinel_config start_redis_instances \
+	start_redis_instance stop_redis_instances stop_redis_instance test_ledge \
+	test_sentinel
 
 all: ;
 
@@ -63,30 +62,34 @@ install: all
 	$(INSTALL) -d $(DESTDIR)/$(LUA_LIB_DIR)/ledge
 	$(INSTALL) lib/ledge/*.lua $(DESTDIR)/$(LUA_LIB_DIR)/ledge
 
-test: test_ledge test_sentinel
+test: start_redis_instances test_ledge test_sentinel stop_redis_instances
 
-start_redis_instances: check_ports sentinel_config
+start_redis_instances: check_ports create_sentinel_config
 	@$(foreach port,$(TEST_LEDGE_REDIS_PORTS), \
 		[[ "$(port)" != "$(REDIS_FIRST_PORT)" ]] && \
 			SLAVE="$(REDIS_SLAVE_ARG)" || \
 			SLAVE="" && \
-		$(MAKE) start_redis_instance args="$$SLAVE" port=$(port) prefix=$(REDIS_PREFIX)$(port) && \
+		$(MAKE) start_redis_instance args="$$SLAVE" port=$(port) \
+		prefix=$(REDIS_PREFIX)$(port) && \
 	) true
 
 	@$(foreach port,$(TEST_LEDGE_SENTINEL_PORTS), \
 		$(MAKE) start_redis_instance \
-		port=$(port) args='$(SENTINEL_CONFIG_FILE) --sentinel' prefix=$(REDIS_PREFIX)$(port) && \
+		port=$(port) args='$(SENTINEL_CONFIG_FILE) --sentinel' \
+		prefix=$(REDIS_PREFIX)$(port) && \
 	) true
 
-stop_redis_instances: 
+stop_redis_instances: delete_sentinel_config 
 	-@$(foreach port,$(TEST_LEDGE_REDIS_PORTS) $(TEST_LEDGE_SENTINEL_PORTS), \
-		$(MAKE) stop_redis_instance prefix=$(REDIS_PREFIX)$(port) && \
+		$(MAKE) stop_redis_instance cleanup_redis_instance port=$(port) \
+		prefix=$(REDIS_PREFIX)$(port) && \
 	) true 2>&1 > /dev/null
 
 
 start_redis_instance:
+	-@echo "Starting redis on port $(port) with args: \"$(args)\""
 	-@mkdir -p $(prefix)
-	$(REDIS_CMD) $(args) \
+	@$(REDIS_CMD) $(args) \
 		--pidfile $(prefix)$(REDIS_PID) \
 		--bind 127.0.0.1 --port $(port) \
 		--unixsocket $(prefix)$(REDIS_SOCK) \
@@ -97,22 +100,35 @@ start_redis_instance:
 		--daemonize yes
 
 stop_redis_instance:
-	-@kill -QUIT `cat $(prefix)$(REDIS_PID)` 2>&1 > /dev/null
+	-@echo "Stopping redis on port $(port)"
+	-@[[ -f "$(prefix)$(REDIS_PID)" ]] && kill -QUIT \
+	`cat $(prefix)$(REDIS_PID)` 2>&1 > /dev/null || true
+
+cleanup_redis_instance: stop_redis_instance
+	-@echo "Cleaning up redis files in $(prefix)"
+	-@rm -rf $(prefix)
 
 flush_db:
-	$(REDIS_CLI) flushdb
+	-@echo "Flushing Redis DB"
+	@$(REDIS_CLI) flushdb
 
-sentinel_config:
-	echo "$$TEST_LEDGE_SENTINEL_CONFIG" > $(SENTINEL_CONFIG_FILE)
+create_sentinel_config:
+	-@echo "Creating $(SENTINEL_CONFIG_FILE)"
+	@echo "$$TEST_LEDGE_SENTINEL_CONFIG" > $(SENTINEL_CONFIG_FILE)
+
+delete_sentinel_config:
+	-@echo "Removing $(SENTINEL_CONFIG_FILE)"
+	@rm -f $(SENTINEL_CONFIG_FILE)
 
 check_ports:
+	-@echo "Checking ports $(REDIS_PORTS)"
 	@$(foreach port,$(REDIS_PORTS),! lsof -i :$(port) &&) true 2>&1 > /dev/null
 
 test_ledge: flush_db
 	$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
 
 test_sentinel: flush_db
-	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) t/sentinel/01-master_up.t
+	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(TEST_FILE)/sentinel/01-master_up.t
 	$(REDIS_CLI) shutdown
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) t/sentinel/02-master_down.t
 	sleep $(TEST_LEDGE_SENTINEL_PROMOTION_TIME)
