@@ -95,6 +95,15 @@ function config_get(self, param)
 end
 
 
+function cleanup(self)
+    -- Use a closure to pass through the ledge instance
+    local ledge = self
+    return function ()
+                ledge:e "aborted"
+           end
+end
+
+
 function bind(self, event, callback)
     local events = self:ctx().events
     if not events[event] then events[event] = {} end
@@ -113,6 +122,10 @@ end
 
 
 function run(self)
+    local set, msg = ngx.on_abort(self:cleanup())
+    if set == nil then
+        ngx.log(ngx.WARN, "on_abort handler not set: "..msg)
+    end
     self:e "init"
 end
 
@@ -630,6 +643,16 @@ events = {
         { begin = "exiting" },
     },
 
+    -- When the client request is aborted clean up redis connections and collapsed locks
+    -- Then return ngx.exit(499) to abort any running sub-requests
+    aborted = {
+        { after = "publishing_collapse_abort", begin = "exiting",
+             but_first = "set_http_client_abort"
+        },
+        { in_case = "obtained_collapsed_forwarding_lock", begin = "publishing_collapse_abort" },
+        { begin = "exiting", but_first = "set_http_client_abort" },
+    },
+
 
     -- Useful events for exiting with a common status. If we've already served (perhaps we're doing
     -- background work, we just exit without re-setting the status (as this errors).
@@ -776,6 +799,10 @@ actions = {
 
     set_http_gateway_timeout = function(self)
         ngx.status = ngx.HTTP_GATEWAY_TIMEOUT
+    end,
+
+    set_http_client_abort = function(self)
+        ngx.status = 499 -- No ngx constant for client aborted
     end,
 
     set_http_status_from_response = function(self)
@@ -982,6 +1009,15 @@ states = {
         redis:publish(self:cache_key(), "collapsed_forwarding_failed")
         self:e "published"
     end,
+
+    publishing_collapse_abort = function(self)
+        local redis = self:ctx().redis
+        redis:del(self:fetching_key()) -- Clear the lock
+        -- Surrogate aborted, go back and attempt to fetch or collapse again
+        redis:publish(self:cache_key(), "can_fetch_but_try_collapse")
+        self:e "aborted"
+    end,
+
 
     fetching_as_surrogate = function(self)
         return self:e "can_fetch"
