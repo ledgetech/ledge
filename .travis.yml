@@ -15,7 +15,7 @@ before_install:
 
 # Install Test::Nginx suite from github
 install:
-  - "git clone git://github.com/agentzh/test-nginx.git test-nginx" 
+  - "git clone git://github.com/agentzh/test-nginx.git /home/travis/build/benagricola/test-nginx" 
 
-before_script: "sudo stop redis-server; PERL5LIB=$PWD/test-nginx; export PERL5LIB" # Make sure the default redis is stopped and perl lib is set
+before_script: "sudo stop redis-server; PERL5LIB=/home/travis/build/benagricola/test-nginx; export PERL5LIB" # Make sure the default redis is stopped and perl lib is set
 script: "make test_all"
