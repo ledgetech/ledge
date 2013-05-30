@@ -13,9 +13,9 @@ before_install:
   - "sudo apt-get -f install" # Fix dependencies of the installed package if required.
   - "sudo chmod -R 777 /var/log/openresty" # Make sure the default log can be written to by an unprivileged user
 
-# Install Test::Nginx suite via cpanm
+# Install Test::Nginx suite from github
 install:
-  - "cpanm Test::Nginx" 
+  - "git clone git://github.com/agentzh/test-nginx.git test-nginx" 
 
-before_script: "sudo stop redis-server" # Make sure the default redis is stopped
+before_script: "sudo stop redis-server; PERL5LIB=$PWD/test-nginx; export PERL5LIB" # Make sure the default redis is stopped and perl lib is set
 script: "make test_all"
