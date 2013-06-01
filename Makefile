@@ -63,8 +63,9 @@ LUA_LIB_DIR     ?= $(PREFIX)/lib/lua/$(LUA_VERSION)
 PROVE           ?= prove -I ../test-nginx/lib
 INSTALL         ?= install
 
-.PHONY: all install test test-all check_ports sentinel_config start_redis_instances \
-	start_redis_instance stop_redis_instances stop_redis_instance test_ledge \
+.PHONY: all install test test_all start_redis_instances stop_redis_instances \
+	start_redis_instance stop_redis_instance cleanup_redis_instance flush_db \
+	create_sentinel_config delete_sentinel_config check_ports test_ledge \
 	test_sentinel
 
 all: ;
