@@ -250,7 +250,9 @@ function request_accepts_cache(self)
 
     -- Check for no-cache
     local h = ngx.req.get_headers()
-    if h["Cache-Control"] == "no-cache" or h["Pragma"] == "no-cache" then
+    if h_util.header_has_directive(h["Pragma"], "no-cache")
+       or h_util.header_has_directive(h["Cache-Control"], "no-cache")
+       or h_util.header_has_directive(h["Cache-Control"], "no-store") then
         return false
     end
 
