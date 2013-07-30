@@ -1327,7 +1327,7 @@ function fetch_from_origin(self)
         return res
     end
 
-    ngx.req.read_body() -- Must read body into lua when setting
+    ngx.req.read_body() -- Must read body into lua when passing options into location.capture
     local origin = ngx.location.capture(self:config_get("origin_location")..relative_uri(), {
         method = method
     })
