@@ -238,16 +238,6 @@ end
 
 
 function request_accepts_cache(self)
-    local method = ngx.req.get_method()
-    if method ~= "GET" and method ~= "HEAD" then
-        return false
-    end
-
-    -- Ignore the client requirements if we're not in "NORMAL" mode.
-    if self:config_get("origin_mode") < ORIGIN_MODE_NORMAL then
-        return true
-    end
-
     -- Check for no-cache
     local h = ngx.req.get_headers()
     if h_util.header_has_directive(h["Pragma"], "no-cache")
@@ -428,7 +418,12 @@ events = {
 
     -- We're connected! Let's get on with it then... First step, analyse the request.
     redis_connected = {
-        { begin = "checking_request" },
+        { begin = "checking_method" },
+    },
+
+    cacheable_method = {
+        { when = "checking_origin_mode", begin = "checking_request" },
+        { begin = "checking_origin_mode" },
     },
 
     -- PURGE method detected.
@@ -451,6 +446,10 @@ events = {
     cache_accepted = {
         { when = "revalidating_locally", begin = "preparing_response" },
         { begin = "checking_cache" },
+    },
+
+    forced_cache = {
+        { begin = "accept_cache" },
     },
 
     -- This request doesn't accept cache, so we need to see about fetching directly.
@@ -610,7 +609,8 @@ events = {
     -- If it has been prepared, set status accordingly and serve. If not, prepare it.
     response_ready = {
         { in_case = "served", begin = "exiting" },
-        { when = "preparing_response", in_case = "not_modified", 
+        { in_case = "forced_cache", begin = "serving", but_first = "add_disconnected_warning"},
+        { when = "preparing_response", in_case = "not_modified",
             begin = "serving", but_first = "set_http_not_modified" },
         { when = "preparing_response", begin = "serving", 
             but_first = "set_http_status_from_response" },
@@ -731,6 +731,10 @@ actions = {
     add_stale_warning = function(self)
         return self:add_warning("110")
     end,
+
+    add_disconnected_warning = function(self)
+        return self:add_warning("112")
+    end,    
 
     serve = function(self)
         return self:serve()
@@ -877,11 +881,32 @@ states = {
         self:e "redis_selection_failed"
     end,
 
-    checking_request = function(self)
-        if ngx.req.get_method() == "PURGE" then
+    checking_method = function(self)
+        local method = ngx.req.get_method()
+        if method == "PURGE" then
             return self:e "purge_requested"
+        elseif method ~= "GET" and method ~= "HEAD" then
+            -- Only GET/HEAD are cacheable
+            return self:e "cache_not_accepted"
+        else
+            return self:e "cacheable_method"
         end
+    end,
 
+    checking_origin_mode = function(self)
+        -- Ignore the client requirements if we're not in "NORMAL" mode.
+        if self:config_get("origin_mode") < ORIGIN_MODE_NORMAL then
+            return self:e "forced_cache"
+        else
+            return self:e "cacheable_method"
+        end
+    end,
+
+    accept_cache = function(self)
+        return self:e "cache_accepted"
+    end,
+
+    checking_request = function(self)
         if self:request_accepts_cache() then
             return self:e "cache_accepted"
         else
@@ -1472,6 +1497,7 @@ function add_warning(self, code)
     local warnings = {
         ["110"] = "Response is stale",
         ["214"] = "Transformation applied",
+        ["112"] = "Disconnected Operation",
     }
 
     local header = code .. ' ' .. visible_hostname() .. ' "' .. warnings[code] .. '"'
