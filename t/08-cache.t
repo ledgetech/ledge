@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 25;
+plan tests => 31;
 
 my $pwd = cwd();
 
@@ -85,6 +85,55 @@ GET /cache
 X-Cache: MISS from .*
 --- response_body
 TEST 3
+
+=== TEST 3b: No-cache request with extension; X-Cache: MISS
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache {
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.say("TEST 3b")
+        ';
+    }
+--- more_headers
+Cache-Control: no-cache, stale-if-error=1234
+--- request
+GET /cache
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+TEST 3b
+
+
+=== TEST 3c: No-store request; X-Cache: MISS
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache {
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /__ledge_origin {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.say("TEST 3c")
+        ';
+    }
+--- more_headers
+Cache-Control: no-store
+--- request
+GET /cache
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+TEST 3c
 
 
 === TEST 4a: PURGE

@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) - 1;
+plan tests => repeat_each() * (blocks() * 2);
 
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 my $pwd = cwd();
@@ -57,7 +57,7 @@ GET /origin_mode
 OK
 
 
-=== TEST 3: ORIGIN_MODE_BYPASS when cached
+=== TEST 3: ORIGIN_MODE_BYPASS when cached with 112 warning
 --- http_config eval: $::HttpConfig
 --- config
 	location /origin_mode {
@@ -73,6 +73,8 @@ OK
 Cache-Control: no-cache
 --- request
 GET /origin_mode
+--- response_headers_like
+Warning: 112 .*
 --- response_body
 OK
 

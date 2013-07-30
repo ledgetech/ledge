@@ -95,6 +95,15 @@ function config_get(self, param)
 end
 
 
+function cleanup(self)
+    -- Use a closure to pass through the ledge instance
+    local ledge = self
+    return function ()
+                ledge:e "aborted"
+           end
+end
+
+
 function bind(self, event, callback)
     local events = self:ctx().events
     if not events[event] then events[event] = {} end
@@ -113,6 +122,10 @@ end
 
 
 function run(self)
+    local set, msg = ngx.on_abort(self:cleanup())
+    if set == nil then
+        ngx.log(ngx.WARN, "on_abort handler not set: "..msg)
+    end
     self:e "init"
 end
 
@@ -238,19 +251,11 @@ end
 
 
 function request_accepts_cache(self)
-    local method = ngx.req.get_method()
-    if method ~= "GET" and method ~= "HEAD" then
-        return false
-    end
-
-    -- Ignore the client requirements if we're not in "NORMAL" mode.
-    if self:config_get("origin_mode") < ORIGIN_MODE_NORMAL then
-        return true
-    end
-
     -- Check for no-cache
     local h = ngx.req.get_headers()
-    if h["Cache-Control"] == "no-cache" or h["Pragma"] == "no-cache" then
+    if h_util.header_has_directive(h["Pragma"], "no-cache")
+       or h_util.header_has_directive(h["Cache-Control"], "no-cache")
+       or h_util.header_has_directive(h["Cache-Control"], "no-store") then
         return false
     end
 
@@ -426,7 +431,12 @@ events = {
 
     -- We're connected! Let's get on with it then... First step, analyse the request.
     redis_connected = {
-        { begin = "checking_request" },
+        { begin = "checking_method" },
+    },
+
+    cacheable_method = {
+        { when = "checking_origin_mode", begin = "checking_request" },
+        { begin = "checking_origin_mode" },
     },
 
     -- PURGE method detected.
@@ -449,6 +459,10 @@ events = {
     cache_accepted = {
         { when = "revalidating_locally", begin = "preparing_response" },
         { begin = "checking_cache" },
+    },
+
+    forced_cache = {
+        { begin = "accept_cache" },
     },
 
     -- This request doesn't accept cache, so we need to see about fetching directly.
@@ -608,7 +622,8 @@ events = {
     -- If it has been prepared, set status accordingly and serve. If not, prepare it.
     response_ready = {
         { in_case = "served", begin = "exiting" },
-        { when = "preparing_response", in_case = "not_modified", 
+        { in_case = "forced_cache", begin = "serving", but_first = "add_disconnected_warning"},
+        { when = "preparing_response", in_case = "not_modified",
             begin = "serving", but_first = "set_http_not_modified" },
         { when = "preparing_response", begin = "serving", 
             but_first = "set_http_status_from_response" },
@@ -628,6 +643,16 @@ events = {
     served = {
         { when = "serving_stale", begin = "checking_can_fetch" },
         { begin = "exiting" },
+    },
+
+    -- When the client request is aborted clean up redis connections and collapsed locks
+    -- Then return ngx.exit(499) to abort any running sub-requests
+    aborted = {
+        { after = "publishing_collapse_abort", begin = "exiting",
+             but_first = "set_http_client_abort"
+        },
+        { in_case = "obtained_collapsed_forwarding_lock", begin = "publishing_collapse_abort" },
+        { begin = "exiting", but_first = "set_http_client_abort" },
     },
 
 
@@ -730,6 +755,10 @@ actions = {
         return self:add_warning("110")
     end,
 
+    add_disconnected_warning = function(self)
+        return self:add_warning("112")
+    end,    
+
     serve = function(self)
         return self:serve()
     end,
@@ -776,6 +805,10 @@ actions = {
 
     set_http_gateway_timeout = function(self)
         ngx.status = ngx.HTTP_GATEWAY_TIMEOUT
+    end,
+
+    set_http_client_abort = function(self)
+        ngx.status = 499 -- No ngx constant for client aborted
     end,
 
     set_http_status_from_response = function(self)
@@ -875,11 +908,32 @@ states = {
         self:e "redis_selection_failed"
     end,
 
-    checking_request = function(self)
-        if ngx.req.get_method() == "PURGE" then
+    checking_method = function(self)
+        local method = ngx.req.get_method()
+        if method == "PURGE" then
             return self:e "purge_requested"
+        elseif method ~= "GET" and method ~= "HEAD" then
+            -- Only GET/HEAD are cacheable
+            return self:e "cache_not_accepted"
+        else
+            return self:e "cacheable_method"
         end
+    end,
 
+    checking_origin_mode = function(self)
+        -- Ignore the client requirements if we're not in "NORMAL" mode.
+        if self:config_get("origin_mode") < ORIGIN_MODE_NORMAL then
+            return self:e "forced_cache"
+        else
+            return self:e "cacheable_method"
+        end
+    end,
+
+    accept_cache = function(self)
+        return self:e "cache_accepted"
+    end,
+
+    checking_request = function(self)
         if self:request_accepts_cache() then
             return self:e "cache_accepted"
         else
@@ -982,6 +1036,15 @@ states = {
         redis:publish(self:cache_key(), "collapsed_forwarding_failed")
         self:e "published"
     end,
+
+    publishing_collapse_abort = function(self)
+        local redis = self:ctx().redis
+        redis:del(self:fetching_key()) -- Clear the lock
+        -- Surrogate aborted, go back and attempt to fetch or collapse again
+        redis:publish(self:cache_key(), "can_fetch_but_try_collapse")
+        self:e "aborted"
+    end,
+
 
     fetching_as_surrogate = function(self)
         return self:e "can_fetch"
@@ -1264,6 +1327,7 @@ function fetch_from_origin(self)
         return res
     end
 
+    ngx.req.read_body() -- Must read body into lua when passing options into location.capture
     local origin = ngx.location.capture(self:config_get("origin_location")..relative_uri(), {
         method = method
     })
@@ -1470,6 +1534,7 @@ function add_warning(self, code)
     local warnings = {
         ["110"] = "Response is stale",
         ["214"] = "Transformation applied",
+        ["112"] = "Disconnected Operation",
     }
 
     local header = code .. ' ' .. visible_hostname() .. ' "' .. warnings[code] .. '"'
@@ -1520,9 +1585,15 @@ function process_esi(self)
 
         -- Replace vars inline in any other esi: tags.
         body = ngx.re.gsub(body,
-            "(<esi:.*)(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))(.*/>)",
+            "(<esi:)(.+)(.*/>)",
             function(m)
-                return m[1] .. replace(m[2]) .. m[3]
+                local vars = ngx.re.gsub(m[2],
+                        "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
+                        function (m)
+                            return replace(m[1])
+                        end,
+                        "oj")
+                return m[1] .. vars .. m[3]
             end,
             "oj")
     end
