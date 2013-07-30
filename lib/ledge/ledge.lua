@@ -1584,9 +1584,15 @@ function process_esi(self)
 
         -- Replace vars inline in any other esi: tags.
         body = ngx.re.gsub(body,
-            "(<esi:.*)(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))(.*/>)",
+            "(<esi:)(.+)(.*/>)",
             function(m)
-                return m[1] .. replace(m[2]) .. m[3]
+                local vars = ngx.re.gsub(m[2],
+                        "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
+                        function (m)
+                            return replace(m[1])
+                        end,
+                        "oj")
+                return m[1] .. vars .. m[3]
             end,
             "oj")
     end
