@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 2; 
+plan tests => repeat_each() * (blocks() * 3) - 3; 
 
 my $pwd = cwd();
 
@@ -271,6 +271,30 @@ t=1
 t=1
 
 $(QUERY_STRING)
+
+
+=== TEST 9b: Multiple Variable evaluation
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_9b {
+    content_by_lua 'ledge:run()';
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.say("<esi:include src=\\"/fragment1b?$(QUERY_STRING)&test=$(HTTP_x_esi_test)\\" />")
+    ';
+}
+location /fragment1b {
+    content_by_lua '
+        ngx.print("FRAGMENT:"..ngx.var.args)
+    ';
+}
+--- request
+GET /esi_9b?t=1
+--- more_headers
+X-ESI-Test: foobar
+--- response_body
+FRAGMENT:t=1&test=foobar
 
 
 === TEST 10: Prime ESI in cache.
