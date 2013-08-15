@@ -46,6 +46,7 @@ function new(self)
 
         keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
         max_stale       = nil,          -- Warning: Violates HTTP spec
+        stale_if_error  = nil,          -- Max staleness (sec) for a cached response on upstream error
         enable_esi      = false,
         enable_collapsed_forwarding = false,
         collapsed_forwarding_window = 60 * 1000,   -- Window for collapsed requests (ms)
@@ -368,14 +369,31 @@ function fetching_key(self)
 end
 
 
+function accepts_stale_error(self)
+    local req_cc = ngx.req.get_headers()['Cache-Control']
+    local stale_age = self:config_get("stale_if_error")
+
+    if not h_util.header_has_directive(req_cc, 'stale-if-error') and stale_age == nil then
+        return false
+    end
+
+    -- stale_if_error config option overrides request header
+    if stale_age == nil then
+        stale_age = h_util.get_numeric_header_token(req_cc, 'stale-if-error')
+    end
+
+    local res = self:get_response()
+    return ((res.remaining_ttl + stale_age) > 0)
+end
+
 
 
 ---------------------------------------------------------------------------------------------------
 -- Event transition table.
 ---------------------------------------------------------------------------------------------------
--- Use "begin" to transition based on an event. Filter transitions by current state "when", and/or 
--- any previous state "after", and/or a previously fired event "in_case", and run actions using 
--- "but_first". Transitions are processed in the order found, so place more specific entries for a 
+-- Use "begin" to transition based on an event. Filter transitions by current state "when", and/or
+-- any previous state "after", and/or a previously fired event "in_case", and run actions using
+-- "but_first". Transitions are processed in the order found, so place more specific entries for a
 -- given event before more generic ones.
 ---------------------------------------------------------------------------------------------------
 events = {
@@ -526,6 +544,12 @@ events = {
         { begin = "fetching" },
     },
 
+    -- We were waiting on another request, but it received an upstream_error (e.g. 500)
+    -- Check if we can serve stale content instead
+    collapsed_forwarding_upstream_error = {
+        { begin = "considering_stale_error" },
+    },
+
     -- We need to fetch and nothing is telling us we shouldn't. Collapsed forwarding is not enabled.
     can_fetch = {
         { begin = "fetching" },
@@ -537,10 +561,20 @@ events = {
         { begin = "updating_cache" },
     },
 
-    -- If we went upstream and errored, nothing we can do but ensure the status is passed along.
-    -- In future we may introduce stale-if-error here.
+    -- If we went upstream and errored, check if we can serve a cached copy (stale-if-error),
+    -- Publish the error first if we were the surrogate request
     upstream_error = {
-        { begin = "exiting" , but_first = "set_http_status_from_response" },
+        { after = "fetching_as_surrogate", begin = "publishing_collapse_upstream_error" },
+        { begin = "considering_stale_error" }
+    },
+
+    -- We had an error from upstream and could not serve stale content, so serve the error
+    -- Or we were collapsed and the surrogate received an error but we could not serve stale
+    -- in that case, try and fetch ourselves
+    can_serve_upstream_error = {
+        { after = "fetching", begin = "serving_upstream_error" },
+        { in_case = "collapsed_forwarding_upstream_error", begin = "fetching" },
+        { begin = "serving_upstream_error" },
     },
 
     -- We deduced that the new response can cached. We always "save_to_cache". If we were fetching
@@ -578,7 +612,9 @@ events = {
 
     -- We were the collapser, so digressed into being a surrogate. We're done now and have published
     -- this fact, so we pick up where it would have left off - attempting to 304 to the client.
+    -- Unless we received an error, in which case check if we can serve stale instead
     published = {
+        { in_case = "upstream_error", begin = "considering_stale_error" },
         { begin = "considering_local_revalidation" },
     },
 
@@ -636,11 +672,15 @@ events = {
     serve_stale = {
         { when = "checking_can_serve_stale", begin = "serving_stale",
             but_first = "add_stale_warning" },
+        { when = "considering_stale_error", begin = "serving_stale",
+            but_first = "add_stale_warning" },
     },
 
     -- We have sent the response. If it was stale, we go back around the fetching path
-    -- so that a background revalidation can occur. Otherwise exit.
+    -- so that a background revalidation can occur unless the upstream errored. Otherwise exit.
     served = {
+        { in_case = "upstream_error", begin = "exiting" },
+        { in_case = "collapsed_forwarding_upstream_error", begin = "exiting" },
         { when = "serving_stale", begin = "checking_can_fetch" },
         { begin = "exiting" },
     },
@@ -689,16 +729,26 @@ pre_transitions = {
     exiting = { "redis_close" },
     checking_cache = { "read_cache" },
     -- Never fetch with client validators, but put them back afterwards.
-    fetching = { 
+    fetching = {
         "remove_client_validators", "fetch", "restore_client_validators"
-    }, 
+    },
     -- Use validators from cache when revalidating upstream, and restore client validators
     -- afterwards.
-    revalidating_upstream = { 
-        "remove_client_validators", 
-        "add_validators_from_cache", 
-        "fetch", 
+    revalidating_upstream = {
+        "remove_client_validators",
+        "add_validators_from_cache",
+        "fetch",
         "restore_client_validators"
+    },
+    -- Need to save the error response before reading from cache in case we need to serve it later
+    considering_stale_error = {
+        "stash_error_response",
+        "read_cache"
+    },
+    -- Restore the saved response and set the status when serving an error page
+    serving_upstream_error = {
+        "restore_error_response",
+        "set_http_status_from_response"
     },
 }
 
@@ -713,6 +763,16 @@ actions = {
 
     redis_close = function(self)
         return self:redis_close()
+    end,
+
+    stash_error_response = function(self)
+        local error_res = self:get_response()
+        self:set_response(error_res, "error")
+    end,
+    
+    restore_error_response = function(self)
+        local error_res = self:get_response('error')
+        self:set_response(error_res)
     end,
 
     read_cache = function(self)
@@ -1037,6 +1097,13 @@ states = {
         self:e "published"
     end,
 
+    publishing_collapse_upstream_error = function(self)
+        local redis = self:ctx().redis
+        redis:del(self:fetching_key()) -- Clear the lock
+        redis:publish(self:cache_key(), "collapsed_forwarding_upstream_error")
+        self:e "published"
+    end,
+
     publishing_collapse_abort = function(self)
         local redis = self:ctx().redis
         redis:del(self:fetching_key()) -- Clear the lock
@@ -1044,7 +1111,6 @@ states = {
         redis:publish(self:cache_key(), "can_fetch_but_try_collapse")
         self:e "aborted"
     end,
-
 
     fetching_as_surrogate = function(self)
         return self:e "can_fetch"
@@ -1087,6 +1153,24 @@ states = {
         end
     end,
 
+    considering_stale_error = function(self)
+        if self:accepts_stale_error() then
+            local res = self:get_response()
+            if res:stale_ttl() <= 0 then
+                return self:e "serve_stale"
+            else
+                return self:e "response_ready"
+            end
+        else
+            return self:e "can_serve_upstream_error"
+        end
+    end,
+
+    serving_upstream_error = function(self)
+        self:serve()
+        return self:e "served"
+    end,
+
     considering_revalidation = function(self)
         if self:must_revalidate() then
             return self:e "must_revalidate"
@@ -1116,7 +1200,9 @@ states = {
     revalidating_upstream = function(self)
         local res = self:get_response()
 
-        if res.status == ngx.HTTP_NOT_MODIFIED then
+        if res.status >= 500 then
+            return self:e "upstream_error"
+        elseif res.status == ngx.HTTP_NOT_MODIFIED then
             return self:e "response_ready"
         else
             return self:e "response_fetched"
