@@ -335,6 +335,13 @@ If set to `nil` then determine this from the `Cache-Control: max-stale=xx` reque
 
 WARNING: Any setting other than `nil` violates the HTTP spec.
 
+#### stale_if_error
+
+*Default:* `nil`
+
+Specifies, in seconds, how far past expiry to serve cached content if the origin returns an error.
+If set to `nil` then determine this from the `Cache-Control: stale-if-error=xx` request header.
+
 #### background_revalidate
 
 *Default:* `false`
