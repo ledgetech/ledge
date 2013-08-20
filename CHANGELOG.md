@@ -1,5 +1,19 @@
 ## Changelog
 
+### v0.08 (20 August 2013)
+
+* Feature (#52): Support for Redis sentinel
+* Feature (#67): Handling aborted connections
+* Feature (#82): Support for serving stale content if the origin errors (stale-if-error)
+* Bugfix (#65): 304 responses should include other headers (cache control etc)
+* Bugfix (#66): Serving stale with ORIGIN_MODE_BYPASS generates header errors
+* Bugfix (#69): Ledge doesn't honour the no-store request cache control directive
+* Bugfix (#68): Error when specifying only redis_socket in redis_hosts
+* Bugfix (#71): Ledge should add a Warning header when in BYPASS (and AVOID) mode
+* Bugfix: Allow multiple ESI var replacements within other ESI tag
+* Bugfix: (#78): Always read the request body before fetching from the origin (For compatibility with Openresty 1.4.1.1)
+* Numerous improvements to the Travis CI builds to support testing Sentinel.
+
 ### v0.07 (9 May 2013)
 
 Numerous bug fixes, improved tests and feature implementations over the last 7 months. I promise to do more tagging in future! Here's a summary:
