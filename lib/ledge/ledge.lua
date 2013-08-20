@@ -14,7 +14,7 @@ local ngx = ngx
 
 module(...)
 
-_VERSION = '0.07'
+_VERSION = '0.08'
 
 local mt = { __index = _M }
 
