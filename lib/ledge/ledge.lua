@@ -372,6 +372,11 @@ end
 function accepts_stale_error(self)
     local req_cc = ngx.req.get_headers()['Cache-Control']
     local stale_age = self:config_get("stale_if_error")
+    local res = self:get_response()
+
+    if not res then
+        return false
+    end
 
     if not h_util.header_has_directive(req_cc, 'stale-if-error') and stale_age == nil then
         return false
@@ -382,7 +387,6 @@ function accepts_stale_error(self)
         stale_age = h_util.get_numeric_header_token(req_cc, 'stale-if-error')
     end
 
-    local res = self:get_response()
     return ((res.remaining_ttl + stale_age) > 0)
 end
 
