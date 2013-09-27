@@ -1,5 +1,9 @@
 ## Changelog
 
+### v0.09 (27 September 2013)
+
+* Bugfix (#85): Fix bug when no cache entry exists and trying to serve stale.
+
 ### v0.08 (20 August 2013)
 
 * Feature (#52): Support for Redis sentinel
