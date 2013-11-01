@@ -7,21 +7,26 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 my $pwd = cwd();
 
 our $HttpConfig = qq{
-	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('upstream_host', '127.0.0.1')
+        ledge:config_set('upstream_port', 1984)
+        redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
     ";
 };
 
+no_long_string();
 run_tests();
 
 __DATA__
 === TEST 1: Header case insensitivity
 --- http_config eval: $::HttpConfig
 --- config
-location /response_1 {
+location /response_1_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:bind("origin_fetched", function(res)
             if res.header["X_tesT"] == "1" then
@@ -35,14 +40,14 @@ location /response_1 {
         ledge:run()
     ';
 }
-location /__ledge_origin {
+location /response_1 {
     content_by_lua '
         ngx.header["X-Test"] = "1"
         ngx.say("OK")
     ';
 }
 --- request
-GET /response_1
+GET /response_1_prx
 --- response_headers
 X-Test: 3
 
@@ -50,7 +55,8 @@ X-Test: 3
 === TEST 2: TTL from s-maxage (overrides max-age / Expires)
 --- http_config eval: $::HttpConfig
 --- config
-	location /response_2 {
+	location /response_2_prx {
+        rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:bind("response_ready", function(res)
                 res.header["X-TTL"] = res:ttl()
@@ -58,7 +64,7 @@ X-Test: 3
             ledge:run()
         ';
     }
-    location /__ledge_origin {
+    location /response_2 {
         content_by_lua '
             ngx.header["Expires"] = ngx.http_time(ngx.time() + 300)
             ngx.header["Cache-Control"] = "max-age=600, s-maxage=1200"
@@ -68,7 +74,7 @@ X-Test: 3
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /response_2
+GET /response_2_prx
 --- response_headers
 X-TTL: 1200
 
@@ -76,7 +82,8 @@ X-TTL: 1200
 === TEST 3: TTL from max-age (overrides Expires)
 --- http_config eval: $::HttpConfig
 --- config
-	location /response_3 {
+	location /response_3_prx {
+        rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:bind("response_ready", function(res)
                 res.header["X-TTL"] = res:ttl()
@@ -84,7 +91,7 @@ X-TTL: 1200
             ledge:run()
         ';
     }
-    location /__ledge_origin {
+    location /response_3 {
         content_by_lua '
             ngx.header["Expires"] = ngx.http_time(ngx.time() + 300)
             ngx.header["Cache-Control"] = "max-age=600"
@@ -94,7 +101,7 @@ X-TTL: 1200
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /response_3
+GET /response_3_prx
 --- response_headers
 X-TTL: 600
 
@@ -102,7 +109,8 @@ X-TTL: 600
 === TEST 4: TTL from Expires
 --- http_config eval: $::HttpConfig
 --- config
-	location /response_4 {
+	location /response_4_prx {
+        rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:bind("response_ready", function(res)
                 res.header["X-TTL"] = res:ttl()
@@ -110,7 +118,7 @@ X-TTL: 600
             ledge:run()
         ';
     }
-    location /__ledge {
+    location /response_4 {
         content_by_lua '
             ngx.header["Expires"] = ngx.http_time(ngx.time() + 300)
             ngx.say("OK")
@@ -119,6 +127,6 @@ X-TTL: 600
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /response_4
+GET /response_4_prx
 --- response_headers
 X-TTL: 300
