@@ -1,29 +1,32 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 1; 
+plan tests => repeat_each() * (blocks() * 3) - 1;
 
 my $pwd = cwd();
 
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
-	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
-	init_by_lua "
-		ledge_mod = require 'ledge.ledge'
+    lua_package_path "$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
+    init_by_lua "
+        ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
-		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('upstream_host', '127.0.0.1')
+        ledge:config_set('upstream_port', 1984)
         redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
-	";
+    ";
 };
 
+no_long_string();
 run_tests();
 
 __DATA__
 === TEST 1: Load module without errors.
 --- http_config eval: $::HttpConfig
 --- config
-	location /sanity_1 {
+    location /sanity_1 {
         echo "OK";
     }
 --- request
@@ -35,7 +38,7 @@ GET /sanity_1
 === TEST 2: Check state machine "compiles".
 --- http_config eval: $::HttpConfig
 --- config
-	location /sanity_2 {
+    location /sanity_2 {
         content_by_lua '
             for ev,t in pairs(ledge.events) do
                 for _,trans in ipairs(t) do
@@ -94,16 +97,17 @@ OK
 === TEST 3: Run module without errors, returning origin content.
 --- http_config eval: $::HttpConfig
 --- config
-	location /sanity_2 {
+    location /sanity_2_prx {
+        rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:run()
         ';
     }
-    location /__ledge_origin {
+    location /sanity_2 {
         echo "OK";
     }
 --- request
-GET /sanity_2
+GET /sanity_2_prx
 --- no_error_log
 [error]
 --- response_body
@@ -113,21 +117,21 @@ OK
 === TEST 4: Run module against Redis on a Unix socket without errors.
 --- http_config eval: $::HttpConfig
 --- config
-	location /sanity_4 {
+    location /sanity_4_prx {
+        rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
-            ledge:config_set("redis_hosts", { 
+            ledge:config_set("redis_hosts", {
                 { socket = redis_socket },
             })
             ledge:run()
         ';
     }
-    location /__ledge_origin {
+    location /sanity_4 {
         echo "OK";
     }
 --- request
-GET /sanity_4
+GET /sanity_4_prx
 --- no_error_log
 [error]
 --- response_body
 OK
-

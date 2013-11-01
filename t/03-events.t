@@ -8,21 +8,26 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
-	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
-	init_by_lua "
-		ledge_mod = require 'ledge.ledge'
+    lua_package_path "$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
+    init_by_lua "
+        ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
-		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-	";
+        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('upstream_host', '127.0.0.1')
+        ledge:config_set('upstream_port', 1984)
+        redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
+    ";
 };
 
+no_long_string();
 run_tests();
 
 __DATA__
 === TEST 1: Update response provided to closure
 --- http_config eval: $::HttpConfig
 --- config
-location /events_1 {
+location /events_1_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:bind("response_ready", function(res)
             res.body = "UPDATED"
@@ -30,10 +35,10 @@ location /events_1 {
         ledge:run()
     ';
 }
-location /__ledge_origin {
+location /events_1 {
     echo "ORIGIN";
 }
 --- request
-GET /events_1
+GET /events_1_prx
 --- response_body: UPDATED
 
