@@ -26,9 +26,9 @@ local h_util = require "ledge.header_util"
 
 
 -- Origin modes, for serving stale content during maintenance periods or emergencies.
-ORIGIN_MODE_BYPASS = 1 -- Never goes to the origin, serve from cache where possible or 503.
-ORIGIN_MODE_AVOID  = 2 -- Avoids going to the origin, serving from cache where possible.
-ORIGIN_MODE_NORMAL = 4 -- Assume the origin is happy, use at will.
+_M.ORIGIN_MODE_BYPASS = 1 -- Never goes to the origin, serve from cache where possible or 503.
+_M.ORIGIN_MODE_AVOID  = 2 -- Avoids going to the origin, serving from cache where possible.
+_M.ORIGIN_MODE_NORMAL = 4 -- Assume the origin is happy, use at will.
 
 
 -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
@@ -46,7 +46,7 @@ local HOP_BY_HOP_HEADERS = {
 
 function _M.new(self)
     local config = {
-        origin_mode     = ORIGIN_MODE_NORMAL,
+        origin_mode     = _M.ORIGIN_MODE_NORMAL,
 
         upstream_host = "",
         upstream_port = 80,
@@ -1003,7 +1003,7 @@ _M.states = {
 
     checking_origin_mode = function(self)
         -- Ignore the client requirements if we're not in "NORMAL" mode.
-        if self:config_get("origin_mode") < ORIGIN_MODE_NORMAL then
+        if self:config_get("origin_mode") < _M.ORIGIN_MODE_NORMAL then
             return self:e "forced_cache"
         else
             return self:e "cacheable_method"
@@ -1035,7 +1035,7 @@ _M.states = {
     end,
 
     checking_can_fetch = function(self)
-        if self:config_get("origin_mode") == ORIGIN_MODE_BYPASS then
+        if self:config_get("origin_mode") == _M.ORIGIN_MODE_BYPASS then
             return self:e "http_service_unavailable"
         end
 
