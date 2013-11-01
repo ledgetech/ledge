@@ -12,13 +12,15 @@ local next = next
 local table = table
 local ngx = ngx
 
-module(...)
 
-_VERSION = '0.09'
+local _M = {
+    _VERSION = '0.09'
+}
 
 local mt = { __index = _M }
 
 local redis = require "resty.redis"
+local http = require "resty.http"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
 
@@ -29,10 +31,25 @@ ORIGIN_MODE_AVOID  = 2 -- Avoids going to the origin, serving from cache where p
 ORIGIN_MODE_NORMAL = 4 -- Assume the origin is happy, use at will.
 
 
-function new(self)
+-- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
+local HOP_BY_HOP_HEADERS = {
+    ["connection"]          = true,
+    ["keep-alive"]          = true,
+    ["proxy-authenticate"]  = true,
+    ["proxy-authorization"] = true,
+    ["te"]                  = true,
+    ["trailers"]            = true,
+    ["transfer-encoding"]   = true,
+    ["upgrade"]             = true,
+}
+
+
+function _M.new(self)
     local config = {
-        origin_location = "/__ledge_origin",
         origin_mode     = ORIGIN_MODE_NORMAL,
+
+        upstream_host = "",
+        upstream_port = 80,
 
         redis_database  = 0,
         redis_timeout   = 100,          -- Connect and read timeout (ms)
@@ -52,12 +69,12 @@ function new(self)
         collapsed_forwarding_window = 60 * 1000,   -- Window for collapsed requests (ms)
     }
 
-    return setmetatable({ config = config, }, mt)
+    return setmetatable({ config = config }, mt)
 end
 
 
 -- A safe place in ngx.ctx for the current module instance (self).
-function ctx(self)
+function _M.ctx(self)
     local id = tostring(self)
     local ctx = ngx.ctx[id]
     if not ctx then
@@ -76,7 +93,7 @@ end
 
 
 -- Set a config parameter
-function config_set(self, param, value)
+function _M.config_set(self, param, value)
     if ngx.get_phase() == "init" then
         self.config[param] = value
     else
@@ -86,7 +103,7 @@ end
 
 
 -- Gets a config parameter.
-function config_get(self, param)
+function _M.config_get(self, param)
     local p = self:ctx().config[param]
     if p == nil then
         return self.config[param]
@@ -96,7 +113,7 @@ function config_get(self, param)
 end
 
 
-function cleanup(self)
+function _M.cleanup(self)
     -- Use a closure to pass through the ledge instance
     local ledge = self
     return function ()
@@ -105,14 +122,14 @@ function cleanup(self)
 end
 
 
-function bind(self, event, callback)
+function _M.bind(self, event, callback)
     local events = self:ctx().events
     if not events[event] then events[event] = {} end
     table.insert(events[event], callback)
 end
 
 
-function emit(self, event, res)
+function _M.emit(self, event, res)
     local events = self:ctx().events
     for _, handler in ipairs(events[event] or {}) do
         if type(handler) == "function" then
@@ -122,7 +139,7 @@ function emit(self, event, res)
 end
 
 
-function run(self)
+function _M.run(self)
     local set, msg = ngx.on_abort(self:cleanup())
     if set == nil then
         ngx.log(ngx.WARN, "on_abort handler not set: "..msg)
@@ -131,17 +148,17 @@ function run(self)
 end
 
 
-function relative_uri()
+function _M.relative_uri(self)
     return ngx.var.uri .. ngx.var.is_args .. (ngx.var.query_string or "")
 end
 
 
-function full_uri()
-    return ngx.var.scheme .. '://' .. ngx.var.host .. relative_uri()
+function _M.full_uri(self)
+    return ngx.var.scheme .. '://' .. ngx.var.host .. self:relative_uri()
 end
 
 
-function visible_hostname()
+function _M.visible_hostname(self)
     local name = ngx.var.visible_hostname or ngx.var.hostname
     local server_port = ngx.var.server_port
     if server_port ~= "80" and server_port ~= "443" then
@@ -152,7 +169,7 @@ end
 
 
 -- Tries hosts in the order given, and returns a redis connection (which may not be connected).
-function redis_connect(self, hosts)
+function _M.redis_connect(self, hosts)
     local redis = redis:new()
 
     local timeout = self:config_get("redis_timeout")
@@ -186,7 +203,7 @@ end
 
 
 -- Close and optionally keepalive the redis (and sentinel if enabled) connection.
-function redis_close(self)
+function _M.redis_close(self)
     local redis = self:ctx().redis
     local sentinel = self:ctx().sentinel
     if redis then
@@ -198,7 +215,7 @@ function redis_close(self)
 end
 
 
-function _redis_close(self, redis)
+function _M._redis_close(self, redis)
     -- Keep the Redis connection based on keepalive settings.
     local ok, err = nil
     local keepalive_timeout = self:config_get("redis_keepalive_timeout")
@@ -219,7 +236,7 @@ function _redis_close(self, redis)
 end
 
 
-function accepts_stale(self, res)
+function _M.accepts_stale(self, res)
     -- max_stale config overrides everything
     local max_stale = self:config_get("max_stale")
     if max_stale and max_stale > 0 then
@@ -239,7 +256,7 @@ function accepts_stale(self, res)
 end
 
 
-function calculate_stale_ttl(self)
+function _M.calculate_stale_ttl(self)
     local res = self:get_response()
     local stale = self:accepts_stale(res) or 0
     local min_fresh = h_util.get_numeric_header_token(
@@ -251,7 +268,7 @@ function calculate_stale_ttl(self)
 end
 
 
-function request_accepts_cache(self)
+function _M.request_accepts_cache(self)
     -- Check for no-cache
     local h = ngx.req.get_headers()
     if h_util.header_has_directive(h["Pragma"], "no-cache")
@@ -264,7 +281,7 @@ function request_accepts_cache(self)
 end
 
 
-function must_revalidate(self)
+function _M.must_revalidate(self)
     local cc = ngx.req.get_headers()["Cache-Control"]
     if cc == "max-age=0" then
         return true
@@ -285,7 +302,7 @@ function must_revalidate(self)
 end
 
 
-function can_revalidate_locally(self)
+function _M.can_revalidate_locally(self)
     local req_h = ngx.req.get_headers()
     local req_ims = req_h["If-Modified-Since"]
 
@@ -306,7 +323,7 @@ function can_revalidate_locally(self)
 end
 
 
-function is_valid_locally(self)
+function _M.is_valid_locally(self)
     local req_h = ngx.req.get_headers()
     local res = self:get_response()
 
@@ -334,19 +351,19 @@ function is_valid_locally(self)
 end
 
 
-function set_response(self, res, name)
+function _M.set_response(self, res, name)
     local name = name or "response"
     self:ctx()[name] = res
 end
 
 
-function get_response(self, name)
+function _M.get_response(self, name)
     local name = name or "response"
     return self:ctx()[name]
 end
 
 
-function cache_key(self)
+function _M.cache_key(self)
     if not self:ctx().cache_key then
         -- Generate the cache key. The default spec is:
         -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
@@ -364,12 +381,12 @@ function cache_key(self)
 end
 
 
-function fetching_key(self)
+function _M.fetching_key(self)
     return self:cache_key() .. ":fetching"
 end
 
 
-function accepts_stale_error(self)
+function _M.accepts_stale_error(self)
     local req_cc = ngx.req.get_headers()['Cache-Control']
     local stale_age = self:config_get("stale_if_error")
     local res = self:get_response()
@@ -400,7 +417,7 @@ end
 -- "but_first". Transitions are processed in the order found, so place more specific entries for a
 -- given event before more generic ones.
 ---------------------------------------------------------------------------------------------------
-events = {
+_M.events = {
     -- Initial transition. Let's find out if we're connecting via Sentinel.
     init = {
         { begin = "considering_sentinel" },
@@ -729,7 +746,7 @@ events = {
 ---------------------------------------------------------------------------------------------------
 -- Pre-transitions. Actions to always perform before transitioning.
 ---------------------------------------------------------------------------------------------------
-pre_transitions = {
+_M.pre_transitions = {
     exiting = { "redis_close" },
     checking_cache = { "read_cache" },
     -- Never fetch with client validators, but put them back afterwards.
@@ -760,7 +777,7 @@ pre_transitions = {
 ---------------------------------------------------------------------------------------------------
 -- Actions. Functions which can be called on transition.
 ---------------------------------------------------------------------------------------------------
-actions = {
+_M.actions = {
     redis_connect = function(self)
         return self:redis_connect()
     end,
@@ -893,7 +910,7 @@ actions = {
 -- the event that has occurred. Place any further logic in actions triggered by the transition 
 -- table.
 ---------------------------------------------------------------------------------------------------
-states = {
+_M.states = {
     considering_sentinel = function(self)
         if self:config_get("redis_use_sentinel") then
             return self:e "sentinel_configured"
@@ -1266,7 +1283,7 @@ states = {
 
 
 -- Transition to a new state.
-function t(self, state)
+function _M.t(self, state)
     local ctx = self:ctx()
 
     -- Check for any transition pre-tasks
@@ -1288,7 +1305,7 @@ end
 
 
 -- Process state transitions and actions based on the event fired.
-function e(self, event)
+function _M.e(self, event)
     ngx.log(ngx.DEBUG, "#e: " .. event)
 
     local ctx = self:ctx()
@@ -1322,11 +1339,11 @@ function e(self, event)
 end
 
 
-function read_from_cache(self)
+function _M.read_from_cache(self)
     local res = response:new()
 
     -- Fetch from Redis
-    local cache_parts, err = self:ctx().redis:hgetall(cache_key(self))
+    local cache_parts, err = self:ctx().redis:hgetall(self:cache_key())
     if not cache_parts then
         ngx.log(ngx.ERR, "Failed to read cache item: " .. err)
         return nil
@@ -1406,7 +1423,7 @@ end
 
 
 -- Fetches a resource from the origin server.
-function fetch_from_origin(self)
+function _M.fetch_from_origin(self)
     local res = response:new()
     self:emit("origin_required")
 
@@ -1418,16 +1435,33 @@ function fetch_from_origin(self)
     end
 
     ngx.req.read_body() -- Must read body into lua when passing options into location.capture
-    local origin = ngx.location.capture(self:config_get("origin_location")..relative_uri(), {
-        method = method
-    })
 
-    res.status = origin.status
-    -- Merge headers in rather than wipe out the res.headers table)
-    for k,v in pairs(origin.header) do
-        res.header[k] = v
+    local httpc = http.new()
+    httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
+    
+    local origin, err = httpc:request{
+        path = self:relative_uri(),
+        body = ngx.req.get_body_data(), -- TODO: stream this into httpc?
+        headers = ngx.req.get_headers(),
+    }
+
+    httpc:set_keepalive()
+
+    if not origin then
+        ngx.log(ngx.ERR, err)
+        return res
     end
-    res.body = origin.body
+    
+    res.status = origin.status
+
+    -- Merge end-to-end headers
+    for k,v in pairs(origin.headers) do
+        if not HOP_BY_HOP_HEADERS[string.lower(k)] then
+            res.header[k] = v
+        end
+    end
+
+    res.body = origin:read_body() or ""
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -1446,7 +1480,7 @@ function fetch_from_origin(self)
 end
 
 
-function save_to_cache(self, res)
+function _M.save_to_cache(self, res)
     self:emit("before_save", res)
 
     -- These "hop-by-hop" response headers MUST NOT be cached:
@@ -1509,13 +1543,13 @@ function save_to_cache(self, res)
     redis:multi()
 
     -- Delete any existing data, to avoid accidental hash merges.
-    redis:del(cache_key(self))
+    redis:del(self:cache_key())
 
     local ttl = res:ttl()
     local expires = ttl + ngx.time()
-    local uri = full_uri()
+    local uri = self:full_uri()
 
-    redis:hmset(cache_key(self),
+    redis:hmset(self:cache_key(),
         'body', res.body,
         'status', res.status,
         'uri', uri,
@@ -1527,13 +1561,13 @@ function save_to_cache(self, res)
 
     -- If ESI is enabled, store detected ESI features on the slow path.
     if self:config_get("enable_esi") == true then
-        if res:has_esi_comment() then redis:hmset(cache_key(self), "esi_comment", 1) end
-        if res:has_esi_remove() then redis:hmset(cache_key(self), "esi_remove", 1) end
-        if res:has_esi_include() then redis:hmset(cache_key(self), "esi_include", 1) end
-        if res:has_esi_vars() then redis:hmset(cache_key(self), "esi_vars", 1) end
+        if res:has_esi_comment() then redis:hmset(self:cache_key(), "esi_comment", 1) end
+        if res:has_esi_remove() then redis:hmset(self:cache_key(), "esi_remove", 1) end
+        if res:has_esi_include() then redis:hmset(self:cache_key(), "esi_include", 1) end
+        if res:has_esi_vars() then redis:hmset(self:cache_key(), "esi_vars", 1) end
     end
 
-    redis:expire(cache_key(self), ttl + tonumber(self:config_get("keep_cache_for")))
+    redis:expire(self:cache_key(), ttl + tonumber(self:config_get("keep_cache_for")))
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
     redis:zadd('ledge:uris_by_expiry', expires, uri)
@@ -1545,12 +1579,12 @@ function save_to_cache(self, res)
 end
 
 
-function delete_from_cache(self)
+function _M.delete_from_cache(self)
     return self:ctx().redis:del(self:cache_key())
 end
 
 
-function expire(self)
+function _M.expire(self)
     local cache_key = self:cache_key()
     local redis = self:ctx().redis
     if redis:exists(cache_key) == 1 then
@@ -1562,12 +1596,12 @@ function expire(self)
 end
 
 
-function serve(self)
+function _M.serve(self)
     if not ngx.headers_sent then
         local res = self:get_response() -- or self:get_response("fetched")
         assert(res.status, "Response has no status.")
 
-        local visible_hostname = visible_hostname()
+        local visible_hostname = self:visible_hostname()
 
         -- Via header
         local via = "1.1 " .. visible_hostname .. " (ledge/" .. _VERSION .. ")"
@@ -1615,7 +1649,7 @@ function serve(self)
 end
 
 
-function add_warning(self, code)
+function _M.add_warning(self, code)
     local res = self:get_response()
     if not res.header["Warning"] then
         res.header["Warning"] = {}
@@ -1627,12 +1661,12 @@ function add_warning(self, code)
         ["112"] = "Disconnected Operation",
     }
 
-    local header = code .. ' ' .. visible_hostname() .. ' "' .. warnings[code] .. '"'
+    local header = code .. ' ' .. self:visible_hostname() .. ' "' .. warnings[code] .. '"'
     table.insert(res.header["Warning"], header)
 end
 
 
-function process_esi(self)
+function _M.process_esi(self)
     local res = self:get_response()
     local body = res.body
 
@@ -1732,12 +1766,4 @@ function process_esi(self)
     self:add_warning("214")
 end
 
-local class_mt = {
-    -- to prevent use of casual module global variables
-    __newindex = function (table, key, val)
-        error('attempt to write to undeclared variable "' .. key .. '"')
-    end
-}
-
-
-setmetatable(_M, class_mt)
+return _M
