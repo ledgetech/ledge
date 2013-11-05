@@ -1440,6 +1440,7 @@ function _M.fetch_from_origin(self)
     httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
     
     local origin, err = httpc:request{
+        method = ngx.req.get_method(),
         path = self:relative_uri(),
         body = ngx.req.get_body_data(), -- TODO: stream this into httpc?
         headers = ngx.req.get_headers(),

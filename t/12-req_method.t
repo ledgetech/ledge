@@ -8,26 +8,30 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
-	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
-	init_by_lua "
-		ledge_mod = require 'ledge.ledge'
+    lua_package_path "$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
+    init_by_lua "
+        ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
-		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-	";
+        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('upstream_host', '127.0.0.1')
+        ledge:config_set('upstream_port', 1984)
+    ";
 };
 
+no_long_string();
 run_tests();
 
 __DATA__
 === TEST 1: GET
 --- http_config eval: $::HttpConfig
 --- config
-location /req_method_1 {
+location /req_method_1_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /__ledge_origin {
+location /req_method_1 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "req_method_1"
@@ -35,7 +39,7 @@ location /__ledge_origin {
     ';
 }
 --- request
-GET /req_method_1
+GET /req_method_1_prx
 --- response_body
 GET
 
@@ -44,6 +48,7 @@ GET
 --- http_config eval: $::HttpConfig
 --- config
 location /req_method_1 {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
@@ -57,12 +62,13 @@ Etag: req_method_1
 === TEST 3: HEAD revalidate
 --- http_config eval: $::HttpConfig
 --- config
-location /req_method_1 {
+location /req_method_1_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /__ledge_origin {
+location /req_method_1 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "req_method_1"
@@ -71,7 +77,7 @@ location /__ledge_origin {
 --- more_headers
 Cache-Control: max-age=0
 --- request
-HEAD /req_method_1
+HEAD /req_method_1_prx
 --- response_headers
 Etag: req_method_1
 
@@ -95,12 +101,13 @@ GET
 === TEST 5: POST doesn't get cached copy
 --- http_config eval: $::HttpConfig
 --- config
-location /req_method_1 {
+location /req_method_1_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /__ledge_origin {
+location /req_method_1 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "req_method_posted"
@@ -108,7 +115,7 @@ location /__ledge_origin {
     ';
 }
 --- request
-POST /req_method_1
+POST /req_method_1_prx
 --- response_headers
 Etag: req_method_posted
 --- response_body
