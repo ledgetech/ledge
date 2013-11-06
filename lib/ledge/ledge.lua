@@ -1,6 +1,7 @@
 local ngx_log = ngx.log
 local ngx_DEBUG = ngx.DEBUG
 local ngx_ERR = ngx.ERR
+local ngx_WARN = ngx.WARN
 local ngx_print = ngx.print
 local ngx_get_phase = ngx.get_phase
 local ngx_req_get_headers = ngx.req.get_headers
@@ -47,6 +48,7 @@ local HOP_BY_HOP_HEADERS = {
     ["trailers"]            = true,
     ["transfer-encoding"]   = true,
     ["upgrade"]             = true,
+    ["content-length"]      = true, -- Not strictly hop-by-hop, but we set dynamically downstream.
 }
 
 
@@ -148,7 +150,7 @@ end
 function _M.run(self)
     local set, msg = ngx.on_abort(self:cleanup())
     if set == nil then
-        ngx_log(ngx.WARN, "on_abort handler not set: "..msg)
+        ngx_log(ngx_WARN, "on_abort handler not set: "..msg)
     end
     self:e "init"
 end
@@ -237,7 +239,7 @@ function _M._redis_close(self, redis)
     end
 
     if not ok then
-        ngx_log(ngx.WARN, "couldn't set keepalive, "..err)
+        ngx_log(ngx_WARN, "couldn't set keepalive, "..err)
     end
 end
 
@@ -1475,7 +1477,7 @@ function _M.fetch_from_origin(self)
         -- A received message that does not have a Date header field MUST be assigned
         -- one by the recipient if the message will be cached by that recipient
         if not res.header["Date"] or not ngx_parse_http_time(res.header["Date"]) then
-            ngx_log(ngx.WARN, "no Date header from upstream, generating locally")
+            ngx_log(ngx_WARN, "no Date header from upstream, generating locally")
             res.header["Date"] = ngx_http_time(ngx_time())
         end
     end
@@ -1490,22 +1492,7 @@ end
 function _M.save_to_cache(self, res)
     self:emit("before_save", res)
 
-    -- These "hop-by-hop" response headers MUST NOT be cached:
-    -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
-    local uncacheable_headers = {
-        "Connection",
-        "Keep-Alive",
-        "Proxy-Authenticate",
-        "Proxy-Authorization",
-        "TE",
-        "Trailers",
-        "Transfer-Encoding",
-        "Upgrade",
-
-        -- We also choose not to cache the content length, it is set by Nginx
-        -- based on the response body.
-        "Content-Length",
-    }
+    local uncacheable_headers = {}
 
     -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
     if res.header["Cache-Control"] and res.header["Cache-Control"]:find("=") then
