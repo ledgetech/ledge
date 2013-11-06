@@ -1,16 +1,22 @@
-local setmetatable = setmetatable
-local error = error
-local assert = assert
-local require = require
-local ipairs = ipairs
-local pairs = pairs
-local unpack = unpack
-local tostring = tostring
-local tonumber = tonumber
-local type = type
-local next = next
-local table = table
-local ngx = ngx
+local ngx_log = ngx.log
+local ngx_DEBUG = ngx.DEBUG
+local ngx_ERR = ngx.ERR
+local ngx_print = ngx.print
+local ngx_get_phase = ngx.get_phase
+local ngx_req_get_headers = ngx.req.get_headers
+local ngx_req_set_header = ngx.req.set_header
+local ngx_req_get_method = ngx.req.get_method
+local ngx_parse_http_time = ngx.parse_http_time
+local ngx_http_time = ngx.http_time
+local ngx_time = ngx.time
+local ngx_re_gsub = ngx.re.gsub
+local ngx_re_gmatch = ngx.re.gmatch
+local ngx_var = ngx.var
+local tbl_insert = table.insert
+local tbl_concat = table.concat
+local tbl_remove = table.remove
+local tbl_getn = table.getn
+local str_lower = string.lower
 
 
 local _M = {
@@ -94,7 +100,7 @@ end
 
 -- Set a config parameter
 function _M.config_set(self, param, value)
-    if ngx.get_phase() == "init" then
+    if ngx_get_phase() == "init" then
         self.config[param] = value
     else
         self:ctx().config[param] = value
@@ -125,7 +131,7 @@ end
 function _M.bind(self, event, callback)
     local events = self:ctx().events
     if not events[event] then events[event] = {} end
-    table.insert(events[event], callback)
+    tbl_insert(events[event], callback)
 end
 
 
@@ -142,25 +148,25 @@ end
 function _M.run(self)
     local set, msg = ngx.on_abort(self:cleanup())
     if set == nil then
-        ngx.log(ngx.WARN, "on_abort handler not set: "..msg)
+        ngx_log(ngx.WARN, "on_abort handler not set: "..msg)
     end
     self:e "init"
 end
 
 
 function _M.relative_uri(self)
-    return ngx.var.uri .. ngx.var.is_args .. (ngx.var.query_string or "")
+    return ngx_var.uri .. ngx_var.is_args .. (ngx_var.query_string or "")
 end
 
 
 function _M.full_uri(self)
-    return ngx.var.scheme .. '://' .. ngx.var.host .. self:relative_uri()
+    return ngx_var.scheme .. '://' .. ngx_var.host .. self:relative_uri()
 end
 
 
 function _M.visible_hostname(self)
-    local name = ngx.var.visible_hostname or ngx.var.hostname
-    local server_port = ngx.var.server_port
+    local name = ngx_var.visible_hostname or ngx_var.hostname
+    local server_port = ngx_var.server_port
     if server_port ~= "80" and server_port ~= "443" then
         name = name .. ":" .. server_port
     end
@@ -231,7 +237,7 @@ function _M._redis_close(self, redis)
     end
 
     if not ok then
-        ngx.log(ngx.WARN, "couldn't set keepalive, "..err)
+        ngx_log(ngx.WARN, "couldn't set keepalive, "..err)
     end
 end
 
@@ -251,7 +257,7 @@ function _M.accepts_stale(self, res)
     end
 
     -- Check for max-stale request header
-    local req_cc = ngx.req.get_headers()['Cache-Control']
+    local req_cc = ngx_req_get_headers()['Cache-Control']
     return h_util.get_numeric_header_token(req_cc, 'max-stale')
 end
 
@@ -260,7 +266,7 @@ function _M.calculate_stale_ttl(self)
     local res = self:get_response()
     local stale = self:accepts_stale(res) or 0
     local min_fresh = h_util.get_numeric_header_token(
-        ngx.req.get_headers()['Cache-Control'],
+        ngx_req_get_headers()['Cache-Control'],
         'min-fresh'
     )
 
@@ -270,7 +276,7 @@ end
 
 function _M.request_accepts_cache(self)
     -- Check for no-cache
-    local h = ngx.req.get_headers()
+    local h = ngx_req_get_headers()
     if h_util.header_has_directive(h["Pragma"], "no-cache")
        or h_util.header_has_directive(h["Cache-Control"], "no-cache")
        or h_util.header_has_directive(h["Cache-Control"], "no-store") then
@@ -282,7 +288,7 @@ end
 
 
 function _M.must_revalidate(self)
-    local cc = ngx.req.get_headers()["Cache-Control"]
+    local cc = ngx_req_get_headers()["Cache-Control"]
     if cc == "max-age=0" then
         return true
     else
@@ -303,13 +309,13 @@ end
 
 
 function _M.can_revalidate_locally(self)
-    local req_h = ngx.req.get_headers()
+    local req_h = ngx_req_get_headers()
     local req_ims = req_h["If-Modified-Since"]
 
     if req_ims then
-        if not ngx.parse_http_time(req_ims) then
+        if not ngx_parse_http_time(req_ims) then
             -- Bad IMS HTTP datestamp, lets remove this.
-            ngx.req.set_header("If-Modified-Since", nil)
+            ngx_req_set_header("If-Modified-Since", nil)
         else
             return true
         end
@@ -324,15 +330,15 @@ end
 
 
 function _M.is_valid_locally(self)
-    local req_h = ngx.req.get_headers()
+    local req_h = ngx_req_get_headers()
     local res = self:get_response()
 
     local res_lm = res.header["Last-Modified"]
     local req_ims = req_h["If-Modified-Since"]
 
     if res_lm and req_ims then
-        local res_lm_parsed = ngx.parse_http_time(res_lm)
-        local req_ims_parsed = ngx.parse_http_time(req_ims)
+        local res_lm_parsed = ngx_parse_http_time(res_lm)
+        local req_ims_parsed = ngx_parse_http_time(req_ims)
 
         if res_lm_parsed and req_ims_parsed then
             if res_lm_parsed > req_ims_parsed then
@@ -368,14 +374,14 @@ function _M.cache_key(self)
         -- Generate the cache key. The default spec is:
         -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
         local key_spec = self:config_get("cache_key_spec") or {
-            ngx.var.scheme,
-            ngx.var.host,
-            ngx.var.uri,
-            ngx.var.args,
+            ngx_var.scheme,
+            ngx_var.host,
+            ngx_var.uri,
+            ngx_var.args,
         }
-        table.insert(key_spec, 1, "cache_obj")
-        table.insert(key_spec, 1, "ledge")
-        self:ctx().cache_key = table.concat(key_spec, ":")
+        tbl_insert(key_spec, 1, "cache_obj")
+        tbl_insert(key_spec, 1, "ledge")
+        self:ctx().cache_key = tbl_concat(key_spec, ":")
     end
     return self:ctx().cache_key
 end
@@ -387,7 +393,7 @@ end
 
 
 function _M.accepts_stale_error(self)
-    local req_cc = ngx.req.get_headers()['Cache-Control']
+    local req_cc = ngx_req_get_headers()['Cache-Control']
     local stale_age = self:config_get("stale_if_error")
     local res = self:get_response()
 
@@ -811,25 +817,25 @@ _M.actions = {
     remove_client_validators = function(self)
         -- Keep these in case we need to restore them (after revalidating upstream)
         local client_validators = self:ctx().client_validators
-        client_validators["If-Modified-Since"] = ngx.var.http_if_modified_since
-        client_validators["If-None-Match"] = ngx.var.http_if_none_match
+        client_validators["If-Modified-Since"] = ngx_var.http_if_modified_since
+        client_validators["If-None-Match"] = ngx_var.http_if_none_match
 
-        ngx.req.set_header("If-Modified-Since", nil)
-        ngx.req.set_header("If-None-Match", nil)
+        ngx_req_set_header("If-Modified-Since", nil)
+        ngx_req_set_header("If-None-Match", nil)
     end,
 
     restore_client_validators = function(self)
         local client_validators = self:ctx().client_validators
-        ngx.req.set_header("If-Modified-Since", client_validators["If-Modified-Since"])
-        ngx.req.set_header("If-None-Match", client_validators["If-None-Match"])
+        ngx_req_set_header("If-Modified-Since", client_validators["If-Modified-Since"])
+        ngx_req_set_header("If-None-Match", client_validators["If-None-Match"])
     end,
 
     add_validators_from_cache = function(self)
         local cached_res = self:get_response()
 
         -- TODO: Patch OpenResty to accept additional headers for subrequests.
-        ngx.req.set_header("If-Modified-Since", cached_res.header["Last-Modified"])
-        ngx.req.set_header("If-None-Match", cached_res.header["Etag"])
+        ngx_req_set_header("If-Modified-Since", cached_res.header["Last-Modified"])
+        ngx_req_set_header("If-None-Match", cached_res.header["Etag"])
     end,
 
     add_stale_warning = function(self)
@@ -978,7 +984,7 @@ _M.states = {
                     end
                 end
                 if host.host and host.port then
-                    table.insert(hosts, host)
+                    tbl_insert(hosts, host)
                 end
             end
             if next(hosts) ~= nil then
@@ -990,7 +996,7 @@ _M.states = {
     end,
 
     checking_method = function(self)
-        local method = ngx.req.get_method()
+        local method = ngx_req_get_method()
         if method == "PURGE" then
             return self:e "purge_requested"
         elseif method ~= "GET" and method ~= "HEAD" then
@@ -1040,7 +1046,7 @@ _M.states = {
         end
 
         if h_util.header_has_directive(
-            ngx.req.get_headers()["Cache-Control"], "only-if-cached"
+            ngx_req_get_headers()["Cache-Control"], "only-if-cached"
         ) then
             return self:e "http_gateway_timeout"
         end
@@ -1058,7 +1064,7 @@ _M.states = {
         
         local timeout = tonumber(self:config_get("collapsed_forwarding_window"))
         if not timeout then
-            ngx.log(ngx.ERR, "collapsed_forwarding_window must be a number")
+            ngx_log(ngx_ERR, "collapsed_forwarding_window must be a number")
             return self:e "collapsed_forwarding_failed"
         end
 
@@ -1088,7 +1094,7 @@ _M.states = {
 
         if not res then -- Lua script failed
             redis:unwatch()
-            ngx.log(ngx.ERR, err)
+            ngx_log(ngx_ERR, err)
             return self:e "collapsed_forwarding_failed"
         elseif res == "OK" then -- We have the lock
             redis:unwatch()
@@ -1243,7 +1249,7 @@ _M.states = {
     end,
 
     updating_cache = function(self)
-        if ngx.req.get_method() ~= "HEAD" then
+        if ngx_req_get_method() ~= "HEAD" then
             local res = self:get_response()
             if res:is_cacheable() then
                 return self:e "response_cacheable"
@@ -1291,12 +1297,12 @@ function _M.t(self, state)
 
     if pre_t then
         for _,action in ipairs(pre_t) do
-            ngx.log(ngx.DEBUG, "#a: " .. action)
+            ngx_log(ngx_DEBUG, "#a: " .. action)
             self.actions[action](self)
         end
     end
 
-    ngx.log(ngx.DEBUG, "#t: " .. state)
+    ngx_log(ngx_DEBUG, "#t: " .. state)
 
     ctx.state_history[state] = true
     ctx.current_state = state
@@ -1306,14 +1312,14 @@ end
 
 -- Process state transitions and actions based on the event fired.
 function _M.e(self, event)
-    ngx.log(ngx.DEBUG, "#e: " .. event)
+    ngx_log(ngx_DEBUG, "#e: " .. event)
 
     local ctx = self:ctx()
     ctx.event_history[event] = true
 
     -- It's possible for states to call undefined events at run time. Try to handle this nicely.
     if not self.events[event] then
-        ngx.log(ngx.CRIT, event .. " is not defined.")
+        ngx_log(ngx.CRIT, event .. " is not defined.")
         ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
         self:t("exiting")
     end
@@ -1327,7 +1333,7 @@ function _M.e(self, event)
                 if not t_in_case or ctx.event_history[t_in_case] then
                     local t_but_first = trans["but_first"]
                     if t_but_first then
-                        ngx.log(ngx.DEBUG, "#a: " .. t_but_first)
+                        ngx_log(ngx_DEBUG, "#a: " .. t_but_first)
                         self.actions[t_but_first](self)
                     end
 
@@ -1345,7 +1351,7 @@ function _M.read_from_cache(self)
     -- Fetch from Redis
     local cache_parts, err = self:ctx().redis:hgetall(self:cache_key())
     if not cache_parts then
-        ngx.log(ngx.ERR, "Failed to read cache item: " .. err)
+        ngx_log(ngx_ERR, "Failed to read cache item: " .. err)
         return nil
     end
 
@@ -1375,11 +1381,11 @@ function _M.read_from_cache(self)
         elseif cache_parts[i] == "status" then
             res.status = tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "expires" then
-            res.remaining_ttl = tonumber(cache_parts[i + 1]) - ngx.time()
+            res.remaining_ttl = tonumber(cache_parts[i + 1]) - ngx_time()
         elseif cache_parts[i] == "saved_ts" then
-            time_in_cache = ngx.time() - tonumber(cache_parts[i + 1])
+            time_in_cache = ngx_time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "generated_ts" then
-            time_since_generated = ngx.time() - tonumber(cache_parts[i + 1])
+            time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "esi_comment" then
             res.esi.has_esi_comment = true
         elseif cache_parts[i] == "esi_remove" then
@@ -1427,7 +1433,7 @@ function _M.fetch_from_origin(self)
     local res = response:new()
     self:emit("origin_required")
 
-    local method = ngx['HTTP_' .. ngx.req.get_method()]
+    local method = ngx['HTTP_' .. ngx_req_get_method()]
     -- Unrecognised request method, do not proxy
     if not method then
         res.status = ngx.HTTP_METHOD_NOT_IMPLEMENTED
@@ -1440,16 +1446,16 @@ function _M.fetch_from_origin(self)
     httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
     
     local origin, err = httpc:request{
-        method = ngx.req.get_method(),
+        method = ngx_req_get_method(),
         path = self:relative_uri(),
         body = ngx.req.get_body_data(), -- TODO: stream this into httpc?
-        headers = ngx.req.get_headers(),
+        headers = ngx_req_get_headers(),
     }
 
     httpc:set_keepalive()
 
     if not origin then
-        ngx.log(ngx.ERR, err)
+        ngx_log(ngx_ERR, err)
         return res
     end
     
@@ -1457,7 +1463,7 @@ function _M.fetch_from_origin(self)
 
     -- Merge end-to-end headers
     for k,v in pairs(origin.headers) do
-        if not HOP_BY_HOP_HEADERS[string.lower(k)] then
+        if not HOP_BY_HOP_HEADERS[str_lower(k)] then
             res.header[k] = v
         end
     end
@@ -1468,9 +1474,9 @@ function _M.fetch_from_origin(self)
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
         -- A received message that does not have a Date header field MUST be assigned
         -- one by the recipient if the message will be cached by that recipient
-        if not res.header["Date"] or not ngx.parse_http_time(res.header["Date"]) then
-            ngx.log(ngx.WARN, "no Date header from upstream, generating locally")
-            res.header["Date"] = ngx.http_time(ngx.time())
+        if not res.header["Date"] or not ngx_parse_http_time(res.header["Date"]) then
+            ngx_log(ngx.WARN, "no Date header from upstream, generating locally")
+            res.header["Date"] = ngx_http_time(ngx_time())
         end
     end
 
@@ -1506,7 +1512,7 @@ function _M.save_to_cache(self, res)
         local patterns = { "no%-cache", "no%-store", "private" }
         for _,p in ipairs(patterns) do
             for h in res.header["Cache-Control"]:gmatch(p .. "=\"?([%a-]+)\"?") do
-                table.insert(uncacheable_headers, h)
+                tbl_insert(uncacheable_headers, h)
             end
         end
     end
@@ -1528,12 +1534,12 @@ function _M.save_to_cache(self, res)
             if type(header_value) == 'table' then
                 -- Multiple headers are represented as a table of values
                 for i = 1, #header_value do
-                    table.insert(h, 'h:'..i..':'..header)
-                    table.insert(h, header_value[i])
+                    tbl_insert(h, 'h:'..i..':'..header)
+                    tbl_insert(h, header_value[i])
                 end
             else
-                table.insert(h, 'h:'..header)
-                table.insert(h, header_value)
+                tbl_insert(h, 'h:'..header)
+                tbl_insert(h, header_value)
             end
         end
     end
@@ -1547,7 +1553,7 @@ function _M.save_to_cache(self, res)
     redis:del(self:cache_key())
 
     local ttl = res:ttl()
-    local expires = ttl + ngx.time()
+    local expires = ttl + ngx_time()
     local uri = self:full_uri()
 
     redis:hmset(self:cache_key(),
@@ -1555,8 +1561,8 @@ function _M.save_to_cache(self, res)
         'status', res.status,
         'uri', uri,
         'expires', expires,
-        'generated_ts', ngx.parse_http_time(res.header["Date"]),
-        'saved_ts', ngx.time(),
+        'generated_ts', ngx_parse_http_time(res.header["Date"]),
+        'saved_ts', ngx_time(),
         unpack(h)
     )
 
@@ -1575,7 +1581,7 @@ function _M.save_to_cache(self, res)
 
     -- Run transaction
     if redis:exec() == ngx.null then
-        ngx.log(ngx.ERR, "Failed to save cache item")
+        ngx_log(ngx_ERR, "Failed to save cache item")
     end
 end
 
@@ -1589,7 +1595,7 @@ function _M.expire(self)
     local cache_key = self:cache_key()
     local redis = self:ctx().redis
     if redis:exists(cache_key) == 1 then
-        redis:hset(cache_key, "expires", tostring(ngx.time() - 1))
+        redis:hset(cache_key, "expires", tostring(ngx_time() - 1))
         return true
     else
         return false
@@ -1642,7 +1648,7 @@ function _M.serve(self)
         end
 
         if res.status ~= 304 and res.body then
-            ngx.print(res.body)
+            ngx_print(res.body)
         end
 
         ngx.eof()
@@ -1663,7 +1669,7 @@ function _M.add_warning(self, code)
     }
 
     local header = code .. ' ' .. self:visible_hostname() .. ' "' .. warnings[code] .. '"'
-    table.insert(res.header["Warning"], header)
+    tbl_insert(res.header["Warning"], header)
 end
 
 
@@ -1681,12 +1687,12 @@ function _M.process_esi(self)
         -- need is determined.
         local replace = function(var)
             if var == "$(QUERY_STRING)" then
-                return ngx.var.args or ""
+                return ngx_var.args or ""
             elseif var:sub(1, 7) == "$(HTTP_" then
                 -- Look for a HTTP_var that matches
                 local _, _, header = var:find("%$%(HTTP%_(.+)%)")
                 if header then
-                    return ngx.var["http_" .. header] or ""
+                    return ngx_var["http_" .. header] or ""
                 else
                     return ""
                 end
@@ -1696,8 +1702,8 @@ function _M.process_esi(self)
         end
 
         -- For every esi:vars block, substitute any number of variables found.
-        body = ngx.re.gsub(body, "<esi:vars>(.*)</esi:vars>", function(var_block)
-            return ngx.re.gsub(var_block[1],
+        body = ngx_re_gsub(body, "<esi:vars>(.*)</esi:vars>", function(var_block)
+            return ngx_re_gsub(var_block[1],
                 "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)",
                 function(m)
                     return replace(m[0])
@@ -1706,13 +1712,13 @@ function _M.process_esi(self)
         end, "soj")
 
         -- Remove vars tags that are left over
-        body = ngx.re.gsub(body, "(<esi:vars>|</esi:vars>)", "", "soj")
+        body = ngx_re_gsub(body, "(<esi:vars>|</esi:vars>)", "", "soj")
 
         -- Replace vars inline in any other esi: tags.
-        body = ngx.re.gsub(body,
+        body = ngx_re_gsub(body,
             "(<esi:)(.+)(.*/>)",
             function(m)
-                local vars = ngx.re.gsub(m[2],
+                local vars = ngx_re_gsub(m[2],
                         "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
                         function (m)
                             return replace(m[1])
@@ -1724,20 +1730,20 @@ function _M.process_esi(self)
     end
 
     if res:has_esi_comment() then
-        body = ngx.re.gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")
+        body = ngx_re_gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")
     end
 
     if res:has_esi_remove() then
-        body = ngx.re.gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
+        body = ngx_re_gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
     end
 
     if res:has_esi_include() then
         local esi_uris = {}
-        for tag in ngx.re.gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
-            table.insert(esi_uris, { tag[1] })
+        for tag in ngx_re_gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
+            tbl_insert(esi_uris, { tag[1] })
         end
 
-        if table.getn(esi_uris) > 0 then
+        if tbl_getn(esi_uris) > 0 then
             -- Only works for relative URIs right now
             -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
             --
@@ -1755,8 +1761,8 @@ function _M.process_esi(self)
             -- all fragments.
             res:minimise_lifetime(esi_fragments)
 
-            body = ngx.re.gsub(body, "(<esi:include.*/>)", function(tag)
-                return table.remove(esi_fragments, 1).body
+            body = ngx_re_gsub(body, "(<esi:include.*/>)", function(tag)
+                return tbl_remove(esi_fragments, 1).body
             end, "ioj")
         end
     end
