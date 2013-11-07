@@ -18,6 +18,8 @@ local tbl_concat = table.concat
 local tbl_remove = table.remove
 local tbl_getn = table.getn
 local str_lower = string.lower
+local co_wrap = coroutine.wrap
+local co_yield = coroutine.yield
 
 
 local _M = {
@@ -1349,6 +1351,8 @@ end
 
 function _M.read_from_cache(self)
     local res = response:new()
+    res.body = self:read_chunk_from_cache()
+    res.from_cache = true
 
     -- Fetch from Redis
     local cache_parts, err = self:ctx().redis:hgetall(self:cache_key())
@@ -1376,9 +1380,9 @@ function _M.read_from_cache(self)
     -- to get hash key/values.
     for i = 1, #cache_parts, 2 do
         -- Look for the "known" fields
-        if cache_parts[i] == "body" then
-            res.body = cache_parts[i + 1]
-        elseif cache_parts[i] == "uri" then
+        --if cache_parts[i] == "body" then
+          --  res.body = cache_parts[i + 1]
+        if cache_parts[i] == "uri" then
             res.uri = cache_parts[i + 1]
         elseif cache_parts[i] == "status" then
             res.status = tonumber(cache_parts[i + 1])
@@ -1470,7 +1474,8 @@ function _M.fetch_from_origin(self)
         end
     end
 
-    res.body = origin:read_body() or ""
+    --res.body = origin:read_body() or ""
+    res.body = origin.body_reader
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -1544,7 +1549,6 @@ function _M.save_to_cache(self, res)
     local uri = self:full_uri()
 
     redis:hmset(self:cache_key(),
-        'body', res.body,
         'status', res.status,
         'uri', uri,
         'expires', expires,
@@ -1634,8 +1638,14 @@ function _M.serve(self)
             end
         end
 
-        if res.status ~= 304 and res.body then
-            ngx_print(res.body)
+        if res.status ~= 304 then
+            if res.from_cache then
+                self:serve_chunk(res.body)
+            else
+                self:serve_chunk(self:save_chunk(res.body))
+            end
+
+--            ngx_print(res.body)
         end
 
         ngx.eof()
@@ -1759,5 +1769,56 @@ function _M.process_esi(self)
     self:set_response(res)
     self:add_warning("214")
 end
+
+
+function _M.read_chunk_from_cache(self)
+    local redis = self:ctx().redis
+    local cache_key = self:cache_key() .. ":body"
+    local num_chunks = redis:llen(cache_key) - 1
+
+    return co_wrap(function()
+        for i = 0, num_chunks do
+            local chunk, err = redis:lindex(cache_key, i)
+            if not chunk then
+                co_yield(nil, err)
+            end
+
+            co_yield(chunk)
+        end
+    end)
+end
+
+
+function _M.save_chunk(self, reader)
+    local redis = self:ctx().redis
+    local cache_key = self:cache_key() .. ":body"
+
+    redis:multi()
+    redis:del(cache_key)
+
+    return co_wrap(function()
+        repeat
+            local chunk, err = reader(128)
+            if chunk then
+                redis:rpush(cache_key, chunk)
+                co_yield(chunk)
+            end
+        until not chunk
+    
+        redis:exec()
+    end)
+end
+
+
+function _M.serve_chunk(self, reader)
+    repeat
+        local chunk, err = reader()
+        if chunk then
+            ngx_print(chunk)
+        end
+
+    until not chunk
+end
+
 
 return _M
