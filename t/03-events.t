@@ -30,7 +30,7 @@ location /events_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:bind("response_ready", function(res)
-            res.body = "UPDATED"
+            res.header["X-Modified"] = "Modified"
         end)
         ledge:run()
     ';
@@ -40,5 +40,6 @@ location /events_1 {
 }
 --- request
 GET /events_1_prx
---- response_body: UPDATED
+--- response_headers
+X-Modified: Modified
 
