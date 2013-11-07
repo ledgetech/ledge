@@ -1602,7 +1602,7 @@ function _M.serve(self)
         local visible_hostname = self:visible_hostname()
 
         -- Via header
-        local via = "1.1 " .. visible_hostname .. " (ledge/" .. _VERSION .. ")"
+        local via = "1.1 " .. visible_hostname .. " (ledge/" .. _M._VERSION .. ")"
         local res_via = res.header["Via"]
         if  (res_via ~= nil) then
             res.header["Via"] = via .. ", " .. res_via
@@ -1805,7 +1805,10 @@ function _M.save_chunk(self, reader)
             end
         until not chunk
     
-        redis:exec()
+        local ok, err = redis:exec() == ngx.null
+        if ok == ngx.null then
+            ngx_log(ngx_ERR, err)
+        end
     end)
 end
 
