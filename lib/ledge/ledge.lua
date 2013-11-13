@@ -53,6 +53,12 @@ local HOP_BY_HOP_HEADERS = {
     ["content-length"]      = true, -- Not strictly hop-by-hop, but we set dynamically downstream.
 }
 
+local WARNINGS = {
+    ["110"] = "Response is stale",
+    ["214"] = "Transformation applied",
+    ["112"] = "Disconnected Operation",
+}
+
 
 function _M.new(self)
     local config = {
@@ -1659,13 +1665,7 @@ function _M.add_warning(self, code)
         res.header["Warning"] = {}
     end
 
-    local warnings = {
-        ["110"] = "Response is stale",
-        ["214"] = "Transformation applied",
-        ["112"] = "Disconnected Operation",
-    }
-
-    local header = code .. ' ' .. self:visible_hostname() .. ' "' .. warnings[code] .. '"'
+    local header = code .. ' ' .. self:visible_hostname() .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(res.header["Warning"], header)
 end
 
@@ -1798,7 +1798,7 @@ function _M.save_chunk(self, reader)
 
     return co_wrap(function()
         repeat
-            local chunk, err = reader(128)
+            local chunk, err = reader(8192)
             if chunk then
                 redis:rpush(cache_key, chunk)
                 co_yield(chunk)
