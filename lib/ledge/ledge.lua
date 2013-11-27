@@ -405,6 +405,23 @@ function _M.cache_key(self)
 end
 
 
+function _M.cache_entity_keys(self, cache_key)
+    local redis = self:ctx().redis
+    local entity = redis:get(cache_key)
+
+    if entity == ngx.null then
+        -- MISS
+        return nil
+    end
+
+    return {
+        main = cache_key .. ":" .. entity,
+        headers = cache_key .. ":" .. entity .. ":headers",
+        body = cache_key .. ":" .. entity .. ":body",
+    }
+end
+
+
 function _M.fetching_key(self)
     return self:cache_key() .. ":fetching"
 end
@@ -1368,21 +1385,16 @@ function _M.read_from_cache(self)
     local res = response:new()
 
     local cache_key = self:cache_key()
-    local entity = redis:get(cache_key)
 
-    if entity == ngx.null then
+    local entity_keys = self:cache_entity_keys(cache_key)
+
+    if not entity_keys  then
         -- MISS
         return nil
     end
 
-    local entity_keys = {
-        main = cache_key .. ":" .. entity,
-        headers = cache_key .. ":" .. entity .. ":headers",
-        body = cache_key .. ":" .. entity .. ":body",
-    }
-
     -- Get our body reader coroutine for later
-    res.body = self:cache_body_reader(entity_keys)
+    res.body = self:get_cache_body_reader(entity_keys)
     res.from_cache = true -- flag to control coroutine filters... bit clunky.
 
     -- Read main metdata
@@ -1598,14 +1610,20 @@ function _M.save_to_cache(self, res)
     end
 
     -- Instantiate writer coroutine with the entity key set.
-    res.write_body_chunk = self:cache_body_writer(res.body, entity_keys)
+    res.cache_body_writer = self:get_cache_body_writer(res.body, entity_keys)
 end
 
 
 function _M.delete_from_cache(self)
-    local res = self:get_response()
-    res.from_cache = false
-    return self:ctx().redis:del(self:cache_key())
+    local entity_keys = self:cache_entity_keys(self:cache_key())
+    if entity_keys then
+        local redis = self:ctx().redis
+        return redis:del(
+            entity_keys.main,
+            entity_keys.headers,
+            entity_keys.body
+        )
+    end
 end
 
 
@@ -1667,10 +1685,10 @@ function _M.serve(self)
 
         if res.status ~= 304 then
             -- FIXME: This is a kludge for now
-            if res.from_cache then-- or res:is_cacheable() ==false then
-                self:serve_chunk(res.body)
+            if res.from_cache or res:is_cacheable() ==false then
+                self:body_server(res.body)
             else
-                self:serve_chunk(res.write_body_chunk)
+                self:body_server(res.cache_body_writer)
             end
         end
 
@@ -1681,6 +1699,66 @@ function _M.serve(self)
 
         ngx.eof()
     end
+end
+
+
+-- Returns a wrapped coroutine to be resumed for each body chunk.
+function _M.get_cache_body_reader(self, entity_keys)
+    local redis = self:ctx().redis
+
+    local num_chunks = redis:llen(entity_keys.body) - 1
+
+    return co_wrap(function()
+        for i = 0, num_chunks do
+            local chunk, err = redis:lindex(entity_keys.body, i)
+            if chunk == ngx.null then
+                co_yield(nil, err)
+            end
+
+            co_yield(chunk)
+        end
+
+        redis:unwatch()
+    end)
+end
+
+
+-- Returns a wrapped coroutine for writing chunks to cache, where reader is a
+-- coroutine to be resumed which reads from the upstream socket.
+function _M.get_cache_body_writer(self, reader, entity_keys)
+    local redis = self:ctx().redis
+    local buffer_size = self:config_get("buffer_size")
+
+    return co_wrap(function()
+        redis:multi()
+        repeat
+            local chunk, err = reader(buffer_size)
+            if chunk then
+                ngx_log(ngx_DEBUG, "saving chunk ", #chunk)
+                redis:rpush(entity_keys.body, chunk)
+                co_yield(chunk)
+            end
+        until not chunk
+
+        local res, err = redis:exec()
+        if err then
+            ngx_log(ngx_ERR, err)
+        end
+    end)
+end
+
+
+-- Resumes the reader coroutine and prints the data yielded. This could be
+-- via a cache read, or a save via a fetch... the interface is uniform.
+function _M.body_server(self, reader)
+    repeat
+        local chunk, err = reader()
+        if chunk then
+            ngx_log(ngx_DEBUG, "serving chunk ", #chunk)
+            ngx_print(chunk)
+        end
+
+    until not chunk
 end
 
 
@@ -1793,62 +1871,6 @@ function _M.process_esi(self)
     res.body = body
     self:set_response(res)
     self:add_warning("214")
-end
-
-
--- Returns a wrapped coroutine to be resumed for each body chunk.
-function _M.cache_body_reader(self, entity_keys)
-    local redis = self:ctx().redis
-
-    local num_chunks = redis:llen(entity_keys.body) - 1
-
-    return co_wrap(function()
-        for i = 0, num_chunks do
-            local chunk, err = redis:lindex(entity_keys.body, i)
-            if chunk == ngx.null then
-                co_yield(nil, err)
-            end
-
-            co_yield(chunk)
-        end
-
-        redis:unwatch()
-    end)
-end
-
-
-function _M.cache_body_writer(self, reader, entity_keys)
-    local redis = self:ctx().redis
-    local buffer_size = self:config_get("buffer_size")
-
-    return co_wrap(function()
-        redis:multi()
-        repeat
-            local chunk, err = reader(buffer_size)
-            if chunk then
-                ngx_log(ngx_DEBUG, "saving chunk ", #chunk)
-                redis:rpush(entity_keys.body, chunk)
-                co_yield(chunk)
-            end
-        until not chunk
-
-        local res, err = redis:exec()
-        if err then
-            ngx_log(ngx_ERR, err)
-        end
-    end)
-end
-
-
-function _M.serve_chunk(self, reader)
-    repeat
-        local chunk, err = reader()
-        if chunk then
-            ngx_log(ngx_DEBUG, "serving chunk ", #chunk)
-            ngx_print(chunk)
-        end
-
-    until not chunk
 end
 
 
