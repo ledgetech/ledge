@@ -48,7 +48,6 @@ define TEST_LEDGE_SENTINEL_CONFIG
 sentinel       monitor $(TEST_LEDGE_SENTINEL_MASTER_NAME) 127.0.0.1 $(REDIS_FIRST_PORT) 2
 sentinel       down-after-milliseconds $(TEST_LEDGE_SENTINEL_MASTER_NAME) 2000
 sentinel       failover-timeout $(TEST_LEDGE_SENTINEL_MASTER_NAME) 10000
-sentinel       can-failover $(TEST_LEDGE_SENTINEL_MASTER_NAME) yes
 sentinel       parallel-syncs $(TEST_LEDGE_SENTINEL_MASTER_NAME) 5
 endef
 

@@ -1,3 +1,9 @@
+local cjson = require "cjson"
+local redis = require "resty.redis"
+local http = require "resty.http"
+local response = require "ledge.response"
+local h_util = require "ledge.header_util"
+
 local ngx_log = ngx.log
 local ngx_DEBUG = ngx.DEBUG
 local ngx_ERR = ngx.ERR
@@ -18,20 +24,20 @@ local tbl_concat = table.concat
 local tbl_remove = table.remove
 local tbl_getn = table.getn
 local str_lower = string.lower
+local str_sub = string.sub
 local co_wrap = coroutine.wrap
 local co_yield = coroutine.yield
+local cjson_encode = cjson.encode
 
 
 local _M = {
     _VERSION = '0.09'
 }
 
-local mt = { __index = _M }
+local mt = { 
+    __index = _M,
+}
 
-local redis = require "resty.redis"
-local http = require "resty.http"
-local response = require "ledge.response"
-local h_util = require "ledge.header_util"
 
 
 -- Origin modes, for serving stale content during maintenance periods or emergencies.
@@ -66,6 +72,8 @@ function _M.new(self)
 
         upstream_host = "",
         upstream_port = 80,
+
+        buffer_size = 2^13, -- 8KB
 
         redis_database  = 0,
         redis_timeout   = 100,          -- Connect and read timeout (ms)
@@ -1356,19 +1364,38 @@ end
 
 
 function _M.read_from_cache(self)
+    local redis = self:ctx().redis
     local res = response:new()
-    res.body = self:read_chunk_from_cache()
-    res.from_cache = true
 
-    -- Fetch from Redis
-    local cache_parts, err = self:ctx().redis:hgetall(self:cache_key())
+    local cache_key = self:cache_key()
+    local entity = redis:get(cache_key)
+
+    if entity == ngx.null then
+        -- MISS
+        return nil
+    end
+
+    local entity_keys = {
+        main = cache_key .. ":" .. entity,
+        headers = cache_key .. ":" .. entity .. ":headers",
+        body = cache_key .. ":" .. entity .. ":body",
+    }
+
+    -- Get our body reader coroutine for later
+    res.body = self:cache_body_reader(entity_keys)
+    res.from_cache = true -- flag to control coroutine filters... bit clunky.
+
+    -- Read main metdata
+    local cache_parts, err = redis:hgetall(entity_keys.main)
     if not cache_parts then
-        ngx_log(ngx_ERR, "Failed to read cache item: " .. err)
+        ngx_log(ngx_ERR, err)
         return nil
     end
 
     -- No cache entry for this key
-    if #cache_parts == 0 then
+    local cache_parts_len = #cache_parts
+    if not cache_parts_len then
+        ngx_log(ngx_ERR, "live entity has no data")
         return nil
     end
 
@@ -1376,18 +1403,9 @@ function _M.read_from_cache(self)
     local time_in_cache = 0
     local time_since_generated = 0
 
-    -- nil values here indicate esi is unknown, so prime them to false
-    res.esi.has_esi_comment = false
-    res.esi.has_esi_include = false
-    res.esi.has_esi_vars = false
-    res.esi.has_esi_remove = false
-
     -- The Redis replies is a sequence of messages, so we iterate over pairs
     -- to get hash key/values.
-    for i = 1, #cache_parts, 2 do
-        -- Look for the "known" fields
-        --if cache_parts[i] == "body" then
-          --  res.body = cache_parts[i + 1]
+    for i = 1, cache_parts_len, 2 do
         if cache_parts[i] == "uri" then
             res.uri = cache_parts[i + 1]
         elseif cache_parts[i] == "status" then
@@ -1398,40 +1416,36 @@ function _M.read_from_cache(self)
             time_in_cache = ngx_time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "generated_ts" then
             time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
-        elseif cache_parts[i] == "esi_comment" then
-            res.esi.has_esi_comment = true
-        elseif cache_parts[i] == "esi_remove" then
-            res.esi.has_esi_remove = true
-        elseif cache_parts[i] == "esi_include" then
-            res.esi.has_esi_include = true
-        elseif cache_parts[i] == "esi_vars" then
-            res.esi.has_esi_vars = true
-        else
-            -- Unknown fields will be headers, starting with "h:" prefix.
-            local header = cache_parts[i]:sub(3)
-            if header then
-                if header:sub(2,2) == ':' then
-                    -- Multiple headers, we also need to preserve the order?
-                    local index = tonumber(header:sub(1,1))
-                    header = header:sub(3)
-                    if res.header[header] == nil then
-                        res.header[header] = {}
-                    end
-                    res.header[header][index]= cache_parts[i + 1]
-                else
-                    res.header[header] = cache_parts[i + 1]
-                end
-            end
         end
     end
 
-    -- Calculate the Age header
-    if res.header["Age"] then
-        -- We have end-to-end Age headers, add our time_in_cache.
-        res.header["Age"] = tonumber(res.header["Age"]) + time_in_cache
-    elseif res.header["Date"] then
-        -- We have no advertised Age, use the generated timestamp.
-        res.header["Age"] = time_since_generated
+    -- Read headers
+    local headers = redis:hgetall(entity_keys.headers)
+    if headers then
+        local headers_len = table.getn(headers)
+
+        for i = 1, headers_len, 2 do
+            local header = headers[i]
+            if header:sub(2, 2) == ':' then
+                -- Multiple headers, we also need to preserve the order?
+                local index = tonumber(header:sub(1, 1))
+                if res.header[header] == nil then
+                    res.header[header] = {}
+                end
+                res.header[header][index]= headers[i + 1]
+            else
+                res.header[header] = headers[i + 1]
+            end
+        end
+
+        -- Calculate the Age header
+        if res.header["Age"] then
+            -- We have end-to-end Age headers, add our time_in_cache.
+            res.header["Age"] = tonumber(res.header["Age"]) + time_in_cache
+        elseif res.header["Date"] then
+            -- We have no advertised Age, use the generated timestamp.
+            res.header["Age"] = time_since_generated
+        end
     end
 
     self:emit("cache_accessed", res)
@@ -1464,13 +1478,12 @@ function _M.fetch_from_origin(self)
         headers = ngx_req_get_headers(),
     }
 
-    httpc:set_keepalive()
-
     if not origin then
         ngx_log(ngx_ERR, err)
         return res
     end
     
+    res.conn = httpc
     res.status = origin.status
 
     -- Merge end-to-end headers
@@ -1532,11 +1545,11 @@ function _M.save_to_cache(self, res)
             if type(header_value) == 'table' then
                 -- Multiple headers are represented as a table of values
                 for i = 1, #header_value do
-                    tbl_insert(h, 'h:'..i..':'..header)
+                    tbl_insert(h, i..':'..header)
                     tbl_insert(h, header_value[i])
                 end
             else
-                tbl_insert(h, 'h:'..header)
+                tbl_insert(h, header)
                 tbl_insert(h, header_value)
             end
         end
@@ -1547,31 +1560,34 @@ function _M.save_to_cache(self, res)
     -- Save atomically
     redis:multi()
 
-    -- Delete any existing data, to avoid accidental hash merges.
-    redis:del(self:cache_key())
+    local cache_key = self:cache_key()
+    local entity = str_sub(tostring(self:ctx()), 10) -- FIXME: table memory loc isn't unique enough?
+    local entity_keys = {
+        main = cache_key .. ":" .. entity,
+        headers = cache_key .. ":" .. entity .. ":headers",
+        body = cache_key .. ":" .. entity .. ":body",
+    }
 
     local ttl = res:ttl()
     local expires = ttl + ngx_time()
     local uri = self:full_uri()
 
-    redis:hmset(self:cache_key(),
+    redis:hmset(entity_keys.main,
         'status', res.status,
         'uri', uri,
         'expires', expires,
         'generated_ts', ngx_parse_http_time(res.header["Date"]),
-        'saved_ts', ngx_time(),
-        unpack(h)
+        'saved_ts', ngx_time()
     )
 
-    -- If ESI is enabled, store detected ESI features on the slow path.
-    if self:config_get("enable_esi") == true then
-        if res:has_esi_comment() then redis:hmset(self:cache_key(), "esi_comment", 1) end
-        if res:has_esi_remove() then redis:hmset(self:cache_key(), "esi_remove", 1) end
-        if res:has_esi_include() then redis:hmset(self:cache_key(), "esi_include", 1) end
-        if res:has_esi_vars() then redis:hmset(self:cache_key(), "esi_vars", 1) end
-    end
+    redis:hmset(entity_keys.headers, unpack(h))
 
-    redis:expire(self:cache_key(), ttl + tonumber(self:config_get("keep_cache_for")))
+    local keep_cache_for = ttl + tonumber(self:config_get("keep_cache_for"))
+    redis:expire(entity_keys.main, keep_cache_for)
+    redis:expire(entity_keys.headers, keep_cache_for)
+
+    -- Update main cache key pointer
+    redis:set(cache_key, entity)
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
     redis:zadd('ledge:uris_by_expiry', expires, uri)
@@ -1580,10 +1596,15 @@ function _M.save_to_cache(self, res)
     if redis:exec() == ngx.null then
         ngx_log(ngx_ERR, "Failed to save cache item")
     end
+
+    -- Instantiate writer coroutine with the entity key set.
+    res.write_body_chunk = self:cache_body_writer(res.body, entity_keys)
 end
 
 
 function _M.delete_from_cache(self)
+    local res = self:get_response()
+    res.from_cache = false
     return self:ctx().redis:del(self:cache_key())
 end
 
@@ -1645,13 +1666,17 @@ function _M.serve(self)
         end
 
         if res.status ~= 304 then
-            if res.from_cache then
+            -- FIXME: This is a kludge for now
+            if res.from_cache then-- or res:is_cacheable() ==false then
                 self:serve_chunk(res.body)
             else
-                self:serve_chunk(self:save_chunk(res.body))
+                self:serve_chunk(res.write_body_chunk)
             end
+        end
 
---            ngx_print(res.body)
+        local httpc = res.conn
+        if httpc then
+            httpc:set_keepalive()
         end
 
         ngx.eof()
@@ -1771,42 +1796,44 @@ function _M.process_esi(self)
 end
 
 
-function _M.read_chunk_from_cache(self)
+-- Returns a wrapped coroutine to be resumed for each body chunk.
+function _M.cache_body_reader(self, entity_keys)
     local redis = self:ctx().redis
-    local cache_key = self:cache_key() .. ":body"
-    local num_chunks = redis:llen(cache_key) - 1
+
+    local num_chunks = redis:llen(entity_keys.body) - 1
 
     return co_wrap(function()
         for i = 0, num_chunks do
-            local chunk, err = redis:lindex(cache_key, i)
-            if not chunk then
+            local chunk, err = redis:lindex(entity_keys.body, i)
+            if chunk == ngx.null then
                 co_yield(nil, err)
             end
 
             co_yield(chunk)
         end
+
+        redis:unwatch()
     end)
 end
 
 
-function _M.save_chunk(self, reader)
+function _M.cache_body_writer(self, reader, entity_keys)
     local redis = self:ctx().redis
-    local cache_key = self:cache_key() .. ":body"
-
-    redis:multi()
-    redis:del(cache_key)
+    local buffer_size = self:config_get("buffer_size")
 
     return co_wrap(function()
+        redis:multi()
         repeat
-            local chunk, err = reader(8192)
+            local chunk, err = reader(buffer_size)
             if chunk then
-                redis:rpush(cache_key, chunk)
+                ngx_log(ngx_DEBUG, "saving chunk ", #chunk)
+                redis:rpush(entity_keys.body, chunk)
                 co_yield(chunk)
             end
         until not chunk
-    
-        local ok, err = redis:exec() == ngx.null
-        if ok == ngx.null then
+
+        local res, err = redis:exec()
+        if err then
             ngx_log(ngx_ERR, err)
         end
     end)
@@ -1817,6 +1844,7 @@ function _M.serve_chunk(self, reader)
     repeat
         local chunk, err = reader()
         if chunk then
+            ngx_log(ngx_DEBUG, "serving chunk ", #chunk)
             ngx_print(chunk)
         end
 
@@ -1825,3 +1853,4 @@ end
 
 
 return _M
+
