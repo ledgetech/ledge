@@ -1394,8 +1394,7 @@ function _M.read_from_cache(self)
     end
 
     -- Get our body reader coroutine for later
-    res.body = self:get_cache_body_reader(entity_keys)
-    res.from_cache = true -- flag to control coroutine filters... bit clunky.
+    res.body_source = self:get_cache_body_reader(entity_keys)
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(entity_keys.main)
@@ -1505,8 +1504,7 @@ function _M.fetch_from_origin(self)
         end
     end
 
-    --res.body = origin:read_body() or ""
-    res.body = origin.body_reader
+    res.body_source = origin.body_reader
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -1610,7 +1608,7 @@ function _M.save_to_cache(self, res)
     end
 
     -- Instantiate writer coroutine with the entity key set.
-    res.cache_body_writer = self:get_cache_body_writer(res.body, entity_keys)
+    res.body_source = self:get_cache_body_writer(res.body_source, entity_keys)
 end
 
 
@@ -1629,10 +1627,16 @@ end
 
 function _M.expire(self)
     local cache_key = self:cache_key()
+    local entity_keys = self:cache_entity_keys(cache_key)
     local redis = self:ctx().redis
-    if redis:exists(cache_key) == 1 then
-        redis:hset(cache_key, "expires", tostring(ngx_time() - 1))
-        return true
+    if redis:exists(entity_keys.main) == 1 then
+        local ok, err = redis:hset(entity_keys.main, "expires", tostring(ngx_time() - 1))
+        if not ok then
+            ngx_log(ngx_ERR, err)
+            return false
+        else
+            return true
+        end
     else
         return false
     end
@@ -1684,12 +1688,7 @@ function _M.serve(self)
         end
 
         if res.status ~= 304 then
-            -- FIXME: This is a kludge for now
-            if res.from_cache or res:is_cacheable() ==false then
-                self:body_server(res.body)
-            else
-                self:body_server(res.cache_body_writer)
-            end
+            self:body_server(res.body_source)
         end
 
         local httpc = res.conn
