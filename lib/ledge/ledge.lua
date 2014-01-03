@@ -31,19 +31,16 @@ local cjson_encode = cjson.encode
 
 
 local _M = {
-    _VERSION = '0.09'
+    _VERSION = '0.09',
+
+    ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
+    ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
+    ORIGIN_MODE_NORMAL = 4, -- Assume the origin is happy, use at will.
 }
 
 local mt = { 
     __index = _M,
 }
-
-
-
--- Origin modes, for serving stale content during maintenance periods or emergencies.
-_M.ORIGIN_MODE_BYPASS = 1 -- Never goes to the origin, serve from cache where possible or 503.
-_M.ORIGIN_MODE_AVOID  = 2 -- Avoids going to the origin, serving from cache where possible.
-_M.ORIGIN_MODE_NORMAL = 4 -- Assume the origin is happy, use at will.
 
 
 -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
@@ -85,12 +82,12 @@ function _M.new(self)
         redis_use_sentinel = false,
         redis_sentinels = {},
 
-        keep_cache_for  = 86400 * 30,   -- Max time to Keep cache items past expiry + stale (sec)
-        max_stale       = nil,          -- Warning: Violates HTTP spec
-        stale_if_error  = nil,          -- Max staleness (sec) for a cached response on upstream error
+        keep_cache_for  = 86400 * 30, -- Max time to Keep cache items past expiry + stale (sec)
+        max_stale       = nil, -- Warning: Violates HTTP spec
+        stale_if_error  = nil, -- Max staleness (sec) for a cached response on upstream error
         enable_esi      = false,
         enable_collapsed_forwarding = false,
-        collapsed_forwarding_window = 60 * 1000,   -- Window for collapsed requests (ms)
+        collapsed_forwarding_window = 60 * 1000, -- Window for collapsed requests (ms)
     }
 
     return setmetatable({ config = config }, mt)
@@ -663,9 +660,11 @@ _M.events = {
     },
 
     -- A missing response body means a HEAD request or a 304 Not Modified upstream response, for
-    -- example. Generally we pass this on, but in case we're collapsing or background revalidating,
-    -- ensure we either clean up the collapsees or exit respectively.
+    -- example. If we were revalidating upstream, we can now re-revalidate against local cache. 
+    -- If we're collapsing or background revalidating, ensure we either clean up the collapsees 
+    -- or exit respectively.
     response_body_missing = {
+        { in_case = "must_revalidate", begin = "considering_local_revalidation" } ,
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
         { after = "revalidating_in_background", begin = "exiting" },
@@ -1284,8 +1283,8 @@ _M.states = {
     end,
 
     updating_cache = function(self)
-        if ngx_req_get_method() ~= "HEAD" then
-            local res = self:get_response()
+        local res = self:get_response()
+        if res.body_reader ~= nil then
             if res:is_cacheable() then
                 return self:e "response_cacheable"
             else
@@ -1504,7 +1503,12 @@ function _M.fetch_from_origin(self)
         end
     end
 
-    res.body_source = origin.body_reader
+    res.body_reader = origin.body_reader
+    if origin.body_reader then
+        res.body_source = origin.body_reader
+    else
+        res.body_source = nil
+    end
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -1571,7 +1575,9 @@ function _M.save_to_cache(self, res)
     redis:multi()
 
     local cache_key = self:cache_key()
-    local entity = str_sub(tostring(self:ctx()), 10) -- FIXME: table memory loc isn't unique enough?
+
+    -- FIXME: table memory loc isn't unique enough?
+    local entity = str_sub(tostring(self:ctx()), 10) 
     local entity_keys = {
         main = cache_key .. ":" .. entity,
         headers = cache_key .. ":" .. entity .. ":headers",
@@ -1608,7 +1614,9 @@ function _M.save_to_cache(self, res)
     end
 
     -- Instantiate writer coroutine with the entity key set.
-    res.body_source = self:get_cache_body_writer(res.body_source, entity_keys)
+    if res.body_reader ~= nil then
+        res.body_source = self:get_cache_body_writer(res.body_source, entity_keys)
+    end
 end
 
 
@@ -1687,7 +1695,7 @@ function _M.serve(self)
             end
         end
 
-        if res.status ~= 304 then
+        if res.body_source then
             self:body_server(res.body_source)
         end
 
@@ -1706,6 +1714,7 @@ function _M.get_cache_body_reader(self, entity_keys)
     local redis = self:ctx().redis
 
     local num_chunks = redis:llen(entity_keys.body) - 1
+    if num_chunks < 0 then return nil end
 
     return co_wrap(function()
         for i = 0, num_chunks do
@@ -1716,8 +1725,6 @@ function _M.get_cache_body_reader(self, entity_keys)
 
             co_yield(chunk)
         end
-
-        redis:unwatch()
     end)
 end
 
@@ -1733,8 +1740,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys)
         repeat
             local chunk, err = reader(buffer_size)
             if chunk then
-                ngx_log(ngx_DEBUG, "saving chunk ", #chunk)
-                redis:rpush(entity_keys.body, chunk)
+                local res, err = redis:rpush(entity_keys.body, chunk)
                 co_yield(chunk)
             end
         until not chunk
@@ -1750,10 +1756,10 @@ end
 -- Resumes the reader coroutine and prints the data yielded. This could be
 -- via a cache read, or a save via a fetch... the interface is uniform.
 function _M.body_server(self, reader)
+    if not reader then return nil end
     repeat
         local chunk, err = reader()
         if chunk then
-            ngx_log(ngx_DEBUG, "serving chunk ", #chunk)
             ngx_print(chunk)
         end
 
