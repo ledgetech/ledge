@@ -29,6 +29,31 @@ local co_wrap = coroutine.wrap
 local co_yield = coroutine.yield
 local cjson_encode = cjson.encode
 
+local ffi        = require "ffi"
+local ffi_cdef   = ffi.cdef
+local ffi_new    = ffi.new
+local ffi_string = ffi.string
+local C          = ffi.C
+
+
+ffi_cdef[[
+typedef unsigned char u_char;
+u_char * ngx_hex_dump(u_char *dst, const u_char *src, size_t len);
+int RAND_pseudo_bytes(u_char *buf, int num);
+]]
+
+
+local function random_hex(len)
+    local bytes = ffi_new("uint8_t[?]", len / 2)
+    C.RAND_pseudo_bytes(bytes, len)
+    if not bytes then return nil, false end
+
+    local hex = ffi_new("uint8_t[?]", len)
+    C.ngx_hex_dump(hex, bytes, len)
+
+    return ffi_string(hex, len)
+end
+
 
 local _M = {
     _VERSION = '0.09',
@@ -1575,9 +1600,8 @@ function _M.save_to_cache(self, res)
     redis:multi()
 
     local cache_key = self:cache_key()
+    local entity = random_hex(8)
 
-    -- FIXME: table memory loc isn't unique enough?
-    local entity = str_sub(tostring(self:ctx()), 10) 
     local entity_keys = {
         main = cache_key .. ":" .. entity,
         headers = cache_key .. ":" .. entity .. ":headers",
