@@ -1636,6 +1636,8 @@ end
 function _M.expire(self)
     local cache_key = self:cache_key()
     local entity_keys = self:cache_entity_keys(cache_key)
+    if not entity_keys then return false end -- nothing to expire
+
     local redis = self:ctx().redis
     if redis:exists(entity_keys.main) == 1 then
         local ok, err = redis:hset(entity_keys.main, "expires", tostring(ngx_time() - 1))
