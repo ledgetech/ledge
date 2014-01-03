@@ -108,6 +108,8 @@ function _M.new(self)
         redis_sentinels = {},
 
         keep_cache_for  = 86400 * 30, -- Max time to Keep cache items past expiry + stale (sec)
+        gc_old_entities_after = 60, -- How long to wait on slow connections reading old entities (sec)
+
         max_stale       = nil, -- Warning: Violates HTTP spec
         stale_if_error  = nil, -- Max staleness (sec) for a cached response on upstream error
         enable_esi      = false,
@@ -1594,13 +1596,9 @@ function _M.save_to_cache(self, res)
         end
     end
 
-    local redis = self:ctx().redis
-
-    -- Save atomically
-    redis:multi()
-
     local cache_key = self:cache_key()
     local entity = random_hex(8)
+    local previous_entity_keys = self:cache_entity_keys(cache_key)
 
     local entity_keys = {
         main = cache_key .. ":" .. entity,
@@ -1611,6 +1609,10 @@ function _M.save_to_cache(self, res)
     local ttl = res:ttl()
     local expires = ttl + ngx_time()
     local uri = self:full_uri()
+    
+    -- Save atomically
+    local redis = self:ctx().redis
+    redis:multi()
 
     redis:hmset(entity_keys.main,
         'status', res.status,
@@ -1625,6 +1627,15 @@ function _M.save_to_cache(self, res)
     local keep_cache_for = ttl + tonumber(self:config_get("keep_cache_for"))
     redis:expire(entity_keys.main, keep_cache_for)
     redis:expire(entity_keys.headers, keep_cache_for)
+
+    -- Mark the old entity for expiration shortly (reads could still be in progress)
+    if previous_entity_keys then
+        local gc_after = self:config_get("gc_old_entities_after")
+
+        redis:expire(previous_entity_keys.main, gc_after)
+        redis:expire(previous_entity_keys.headers, gc_after)
+        redis:expire(previous_entity_keys.body, gc_after)
+    end
 
     -- Update main cache key pointer
     redis:set(cache_key, entity)
