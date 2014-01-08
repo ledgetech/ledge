@@ -1647,14 +1647,15 @@ function _M.save_to_cache(self, res)
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
     redis:zadd('ledge:uris_by_expiry', expires, uri)
 
-    -- Run transaction
-    if redis:exec() == ngx.null then
-        ngx_log(ngx_ERR, "Failed to save cache item")
-    end
 
-    -- Instantiate writer coroutine with the entity key set.
+    -- Instantiate writer coroutine with the entity key set. The writer will commit the transaction later.
     if res.body_reader ~= nil then
-        res.body_source = self:get_cache_body_writer(res.body_source, entity_keys)
+        res.body_source = self:get_cache_body_writer(res.body_source, entity_keys, keep_cache_for)
+    else
+        -- Run transaction
+        if redis:exec() == ngx.null then
+            ngx_log(ngx_ERR, "Failed to save cache item")
+        end
     end
 end
 
@@ -1772,12 +1773,11 @@ end
 
 -- Returns a wrapped coroutine for writing chunks to cache, where reader is a
 -- coroutine to be resumed which reads from the upstream socket.
-function _M.get_cache_body_writer(self, reader, entity_keys)
+function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
     local redis = self:ctx().redis
     local buffer_size = self:config_get("buffer_size")
 
     return co_wrap(function()
-        redis:multi()
         repeat
             local chunk, err = reader(buffer_size)
             if chunk then
@@ -1785,6 +1785,8 @@ function _M.get_cache_body_writer(self, reader, entity_keys)
                 co_yield(chunk)
             end
         until not chunk
+
+        redis:expire(entity_keys.body, ttl)
 
         local res, err = redis:exec()
         if err then
