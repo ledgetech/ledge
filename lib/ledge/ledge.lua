@@ -3,6 +3,7 @@ local redis = require "resty.redis"
 local http = require "resty.http"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
+local ffi = require "ffi"
 
 local ngx_log = ngx.log
 local ngx_DEBUG = ngx.DEBUG
@@ -25,15 +26,14 @@ local tbl_remove = table.remove
 local tbl_getn = table.getn
 local str_lower = string.lower
 local str_sub = string.sub
+local math_floor = math.floor
 local co_wrap = coroutine.wrap
 local co_yield = coroutine.yield
 local cjson_encode = cjson.encode
-
-local ffi        = require "ffi"
-local ffi_cdef   = ffi.cdef
-local ffi_new    = ffi.new
+local ffi_cdef = ffi.cdef
+local ffi_new = ffi.new
 local ffi_string = ffi.string
-local C          = ffi.C
+local C = ffi.C
 
 
 ffi_cdef[[
@@ -44,14 +44,18 @@ int RAND_pseudo_bytes(u_char *buf, int num);
 
 
 local function random_hex(len)
-    local bytes = ffi_new("uint8_t[?]", len / 2)
+    local len = math_floor(len / 2)
+
+    local bytes = ffi_new("uint8_t[?]", len)
     C.RAND_pseudo_bytes(bytes, len)
-    if not bytes then return nil, false end
+    if not bytes then 
+        ngx_log(ngx_ERR, "error getting random bytes via FFI")
+        return nil
+    end
 
-    local hex = ffi_new("uint8_t[?]", len)
+    local hex = ffi_new("uint8_t[?]", len * 2)
     C.ngx_hex_dump(hex, bytes, len)
-
-    return ffi_string(hex, len)
+    return ffi_string(hex, len * 2)
 end
 
 
@@ -95,7 +99,7 @@ function _M.new(self)
         upstream_host = "",
         upstream_port = 80,
 
-        buffer_size = 2^13, -- 8KB
+        buffer_size = 2^17, -- 128KB
 
         redis_database  = 0,
         redis_timeout   = 100,          -- Connect and read timeout (ms)
@@ -1794,8 +1798,9 @@ end
 -- via a cache read, or a save via a fetch... the interface is uniform.
 function _M.body_server(self, reader)
     if not reader then return nil end
+    local buffer_size = self:config_get("buffer_size")
     repeat
-        local chunk, err = reader()
+        local chunk, err = reader(buffer_size)
         if chunk then
             ngx_print(chunk)
         end
