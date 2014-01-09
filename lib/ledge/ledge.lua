@@ -9,6 +9,7 @@ local ngx_log = ngx.log
 local ngx_DEBUG = ngx.DEBUG
 local ngx_ERR = ngx.ERR
 local ngx_WARN = ngx.WARN
+local ngx_NOTICE = ngx.NOTICE
 local ngx_print = ngx.print
 local ngx_get_phase = ngx.get_phase
 local ngx_req_get_headers = ngx.req.get_headers
@@ -102,7 +103,7 @@ function _M.new(self)
         buffer_size = 2^17, -- 128KB
 
         redis_database  = 0,
-        redis_timeout   = 100,          -- Connect and read timeout (ms)
+        redis_timeout   = 5000,         -- Connect and read timeout (ms)
         redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
         redis_hosts = {
@@ -111,8 +112,10 @@ function _M.new(self)
         redis_use_sentinel = false,
         redis_sentinels = {},
 
-        keep_cache_for  = 86400 * 30, -- Max time to Keep cache items past expiry + stale (sec)
-        gc_old_entities_after = 60, -- How long to wait on slow connections reading old entities (sec)
+        keep_cache_for  = 86400 * 30, -- Max time to keep cache items past expiry + stale (sec)
+        minimum_old_entity_download_rate = 56, -- (kbps). Slower clients than this unfortunate enough
+                                                -- to be reading from replaced entities will have their 
+                                                -- entity garbage collected before they finish.
 
         max_stale       = nil, -- Warning: Violates HTTP spec
         stale_if_error  = nil, -- Max staleness (sec) for a cached response on upstream error
@@ -1599,24 +1602,46 @@ function _M.save_to_cache(self, res)
             end
         end
     end
+    
+    local ttl = res:ttl()
+    local expires = ttl + ngx_time()
+    local uri = self:full_uri()
+    
 
+    local redis = self:ctx().redis
     local cache_key = self:cache_key()
-    local entity = random_hex(8)
-    local previous_entity_keys = self:cache_entity_keys(cache_key)
-
+    
+    -- Create new entity keys
+    local entity = random_hex(8)  
     local entity_keys = {
         main = cache_key .. ":" .. entity,
         headers = cache_key .. ":" .. entity .. ":headers",
         body = cache_key .. ":" .. entity .. ":body",
     }
-
-    local ttl = res:ttl()
-    local expires = ttl + ngx_time()
-    local uri = self:full_uri()
     
-    -- Save atomically
-    local redis = self:ctx().redis
+    -- Mark the old entity for expiration shortly (reads could still be in progress)
+    local previous_entity_keys = self:cache_entity_keys(cache_key)
+
+    local previous_entity_size
+    if previous_entity_keys then
+        previous_entity_size = redis:hget(previous_entity_keys.main, "size")
+    end
+
+    -- Start the transaction
     redis:multi()
+
+    if previous_entity_keys then
+        -- We use the previous entity size and the minimum download rate to calculate when to expire
+        -- the old entity, in milliseconds, plus 1 second of arbitraty latency for good measure.
+        local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
+        local gc_after = math_floor((previous_entity_size / dl_rate_Bps) * 1000) + 1000
+
+        ngx_log(ngx_DEBUG, "gc_after: ", gc_after)
+
+        redis:pexpire(previous_entity_keys.main, gc_after)
+        redis:pexpire(previous_entity_keys.headers, gc_after)
+        redis:pexpire(previous_entity_keys.body, gc_after)
+    end
 
     redis:hmset(entity_keys.main,
         'status', res.status,
@@ -1628,25 +1653,16 @@ function _M.save_to_cache(self, res)
 
     redis:hmset(entity_keys.headers, unpack(h))
 
+    -- Mark the keys as eventually volatile (the body is set by the body writer)
     local keep_cache_for = ttl + tonumber(self:config_get("keep_cache_for"))
     redis:expire(entity_keys.main, keep_cache_for)
     redis:expire(entity_keys.headers, keep_cache_for)
-
-    -- Mark the old entity for expiration shortly (reads could still be in progress)
-    if previous_entity_keys then
-        local gc_after = self:config_get("gc_old_entities_after")
-
-        redis:expire(previous_entity_keys.main, gc_after)
-        redis:expire(previous_entity_keys.headers, gc_after)
-        redis:expire(previous_entity_keys.body, gc_after)
-    end
 
     -- Update main cache key pointer
     redis:set(cache_key, entity)
 
     -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
     redis:zadd('ledge:uris_by_expiry', expires, uri)
-
 
     -- Instantiate writer coroutine with the entity key set. The writer will commit the transaction later.
     if res.body_reader ~= nil then
@@ -1781,10 +1797,12 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
         repeat
             local chunk, err = reader(buffer_size)
             if chunk then
-                local res, err = redis:rpush(entity_keys.body, chunk)
+                local _, err = redis:rpush(entity_keys.body, chunk)
                 if err then ngx_log(ngx_ERR, err) end
-                local res, err = redis:hincrby(entity_keys.main, "size", #chunk)
+
+                local _, err = redis:hincrby(entity_keys.main, "size", #chunk)
                 if err then ngx_log(ngx_ERR, err) end
+
                 co_yield(chunk)
             end
         until not chunk
