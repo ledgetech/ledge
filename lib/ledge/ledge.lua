@@ -100,7 +100,7 @@ function _M.new(self)
         upstream_host = "",
         upstream_port = 80,
 
-        buffer_size = 2^17, -- 128KB
+        buffer_size = 2^17, -- 128 (KB)
 
         redis_database  = 0,
         redis_timeout   = 5000,         -- Connect and read timeout (ms)
@@ -113,7 +113,7 @@ function _M.new(self)
         redis_sentinels = {},
 
         keep_cache_for  = 86400 * 30, -- Max time to keep cache items past expiry + stale (sec)
-        minimum_old_entity_download_rate = 56, -- (kbps). Slower clients than this unfortunate enough
+        minimum_old_entity_download_rate = 56,  -- (kbps). Slower clients than this unfortunate enough
                                                 -- to be reading from replaced entities will have their 
                                                 -- entity garbage collected before they finish.
 
@@ -1632,11 +1632,9 @@ function _M.save_to_cache(self, res)
 
     if previous_entity_keys then
         -- We use the previous entity size and the minimum download rate to calculate when to expire
-        -- the old entity, in milliseconds, plus 1 second of arbitraty latency for good measure.
+        -- the old entity, in milliseconds, plus 1 second of arbitrary latency for good measure.
         local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
         local gc_after = math_floor((previous_entity_size / dl_rate_Bps) * 1000) + 1000
-
-        ngx_log(ngx_DEBUG, "gc_after: ", gc_after)
 
         redis:pexpire(previous_entity_keys.main, gc_after)
         redis:pexpire(previous_entity_keys.headers, gc_after)
