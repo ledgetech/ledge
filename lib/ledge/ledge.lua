@@ -1782,6 +1782,9 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
             local chunk, err = reader(buffer_size)
             if chunk then
                 local res, err = redis:rpush(entity_keys.body, chunk)
+                if err then ngx_log(ngx_ERR, err) end
+                local res, err = redis:hincrby(entity_keys.main, "size", #chunk)
+                if err then ngx_log(ngx_ERR, err) end
                 co_yield(chunk)
             end
         until not chunk
