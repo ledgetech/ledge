@@ -100,25 +100,36 @@ function _M.new(self)
         upstream_host = "",
         upstream_port = 80,
 
-        buffer_size = 2^17, -- 128 (KB)
+        buffer_size = 2^17, -- 128 (KB) Internal buffer size for data read / written / served.
+        cache_path = "",    -- Filesystem path for cache files that don't fit in memory.
+                            -- If this is not set larger entities will not be cached.
+        cache_max_memory = 2048, -- (KB) Max size a cache item can occupy before switcing to disk.
+                                 -- Note that under concurreny a single cache item may have multiple
+                                 -- entities (whilst old ones are still being read). This setting is a
+                                 -- hard limit inclusive of all entities.
 
         redis_database  = 0,
-        redis_timeout   = 5000,         -- Connect and read timeout (ms)
-        redis_keepalive_timeout = nil,  -- Defaults to 60s or lua_socket_keepalive_timeout
-        redis_keepalive_poolsize = nil, -- Defaults to 30 or lua_socket_pool_size
+        redis_timeout   = 5000,         -- (ms) Connect and read timeout
+        redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
+        redis_keepalive_poolsize = nil, -- (sec) Defaults to 30 or lua_socket_pool_size
         redis_hosts = {
             { host = "127.0.0.1", port = 6379, socket = nil, password = nil }
         },
         redis_use_sentinel = false,
         redis_sentinels = {},
 
-        keep_cache_for  = 86400 * 30, -- Max time to keep cache items past expiry + stale (sec)
-        minimum_old_entity_download_rate = 56,  -- (kbps). Slower clients than this unfortunate enough
-                                                -- to be reading from replaced entities will have their 
-                                                -- entity garbage collected before they finish.
+        keep_cache_for  = 86400 * 30,   -- (sec) Max time to keep cache items past expiry + stale.
+                                        -- Items will be evicted when under memory pressure, so this
+                                        -- setting is just about trying to keep cache around to serve 
+                                        -- stale in the event of origin disconnection.
 
-        max_stale       = nil, -- Warning: Violates HTTP spec
-        stale_if_error  = nil, -- Max staleness (sec) for a cached response on upstream error
+        minimum_old_entity_download_rate = 56,  -- (kbps). Slower clients than this unfortunate enough
+                                                -- to be reading from replaced (in memory) entities will 
+                                                -- have their entity garbage collected before they finish.
+
+        max_stale       = nil,  -- (sec) Overrides how long cache will continue be served 
+                                -- for beyond the TTL. This violates the spec, and adds a warning header.
+        stale_if_error  = nil,  -- (sec) Overrides how long to serve stale on upstream error.
         enable_esi      = false,
         enable_collapsed_forwarding = false,
         collapsed_forwarding_window = 60 * 1000, -- Window for collapsed requests (ms)
