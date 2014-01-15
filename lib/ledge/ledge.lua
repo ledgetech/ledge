@@ -28,6 +28,7 @@ local tbl_getn = table.getn
 local str_lower = string.lower
 local str_sub = string.sub
 local math_floor = math.floor
+local math_ceil = math.ceil
 local co_wrap = coroutine.wrap
 local co_yield = coroutine.yield
 local cjson_encode = cjson.encode
@@ -1643,13 +1644,11 @@ function _M.save_to_cache(self, res)
 
     if previous_entity_keys then
         -- We use the previous entity size and the minimum download rate to calculate when to expire
-        -- the old entity, in milliseconds, plus 1 second of arbitrary latency for good measure.
+        -- the old entity, plus 1 second of arbitrary latency for good measure.
         local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
-        local gc_after = math_floor((previous_entity_size / dl_rate_Bps) * 1000) + 1000
+        local gc_after = math_ceil((previous_entity_size / dl_rate_Bps)) + 1
 
-        redis:pexpire(previous_entity_keys.main, gc_after)
-        redis:pexpire(previous_entity_keys.headers, gc_after)
-        redis:pexpire(previous_entity_keys.body, gc_after)
+        redis:zadd("ledge:gc", ngx.time() + gc_after, previous_entity_keys.main)
     end
 
     redis:hmset(entity_keys.main,
@@ -1669,9 +1668,6 @@ function _M.save_to_cache(self, res)
 
     -- Update main cache key pointer
     redis:set(cache_key, entity)
-
-    -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    redis:zadd('ledge:uris_by_expiry', expires, uri)
 
     -- Instantiate writer coroutine with the entity key set. The writer will commit the transaction later.
     if res.body_reader ~= nil then
@@ -1803,19 +1799,21 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
     local buffer_size = self:config_get("buffer_size")
 
     return co_wrap(function()
+        local size = 0
         repeat
             local chunk, err = reader(buffer_size)
             if chunk then
-                local _, err = redis:rpush(entity_keys.body, chunk)
-                if err then ngx_log(ngx_ERR, err) end
-
-                local _, err = redis:hincrby(entity_keys.main, "size", #chunk)
-                if err then ngx_log(ngx_ERR, err) end
-
+                size = size + #chunk
+                redis:rpush(entity_keys.body, chunk)
                 co_yield(chunk)
             end
         until not chunk
-
+                
+        redis:hset(entity_keys.main, "size", size)
+        
+        local cache_key = self:cache_key()
+        redis:incrby(self:cache_key() .. ":memused", size)
+        redis:zadd(self:cache_key() .. ":entities", size, entity_keys.main) 
         redis:expire(entity_keys.body, ttl)
 
         local res, err = redis:exec()
