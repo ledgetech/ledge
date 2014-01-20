@@ -10,6 +10,7 @@ local ngx_DEBUG = ngx.DEBUG
 local ngx_ERR = ngx.ERR
 local ngx_WARN = ngx.WARN
 local ngx_NOTICE = ngx.NOTICE
+local ngx_INFO = ngx.INFO
 local ngx_print = ngx.print
 local ngx_get_phase = ngx.get_phase
 local ngx_req_get_headers = ngx.req.get_headers
@@ -21,6 +22,7 @@ local ngx_time = ngx.time
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_gmatch = ngx.re.gmatch
 local ngx_var = ngx.var
+local ngx_timer_at = ngx.timer.at
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 local tbl_remove = table.remove
@@ -212,6 +214,17 @@ function _M.run(self)
         ngx_log(ngx_WARN, "on_abort handler not set: "..msg)
     end
     self:e "init"
+end
+
+
+function _M.run_workers(self) 
+    -- gc_expired_entities: Cleans up replaced entities after all clients should have
+    -- stopped reading from them. Resets memory usage on the key.
+    local interval = 2
+    local ok, err = ngx_timer_at(0, self.gc_expired_entities, self, interval)
+    if not ok then
+        ngx.log(ngx.ERR, "failed to start task: ", err)
+    end
 end
 
 
@@ -452,15 +465,26 @@ function _M.cache_entity_keys(self, cache_key)
     local redis = self:ctx().redis
     local entity = redis:get(cache_key)
 
-    if entity == ngx.null then
-        -- MISS
+    if entity == ngx.null then -- MISS
         return nil
     end
+    
+    local keys = self:entity_keys(cache_key .. ":" .. entity)
 
-    return {
-        main = cache_key .. ":" .. entity,
-        headers = cache_key .. ":" .. entity .. ":headers",
-        body = cache_key .. ":" .. entity .. ":body",
+    for k, v in pairs(keys) do
+        local res = redis:exists(v)
+        if not res then return nil end
+    end
+
+    return keys
+end
+
+
+function _M.entity_keys(self, entity_key)
+    return  {
+        main = entity_key,
+        headers = entity_key .. ":headers",
+        body = entity_key .. ":body",
     }
 end
 
@@ -507,6 +531,12 @@ _M.events = {
         { begin = "considering_sentinel" },
     },
 
+    -- Entry point for worker scripts, which need to connect to Redis but
+    -- will stop when this is done.
+    init_worker = {
+        { begin = "considering_sentinel", but_first = "run_as_worker" },
+    },
+
     -- We have sentinel config, so attempt connection.
     sentinel_configured = {
         { begin = "connecting_to_sentinel" },
@@ -522,8 +552,9 @@ _M.events = {
         { begin = "selecting_redis_master" },
     },
     
-    -- We failed connecting to sentinel(s). Bail.
+    -- We failed connecting to sentinel(s). Bail. If we're not a worker, set HTTP error code.
     sentinel_connection_failed = {
+        { in_case = "init_worker", begin = "exiting" },
         { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
 
@@ -553,7 +584,9 @@ _M.events = {
     },
 
     -- We're connected! Let's get on with it then... First step, analyse the request.
+    -- If we're a worker then we just start running tasks.
     redis_connected = {
+        { in_case = "init_worker", begin = "running_worker" },
         { begin = "checking_method" },
     },
 
@@ -864,6 +897,10 @@ _M.pre_transitions = {
 -- Actions. Functions which can be called on transition.
 ---------------------------------------------------------------------------------------------------
 _M.actions = {
+    run_as_worker = function(self)
+        self:ctx().run_as_worker = true
+    end,
+
     redis_connect = function(self)
         return self:redis_connect()
     end,
@@ -1365,6 +1402,10 @@ _M.states = {
     exiting = function(self)
         ngx.exit(ngx.status)
     end,
+
+    running_worker = function(self)
+        return true
+    end,
 }
 
 
@@ -1625,18 +1666,17 @@ function _M.save_to_cache(self, res)
     
     -- Create new entity keys
     local entity = random_hex(8)  
-    local entity_keys = {
-        main = cache_key .. ":" .. entity,
-        headers = cache_key .. ":" .. entity .. ":headers",
-        body = cache_key .. ":" .. entity .. ":body",
-    }
+    local entity_keys = self:entity_keys(cache_key .. ":" .. entity)
     
     -- Mark the old entity for expiration shortly (reads could still be in progress)
     local previous_entity_keys = self:cache_entity_keys(cache_key)
 
     local previous_entity_size
     if previous_entity_keys then
-        previous_entity_size = redis:hget(previous_entity_keys.main, "size")
+        previous_entity_size, err = redis:hget(previous_entity_keys.main, "size")
+        if not previous_entity_size then
+            ngx_log(ngx_ERR, err)
+        end
     end
 
     -- Start the transaction
@@ -1682,14 +1722,17 @@ end
 
 
 function _M.delete_from_cache(self)
-    local entity_keys = self:cache_entity_keys(self:cache_key())
+    local cache_key = self:cache_key()
+    local entity_keys = self:cache_entity_keys(cache_key)
     if entity_keys then
         local redis = self:ctx().redis
-        return redis:del(
-            entity_keys.main,
-            entity_keys.headers,
-            entity_keys.body
-        )
+        local keys = { cache_key, cache_key .. ":entities", cache_key .. ":memused" }
+        local i = 4
+        for k,v in pairs(entity_keys) do
+            keys[i] = v
+            i = i + 1
+        end
+        return redis:del(unpack(keys))
     end
 end
 
@@ -1948,6 +1991,67 @@ function _M.process_esi(self)
     res.body = body
     self:set_response(res)
     self:add_warning("214")
+end
+
+
+-- #################################################################################
+-- # Worker tasks, called by ngx.timer.at().
+-- #################################################################################
+
+
+-- Cleans up expired items and keeps track of memory usage.
+function _M.gc_expired_entities(premature, self, interval)
+    self:e "init_worker"
+    local redis = self:ctx().redis
+
+    if not premature then
+        local expired = redis:zrangebyscore("ledge:gc", -1, ngx_time(), "limit", 0, 10)
+        for _, entity in ipairs(expired) do
+            local res, err = redis:watch(entity)
+
+            local cache_key = str_sub(entity, 1, -10)
+
+            -- Get the size we're relcaiming
+            local entity_size, err = redis:zscore(cache_key .. ":entities", entity)
+            if not entity_size then
+                ngx_log(ngx_ERR, err)
+                redis:unwatch(entity)
+                break
+            end
+
+            -- Get a table of entity keys to delete
+            local entity_keys = self:entity_keys(entity)
+            local del_keys = {}
+            local i = 1
+            for _, v in pairs(entity_keys) do
+                del_keys[i] = v
+                i = i + 1
+            end
+
+            redis:multi()
+
+            redis:del(unpack(del_keys)) -- Remove the entity
+            redis:decrby(cache_key .. ":memused", entity_size) -- Trim size
+            redis:zrem(cache_key .. ":entities", entity) -- Remove from list of entities
+            redis:zrem("ledge:gc", entity) -- Remove from job list
+
+            local res, err = redis:exec()
+
+            if not res then
+                ngx_log(ngx_ERR, err)
+            else
+                ngx_log(ngx_NOTICE, "gc reclaimed ", entity_size, " bytes")
+            end
+        end
+
+        self:redis_close()
+
+        -- Recurse to keep polling
+        local ok, err = ngx_timer_at(interval, _M.gc_expired_entities, self, interval)
+        if not ok then
+            ngx.log(ngx.ERR, "failed to start task: ", err)
+        end
+    end
 end
 
 
