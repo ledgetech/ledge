@@ -2039,6 +2039,8 @@ function _M.gc_expired_entities(premature, self, interval)
 
             if not res then
                 ngx_log(ngx_ERR, err)
+                self:redis_close()
+                return nil
             else
                 ngx_log(ngx_NOTICE, "gc reclaimed ", entity_size, " bytes")
             end
