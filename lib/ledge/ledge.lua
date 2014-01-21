@@ -547,7 +547,7 @@ _M.events = {
     -- Entry point for worker scripts, which need to connect to Redis but
     -- will stop when this is done.
     init_worker = {
-        { begin = "considering_sentinel", but_first = "run_as_worker" },
+        { begin = "considering_sentinel" }, 
     },
 
     -- Background worker who slept due to redis connection failure, has awoken
@@ -923,10 +923,6 @@ _M.pre_transitions = {
 -- Actions. Functions which can be called on transition.
 ---------------------------------------------------------------------------------------------------
 _M.actions = {
-    run_as_worker = function(self)
-        self:ctx().run_as_worker = true
-    end,
-
     redis_connect = function(self)
         return self:redis_connect()
     end,
