@@ -550,6 +550,8 @@ _M.events = {
         { begin = "considering_sentinel", but_first = "run_as_worker" },
     },
 
+    -- Background worker who slept due to redis connection failure, has awoken
+    -- to try again.
     woken = {
         { begin = "considering_sentinel" }
     },
@@ -854,6 +856,11 @@ _M.events = {
         { begin = "exiting", but_first = "set_http_client_abort" },
     },
 
+    -- The cache body reader was reading from the list, but the entity was collected by a worker
+    -- thread because it had been replaced, and the client was too slow.
+    entity_removed_during_read = {
+        { begin = "exiting", but_first = "set_http_connection_timed_out" },
+    },
 
     -- Useful events for exiting with a common status. If we've already served (perhaps we're doing
     -- background work, we just exit without re-setting the status (as this errors).
@@ -1032,6 +1039,10 @@ _M.actions = {
 
     set_http_client_abort = function(self)
         ngx.status = 499 -- No ngx constant for client aborted
+    end,
+    
+    set_http_connection_timed_out = function(self)
+        ngx.status = 524
     end,
 
     set_http_status_from_response = function(self)
@@ -1854,7 +1865,8 @@ function _M.get_cache_body_reader(self, entity_keys)
         for i = 0, num_chunks do
             local chunk, err = redis:lindex(entity_keys.body, i)
             if chunk == ngx.null then
-                co_yield(nil, err)
+                ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
+                self:e "entity_removed_during_read"
             end
 
             co_yield(chunk)
