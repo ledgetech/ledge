@@ -113,14 +113,21 @@ function _M.new(self)
                                  -- hard limit inclusive of all entities.
 
         redis_database  = 0,
-        redis_timeout   = 5000,         -- (ms) Connect and read timeout
+        redis_connect_timeout = 500,    -- (ms) Connect timeout
+        redis_read_timeout = 5000,      -- (ms) Read/write timeout
         redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- (sec) Defaults to 30 or lua_socket_pool_size
         redis_hosts = {
             { host = "127.0.0.1", port = 6379, socket = nil, password = nil }
         },
+
         redis_use_sentinel = false,
-        redis_sentinels = {},
+        redis_sentinels = {
+            -- e.g.
+            -- { host = "127.0.0.1", port = 6381 },
+            -- { host = "127.0.0.1", port = 6382 },
+            -- { host = "127.0.0.1", port = 6383 },
+        },
 
         keep_cache_for  = 86400 * 30,   -- (sec) Max time to keep cache items past expiry + stale.
                                         -- Items will be evicted when under memory pressure, so this
@@ -253,7 +260,7 @@ end
 function _M.redis_connect(self, hosts)
     local redis = redis:new()
 
-    local timeout = self:config_get("redis_timeout")
+    local timeout = self:config_get("redis_connect_timeout")
     if timeout then
         redis:set_timeout(timeout)
     end
@@ -273,6 +280,11 @@ function _M.redis_connect(self, hosts)
             local database = self:config_get("redis_database")
             if database > 0 then
                 redis:select(database)
+            end
+
+            local read_timeout = self:config_get("redis_read_timeout")
+            if read_timeout then
+                redis:set_timeout(read_timeout)
             end
 
             break -- We're done
@@ -466,7 +478,7 @@ function _M.cache_entity_keys(self, cache_key)
     local redis = self:ctx().redis
     local entity = redis:get(cache_key)
 
-    if entity == ngx.null then -- MISS
+    if not entity or entity == ngx.null then -- MISS
         return nil
     end
     
@@ -1078,7 +1090,7 @@ _M.states = {
             "get-master-addr-by-name",
             self:config_get("redis_sentinel_master_name")
          )
-         if res ~= ngx.null and res[1] and res[2] then
+         if res and res ~= ngx.null and res[1] and res[2] then
              self:config_set("redis_hosts", {
                  { host = res[1], port = res[2] },
              })
