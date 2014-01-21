@@ -23,6 +23,7 @@ local ngx_re_gsub = ngx.re.gsub
 local ngx_re_gmatch = ngx.re.gmatch
 local ngx_var = ngx.var
 local ngx_timer_at = ngx.timer.at
+local ngx_sleep = ngx.sleep
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 local tbl_remove = table.remove
@@ -220,7 +221,7 @@ end
 function _M.run_workers(self) 
     -- gc_expired_entities: Cleans up replaced entities after all clients should have
     -- stopped reading from them. Resets memory usage on the key.
-    local interval = 2
+    local interval = 1
     local ok, err = ngx_timer_at(0, self.gc_expired_entities, self, interval)
     if not ok then
         ngx.log(ngx.ERR, "failed to start task: ", err)
@@ -537,6 +538,10 @@ _M.events = {
         { begin = "considering_sentinel", but_first = "run_as_worker" },
     },
 
+    woken = {
+        { begin = "considering_sentinel" }
+    },
+
     -- We have sentinel config, so attempt connection.
     sentinel_configured = {
         { begin = "connecting_to_sentinel" },
@@ -554,7 +559,7 @@ _M.events = {
     
     -- We failed connecting to sentinel(s). Bail. If we're not a worker, set HTTP error code.
     sentinel_connection_failed = {
-        { in_case = "init_worker", begin = "exiting" },
+        { in_case = "init_worker", begin = "sleeping" },
         { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
 
@@ -566,6 +571,7 @@ _M.events = {
     -- We failed to select a redis instance. If we were already trying slaves, then we have to bail.
     -- If we were selecting the master, try selecting (as yet unpromoted) slaves.
     redis_selection_failed = {
+        { in_case = "init_worker", begin = "sleeping" },
         { after = "selecting_redis_slaves", begin = "exiting", 
             but_first = "set_http_service_unavailable" },
         { after = "selecting_redis_master", begin = "selecting_redis_slaves" },
@@ -579,6 +585,7 @@ _M.events = {
     -- We failed to connect to redis. If we were trying a master at the time, lets give the
     -- slaves a go. Otherwise, bail.
     redis_connection_failed = {
+        { in_case = "init_worker", begin = "sleeping" },
         { after = "selecting_redis_master", begin = "selecting_redis_slaves" },
         { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
@@ -1110,6 +1117,15 @@ _M.states = {
             end
         end
         self:e "redis_selection_failed"
+    end,
+
+    sleeping = function(self)
+        local last_sleep = self:ctx().last_sleep or 0
+        local sleep = last_sleep + 5
+        ngx_log(ngx_ERR, "sleeping for ", sleep, "s before reconnecting...")
+        ngx_sleep(sleep)
+        self:ctx().last_sleep = sleep
+        self:e "woken"
     end,
 
     checking_method = function(self)
@@ -2005,7 +2021,15 @@ function _M.gc_expired_entities(premature, self, interval)
     local redis = self:ctx().redis
 
     if not premature then
-        local expired = redis:zrangebyscore("ledge:gc", -1, ngx_time(), "limit", 0, 10)
+        local expired, err = redis:zrangebyscore("ledge:gc", -1, ngx_time(), "limit", 0, 10)
+        if not expired then
+            ngx_log(ngx_ERR, err)
+
+            -- Poll again. If we have a connection error this will be handled before we get
+            -- this far next time.
+            return ngx_timer_at(interval, _M.gc_expired_entities, self, interval)
+        end
+
         for _, entity in ipairs(expired) do
             local res, err = redis:watch(entity)
 
@@ -2039,8 +2063,10 @@ function _M.gc_expired_entities(premature, self, interval)
 
             if not res then
                 ngx_log(ngx_ERR, err)
-                self:redis_close()
-                return nil
+
+                -- Poll again. If we have a connection error this will be handled before we get
+                -- this far next time.
+                return ngx_timer_at(interval, _M.gc_expired_entities, self, interval)
             else
                 ngx_log(ngx_NOTICE, "gc reclaimed ", entity_size, " bytes")
             end
@@ -2048,11 +2074,8 @@ function _M.gc_expired_entities(premature, self, interval)
 
         self:redis_close()
 
-        -- Recurse to keep polling
-        local ok, err = ngx_timer_at(interval, _M.gc_expired_entities, self, interval)
-        if not ok then
-            ngx.log(ngx.ERR, "failed to start task: ", err)
-        end
+        -- Recurse to keep polling, via a tail call to prevent overflow.
+        return ngx_timer_at(interval, _M.gc_expired_entities, self, interval)
     end
 end
 
