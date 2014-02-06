@@ -1,6 +1,7 @@
 local cjson = require "cjson"
 local redis = require "resty.redis"
 local http = require "resty.http"
+local qless = require "resty.qless"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
 local ffi = require "ffi"
@@ -225,11 +226,41 @@ function _M.run(self)
 end
 
 
-function _M.run_workers(self) 
-    -- gc_expired_entities: Cleans up replaced entities after all clients should have
-    -- stopped reading from them. Resets memory usage on the key.
-    local interval = 1
-    local ok, err = ngx_timer_at(0, self.gc_expired_entities, self, interval)
+function _M.run_workers(self)
+    local interval = 0.1
+
+    local function pop_job(premature)
+        if not premature then
+            self:e "init_worker"
+            local redis = self:ctx().redis
+
+            local q = qless.new({}, redis)
+            local job = q.queues["ledge"]:pop()
+
+            if job then
+                -- Run the job
+                if self[job.klass_name] then
+                    local res, err = self[job.klass_name](self, job.data)
+                    if res then
+                        job:complete()
+                    else
+                        ngx_log(ngx_ERR, err)
+                    end
+                else
+                    ngx_log(ngx_ERR, "Unknown job klass " .. job.klass_name)
+                end
+            end
+            self:redis_close()
+
+            -- Recurse to keep polling
+            local ok, err = ngx_timer_at(interval, pop_job)
+            if not ok then
+                ngx.log(ngx.ERR, "failed to start task: ", err)
+            end
+        end
+    end
+
+    local ok, err = ngx_timer_at(0, pop_job)
     if not ok then
         ngx.log(ngx.ERR, "failed to start task: ", err)
     end
@@ -1723,7 +1754,13 @@ function _M.save_to_cache(self, res)
         local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
         local gc_after = math_ceil((previous_entity_size / dl_rate_Bps)) + 1
 
-        redis:zadd("ledge:gc", ngx.time() + gc_after, previous_entity_keys.main)
+        -- Place this job on the queue
+        local q = qless.new({}, redis)
+        q.queues["ledge"]:put("collect_entity", { 
+            cache_key = cache_key,
+            size = previous_entity_size,
+            entity_keys = previous_entity_keys, 
+        }, { delay = gc_after })
     end
 
     redis:hmset(entity_keys.main,
@@ -2037,66 +2074,27 @@ end
 
 -- Cleans up expired items and keeps track of memory usage.
 function _M.gc_expired_entities(premature, self, interval)
-    self:e "init_worker"
+end
+
+
+function _M.collect_entity(self, job_data)
     local redis = self:ctx().redis
 
-    if not premature then
-        local expired, err = redis:zrangebyscore("ledge:gc", -1, ngx_time(), "limit", 0, 10)
-        if not expired then
-            ngx_log(ngx_ERR, err)
+    redis:multi()
 
-            -- Poll again. If we have a connection error this will be handled before we get
-            -- this far next time.
-            return ngx_timer_at(interval, _M.gc_expired_entities, self, interval)
-        end
-
-        for _, entity in ipairs(expired) do
-            local res, err = redis:watch(entity)
-
-            local cache_key = str_sub(entity, 1, -10)
-
-            -- Get the size we're relcaiming
-            local entity_size, err = redis:zscore(cache_key .. ":entities", entity)
-            if not entity_size then
-                ngx_log(ngx_ERR, err)
-                redis:unwatch(entity)
-                break
-            end
-
-            -- Get a table of entity keys to delete
-            local entity_keys = self:entity_keys(entity)
-            local del_keys = {}
-            local i = 1
-            for _, v in pairs(entity_keys) do
-                del_keys[i] = v
-                i = i + 1
-            end
-
-            redis:multi()
-
-            redis:del(unpack(del_keys)) -- Remove the entity
-            redis:decrby(cache_key .. ":memused", entity_size) -- Trim size
-            redis:zrem(cache_key .. ":entities", entity) -- Remove from list of entities
-            redis:zrem("ledge:gc", entity) -- Remove from job list
-
-            local res, err = redis:exec()
-
-            if not res then
-                ngx_log(ngx_ERR, err)
-
-                -- Poll again. If we have a connection error this will be handled before we get
-                -- this far next time.
-                return ngx_timer_at(interval, _M.gc_expired_entities, self, interval)
-            else
-                ngx_log(ngx_NOTICE, "gc reclaimed ", entity_size, " bytes")
-            end
-        end
-
-        self:redis_close()
-
-        -- Recurse to keep polling, via a tail call to prevent overflow.
-        return ngx_timer_at(interval, _M.gc_expired_entities, self, interval)
+    local del_keys = {}
+    for _, key in pairs(job_data.entity_keys) do
+        table.insert(del_keys, key)
     end
+
+    local res, err = redis:del(del_keys)
+    if not res then ngx_log(ngx_ERR, err) end
+    res, err = redis:decrby(job_data.cache_key .. ":memused", job_data.size)
+    if not res then ngx_log(ngx_ERR, err) end
+    res, err = redis:zrem(job_data.cache_key .. ":entities", job_data.entity_keys.main)
+    if not res then ngx_log(ngx_ERR, err) end
+
+    return redis:exec()
 end
 
 

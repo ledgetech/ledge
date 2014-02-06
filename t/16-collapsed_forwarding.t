@@ -7,7 +7,7 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
-    lua_package_path "$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
     lua_shared_dict test 1m;
     init_by_lua "
         ledge_mod = require 'ledge.ledge'

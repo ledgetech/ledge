@@ -5,10 +5,10 @@ plan tests => repeat_each() * (blocks() * 2);
 
 my $pwd = cwd();
 
-$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
+$ENV{TEST_LEDGE_REDIS_DATABASE} |= 1;
 
 our $HttpConfig = qq{
-    lua_package_path "$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
@@ -55,7 +55,7 @@ OK
         echo_location_async '/gc_a';
         echo_sleep 0.05;
         echo_location_async '/gc_b';
-        echo_sleep 2;
+        echo_sleep 2.5;
     }
     location /gc_a {
         rewrite ^(.*)_a$ $1 break;
@@ -69,6 +69,7 @@ OK
            local redis_mod = require "resty.redis"
            local redis = redis_mod.new()
            redis:connect("127.0.0.1", 6379)
+           redis:select(ledge:config_get("redis_database"))
            local cache_key = ledge:cache_key()
            local num_entities, err = redis:zcard(cache_key .. ":entities")
            ngx.say(num_entities)
@@ -99,6 +100,7 @@ UPDATED
            local redis_mod = require "resty.redis"
            local redis = redis_mod.new()
            redis:connect("127.0.0.1", 6379)
+           redis:select(ledge:config_get("redis_database"))
            local cache_key = ledge:cache_key()
            local num_entities, err = redis:zcard(cache_key .. ":entities")
            ngx.say(num_entities)
