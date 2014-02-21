@@ -16,6 +16,9 @@ our $HttpConfig = qq{
         ledge:config_set('upstream_port', 1984)
         redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
 	";
+    init_worker_by_lua "
+        ledge:run_workers()
+    ";
 };
 
 no_long_string();

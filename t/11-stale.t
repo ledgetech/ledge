@@ -16,6 +16,9 @@ our $HttpConfig = qq{
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
     ";
+    init_worker_by_lua "
+        ledge:run_workers()
+    ";
 };
 
 our $StaleHttpConfig = qq{
@@ -27,6 +30,9 @@ our $StaleHttpConfig = qq{
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('max_stale', 1000)
+    ";
+    init_worker_by_lua "
+        ledge:run_workers()
     ";
 };
 

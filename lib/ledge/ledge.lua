@@ -227,40 +227,47 @@ end
 
 
 function _M.run_workers(self)
-    local interval = 0.1
+    local interval = 1
 
-    local function pop_job(premature)
+    local function worker(premature)
         if not premature then
             self:e "init_worker"
             local redis = self:ctx().redis
 
-            local q = qless.new({}, redis)
-            local job = q.queues["ledge"]:pop()
+            local q = qless.new({ client = redis })
 
-            if job then
-                -- Run the job
-                if self[job.klass_name] then
-                    local res, err = self[job.klass_name](self, job.data)
-                    if res then
-                        job:complete()
+            -- Keep popping jobs until there's nothing to do. We yield the coroutine
+            -- after each job, allowing the scheduler to resume us.
+            repeat
+                local job = q.queues["ledge"]:pop()
+
+                if job then
+                    -- Run the job
+                    if self[job.klass_name] then
+                        local res, err = self[job.klass_name](self, job.data)
+                        if res then
+                            job:complete()
+                        else
+                            ngx_log(ngx_ERR, err)
+                        end
                     else
-                        ngx_log(ngx_ERR, err)
+                        ngx_log(ngx_ERR, "Unknown job klass " .. job.klass_name)
                     end
-                else
-                    ngx_log(ngx_ERR, "Unknown job klass " .. job.klass_name)
+                    co_yield()
                 end
-            end
+            until not job
+
             self:redis_close()
 
             -- Recurse to keep polling
-            local ok, err = ngx_timer_at(interval, pop_job)
+            local ok, err = ngx_timer_at(interval, worker)
             if not ok then
                 ngx.log(ngx.ERR, "failed to start task: ", err)
             end
         end
     end
 
-    local ok, err = ngx_timer_at(0, pop_job)
+    local ok, err = ngx_timer_at(0, worker)
     if not ok then
         ngx.log(ngx.ERR, "failed to start task: ", err)
     end
@@ -1433,7 +1440,7 @@ _M.states = {
 
     updating_cache = function(self)
         local res = self:get_response()
-        if res.body_reader ~= nil then
+        if res.has_body then
             if res:is_cacheable() then
                 return self:e "response_cacheable"
             else
@@ -1546,7 +1553,7 @@ function _M.read_from_cache(self)
     end
 
     -- Get our body reader coroutine for later
-    res.body_source = self:get_cache_body_reader(entity_keys)
+    res.body_reader = self:get_cache_body_reader(entity_keys)
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(entity_keys.main)
@@ -1656,12 +1663,8 @@ function _M.fetch_from_origin(self)
         end
     end
 
+    res.has_body = origin.has_body
     res.body_reader = origin.body_reader
-    if origin.body_reader then
-        res.body_source = origin.body_reader
-    else
-        res.body_source = nil
-    end
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -1755,7 +1758,7 @@ function _M.save_to_cache(self, res)
         local gc_after = math_ceil((previous_entity_size / dl_rate_Bps)) + 1
 
         -- Place this job on the queue
-        local q = qless.new({}, redis)
+        local q = qless.new({ client = redis })
         q.queues["ledge"]:put("collect_entity", { 
             cache_key = cache_key,
             size = previous_entity_size,
@@ -1782,8 +1785,8 @@ function _M.save_to_cache(self, res)
     redis:set(cache_key, entity)
 
     -- Instantiate writer coroutine with the entity key set. The writer will commit the transaction later.
-    if res.body_reader ~= nil then
-        res.body_source = self:get_cache_body_writer(res.body_source, entity_keys, keep_cache_for)
+    if res.has_body then
+        res.body_reader = self:get_cache_body_writer(res.body_reader, entity_keys, keep_cache_for)
     else
         -- Run transaction
         if redis:exec() == ngx.null then
@@ -1799,10 +1802,10 @@ function _M.delete_from_cache(self)
     if entity_keys then
         local redis = self:ctx().redis
         local keys = { cache_key, cache_key .. ":entities", cache_key .. ":memused" }
-        local i = 4
+        local i = #keys
         for k,v in pairs(entity_keys) do
-            keys[i] = v
             i = i + 1
+            keys[i] = v
         end
         return redis:del(unpack(keys))
     end
@@ -1873,8 +1876,8 @@ function _M.serve(self)
             end
         end
 
-        if res.body_source then
-            self:body_server(res.body_source)
+        if res.body_reader then
+            self:body_server(res.body_reader)
         end
 
         local httpc = res.conn
@@ -1924,7 +1927,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                 co_yield(chunk)
             end
         until not chunk
-                
+
         redis:hset(entity_keys.main, "size", size)
         
         local cache_key = self:cache_key()
@@ -1943,7 +1946,6 @@ end
 -- Resumes the reader coroutine and prints the data yielded. This could be
 -- via a cache read, or a save via a fetch... the interface is uniform.
 function _M.body_server(self, reader)
-    if not reader then return nil end
     local buffer_size = self:config_get("buffer_size")
     repeat
         local chunk, err = reader(buffer_size)
@@ -2073,10 +2075,6 @@ end
 
 
 -- Cleans up expired items and keeps track of memory usage.
-function _M.gc_expired_entities(premature, self, interval)
-end
-
-
 function _M.collect_entity(self, job_data)
     local redis = self:ctx().redis
 
@@ -2084,15 +2082,12 @@ function _M.collect_entity(self, job_data)
 
     local del_keys = {}
     for _, key in pairs(job_data.entity_keys) do
-        table.insert(del_keys, key)
+        tbl_insert(del_keys, key)
     end
 
-    local res, err = redis:del(del_keys)
-    if not res then ngx_log(ngx_ERR, err) end
+    local res, err = redis:del(unpack(del_keys))
     res, err = redis:decrby(job_data.cache_key .. ":memused", job_data.size)
-    if not res then ngx_log(ngx_ERR, err) end
     res, err = redis:zrem(job_data.cache_key .. ":entities", job_data.entity_keys.main)
-    if not res then ngx_log(ngx_ERR, err) end
 
     return redis:exec()
 end
