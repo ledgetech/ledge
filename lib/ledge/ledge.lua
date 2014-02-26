@@ -105,13 +105,10 @@ function _M.new(self)
         upstream_host = "",
         upstream_port = 80,
 
-        buffer_size = 2^17, -- 128 (KB) Internal buffer size for data read / written / served.
+        buffer_size = 2^17, -- 131072 (bytes) (128KB) Internal buffer size for data read/written/served.
         cache_path = "",    -- Filesystem path for cache files that don't fit in memory.
                             -- If this is not set larger entities will not be cached.
-        cache_max_memory = 2048, -- (KB) Max size a cache item can occupy before switcing to disk.
-                                 -- Note that under concurreny a single cache item may have multiple
-                                 -- entities (whilst old ones are still being read). This setting is a
-                                 -- hard limit inclusive of all entities.
+        cache_max_memory = 2048, -- (KB) Max size for a cache item before we bail on trying to store.
 
         redis_database  = 0,
         redis_connect_timeout = 500,    -- (ms) Connect timeout
@@ -1663,6 +1660,10 @@ function _M.fetch_from_origin(self)
         end
     end
 
+    -- May well be nil, but if present we bail on saving large bodies to memory nice
+    -- and early.
+    res.length = tonumber(origin.headers["Content-Length"])
+
     res.has_body = origin.has_body
     res.body_reader = origin.body_reader
 
@@ -1687,6 +1688,14 @@ function _M.save_to_cache(self, res)
     self:emit("before_save", res)
 
     local uncacheable_headers = {}
+
+    local length = res.length
+    local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
+
+    if length and length > max_memory then
+        -- We'll carry on serving, just not saving.
+        return nil
+    end
 
     -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
     if res.header["Cache-Control"] and res.header["Cache-Control"]:find("=") then
@@ -1913,31 +1922,48 @@ end
 
 -- Returns a wrapped coroutine for writing chunks to cache, where reader is a
 -- coroutine to be resumed which reads from the upstream socket.
+-- If we cross the max_memory boundary, we just keep yielding chunks to be served,
+-- after having removed the cache entry.
 function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
     local redis = self:ctx().redis
     local buffer_size = self:config_get("buffer_size")
+    local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
+    local deleted_due_to_size = false
 
     return co_wrap(function()
         local size = 0
         repeat
             local chunk, err = reader(buffer_size)
             if chunk then
-                size = size + #chunk
-                redis:rpush(entity_keys.body, chunk)
+                if not deleted_due_to_size then
+                    size = size + #chunk
+                    if size > max_memory then
+                        self:delete_from_cache()
+                        deleted_due_to_size = true
+                        local res, err = redis:exec()
+                        if err then
+                            ngx_log(ngx_ERR, err)
+                        end
+                    else
+                        redis:rpush(entity_keys.body, chunk)
+                    end
+                end
                 co_yield(chunk)
             end
         until not chunk
 
-        redis:hset(entity_keys.main, "size", size)
-        
-        local cache_key = self:cache_key()
-        redis:incrby(self:cache_key() .. ":memused", size)
-        redis:zadd(self:cache_key() .. ":entities", size, entity_keys.main) 
-        redis:expire(entity_keys.body, ttl)
+        if not deleted_due_to_size then
+            redis:hset(entity_keys.main, "size", size)
 
-        local res, err = redis:exec()
-        if err then
-            ngx_log(ngx_ERR, err)
+            local cache_key = self:cache_key()
+            redis:incrby(self:cache_key() .. ":memused", size)
+            redis:zadd(self:cache_key() .. ":entities", size, entity_keys.main) 
+            redis:expire(entity_keys.body, ttl)
+
+            local res, err = redis:exec()
+            if err then
+                ngx_log(ngx_ERR, err)
+            end
         end
     end)
 end
