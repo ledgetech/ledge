@@ -927,7 +927,7 @@ _M.events = {
 -- Pre-transitions. Actions to always perform before transitioning.
 ---------------------------------------------------------------------------------------------------
 _M.pre_transitions = {
-    exiting = { "redis_close" },
+    exiting = { "redis_close", "httpc_close" },
     checking_cache = { "read_cache" },
     -- Never fetch with client validators, but put them back afterwards.
     fetching = {
@@ -964,6 +964,16 @@ _M.actions = {
 
     redis_close = function(self)
         return self:redis_close()
+    end,
+
+    httpc_close = function(self)
+        local res = self:get_response()
+        if res then
+            local httpc = res.conn
+            if httpc then
+                return httpc:set_keepalive()
+            end
+        end
     end,
 
     stash_error_response = function(self)
@@ -1749,7 +1759,7 @@ function _M.save_to_cache(self, res)
     -- Mark the old entity for expiration shortly (reads could still be in progress)
     local previous_entity_keys = self:cache_entity_keys(cache_key)
 
-    local previous_entity_size
+    local previous_entity_size, err
     if previous_entity_keys then
         previous_entity_size, err = redis:hget(previous_entity_keys.main, "size")
         if not previous_entity_size then
@@ -1887,11 +1897,6 @@ function _M.serve(self)
 
         if res.body_reader then
             self:body_server(res.body_reader)
-        end
-
-        local httpc = res.conn
-        if httpc then
-            httpc:set_keepalive()
         end
 
         ngx.eof()
