@@ -14,10 +14,12 @@ local _M = {
     _VERSION = '0.3'
 }
 
-local mt = { __index = _M }
+local mt = { 
+    __index = _M,
+}
 
 
-function _M.new(self, response)
+function _M.new(response)
     local body = ""
     local header = {}
     local status = nil
