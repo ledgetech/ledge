@@ -14,11 +14,12 @@ local ngx = ngx
 
 module(...)
 
-_VERSION = '0.09'
+_VERSION = '0.10'
 
 local mt = { __index = _M }
 
 local redis = require "resty.redis"
+redis.add_commands("sentinel")
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
 
@@ -908,7 +909,6 @@ states = {
         if not ok then
             return self:e "sentinel_connection_failed"
         else
-            sentinel:add_commands("sentinel")
             self:ctx().sentinel = sentinel
             return self:e "sentinel_connected"
         end
