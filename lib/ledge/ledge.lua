@@ -1,10 +1,12 @@
 local cjson = require "cjson"
-local redis = require "resty.redis"
 local http = require "resty.http"
 local qless = require "resty.qless"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
 local ffi = require "ffi"
+
+local redis = require "resty.redis"
+redis.add_commands("sentinel")
 
 local ngx_log = ngx.log
 local ngx_DEBUG = ngx.DEBUG
@@ -255,7 +257,7 @@ function _M.run_workers(self)
                 end
             until not job
 
-            self:redis_close()
+            self:e "worker_finished"
 
             -- Recurse to keep polling
             local ok, err = ngx_timer_at(interval, worker)
@@ -301,7 +303,7 @@ function _M.redis_connect(self, hosts)
         redis:set_timeout(timeout)
     end
 
-    local ok, err
+    local ok, err = nil, nil
 
     for _, conn in ipairs(hosts) do
         ok, err = redis:connect(conn.socket or conn.host, conn.port or 0)
@@ -590,6 +592,10 @@ _M.events = {
     -- to try again.
     woken = {
         { begin = "considering_sentinel" }
+    },
+
+    worker_finished = {
+        { begin = "exiting_worker" }
     },
 
     -- We have sentinel config, so attempt connection.
@@ -929,6 +935,7 @@ _M.events = {
 ---------------------------------------------------------------------------------------------------
 _M.pre_transitions = {
     exiting = { "redis_close", "httpc_close" },
+    exiting_worker = { "redis_close", "httpc_close" },
     checking_cache = { "read_cache" },
     -- Never fetch with client validators, but put them back afterwards.
     fetching = {
@@ -1120,7 +1127,6 @@ _M.states = {
         if not ok then
             return self:e "sentinel_connection_failed"
         else
-            sentinel:add_commands("sentinel")
             self:ctx().sentinel = sentinel
             return self:e "sentinel_connected"
         end
@@ -1143,7 +1149,7 @@ _M.states = {
             "get-master-addr-by-name",
             self:config_get("redis_sentinel_master_name")
          )
-         if res and res ~= ngx.null and res[1] and res[2] then
+         if res and res ~= ngx_null and res[1] and res[2] then
              self:config_set("redis_hosts", {
                  { host = res[1], port = res[2] },
              })
@@ -1487,6 +1493,10 @@ _M.states = {
     running_worker = function(self)
         return true
     end,
+
+    exiting_worker = function(self)
+        return true
+    end,
 }
 
 
@@ -1549,7 +1559,7 @@ end
 
 function _M.read_from_cache(self)
     local redis = self:ctx().redis
-    local res = response:new()
+    local res = response.new()
 
     local cache_key = self:cache_key()
 
@@ -1634,7 +1644,7 @@ end
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response:new()
+    local res = response.new()
     self:emit("origin_required")
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
@@ -2081,7 +2091,7 @@ function _M.process_esi(self)
 
             -- Create response objects.
             for i,fragment in ipairs(esi_fragments) do
-                esi_fragments[i] = response:new(fragment)
+                esi_fragments[i] = response.new(fragment)
             end
 
             -- Ensure that our cacheability is reduced shortest / newest from
