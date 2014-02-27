@@ -1,3 +1,5 @@
+local h_util = require "ledge.header_util"
+
 local require = require
 local pairs = pairs
 local ipairs = ipairs
@@ -8,16 +10,14 @@ local tonumber = tonumber
 local error = error
 local ngx = ngx
 
-module(...)
-
-_VERSION = '0.2'
+local _M = {
+    _VERSION = '0.3'
+}
 
 local mt = { __index = _M }
 
-local h_util = require "ledge.header_util"
 
-
-function new(self, response)
+function _M.new(self, response)
     local body = ""
     local header = {}
     local status = nil
@@ -73,7 +73,7 @@ function new(self, response)
 end
 
 
-function is_cacheable(self)
+function _M.is_cacheable(self)
     local nocache_headers = {
         ["Pragma"] = { "no-cache" },
         ["Cache-Control"] = {
@@ -99,7 +99,7 @@ function is_cacheable(self)
 end
 
 
-function ttl(self)
+function _M.ttl(self)
     -- Header precedence is Cache-Control: s-maxage=NUM, Cache-Control: max-age=NUM,
     -- and finally Expires: HTTP_TIMESTRING.
     if self.header["Cache-Control"] then
@@ -128,7 +128,7 @@ function ttl(self)
 end
 
 
-function has_expired(self)
+function _M.has_expired(self)
     if self.remaining_ttl <= 0 then
         return true
     end
@@ -142,7 +142,7 @@ end
 
 -- The amount of additional stale time allowed for this response considering
 -- the current requests 'min-fresh'.
-function stale_ttl(self)
+function _M.stale_ttl(self)
     -- Check response for headers that prevent serving stale
     local cc = self.header["Cache-Control"]
     if h_util.header_has_directive(cc, "revalidate") or
@@ -159,7 +159,7 @@ end
 
 
 -- Test for presence of esi comments and keep the result.
-function has_esi_comment(self)
+function _M.has_esi_comment(self)
     if self.esi.has_esi_comment == nil then
         if ngx.re.match(self.body, "<!--esi", "ioj") then
             self.esi.has_esi_comment = true
@@ -172,7 +172,7 @@ end
 
 
 -- Test for the presence of esi:remove and keep the result.
-function has_esi_remove(self)
+function _M.has_esi_remove(self)
     if self.esi.has_esi_remove == nil then
         if ngx.re.match(self.body, "<esi:remove>", "ioj") then
             self.esi.has_esi_remove = true
@@ -184,7 +184,7 @@ function has_esi_remove(self)
 end
 
 
-function has_esi_vars(self)
+function _M.has_esi_vars(self)
     if self.esi.has_esi_vars == nil then
         if ngx.re.match(self.body, "<esi:.*\\$\\([A-Z_].+\\)", "soj") then
             self.esi.has_esi_vars = true
@@ -197,7 +197,7 @@ end
 
 
 -- Test for the presence of esi:include and keep the result.
-function has_esi_include(self)
+function _M.has_esi_include(self)
     if self.esi.has_esi_include == nil then
         if ngx.re.match(self.body, "<esi:include", "ioj") then
             self.esi.has_esi_include = true
@@ -209,7 +209,7 @@ function has_esi_include(self)
 end
 
 
-function has_esi(self)
+function _M.has_esi(self)
     return self:has_esi_vars() or self:has_esi_comment() or 
         self:has_esi_include() or self:has_esi_remove()
 end
@@ -217,7 +217,7 @@ end
 
 -- Reduce the cache lifetime and Last-Modified of this response to match
 -- the newest / shortest in a given table of responses. Useful for esi:include.
-function minimise_lifetime(self, responses)
+function _M.minimise_lifetime(self, responses)
     for _,res in ipairs(responses) do
         local ttl = res:ttl()
         if ttl < self:ttl() then
@@ -241,13 +241,4 @@ function minimise_lifetime(self, responses)
     end
 end
 
-
-local class_mt = {
-    -- to prevent use of casual module global variables
-    __newindex = function (table, key, val)
-        error('attempt to write to undeclared variable "' .. key .. '"')
-    end
-}
-
-
-setmetatable(_M, class_mt)
+return _M

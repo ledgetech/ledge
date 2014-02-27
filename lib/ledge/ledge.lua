@@ -12,6 +12,7 @@ local ngx_ERR = ngx.ERR
 local ngx_WARN = ngx.WARN
 local ngx_NOTICE = ngx.NOTICE
 local ngx_INFO = ngx.INFO
+local ngx_null = ngx.null
 local ngx_print = ngx.print
 local ngx_get_phase = ngx.get_phase
 local ngx_req_get_headers = ngx.req.get_headers
@@ -345,7 +346,7 @@ end
 
 function _M._redis_close(self, redis)
     -- Keep the Redis connection based on keepalive settings.
-    local ok, err = nil
+    local ok, err = nil, nil
     local keepalive_timeout = self:config_get("redis_keepalive_timeout")
     if keepalive_timeout then
         if self:config_get("redis_keepalive_pool_size") then
@@ -359,7 +360,7 @@ function _M._redis_close(self, redis)
     end
 
     if not ok then
-        ngx_log(ngx_WARN, "couldn't set keepalive, "..err)
+        ngx_log(ngx_WARN, "couldn't set keepalive, ", err)
     end
 end
 
@@ -513,7 +514,7 @@ function _M.cache_entity_keys(self, cache_key)
     local redis = self:ctx().redis
     local entity = redis:get(cache_key)
 
-    if not entity or entity == ngx.null then -- MISS
+    if not entity or entity == ngx_null then -- MISS
         return nil
     end
     
@@ -1498,12 +1499,12 @@ function _M.t(self, state)
 
     if pre_t then
         for _,action in ipairs(pre_t) do
-            ngx_log(ngx_DEBUG, "#a: " .. action)
+            ngx_log(ngx_DEBUG, "#a: ", action)
             self.actions[action](self)
         end
     end
 
-    ngx_log(ngx_DEBUG, "#t: " .. state)
+    ngx_log(ngx_DEBUG, "#t: ", state)
 
     ctx.state_history[state] = true
     ctx.current_state = state
@@ -1513,14 +1514,14 @@ end
 
 -- Process state transitions and actions based on the event fired.
 function _M.e(self, event)
-    ngx_log(ngx_DEBUG, "#e: " .. event)
+    ngx_log(ngx_DEBUG, "#e: ", event)
 
     local ctx = self:ctx()
     ctx.event_history[event] = true
 
     -- It's possible for states to call undefined events at run time. Try to handle this nicely.
     if not self.events[event] then
-        ngx_log(ngx.CRIT, event .. " is not defined.")
+        ngx_log(ngx.CRIT, event, " is not defined.")
         ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
         self:t("exiting")
     end
@@ -1534,7 +1535,7 @@ function _M.e(self, event)
                 if not t_in_case or ctx.event_history[t_in_case] then
                     local t_but_first = trans["but_first"]
                     if t_but_first then
-                        ngx_log(ngx_DEBUG, "#a: " .. t_but_first)
+                        ngx_log(ngx_DEBUG, "#a: ", t_but_first)
                         self.actions[t_but_first](self)
                     end
 
@@ -1599,7 +1600,7 @@ function _M.read_from_cache(self)
     -- Read headers
     local headers = redis:hgetall(entity_keys.headers)
     if headers then
-        local headers_len = table.getn(headers)
+        local headers_len = tbl_getn(headers)
 
         for i = 1, headers_len, 2 do
             local header = headers[i]
@@ -1609,7 +1610,7 @@ function _M.read_from_cache(self)
                 if res.header[header] == nil then
                     res.header[header] = {}
                 end
-                res.header[header][index]= headers[i + 1]
+                res.header[header][index] = headers[i + 1]
             else
                 res.header[header] = headers[i + 1]
             end
