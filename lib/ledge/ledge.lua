@@ -8,6 +8,9 @@ local ffi = require "ffi"
 local redis = require "resty.redis"
 redis.add_commands("sentinel")
 
+local   tostring, ipairs, pairs, type, tonumber, next, unpack =
+        tostring, ipairs, pairs, type, tonumber, next, unpack
+
 local ngx_log = ngx.log
 local ngx_DEBUG = ngx.DEBUG
 local ngx_ERR = ngx.ERR
@@ -34,6 +37,9 @@ local tbl_remove = table.remove
 local tbl_getn = table.getn
 local str_lower = string.lower
 local str_sub = string.sub
+local str_gmatch = string.gmatch
+local str_find = string.find
+local str_lower = string.lower
 local math_floor = math.floor
 local math_ceil = math.ceil
 local co_wrap = coroutine.wrap
@@ -262,14 +268,14 @@ function _M.run_workers(self)
             -- Recurse to keep polling
             local ok, err = ngx_timer_at(interval, worker)
             if not ok then
-                ngx.log(ngx.ERR, "failed to start task: ", err)
+                ngx_log(ngx_ERR, "failed to start task: ", err)
             end
         end
     end
 
     local ok, err = ngx_timer_at(0, worker)
     if not ok then
-        ngx.log(ngx.ERR, "failed to start task: ", err)
+        ngx_log(ngx_ERR, "failed to start task: ", err)
     end
 end
 
@@ -1719,10 +1725,10 @@ function _M.save_to_cache(self, res)
     end
 
     -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
-    if res.header["Cache-Control"] and res.header["Cache-Control"]:find("=") then
+    if res.header["Cache-Control"] and str_find(res.header["Cache-Control"], "=") then
         local patterns = { "no%-cache", "no%-store", "private" }
         for _,p in ipairs(patterns) do
-            for h in res.header["Cache-Control"]:gmatch(p .. "=\"?([%a-]+)\"?") do
+            for h in str_gmatch(res.header["Cache-Control"], p .. "=\"?([%a-]+)\"?") do
                 tbl_insert(uncacheable_headers, h)
             end
         end
@@ -1731,7 +1737,7 @@ function _M.save_to_cache(self, res)
     -- Utility to search in uncacheable_headers.
     local function is_uncacheable(t, h)
         for _, v in ipairs(t) do
-            if v:lower() == h:lower() then
+            if str_lower(v) == str_lower(h) then
                 return true
             end
         end
@@ -1744,7 +1750,8 @@ function _M.save_to_cache(self, res)
         if not is_uncacheable(uncacheable_headers, header) then
             if type(header_value) == 'table' then
                 -- Multiple headers are represented as a table of values
-                for i = 1, #header_value do
+                local header_value_len = tbl_getn(header_value)
+                for i = 1, header_value_len do
                     tbl_insert(h, i..':'..header)
                     tbl_insert(h, header_value[i])
                 end
@@ -1819,7 +1826,7 @@ function _M.save_to_cache(self, res)
         res.body_reader = self:get_cache_body_writer(res.body_reader, entity_keys, keep_cache_for)
     else
         -- Run transaction
-        if redis:exec() == ngx.null then
+        if redis:exec() == ngx_null then
             ngx_log(ngx_ERR, "Failed to save cache item")
         end
     end
@@ -1865,7 +1872,7 @@ end
 function _M.serve(self)
     if not ngx.headers_sent then
         local res = self:get_response() -- or self:get_response("fetched")
-        assert(res.status, "Response has no status.")
+        assert(res.status, "Response has no status.") -- FIXME: This will bail hard on error.
 
         local visible_hostname = self:visible_hostname()
 
@@ -2025,9 +2032,9 @@ function _M.process_esi(self)
         local replace = function(var)
             if var == "$(QUERY_STRING)" then
                 return ngx_var.args or ""
-            elseif var:sub(1, 7) == "$(HTTP_" then
+            elseif str_sub(var, 1, 7) == "$(HTTP_" then
                 -- Look for a HTTP_var that matches
-                local _, _, header = var:find("%$%(HTTP%_(.+)%)")
+                local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
                 if header then
                     return ngx_var["http_" .. header] or ""
                 else
