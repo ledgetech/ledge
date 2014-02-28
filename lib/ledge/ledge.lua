@@ -1306,7 +1306,7 @@ _M.states = {
         elseif res == "BUSY" then -- Lock is busy
             redis:multi()
             redis:subscribe(self:cache_key())
-            if redis:exec() ~= ngx.null then -- We subscribed before the lock was freed
+            if redis:exec() ~= ngx_null then -- We subscribed before the lock was freed
                 return self:e "subscribed_to_collapsed_forwarding_channel"
             else -- Lock was freed before we subscribed
                 return self:e "collapsed_forwarding_channel_closed"
