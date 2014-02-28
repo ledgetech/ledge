@@ -1,14 +1,20 @@
 local h_util = require "ledge.header_util"
 
-local require = require
 local pairs = pairs
 local ipairs = ipairs
 local setmetatable = setmetatable
 local rawset = rawset
 local rawget = rawget
 local tonumber = tonumber
-local error = error
-local ngx = ngx
+local str_lower = string.lower
+local str_gsub = string.gsub
+local ngx_re_gmatch = ngx.re.gmatch
+local ngx_re_match = ngx.re.match
+local ngx_parse_http_time = ngx.parse_http_time
+local ngx_http_time = ngx.http_time
+local ngx_time = ngx.time
+local ngx_req_get_headers = ngx.req.get_headers
+
 
 local _M = {
     _VERSION = '0.3'
@@ -16,6 +22,15 @@ local _M = {
 
 local mt = { 
     __index = _M,
+}
+
+local NOCACHE_HEADERS = {
+    ["Pragma"] = { "no-cache" },
+    ["Cache-Control"] = {
+        "no-cache", 
+        "no-store", 
+        "private",
+    }
 }
 
 
@@ -37,7 +52,7 @@ function _M.new(response)
 
     -- If we've seen this key in any case before, return it.
     header_mt.__index = function(t, k)
-        k = k:lower():gsub("-", "_")
+        k = str_gsub(str_lower(k), "-", "_")
         if header_mt.normalised[k] then
             return rawget(t, header_mt.normalised[k])
         end
@@ -50,7 +65,7 @@ function _M.new(response)
     -- If there's a match, we're being updated, just with a different case for the key. We use
     -- the normalised table to give us the original key, and perorm a rawset().
     header_mt.__newindex = function(t, k, v)
-        local k_low = k:lower():gsub("-", "_")
+        local k_low = str_gsub(str_lower(k), "-", "_")
         if not header_mt.normalised[k_low] then
             header_mt.normalised[k_low] = k 
             rawset(t, k, v)
@@ -76,16 +91,7 @@ end
 
 
 function _M.is_cacheable(self)
-    local nocache_headers = {
-        ["Pragma"] = { "no-cache" },
-        ["Cache-Control"] = {
-            "no-cache", 
-            "no-store", 
-            "private",
-        }
-    }
-
-    for k,v in pairs(nocache_headers) do
+    for k,v in pairs(NOCACHE_HEADERS) do
         for i,h in ipairs(v) do
             if self.header[k] and self.header[k] == h then
                 return false
@@ -106,7 +112,7 @@ function _M.ttl(self)
     -- and finally Expires: HTTP_TIMESTRING.
     if self.header["Cache-Control"] then
         local max_ages = {}
-        for max_age in ngx.re.gmatch(self.header["Cache-Control"], 
+        for max_age in ngx_re_gmatch(self.header["Cache-Control"], 
             "(s\\-maxage|max\\-age)=(\\d+)", 
             "io") do
             max_ages[max_age[1]] = max_age[2]
@@ -122,8 +128,8 @@ function _M.ttl(self)
     -- Fall back to Expires.
     local expires = self.header["Expires"]
     if expires then 
-        local time = ngx.parse_http_time(expires)
-        if time then return time - ngx.time() end
+        local time = ngx_parse_http_time(expires)
+        if time then return time - ngx_time() end
     end
 
     return 0
@@ -135,7 +141,7 @@ function _M.has_expired(self)
         return true
     end
 
-    local cc = ngx.req.get_headers()["Cache-Control"]
+    local cc = ngx_req_get_headers()["Cache-Control"]
     if self.remaining_ttl - h_util.get_numeric_header_token(cc, "min-fresh") <= 0 then
         return true
     end
@@ -153,7 +159,7 @@ function _M.stale_ttl(self)
     end
 
     local min_fresh = h_util.get_numeric_header_token(
-        ngx.req.get_headers()["Cache-Control"], "min-fresh"
+        ngx_req_get_headers()["Cache-Control"], "min-fresh"
     )
 
     return self.remaining_ttl - min_fresh
@@ -163,7 +169,7 @@ end
 -- Test for presence of esi comments and keep the result.
 function _M.has_esi_comment(self)
     if self.esi.has_esi_comment == nil then
-        if ngx.re.match(self.body, "<!--esi", "ioj") then
+        if ngx_re_match(self.body, "<!--esi", "ioj") then
             self.esi.has_esi_comment = true
         else
             self.esi.has_esi_comment = false
@@ -176,7 +182,7 @@ end
 -- Test for the presence of esi:remove and keep the result.
 function _M.has_esi_remove(self)
     if self.esi.has_esi_remove == nil then
-        if ngx.re.match(self.body, "<esi:remove>", "ioj") then
+        if ngx_re_match(self.body, "<esi:remove>", "ioj") then
             self.esi.has_esi_remove = true
         else
             self.esi.has_esi_remove = false
@@ -188,7 +194,7 @@ end
 
 function _M.has_esi_vars(self)
     if self.esi.has_esi_vars == nil then
-        if ngx.re.match(self.body, "<esi:.*\\$\\([A-Z_].+\\)", "soj") then
+        if ngx_re_match(self.body, "<esi:.*\\$\\([A-Z_].+\\)", "soj") then
             self.esi.has_esi_vars = true
         else
             self.esi.has_esi_vars = false
@@ -201,7 +207,7 @@ end
 -- Test for the presence of esi:include and keep the result.
 function _M.has_esi_include(self)
     if self.esi.has_esi_include == nil then
-        if ngx.re.match(self.body, "<esi:include", "ioj") then
+        if ngx_re_match(self.body, "<esi:include", "ioj") then
             self.esi.has_esi_include = true
         else
             self.esi.has_esi_include = false
@@ -225,7 +231,7 @@ function _M.minimise_lifetime(self, responses)
         if ttl < self:ttl() then
             self.header["Cache-Control"] = "max-age="..ttl
             if self.header["Expires"] then
-                self.header["Expires"] = ngx.http_time(ngx.time() + ttl)
+                self.header["Expires"] = ngx_http_time(ngx_time() + ttl)
             end
         end
         
@@ -235,8 +241,8 @@ function _M.minimise_lifetime(self, responses)
         end
 
         if res.header["Last-Modified"] and self.header["Last-Modified"] then
-            local res_lm = ngx.parse_http_time(res.header["Last-Modified"])
-            if res_lm > ngx.parse_http_time(self.header["Last-Modified"]) then
+            local res_lm = ngx_parse_http_time(res.header["Last-Modified"])
+            if res_lm > ngx_parse_http_time(self.header["Last-Modified"]) then
                 self.header["Last-Modified"] = res.header["Last-Modified"]
             end
         end
