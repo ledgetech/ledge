@@ -28,6 +28,7 @@ local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_gmatch = ngx.re.gmatch
+local ngx_re_find = ngx.re.find
 local ngx_var = ngx.var
 local ngx_timer_at = ngx.timer.at
 local ngx_sleep = ngx.sleep
@@ -542,6 +543,7 @@ function _M.entity_keys(self, entity_key)
         main = entity_key,
         headers = entity_key .. ":headers",
         body = entity_key .. ":body",
+        body_esi = entity_key .. ":body_esi",
     }
 end
 
@@ -1821,9 +1823,14 @@ function _M.save_to_cache(self, res)
     -- Update main cache key pointer
     redis:set(cache_key, entity)
 
-    -- Instantiate writer coroutine with the entity key set. The writer will commit the transaction later.
+    -- Instantiate writer coroutine with the entity key set.
+    -- The writer will commit the transaction later.
     if res.has_body then
-        res.body_reader = self:get_cache_body_writer(res.body_reader, entity_keys, keep_cache_for)
+        res.body_reader = self:get_cache_body_writer(
+            self:get_esi_scan_filter(res.body_reader), 
+            entity_keys, 
+            keep_cache_for
+        )
     else
         -- Run transaction
         if redis:exec() == ngx_null then
@@ -1932,7 +1939,7 @@ function _M.get_cache_body_reader(self, entity_keys)
     return co_wrap(function()
         for i = 0, num_chunks do
             local chunk, err = redis:lindex(entity_keys.body, i)
-            if chunk == ngx.null then
+            if chunk == ngx_null then
                 ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
                 self:e "entity_removed_during_read"
             end
@@ -1955,8 +1962,9 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
 
     return co_wrap(function()
         local size = 0
+        local list_index = 0
         repeat
-            local chunk, err = reader(buffer_size)
+            local chunk, has_esi, err = reader(buffer_size)
             if chunk then
                 if not deleted_due_to_size then
                     size = size + #chunk
@@ -1969,6 +1977,8 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                         end
                     else
                         redis:rpush(entity_keys.body, chunk)
+                        redis:rpush(entity_keys.body_esi, tostring(has_esi))
+                        list_index = list_index + 1
                     end
                 end
                 co_yield(chunk)
@@ -1988,6 +1998,78 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                 ngx_log(ngx_ERR, err)
             end
         end
+    end)
+end
+
+
+function _M.get_esi_scan_filter(self, reader)
+    local redis = self:ctx().redis
+    local buffer_size = self:config_get("buffer_size")
+
+    return co_wrap(function()
+        local prev_chunk = ""
+        local buffering = false
+
+        repeat
+            local chunk, err = reader(buffer_size)
+            local has_esi = false
+
+            if chunk then
+                chunk = prev_chunk .. chunk
+                local chunk_len = #chunk
+
+                local pos = 1
+
+                repeat
+                    -- 1) Look for an opening esi tag
+                    local start_from, start_to, err = ngx_re_find(
+                        str_sub(chunk, pos), 
+                        "<esi:", "soj"
+                    )
+
+                    if not start_from then
+                        -- Nothing to do in this chunk, stop looping.
+                        break
+                    else
+                        -- We definitely have something.
+                        has_esi = true
+
+                        -- Give our start tag positions absolute chunk positions.
+                        start_from = start_from + (pos - 1)
+                        start_to = start_to + (pos - 1)
+
+                        -- 2) Try and find the end of the tag (could be inline or block)
+                        local end_from, end_to, err = ngx_re_find(
+                            str_sub(chunk, start_to + 1), 
+                            "[^>]?/>|</esi:[^>]+>", "soj"
+                        )
+
+                        if not end_from then
+                            -- The end isn't in this chunk, so we must buffer.
+                            prev_chunk = chunk
+                            buffering = true
+                            break
+                        else
+                            -- We found the end of this instruction. Stop buffering until we find
+                            -- another unclosed instruction.
+                            prev_chunk = "" 
+                            buffering = false
+
+                            end_from = end_from + start_to
+                            end_to = end_to + start_to 
+
+                            -- Update pos for the next loop
+                            pos = end_to + 1
+                        end
+                    end
+                until pos >= chunk_len
+
+                if not buffering then
+                    -- We've got a chunk we can yield with.
+                    co_yield(chunk, has_esi)
+                end
+            end
+        until not chunk
     end)
 end
 
@@ -2017,14 +2099,9 @@ function _M.add_warning(self, code)
 end
 
 
-function _M.process_esi(self)
-    local res = self:get_response()
-    local body = res.body
+function _M.process_esi(self, data)
+    local body = data
 
-    -- Only perform transformations if we know there's work to do. This is determined
-    -- during fetch (slow path).
-
-    if res:has_esi_vars() then
         -- Function to replace vars with runtime values
         -- TODO: Possibly handle the dictionary / list syntax rather than just strings?
         -- For now we just return string presentations of the obvious things, until a
@@ -2071,17 +2148,11 @@ function _M.process_esi(self)
                 return m[1] .. vars .. m[3]
             end,
             "oj")
-    end
 
-    if res:has_esi_comment() then
         body = ngx_re_gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")
-    end
 
-    if res:has_esi_remove() then
         body = ngx_re_gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
-    end
 
-    if res:has_esi_include() then
         local esi_uris = {}
         for tag in ngx_re_gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
             tbl_insert(esi_uris, { tag[1] })
@@ -2103,18 +2174,19 @@ function _M.process_esi(self)
 
             -- Ensure that our cacheability is reduced shortest / newest from
             -- all fragments.
-            res:minimise_lifetime(esi_fragments)
+            --res:minimise_lifetime(esi_fragments)
 
             body = ngx_re_gsub(body, "(<esi:include.*/>)", function(tag)
                 return tbl_remove(esi_fragments, 1).body
             end, "ioj")
         end
-    end
+        
+        return body
 
-    if res.header["Content-Length"] then res.header["Content-Length"] = #body end
+--[[    if res.header["Content-Length"] then res.header["Content-Length"] = #body end
     res.body = body
     self:set_response(res)
-    self:add_warning("214")
+    self:add_warning("214")]]--
 end
 
 
