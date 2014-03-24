@@ -218,8 +218,11 @@ end
 
 
 function _M.has_esi(self)
+    return self.has_esi
+    --[[
     return self:has_esi_vars() or self:has_esi_comment() or 
         self:has_esi_include() or self:has_esi_remove()
+        --]]
 end
 
 

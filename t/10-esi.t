@@ -46,7 +46,6 @@ GET /esi_1_prx
 --- response_headers_like 
 Warning: ^214 .* "Transformation applied"$  
 
-
 === TEST 2: Multi line comments removed
 --- http_config eval: $::HttpConfig
 --- config

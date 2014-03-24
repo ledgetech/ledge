@@ -116,8 +116,6 @@ function _M.new(self)
         upstream_port = 80,
 
         buffer_size = 2^17, -- 131072 (bytes) (128KB) Internal buffer size for data read/written/served.
-        cache_path = "",    -- Filesystem path for cache files that don't fit in memory.
-                            -- If this is not set larger entities will not be cached.
         cache_max_memory = 2048, -- (KB) Max size for a cache item before we bail on trying to store.
 
         redis_database  = 0,
@@ -241,7 +239,7 @@ function _M.run_workers(self)
             self:e "init_worker"
             local redis = self:ctx().redis
 
-            local q = qless.new({ client = redis })
+            local q = qless.new({ redis_client = redis })
 
             -- Keep popping jobs until there's nothing to do. We yield the coroutine
             -- after each job, allowing the scheduler to resume us.
@@ -861,7 +859,7 @@ _M.events = {
     -- We've found ESI instructions in the response body (on the last save). Serve, but do
     -- any ESI processing first. If we got here we wont 304 to the client.
     esi_detected = {
-        { begin = "serving", but_first = "process_esi" },
+        { begin = "serving", but_first = "add_transformation_warning" },
     },
 
     -- We have a response we can use. If we've already served (we are doing background work) then 
@@ -1040,6 +1038,10 @@ _M.actions = {
 
     add_stale_warning = function(self)
         return self:add_warning("110")
+    end,
+
+    add_transformation_warning = function(self)
+        return self:add_warning("214")
     end,
 
     add_disconnected_warning = function(self)
@@ -1476,7 +1478,7 @@ _M.states = {
     preparing_response = function(self)
         if self:config_get("enable_esi") == true then
             local res = self:get_response()
-            if res:has_esi() then
+            if res.has_esi then
                 return self:e "esi_detected"
             end
         end
@@ -1612,6 +1614,14 @@ function _M.read_from_cache(self)
             time_in_cache = ngx_time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "generated_ts" then
             time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
+        elseif cache_parts[i] == "has_esi" then
+            -- TODO: We should store this as an integer?
+            local has_esi = cache_parts[i + 1]
+            if has_esi == "true" then
+                res.has_esi = true
+            else
+                res.has_esi = false
+            end
         end
     end
 
@@ -1694,7 +1704,7 @@ function _M.fetch_from_origin(self)
     res.length = tonumber(origin.headers["Content-Length"])
 
     res.has_body = origin.has_body
-    res.body_reader = origin.body_reader
+    res.body_reader = self:get_esi_scan_filter(origin.body_reader)
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -1827,7 +1837,7 @@ function _M.save_to_cache(self, res)
     -- The writer will commit the transaction later.
     if res.has_body then
         res.body_reader = self:get_cache_body_writer(
-            self:get_esi_scan_filter(res.body_reader), 
+            res.body_reader, 
             entity_keys, 
             keep_cache_for
         )
@@ -1936,15 +1946,23 @@ function _M.get_cache_body_reader(self, entity_keys)
     local num_chunks = redis:llen(entity_keys.body) - 1
     if num_chunks < 0 then return nil end
 
+    local esi_enabled = self:config_get("enable_esi")
+    local has_esi = false
+
     return co_wrap(function()
         for i = 0, num_chunks do
             local chunk, err = redis:lindex(entity_keys.body, i)
+
+            if esi_enabled then
+                has_esi, err = redis:lindex(entity_keys.body_esi, i)
+            end
+
             if chunk == ngx_null then
                 ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
                 self:e "entity_removed_during_read"
             end
 
-            co_yield(chunk)
+            co_yield(chunk, has_esi)
         end
     end)
 end
@@ -1959,15 +1977,18 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
     local buffer_size = self:config_get("buffer_size")
     local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
     local deleted_due_to_size = false
+    local esi_detected = false
 
     return co_wrap(function()
         local size = 0
-        local list_index = 0
         repeat
             local chunk, has_esi, err = reader(buffer_size)
             if chunk then
                 if not deleted_due_to_size then
                     size = size + #chunk
+
+                    -- If we cannot store any more, delete everything.
+                    -- TODO: Options for persistent storage and retaining metadata etc.
                     if size > max_memory then
                         self:delete_from_cache()
                         deleted_due_to_size = true
@@ -1978,10 +1999,15 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                     else
                         redis:rpush(entity_keys.body, chunk)
                         redis:rpush(entity_keys.body_esi, tostring(has_esi))
-                        list_index = list_index + 1
+
+                        if not esi_detected and has_esi then
+                            -- Flag this in the main key
+                            redis:hset(entity_keys.main, "has_esi", "true")
+                            esi_detected = true
+                        end
                     end
                 end
-                co_yield(chunk)
+                co_yield(chunk, has_esi)
             end
         until not chunk
 
@@ -2002,73 +2028,96 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
 end
 
 
+-- Reads from reader according to "buffer_size", and scans for ESI instructions.
+-- Acts as a sink when ESI instructions are not complete, buffering until the chunk
+-- contains a full instruction safe to process on serve.
 function _M.get_esi_scan_filter(self, reader)
     local redis = self:ctx().redis
     local buffer_size = self:config_get("buffer_size")
+    local esi_enabled = self:config_get("enable_esi")
 
     return co_wrap(function()
+        ngx_log(ngx_INFO, "esi scan filter running")
         local prev_chunk = ""
         local buffering = false
 
         repeat
             local chunk, err = reader(buffer_size)
-            local has_esi = false
+            if not esi_enabled then
+                co_yield(chunk, false, err)
+            else
+                local has_esi = false
 
-            if chunk then
-                chunk = prev_chunk .. chunk
-                local chunk_len = #chunk
+                if chunk then
+                    chunk = prev_chunk .. chunk
+                    local chunk_len = #chunk
 
-                local pos = 1
+                    local pos = 1
 
-                repeat
-                    -- 1) Look for an opening esi tag
-                    local start_from, start_to, err = ngx_re_find(
-                        str_sub(chunk, pos), 
-                        "<esi:", "soj"
-                    )
+                    repeat
+                        local is_comment = false
 
-                    if not start_from then
-                        -- Nothing to do in this chunk, stop looping.
-                        break
-                    else
-                        -- We definitely have something.
-                        has_esi = true
-
-                        -- Give our start tag positions absolute chunk positions.
-                        start_from = start_from + (pos - 1)
-                        start_to = start_to + (pos - 1)
-
-                        -- 2) Try and find the end of the tag (could be inline or block)
-                        local end_from, end_to, err = ngx_re_find(
-                            str_sub(chunk, start_to + 1), 
-                            "[^>]?/>|</esi:[^>]+>", "soj"
+                        -- 1) Look for an opening esi tag
+                        local start_from, start_to, err = ngx_re_find(
+                            str_sub(chunk, pos), 
+                            "<[!--]*esi", "soj"
                         )
 
-                        if not end_from then
-                            -- The end isn't in this chunk, so we must buffer.
-                            prev_chunk = chunk
-                            buffering = true
+                        if not start_from then
+                            -- Nothing to do in this chunk, stop looping.
                             break
                         else
-                            -- We found the end of this instruction. Stop buffering until we find
-                            -- another unclosed instruction.
-                            prev_chunk = "" 
-                            buffering = false
+                            -- We definitely have something.
+                            has_esi = true
+
+                            -- Give our start tag positions absolute chunk positions.
+                            start_from = start_from + (pos - 1)
+                            start_to = start_to + (pos - 1)
+
+                            local end_from, end_to, err
+
+                            -- 2) Try and find the end of the tag (could be inline or block)
+                            --    and comments must be treated as special cases.
+                            if str_sub(chunk, start_from, 7) == "<!--esi" then
+                                end_from, end_to, err = ngx_re_find(
+                                    str_sub(chunk, start_to + 1),
+                                    "-->", "soj"
+                                )
+                            else
+                                end_from, end_to, err = ngx_re_find(
+                                    str_sub(chunk, start_to + 1), 
+                                    "[^>]?/>|</esi:[^>]+>", "soj"
+                                )
+                            end
+
+                            if not end_from then
+                                -- The end isn't in this chunk, so we must buffer.
+                                prev_chunk = chunk
+                                buffering = true
+                                break
+                            else
+                                -- We found the end of this instruction. Stop buffering until we find
+                                -- another unclosed instruction.
+                                prev_chunk = "" 
+                                buffering = false
 
                             end_from = end_from + start_to
-                            end_to = end_to + start_to 
+                        end_to = end_to + start_to 
 
-                            -- Update pos for the next loop
-                            pos = end_to + 1
-                        end
+                        -- Update pos for the next loop
+                        pos = end_to + 1
                     end
-                until pos >= chunk_len
-
-                if not buffering then
-                    -- We've got a chunk we can yield with.
-                    co_yield(chunk, has_esi)
                 end
+            until pos >= chunk_len
+
+            if not buffering then
+                -- We've got a chunk we can yield with.
+                co_yield(chunk, has_esi)
+            else
+                ngx_log(ngx_WARN, "no closing tag")
             end
+        end
+    end
         until not chunk
     end)
 end
@@ -2079,8 +2128,12 @@ end
 function _M.body_server(self, reader)
     local buffer_size = self:config_get("buffer_size")
     repeat
-        local chunk, err = reader(buffer_size)
+        local chunk, has_esi, err = reader(buffer_size)
         if chunk then
+            if has_esi then
+                ngx_log(ngx_INFO, "has_esi")
+                chunk = self:process_esi(chunk)
+            end
             ngx_print(chunk)
         end
 
@@ -2153,34 +2206,24 @@ function _M.process_esi(self, data)
 
         body = ngx_re_gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
 
+        local httpc = http.new()
+        httpc:connect(ngx.var.server_addr, ngx.var.server_port)
+
         local esi_uris = {}
         for tag in ngx_re_gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
-            tbl_insert(esi_uris, { tag[1] })
-        end
-
-        if tbl_getn(esi_uris) > 0 then
-            -- Only works for relative URIs right now
-            -- TODO: Extract hostname from absolute uris, and set the Host header accordingly.
-            --
-            
-            self.actions["remove_client_validators"](self)
-            local esi_fragments = { ngx.location.capture_multi(esi_uris) }
-            self.actions["restore_client_validators"](self)
-
-            -- Create response objects.
-            for i,fragment in ipairs(esi_fragments) do
-                esi_fragments[i] = response.new(fragment)
+            local res, err = httpc:request{ 
+                method = ngx_req_get_method(),
+                path = tag[1],
+                headers = ngx_req_get_headers(),
+            }
+            if res then
+                local res_body = res:read_body()
+                body = ngx_re_gsub(body, "(<esi:include.*/>)", res_body)
             end
-
-            -- Ensure that our cacheability is reduced shortest / newest from
-            -- all fragments.
-            --res:minimise_lifetime(esi_fragments)
-
-            body = ngx_re_gsub(body, "(<esi:include.*/>)", function(tag)
-                return tbl_remove(esi_fragments, 1).body
-            end, "ioj")
         end
-        
+
+        httpc:set_keepalive()
+
         return body
 
 --[[    if res.header["Content-Length"] then res.header["Content-Length"] = #body end
