@@ -41,6 +41,7 @@ local str_sub = string.sub
 local str_gmatch = string.gmatch
 local str_find = string.find
 local str_lower = string.lower
+local str_len = string.len
 local math_floor = math.floor
 local math_ceil = math.ceil
 local co_wrap = coroutine.wrap
@@ -147,7 +148,14 @@ function _M.new(self)
         max_stale       = nil,  -- (sec) Overrides how long cache will continue be served 
                                 -- for beyond the TTL. This violates the spec, and adds a warning header.
         stale_if_error  = nil,  -- (sec) Overrides how long to serve stale on upstream error.
-        enable_esi      = false,
+
+        esi_enabled      = false,
+        esi_content_types = { "text/html" },
+        esi_allow_surrogate_delegation = false, -- Set to true to delegate to any downstream host
+                                                -- that sets the Surrogate-Capability header, or to
+                                                -- a table of IP addresses to limit to. e.g.
+                                                -- { "1.2.3.4", "5.6.7.8" }
+
         enable_collapsed_forwarding = false,
         collapsed_forwarding_window = 60 * 1000, -- Window for collapsed requests (ms)
     }
@@ -682,7 +690,7 @@ _M.events = {
     -- The request accepts cache. If we've already validated locally, we can think about serving.
     -- Otherwise we need to check the cache situtation.
     cache_accepted = {
-        { when = "revalidating_locally", begin = "preparing_response" },
+        { when = "revalidating_locally", begin = "considering_esi_process" },
         { begin = "checking_cache" },
     },
 
@@ -762,10 +770,10 @@ _M.events = {
         { begin = "fetching" },
     },
 
-    -- We've fetched and got a response. We don't know about it's cacheabilty yet, but we must
-    -- "update" in one form or another.
+    -- We've fetched and got a response status and headers. We should consider potential for ESI
+    -- before doing anything else.
     response_fetched = {
-        { begin = "updating_cache" },
+        { begin = "considering_esi_scan" },
     },
 
     -- If we went upstream and errored, check if we can serve a cached copy (stale-if-error),
@@ -782,6 +790,16 @@ _M.events = {
         { after = "fetching", begin = "serving_upstream_error" },
         { in_case = "collapsed_forwarding_upstream_error", begin = "fetching" },
         { begin = "serving_upstream_error" },
+    },
+
+    -- We've determined we need to scan the body for ESI.
+    esi_scan_enabled = {
+        { begin = "updating_cache", but_first = "set_esi_scan_enabled" },
+    },
+
+    -- We've determined no need to scan the body for ESI.
+    esi_scan_disabled = {
+        { begin = "updating_cache" },
     },
 
     -- We deduced that the new response can cached. We always "save_to_cache". If we were fetching
@@ -804,7 +822,7 @@ _M.events = {
             but_first = "delete_from_cache" },
         { after = "revalidating_in_background", begin = "exiting", 
             but_first = "delete_from_cache" },
-        { begin = "preparing_response", but_first = "delete_from_cache" },
+        { begin = "considering_esi_process", but_first = "delete_from_cache" },
     },
 
     -- A missing response body means a HEAD request or a 304 Not Modified upstream response, for
@@ -840,26 +858,28 @@ _M.events = {
 
     -- Standard non-conditional request.
     no_validator_present = {
-        { begin = "preparing_response" },
+        { begin = "considering_esi_process" },
     },
 
     -- The response has not been modified against the validators given. We'll exit 304 if we can
-    -- but go via preparing_response in case of ESI work to be done.
+    -- but go via considering_esi_process in case of ESI work to be done.
     not_modified = {
-        { when = "revalidating_locally", begin = "preparing_response" },
+        { when = "revalidating_locally", begin = "considering_esi_process" },
     },
 
     -- Our cache has been modified as compared to the validators. But cache is valid, so just
     -- serve it. If we've been upstream, re-compare against client validators.
     modified = {
-        { when = "revalidating_locally", begin = "preparing_response" },
+        { when = "revalidating_locally", begin = "considering_esi_process" },
         { when = "revalidating_upstream", begin = "considering_local_revalidation" },
     },
 
-    -- We've found ESI instructions in the response body (on the last save). Serve, but do
-    -- any ESI processing first. If we got here we wont 304 to the client.
-    esi_detected = {
-        { begin = "serving", but_first = "add_transformation_warning" },
+    esi_process_enabled = {
+        { begin = "preparing_response", but_first = "set_esi_process_enabled" },
+    },
+
+    esi_process_disabled = {
+        { begin = "preparing_response" },
     },
 
     -- We have a response we can use. If we've already served (we are doing background work) then 
@@ -1005,6 +1025,14 @@ _M.actions = {
         self:set_response(res)
     end,
 
+    set_esi_scan_enabled = function(self)
+        self:ctx().esi_scan_enabled = true
+    end,
+
+    set_esi_process_enabled = function(self)
+        self:ctx().esi_process_enabled = true
+    end,
+
     fetch = function(self)
         local res = self:fetch_from_origin()
         if res.status ~= ngx.HTTP_NOT_MODIFIED then
@@ -1041,6 +1069,7 @@ _M.actions = {
     end,
 
     add_transformation_warning = function(self)
+        ngx_log(ngx_INFO, "adding warning")
         return self:add_warning("214")
     end,
 
@@ -1251,6 +1280,63 @@ _M.states = {
             return self:e "cache_expired"
         else
             return self:e "cache_valid"
+        end
+    end,
+
+    considering_esi_scan = function(self)
+        if self:config_get("esi_enabled") == true then
+            local res = self:get_response()
+            local res_content_type = res.header["Content-Type"]
+
+            if res_content_type then
+                local allowed_types = self:config_get("esi_content_types") or {}
+
+                for _, content_type in ipairs(allowed_types) do
+                    if str_sub(res_content_type, 1, str_len(content_type)) == content_type then
+                        return self:e "esi_scan_enabled"
+                    end
+                end
+            end
+        end
+
+        return self:e "esi_scan_disabled"
+    end,
+
+    considering_esi_process = function(self)
+        local res = self:get_response()
+
+        -- If res.has_esi then we're on the fast path and know there's work to be done.
+        -- If res.esi_scan_enabled, then we're on the slow path, but we already checked if we
+        -- should scan earlier, so can assume there *may* be work to do.
+        if res.has_esi == true or self:ctx().esi_scan_enabled == true then
+            -- Check s/c
+            local surrogate_capability = ngx.req.get_headers()["Surrogate-Capability"]
+
+            -- TODO: We should have a sense of capability tokens somewhere, perhaps
+            -- instantiating different parsers (ESI/1.0 ESI/1.0+Akamai) etc. 
+            -- For now, if the surrogate claims *any* capabaility, then we blindly delegate
+            -- so long as delegation is enabled or the request IP is in the table of IPs.
+            if surrogate_capability then
+                local surrogates = self:config_get("esi_allow_surrogate_delegation")
+                if type(surrogates) == "boolean" then
+                    if surrogates == false then 
+                        return self:e "esi_process_enabled"
+                    end
+                elseif type(surrogates) == "table" then
+                    local remote_addr = ngx_var.remote_addr
+                    if remote_addr then
+                        for _, ip in surrogates do
+                            if ip == remote_addr then
+                                return self:e "esi_process_enabled"
+                            end
+                        end
+                    end
+                end
+            else
+                return self:e "esi_process_enabled"
+            end
+        else
+            return self:e "esi_process_disabled"
         end
     end,
 
@@ -1476,13 +1562,6 @@ _M.states = {
     end,
 
     preparing_response = function(self)
-        if self:config_get("enable_esi") == true then
-            local res = self:get_response()
-            if res.has_esi then
-                return self:e "esi_detected"
-            end
-        end
-
         return self:e "response_ready"
     end,
 
@@ -1617,11 +1696,7 @@ function _M.read_from_cache(self)
         elseif cache_parts[i] == "has_esi" then
             -- TODO: We should store this as an integer?
             local has_esi = cache_parts[i + 1]
-            if has_esi == "true" then
-                res.has_esi = true
-            else
-                res.has_esi = false
-            end
+            res.has_esi = cache_parts[i + 1] == "true"
         end
     end
 
@@ -1704,6 +1779,13 @@ function _M.fetch_from_origin(self)
     res.length = tonumber(origin.headers["Content-Length"])
 
     res.has_body = origin.has_body
+
+    if self:config_get("esi_enabled") and res.has_body then
+        -- We *may* have esi, so let's be paranoid about downstream cacheability.
+        res.downstream_lifetime = 0
+    end
+
+    -- We always use the esi scan filter. It will simply yield if there is no work to be done.
     res.body_reader = self:get_esi_scan_filter(origin.body_reader)
 
     if res.status < 500 then
@@ -1922,6 +2004,11 @@ function _M.serve(self)
             end
         end
 
+        -- We know the body has esi markup, so zero downstream lifetime.
+        if self:config_get("esi_enabled") and res.has_esi or res.downstream_lifetme == 0 then
+            res.header["Cache-Control"] = "private, must-revalidate"
+        end
+
         self:emit("response_ready", res)
 
         if res.header then
@@ -1946,14 +2033,15 @@ function _M.get_cache_body_reader(self, entity_keys)
     local num_chunks = redis:llen(entity_keys.body) - 1
     if num_chunks < 0 then return nil end
 
-    local esi_enabled = self:config_get("enable_esi")
     local has_esi = false
 
     return co_wrap(function()
+        local process_esi = self:ctx().esi_process_enabled
+
         for i = 0, num_chunks do
             local chunk, err = redis:lindex(entity_keys.body, i)
 
-            if esi_enabled then
+            if process_esi then
                 has_esi, err = redis:lindex(entity_keys.body_esi, i)
             end
 
@@ -1962,7 +2050,7 @@ function _M.get_cache_body_reader(self, entity_keys)
                 self:e "entity_removed_during_read"
             end
 
-            co_yield(chunk, has_esi)
+            co_yield(chunk, has_esi == "true")
         end
     end)
 end
@@ -2034,12 +2122,11 @@ end
 function _M.get_esi_scan_filter(self, reader)
     local redis = self:ctx().redis
     local buffer_size = self:config_get("buffer_size")
-    local esi_enabled = self:config_get("enable_esi")
 
     return co_wrap(function()
-        ngx_log(ngx_INFO, "esi scan filter running")
         local prev_chunk = ""
         local buffering = false
+        local esi_enabled = self:ctx().esi_scan_enabled
 
         repeat
             local chunk, err = reader(buffer_size)
@@ -2068,6 +2155,7 @@ function _M.get_esi_scan_filter(self, reader)
                             break
                         else
                             -- We definitely have something.
+                            -- ngx_log(ngx_INFO, "adding warning")
                             has_esi = true
 
                             -- Give our start tag positions absolute chunk positions.
@@ -2155,81 +2243,76 @@ end
 function _M.process_esi(self, data)
     local body = data
 
-        -- Function to replace vars with runtime values
-        -- TODO: Possibly handle the dictionary / list syntax rather than just strings?
-        -- For now we just return string presentations of the obvious things, until a
-        -- need is determined.
-        local replace = function(var)
-            if var == "$(QUERY_STRING)" then
-                return ngx_var.args or ""
-            elseif str_sub(var, 1, 7) == "$(HTTP_" then
-                -- Look for a HTTP_var that matches
-                local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
-                if header then
-                    return ngx_var["http_" .. header] or ""
-                else
-                    return ""
-                end
+    -- Function to replace vars with runtime values
+    -- TODO: Possibly handle the dictionary / list syntax rather than just strings?
+    -- For now we just return string presentations of the obvious things, until a
+    -- need is determined.
+    local replace = function(var)
+        if var == "$(QUERY_STRING)" then
+            return ngx_var.args or ""
+        elseif str_sub(var, 1, 7) == "$(HTTP_" then
+            -- Look for a HTTP_var that matches
+            local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
+            if header then
+                return ngx_var["http_" .. header] or ""
             else
                 return ""
             end
+        else
+            return ""
         end
+    end
 
-        -- For every esi:vars block, substitute any number of variables found.
-        body = ngx_re_gsub(body, "<esi:vars>(.*)</esi:vars>", function(var_block)
-            return ngx_re_gsub(var_block[1],
-                "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)",
-                function(m)
-                    return replace(m[0])
-                end,
-                "soj")
-        end, "soj")
-
-        -- Remove vars tags that are left over
-        body = ngx_re_gsub(body, "(<esi:vars>|</esi:vars>)", "", "soj")
-
-        -- Replace vars inline in any other esi: tags.
-        body = ngx_re_gsub(body,
-            "(<esi:)(.+)(.*/>)",
+    -- For every esi:vars block, substitute any number of variables found.
+    body = ngx_re_gsub(body, "<esi:vars>(.*)</esi:vars>", function(var_block)
+        return ngx_re_gsub(var_block[1],
+            "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)",
             function(m)
-                local vars = ngx_re_gsub(m[2],
-                        "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
-                        function (m)
-                            return replace(m[1])
-                        end,
-                        "oj")
-                return m[1] .. vars .. m[3]
+                return replace(m[0])
             end,
-            "oj")
+            "soj")
+    end, "soj")
 
-        body = ngx_re_gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")
+    -- Remove vars tags that are left over
+    body = ngx_re_gsub(body, "(<esi:vars>|</esi:vars>)", "", "soj")
 
-        body = ngx_re_gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
+    -- Replace vars inline in any other esi: tags.
+    body = ngx_re_gsub(body,
+        "(<esi:)(.+)(.*/>)",
+        function(m)
+            local vars = ngx_re_gsub(m[2],
+                    "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
+                    function (m)
+                        return replace(m[1])
+                    end,
+                    "oj")
+            return m[1] .. vars .. m[3]
+        end,
+        "oj")
 
-        local httpc = http.new()
-        httpc:connect(ngx.var.server_addr, ngx.var.server_port)
+    body = ngx_re_gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")
 
-        local esi_uris = {}
-        for tag in ngx_re_gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
-            local res, err = httpc:request{ 
-                method = ngx_req_get_method(),
-                path = tag[1],
-                headers = ngx_req_get_headers(),
-            }
-            if res then
-                local res_body = res:read_body()
-                body = ngx_re_gsub(body, "(<esi:include.*/>)", res_body)
-            end
+    body = ngx_re_gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
+
+    local httpc = http.new()
+    httpc:connect(ngx.var.server_addr, ngx.var.server_port)
+
+    local esi_uris = {}
+    for tag in ngx_re_gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
+        local res, err = httpc:request{ 
+            method = ngx_req_get_method(),
+            path = tag[1],
+            headers = ngx_req_get_headers(),
+        }
+        if res then
+            local res_body = res:read_body()
+            body = ngx_re_gsub(body, "(<esi:include.*/>)", res_body)
         end
+    end
 
-        httpc:set_keepalive()
+    httpc:set_keepalive()
 
-        return body
-
---[[    if res.header["Content-Length"] then res.header["Content-Length"] = #body end
-    res.body = body
-    self:set_response(res)
-    self:add_warning("214")]]--
+    return body
 end
 
 
