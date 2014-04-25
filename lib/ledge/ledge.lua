@@ -2311,10 +2311,16 @@ function _M.process_esi(self, data)
 
     local esi_uris = {}
     for tag in ngx_re_gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
+
+        local headers = ngx_req_get_headers()
+        -- Remove client validators
+        headers["if-modified-since"] = nil
+        headers["if-none-match"] = nil
+
         local res, err = httpc:request{ 
             method = ngx_req_get_method(),
             path = tag[1],
-            headers = ngx_req_get_headers(),
+            headers = headers,
         }
         if res then
             local res_body = res:read_body()

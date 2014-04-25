@@ -485,14 +485,15 @@ location /esi_11_prx {
         ledge:run()
     ';
 }
-location /fragment {
+location /fragment_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua 'ledge:run()';
 }
 location /esi_11 {
     default_type text/html;
     content_by_lua '
         ngx.say("1")
-        ngx.print("<esi:include src=\\"/fragment\\" />")
+        ngx.print("<esi:include src=\\"/fragment_prx\\" />")
         ngx.say("2")
     ';
 }
