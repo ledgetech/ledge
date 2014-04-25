@@ -34,16 +34,10 @@ local NOCACHE_HEADERS = {
 }
 
 
-function _M.new(response)
+function _M.new()
     local body = ""
     local header = {}
     local status = nil
-
-    if response then
-        body = response.body
-        header = response.header
-        status = response.status
-    end
 
     -- Header metatable for field case insensitivity.
     local header_mt = {
@@ -76,16 +70,11 @@ function _M.new(response)
 
     setmetatable(header, header_mt)
 
-    return setmetatable({   status = status, 
+    return setmetatable({   status = nil, 
                             body = body,
                             header = header, 
                             remaining_ttl = 0,
-                            esi = {
-                                has_esi_comment = nil,
-                                has_esi_remove = nil,
-                                has_esi_include = nil,
-                                has_esi_vars = nil,
-                            },
+                            has_esi = false,
     }, mt)
 end
 
@@ -163,66 +152,6 @@ function _M.stale_ttl(self)
     )
 
     return self.remaining_ttl - min_fresh
-end
-
-
--- Test for presence of esi comments and keep the result.
-function _M.has_esi_comment(self)
-    if self.esi.has_esi_comment == nil then
-        if ngx_re_match(self.body, "<!--esi", "ioj") then
-            self.esi.has_esi_comment = true
-        else
-            self.esi.has_esi_comment = false
-        end
-    end
-    return self.esi.has_esi_comment
-end
-
-
--- Test for the presence of esi:remove and keep the result.
-function _M.has_esi_remove(self)
-    if self.esi.has_esi_remove == nil then
-        if ngx_re_match(self.body, "<esi:remove>", "ioj") then
-            self.esi.has_esi_remove = true
-        else
-            self.esi.has_esi_remove = false
-        end
-    end
-    return self.esi.has_esi_remove
-end
-
-
-function _M.has_esi_vars(self)
-    if self.esi.has_esi_vars == nil then
-        if ngx_re_match(self.body, "<esi:.*\\$\\([A-Z_].+\\)", "soj") then
-            self.esi.has_esi_vars = true
-        else
-            self.esi.has_esi_vars = false
-        end
-    end
-    return self.esi.has_esi_vars
-end
-
-
--- Test for the presence of esi:include and keep the result.
-function _M.has_esi_include(self)
-    if self.esi.has_esi_include == nil then
-        if ngx_re_match(self.body, "<esi:include", "ioj") then
-            self.esi.has_esi_include = true
-        else
-            self.esi.has_esi_include = false
-        end
-    end
-    return self.esi.has_esi_include
-end
-
-
-function _M.has_esi(self)
-    return self.has_esi
-    --[[
-    return self:has_esi_vars() or self:has_esi_comment() or 
-        self:has_esi_include() or self:has_esi_remove()
-        --]]
 end
 
 
