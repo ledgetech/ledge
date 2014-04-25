@@ -888,6 +888,9 @@ _M.events = {
     response_ready = {
         { in_case = "served", begin = "exiting" },
         { in_case = "forced_cache", begin = "serving", but_first = "add_disconnected_warning"},
+        -- If we might ESI, then don't 304 downstream.
+        { when = "preparing_response", in_case = "esi_process_enabled",
+            begin = "serving", but_first = "set_http_status_from_response" },
         { when = "preparing_response", in_case = "not_modified",
             begin = "serving", but_first = "set_http_not_modified" },
         { when = "preparing_response", begin = "serving", 
