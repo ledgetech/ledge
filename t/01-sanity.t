@@ -64,8 +64,17 @@ GET /sanity_1
 
                     -- Check actions
                     if trans["but_first"] then
-                        if "function" ~= type(ledge.actions[trans["but_first"]]) then
-                            ngx.say("Action "..trans["but_first"].." called during "..ev.." is not defined")
+                        local action = trans["but_first"]
+                        if type(action) == "table" then
+                            for _,ac in ipairs(action) do
+                                if "function" ~= type(ledge.actions[ac]) then
+                                    ngx.say("Action "..ac.." called during "..ev.." is not defined")
+                                end
+                            end
+                        else
+                            if "function" ~= type(ledge.actions[action]) then
+                                ngx.say("Action "..action.." called during "..ev.." is not defined")
+                            end
                         end
                     end
                 end
