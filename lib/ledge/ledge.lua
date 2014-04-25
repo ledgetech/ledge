@@ -875,7 +875,7 @@ _M.events = {
     },
 
     esi_process_enabled = {
-        { begin = "preparing_response", but_first = "set_esi_process_enabled" },
+        { begin = "preparing_response", but_first = { "set_esi_process_enabled", "zero_downstream_lifetime"} },
     },
 
     esi_process_disabled = {
@@ -1031,6 +1031,13 @@ _M.actions = {
 
     set_esi_process_enabled = function(self)
         self:ctx().esi_process_enabled = true
+    end,
+    
+    zero_downstream_lifetime = function(self)
+        local res = self:get_response()
+        if res.header then
+            res.header["Cache-Control"] = "private, must-revalidate"
+        end
     end,
 
     fetch = function(self)
@@ -1634,8 +1641,15 @@ function _M.e(self, event)
                 if not t_in_case or ctx.event_history[t_in_case] then
                     local t_but_first = trans["but_first"]
                     if t_but_first then
-                        ngx_log(ngx_DEBUG, "#a: ", t_but_first)
-                        self.actions[t_but_first](self)
+                        if type(t_but_first) == "table" then
+                            for _,action in ipairs(t_but_first) do
+                                ngx_log(ngx_DEBUG, "#a: ", action)
+                                self.actions[action](self)
+                            end
+                        else
+                            ngx_log(ngx_DEBUG, "#a: ", t_but_first)
+                            self.actions[t_but_first](self)
+                        end
                     end
 
                     return self:t(trans["begin"])
@@ -1779,11 +1793,6 @@ function _M.fetch_from_origin(self)
     res.length = tonumber(origin.headers["Content-Length"])
 
     res.has_body = origin.has_body
-
-    if self:config_get("esi_enabled") and res.has_body then
-        -- We *may* have esi, so let's be paranoid about downstream cacheability.
-        res.downstream_lifetime = 0
-    end
 
     -- We always use the esi scan filter. It will simply yield if there is no work to be done.
     res.body_reader = self:get_esi_scan_filter(origin.body_reader)
