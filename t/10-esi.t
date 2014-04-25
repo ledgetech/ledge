@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 3) - 3; 
+plan tests =>  repeat_each() * (blocks() * 2) + 5; 
 
 my $pwd = cwd();
 
@@ -15,7 +15,7 @@ our $HttpConfig = qq{
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
-        ledge:config_set('enable_esi', true)
+        ledge:config_set('esi_enabled', true)
     ";
     init_worker_by_lua "
         ledge:run_workers()
@@ -36,6 +36,7 @@ location /esi_1_prx {
     ';
 }
 location /esi_1 {
+    default_type text/html;
     content_by_lua '
         ngx.print("<!--esiCOMMENTED-->")
     ';
@@ -43,8 +44,7 @@ location /esi_1 {
 --- request
 GET /esi_1_prx
 --- response_body: COMMENTED
---- response_headers_like 
-Warning: ^214 .* "Transformation applied"$  
+
 
 === TEST 2: Multi line comments removed
 --- http_config eval: $::HttpConfig
@@ -56,6 +56,7 @@ location /esi_2_prx {
     ';
 }
 location /esi_2 {
+    default_type text/html;
     content_by_lua '
         ngx.print("<!--esi")
         ngx.print("1")
@@ -73,8 +74,6 @@ GET /esi_2_prx
 2
 
 3
---- response_headers_like 
-Warning: ^214 .* "Transformation applied"$  
 
 
 === TEST 3: Single line <esi:remove> removed.
@@ -87,6 +86,7 @@ location /esi_3_prx {
     ';
 }
 location /esi_3 {
+    default_type text/html;
     content_by_lua '
         ngx.print("<esi:remove>REMOVED</esi:remove>")
     ';
@@ -94,8 +94,7 @@ location /esi_3 {
 --- request
 GET /esi_3_prx
 --- response_body
---- response_headers_like 
-Warning: ^214 .* "Transformation applied"$  
+
 
 === TEST 4: Multi line <esi:remove> removed.
 --- http_config eval: $::HttpConfig
@@ -107,6 +106,7 @@ location /esi_4_prx {
     ';
 }
 location /esi_4 {
+    default_type text/html;
     content_by_lua '
         ngx.say("1")
         ngx.say("<esi:remove>")
@@ -117,8 +117,6 @@ location /esi_4 {
 }
 --- request
 GET /esi_4_prx
---- response_headers_like 
-Warning: ^214 .* "Transformation applied"$  
 --- response_body
 1
 
@@ -138,6 +136,7 @@ location /fragment_1 {
     echo "FRAGMENT";
 }
 location /esi_5 {
+    default_type text/html;
     content_by_lua '
         ngx.say("1")
         ngx.print("<esi:include src=\\"/fragment_1\\" />")
@@ -146,8 +145,6 @@ location /esi_5 {
 }
 --- request
 GET /esi_5_prx
---- response_headers_like 
-Warning: ^214 .* "Transformation applied"$  
 --- response_body
 1
 FRAGMENT
@@ -179,6 +176,7 @@ location /fragment_3 {
     ';
 }
 location /esi_6 {
+    default_type text/html;
     content_by_lua '
         ngx.say("<esi:include src=\\"/fragment_3\\" />")
         ngx.say("<esi:include src=\\"/fragment_1\\" />")
@@ -187,8 +185,6 @@ location /esi_6 {
 }
 --- request
 GET /esi_6_prx
---- response_headers_like 
-Warning: ^214 .* "Transformation applied"$  
 --- response_body
 FRAGMENT_3
 FRAGMENT_1
@@ -201,11 +197,12 @@ FRAGMENT_2
 location /esi_7_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("enable_esi", false)
+        ledge:config_set("esi_enabled", false)
         ledge:run()
     ';
 }
 location /esi_7 {
+    default_type text/html;
     content_by_lua '
         ngx.print("<!--esiCOMMENTED-->")
     ';
@@ -215,7 +212,7 @@ GET /esi_7_prx
 --- response_body: <!--esiCOMMENTED-->
 
 
-=== TEST 8: Response cacheability is as short/new as the shortest/newest fragment.
+=== TEST 8: Response downstrean cacheability is zero'd when ESI processing has occured.
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_8_prx {
@@ -227,30 +224,20 @@ location /esi_8_prx {
 location /fragment_1 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=60"
-        ngx.header["Last-Modified"] = "Fri, 23 Nov 2012 00:00:00 GMT"
         ngx.say("FRAGMENT_1")
     ';
 }
-location /fragment_2 {
-    content_by_lua '
-        ngx.header["Expires"] = ngx.http_time(ngx.time() + 30)
-        ngx.say("FRAGMENT_2")
-    ';
-}
 location /esi_8 {
+    default_type text/html;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Last-Modified"] = "Fri, 21 Nov 2012 00:00:00 GMT"
         ngx.say("<esi:include src=\\"/fragment_1\\" />")
-        ngx.say("<esi:include src=\\"/fragment_2\\" />")
     ';
 }
 --- request
 GET /esi_8_prx
 --- response_headers_like 
-Warning: ^214 .* "Transformation applied"$  
-Cache-Control: max-age=30
-Last-Modified: Fri, 23 Nov 2012 00:00:00 GMT
+Cache-Control: private, must-revalidate
 
 
 === TEST 9: Variable evaluation
@@ -261,6 +248,7 @@ location /esi_9_prx {
     content_by_lua 'ledge:run()';
 }
 location /esi_9 {
+    default_type text/html;
     content_by_lua '
         ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
         ngx.say("<esi:include src=\\"/fragment1?$(QUERY_STRING)\\" />")
@@ -295,6 +283,7 @@ location /esi_9b_prx {
     content_by_lua 'ledge:run()';
 }
 location /esi_9b {
+    default_type text/html;
     content_by_lua '
         ngx.say("<esi:include src=\\"/fragment1b?$(QUERY_STRING)&test=$(HTTP_x_esi_test)\\" />")
     ';
@@ -328,6 +317,7 @@ location /esi_10_prx {
     ';
 }
 location /esi_10 {
+    default_type text/html;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "esi10"
@@ -380,6 +370,7 @@ location /esi_10_prx {
     ';
 }
 location /esi_10 {
+    default_type text/html;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "esi10c"
@@ -413,6 +404,7 @@ location /esi_10_prx {
     ';
 }
 location /esi_10 {
+    default_type text/html;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "esi10c"
@@ -497,6 +489,7 @@ location /fragment {
     content_by_lua 'ledge:run()';
 }
 location /esi_11 {
+    default_type text/html;
     content_by_lua '
         ngx.say("1")
         ngx.print("<esi:include src=\\"/fragment\\" />")
@@ -505,8 +498,6 @@ location /esi_11 {
 }
 --- request
 GET /esi_11_prx
---- response_headers_like 
-Warning: ^214 .* "Transformation applied"$  
 --- response_body
 1
 FRAGMENT
