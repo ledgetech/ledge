@@ -875,7 +875,8 @@ _M.events = {
     },
 
     esi_process_enabled = {
-        { begin = "preparing_response", but_first = { "set_esi_process_enabled", "zero_downstream_lifetime"} },
+        { begin = "preparing_response", 
+            but_first = { "set_esi_process_enabled", "zero_downstream_lifetime"} },
     },
 
     esi_process_disabled = {
@@ -1901,7 +1902,7 @@ function _M.save_to_cache(self, res)
         local gc_after = math_ceil((previous_entity_size / dl_rate_Bps)) + 1
 
         -- Place this job on the queue
-        local q = qless.new({ client = redis })
+        local q = qless.new({ redis_client = redis })
         q.queues["ledge"]:put("collect_entity", { 
             cache_key = cache_key,
             size = previous_entity_size,
