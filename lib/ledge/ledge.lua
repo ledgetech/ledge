@@ -880,7 +880,7 @@ _M.events = {
     },
 
     esi_process_disabled = {
-        { begin = "preparing_response" },
+        { begin = "preparing_response", but_first = "set_esi_process_disabled" },
     },
 
     -- We have a response we can use. If we've already served (we are doing background work) then 
@@ -1036,6 +1036,10 @@ _M.actions = {
     set_esi_process_enabled = function(self)
         self:ctx().esi_process_enabled = true
     end,
+
+    set_esi_process_disabled = function(self)
+        self:ctx().esi_process_enabled = false
+    end,
     
     zero_downstream_lifetime = function(self)
         local res = self:get_response()
@@ -1110,10 +1114,6 @@ _M.actions = {
 
     release_collapse_lock = function(self)
         self:ctx().redis:del(self:fetching_key())
-    end,
-
-    process_esi = function(self)
-        return self:process_esi()
     end,
 
     set_http_ok = function(self)
@@ -1313,6 +1313,16 @@ _M.states = {
         return self:e "esi_scan_disabled"
     end,
 
+
+    -- We decide to process if:
+    --  - We know the response has_esi (fast path)
+    --  - We already decided to scan for esi (slow path)
+    --  - We aren't delegating responsibility downstream, which would occur if:
+    --      - Delegation is blindly set to true
+    --      - Delegation IP table contains the request IP
+    --
+    --  So essentially, if we think we may need to process, then we do. We don't want to 
+    --  accidentally send ESI instructions to a client, so we only delegate if we're sure.
     considering_esi_process = function(self)
         local res = self:get_response()
 
@@ -1330,25 +1340,25 @@ _M.states = {
             if surrogate_capability then
                 local surrogates = self:config_get("esi_allow_surrogate_delegation")
                 if type(surrogates) == "boolean" then
-                    if surrogates == false then 
-                        return self:e "esi_process_enabled"
+                    if surrogates == true then 
+                        return self:e "esi_process_disabled"
                     end
                 elseif type(surrogates) == "table" then
                     local remote_addr = ngx_var.remote_addr
                     if remote_addr then
-                        for _, ip in surrogates do
+                        for _, ip in ipairs(surrogates) do
                             if ip == remote_addr then
-                                return self:e "esi_process_enabled"
+                                return self:e "esi_process_disabled"
                             end
                         end
                     end
                 end
-            else
-                return self:e "esi_process_enabled"
             end
-        else
-            return self:e "esi_process_disabled"
+            
+            return self:e "esi_process_enabled"
         end
+
+        return self:e "esi_process_disabled"
     end,
 
     checking_can_fetch = function(self)
@@ -2054,7 +2064,9 @@ function _M.get_cache_body_reader(self, entity_keys)
         for i = 0, num_chunks do
             local chunk, err = redis:lindex(entity_keys.body, i)
 
-            if process_esi then
+            -- Just for efficiency, we avoid the lookup. The body server is responsible
+            -- for deciding whether to call process_esi() or not.
+            if process_esi == true then
                 has_esi, err = redis:lindex(entity_keys.body_esi, i)
             end
 
@@ -2228,11 +2240,11 @@ end
 -- via a cache read, or a save via a fetch... the interface is uniform.
 function _M.body_server(self, reader)
     local buffer_size = self:config_get("buffer_size")
+    local process_esi = self:ctx().esi_process_enabled
     repeat
         local chunk, has_esi, err = reader(buffer_size)
         if chunk then
-            if has_esi then
-                ngx_log(ngx_INFO, "has_esi")
+            if process_esi and has_esi then
                 chunk = self:process_esi(chunk)
             end
             ngx_print(chunk)
