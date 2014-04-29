@@ -212,6 +212,88 @@ GET /esi_7_prx
 --- response_body: <!--esiCOMMENTED-->
 
 
+=== TEST 7b: Leave instructions intact if ESI delegation is enabled - slow path.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_7b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_allow_surrogate_delegation", true)
+        ledge:run()
+    ';
+}
+location /esi_7b {
+    default_type text/html;
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("<!--esiCOMMENTED-->")
+    ';
+}
+--- request
+GET /esi_7b_prx
+--- more_headers
+Surrogate-Capability: localhost="ESI 1.0"
+--- response_body: <!--esiCOMMENTED-->
+
+
+=== TEST 7c: Leave instructions intact if ESI delegation is enabled - fast path.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_7b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_allow_surrogate_delegation", true)
+        ledge:run()
+    ';
+}
+--- request
+GET /esi_7b_prx
+--- more_headers
+Surrogate-Capability: localhost="ESI 1.0"
+--- response_body: <!--esiCOMMENTED-->
+
+
+=== TEST 7d: Leave instructions intact if ESI delegation is enabled by IP, slow path.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_7d_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_allow_surrogate_delegation", {"127.0.0.1"} )
+        ledge:run()
+    ';
+}
+location /esi_7d {
+    default_type text/html;
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("<!--esiCOMMENTED-->")
+    ';
+}
+--- request
+GET /esi_7d_prx
+--- more_headers
+Surrogate-Capability: localhost="ESI 1.0"
+--- response_body: <!--esiCOMMENTED-->
+
+
+=== TEST 7e: Leave instructions intact if ESI delegation is enabled by IP, fast path.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_7d_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_allow_surrogate_delegation", {"127.0.0.1"} )
+        ledge:run()
+    ';
+}
+--- request
+GET /esi_7d_prx
+--- more_headers
+Surrogate-Capability: localhost="ESI 1.0"
+--- response_body: <!--esiCOMMENTED-->
+
+
 === TEST 8: Response downstrean cacheability is zero'd when ESI processing has occured.
 --- http_config eval: $::HttpConfig
 --- config
