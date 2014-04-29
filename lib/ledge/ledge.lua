@@ -2109,6 +2109,9 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                         if err then
                             ngx_log(ngx_ERR, err)
                         end
+
+                        ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ", 
+                                            max_memory, " bytes")
                     else
                         redis:rpush(entity_keys.body, chunk)
                         redis:rpush(entity_keys.body_esi, tostring(has_esi))
@@ -2226,8 +2229,6 @@ function _M.get_esi_scan_filter(self, reader)
             if not buffering then
                 -- We've got a chunk we can yield with.
                 co_yield(chunk, has_esi)
-            else
-                ngx_log(ngx_WARN, "no closing tag")
             end
         end
     end
