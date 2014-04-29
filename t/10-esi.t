@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 2) + 5; 
+plan tests =>  repeat_each() * (blocks() * 2) + 6; 
 
 my $pwd = cwd();
 
@@ -585,3 +585,64 @@ GET /esi_11_prx
 1
 FRAGMENT
 2
+
+
+=== TEST 12: ESI processed over buffer larger than buffer_size.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_12_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 16)
+        ledge:run()
+    ';
+}
+location /esi_12 {
+    default_type text/html;
+    content_by_lua '
+        local junk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        ngx.print("<esi:vars>")
+        ngx.say(junk)
+        ngx.say("$(QUERY_STRING)")
+        ngx.say(junk)
+        ngx.print("</esi:vars>")
+    ';
+}
+--- request
+GET /esi_12_prx?a=1
+--- response_body
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+a=1
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+
+=== TEST 13: ESI processed over buffer larger than max_memory.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_13_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("cache_max_memory", 16 / 1024)
+        ledge:run()
+    ';
+}
+location /esi_13 {
+    default_type text/html;
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        local junk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        ngx.print("<esi:vars>")
+        ngx.say(junk)
+        ngx.say("$(QUERY_STRING)")
+        ngx.say(junk)
+        ngx.print("</esi:vars>")
+    ';
+}
+--- request
+GET /esi_13_prx?a=1
+--- response_body
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+a=1
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+--- error_log
+cache item deleted as it is larger than 16 bytes
