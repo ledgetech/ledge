@@ -1,5 +1,6 @@
 local cjson = require "cjson"
 local http = require "resty.http"
+local resolver = require "resty.dns.resolver"
 local qless = require "resty.qless"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
@@ -27,6 +28,7 @@ local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
 local ngx_re_gsub = ngx.re.gsub
+local ngx_re_sub = ngx.re.sub
 local ngx_re_gmatch = ngx.re.gmatch
 local ngx_re_find = ngx.re.find
 local ngx_var = ngx.var
@@ -1334,7 +1336,7 @@ _M.states = {
             local surrogate_capability = ngx.req.get_headers()["Surrogate-Capability"]
 
             -- TODO: We should have a sense of capability tokens somewhere, perhaps
-            -- instantiating different parsers (ESI/1.0 ESI/1.0+Akamai) etc. 
+            -- instantiating different parsers (ESI/1.0 EdgeSuite/5.0) etc. 
             -- For now, if the surrogate claims *any* capabaility, then we blindly delegate
             -- so long as delegation is enabled or the request IP is in the table of IPs.
             if surrogate_capability then
@@ -2320,29 +2322,67 @@ function _M.process_esi(self, data)
 
     body = ngx_re_gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
 
-    local httpc = http.new()
-    httpc:connect(ngx.var.server_addr, ngx.var.server_port)
 
     local esi_uris = {}
     for tag in ngx_re_gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
 
+        local httpc = http.new()
+
+        local scheme, host, port, path, query = unpack(httpc:parse_uri(tag[1]))
+
+        local r, err = resolver:new{
+            nameservers = {"8.8.8.8", {"8.8.4.4", 53} },
+            retrans = 5,  -- 5 retransmissions on receive timeout
+            timeout = 2000,  -- 2 sec
+        }
+
+        if not r then
+            ngx_log(ngx_ERROR, "Failed to instantiate resolver: ", err)
+            break
+        end
+
+        local answers, err = r:query(host)
+        if not answers then
+            ngx_log(ngx_ERROR, "Failed to query DNS server: ", err)
+            break
+        end
+
+        local ip
+        for _, ans in ipairs(answers) do
+            ngx_log(ngx_DEBUG, ans.name, " ", ans.address or ans.cname,
+                " type:", ans.type, " class:", ans.class,
+                " ttl:", ans.ttl)
+            if ans.address then
+                ip = ans.address
+            end
+        end
+
+        if not ip then break end
+
+        httpc:connect(ip, port)
+
         local headers = ngx_req_get_headers()
+
         -- Remove client validators
         headers["if-modified-since"] = nil
         headers["if-none-match"] = nil
 
+        headers["host"] = host
+        headers["accept-encoding"] = nil
+
         local res, err = httpc:request{ 
             method = ngx_req_get_method(),
-            path = tag[1],
+            path = path,
             headers = headers,
         }
+
         if res then
             local res_body = res:read_body()
-            body = ngx_re_gsub(body, "(<esi:include.*/>)", res_body)
+            body = ngx_re_sub(body, "(<esi:include.*/>)", res_body)
         end
+    
+        httpc:set_keepalive()
     end
-
-    httpc:set_keepalive()
 
     return body
 end
