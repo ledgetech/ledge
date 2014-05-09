@@ -29,6 +29,7 @@ local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub
+local ngx_re_match = ngx.re.match
 local ngx_re_gmatch = ngx.re.gmatch
 local ngx_re_find = ngx.re.find
 local ngx_var = ngx.var
@@ -2239,17 +2240,177 @@ function _M.get_esi_scan_filter(self, reader)
 end
 
 
+function _M.get_esi_process_filter(self, reader)
+    local buffer_size = self:config_get("buffer_size")
+
+    return co_wrap(function(buffer_size)
+        local i = 1
+        repeat
+            ngx_log(ngx_DEBUG, "CHUNK #", i)
+            local chunk, has_esi, err = reader(buffer_size)
+            if chunk then
+                if has_esi then
+
+                    -- For every esi:vars block, substitute any number of variables found.
+                    chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", function(var_block)
+                        return ngx_re_gsub(var_block[1], "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)", 
+                            function(m)
+                                local var = m[0]
+                                if var == "$(QUERY_STRING)" then
+                                    return ngx_var.args or ""
+                                elseif str_sub(var, 1, 7) == "$(HTTP_" then
+                                    -- Look for a HTTP_var that matches
+                                    local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
+                                    if header then
+                                        return ngx_var["http_" .. header] or ""
+                                    else
+                                        return ""
+                                    end
+                                else
+                                    return ""
+                                end
+                            end,
+                        "soj")
+                    end, "soj")
+
+                    -- Remove vars tags that are left over
+                    chunk = ngx_re_gsub(chunk, "(<esi:vars>|</esi:vars>)", "", "soj")
+
+                    -- Replace vars inline in any other esi: tags.
+                    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*/>)",
+                        function(m)
+                            local vars = ngx_re_gsub(m[2],
+                            "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
+                            function (m)
+                                return replace(m[1])
+                            end,
+                            "oj")
+                            return m[1] .. vars .. m[3]
+                        end,
+                        "oj")
+
+                    chunk = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
+
+                    chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
+
+
+                    -- Find and loop start points of includes
+                    
+                    local ctx = { pos = 1 }
+                    local yield_from = 1
+                    repeat
+                        local from, to, err = ngx_re_find(
+                            chunk, 
+                            "<esi:include src=\".+\".*/>", 
+                            "oj", 
+                            ctx
+                        )
+
+                        if from then
+                            ngx_log(ngx_DEBUG, "yielding from ", yield_from, " to ", from)
+                            -- Yield up to the start of the include tag
+                            co_yield(str_sub(chunk, yield_from, from - 1))
+                            yield_from = to + 1
+
+                            local src, err = ngx_re_match(
+                                str_sub(chunk, from, to), 
+                                "src=\"(.+)\".*/>",
+                                "oj"
+                            )
+
+                            if src then
+                                local httpc = http.new()
+
+                                local scheme, host, port, path, query = unpack(httpc:parse_uri(src[1]))
+
+                                local r, err = resolver:new{
+                                    nameservers = {"8.8.8.8", {"8.8.4.4", 53} },
+                                    retrans = 5,  -- 5 retransmissions on receive timeout
+                                    timeout = 2000,  -- 2 sec
+                                }
+
+                                if not r then
+                                    ngx_log(ngx_ERROR, "Failed to instantiate resolver: ", err)
+                                    break
+                                end
+
+                                local answers, err = r:query(host)
+                                if not answers then
+                                    ngx_log(ngx_ERROR, "Failed to query DNS server: ", err)
+                                    break
+                                end
+
+                                local ip
+                                for _, ans in ipairs(answers) do
+                                    ngx_log(ngx_DEBUG, ans.name, " ", ans.address or ans.cname,
+                                    " type:", ans.type, " class:", ans.class,
+                                    " ttl:", ans.ttl)
+                                    if ans.address then
+                                        ip = ans.address
+                                    end
+                                end
+
+                                if not ip then break end
+
+                                httpc:connect(ip, port)
+
+                                local headers = ngx_req_get_headers()
+
+                                -- Remove client validators
+                                headers["if-modified-since"] = nil
+                                headers["if-none-match"] = nil
+
+                                headers["host"] = host
+                                headers["accept-encoding"] = nil
+
+                                local res, err = httpc:request{ 
+                                    method = ngx_req_get_method(),
+                                    path = path,
+                                    headers = headers,
+                                }
+
+                                if res then
+                                    -- Stream the include fragment, yielding as we go
+                                    local reader = res.body_reader
+                                    repeat
+                                        local ch, err = reader(buffer_size)
+                                        if ch then
+                                            co_yield(ch)
+                                        end
+                                    until not ch
+                                end
+
+                                httpc:set_keepalive()
+                            end
+                        else
+                            co_yield(str_sub(chunk, ctx.pos, #chunk))
+                        end
+
+                    until not from
+                else
+                    co_yield(chunk)
+                end
+            end
+
+            i = i + 1
+        until not chunk
+    end)
+end
+
+
 -- Resumes the reader coroutine and prints the data yielded. This could be
 -- via a cache read, or a save via a fetch... the interface is uniform.
 function _M.body_server(self, reader)
     local buffer_size = self:config_get("buffer_size")
     local process_esi = self:ctx().esi_process_enabled
+
+    if process_esi then
+        reader = self:get_esi_process_filter(reader)
+    end
+
     repeat
-        local chunk, has_esi, err = reader(buffer_size)
+        local chunk, err = reader(buffer_size)
         if chunk then
-            if process_esi and has_esi then
-                chunk = self:process_esi(chunk)
-            end
             ngx_print(chunk)
         end
 
@@ -2265,126 +2426,6 @@ function _M.add_warning(self, code)
 
     local header = code .. ' ' .. self:visible_hostname() .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(res.header["Warning"], header)
-end
-
-
-function _M.process_esi(self, data)
-    local body = data
-
-    -- Function to replace vars with runtime values
-    -- TODO: Possibly handle the dictionary / list syntax rather than just strings?
-    -- For now we just return string presentations of the obvious things, until a
-    -- need is determined.
-    local replace = function(var)
-        if var == "$(QUERY_STRING)" then
-            return ngx_var.args or ""
-        elseif str_sub(var, 1, 7) == "$(HTTP_" then
-            -- Look for a HTTP_var that matches
-            local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
-            if header then
-                return ngx_var["http_" .. header] or ""
-            else
-                return ""
-            end
-        else
-            return ""
-        end
-    end
-
-    -- For every esi:vars block, substitute any number of variables found.
-    body = ngx_re_gsub(body, "<esi:vars>(.*)</esi:vars>", function(var_block)
-        return ngx_re_gsub(var_block[1],
-            "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)",
-            function(m)
-                return replace(m[0])
-            end,
-            "soj")
-    end, "soj")
-
-    -- Remove vars tags that are left over
-    body = ngx_re_gsub(body, "(<esi:vars>|</esi:vars>)", "", "soj")
-
-    -- Replace vars inline in any other esi: tags.
-    body = ngx_re_gsub(body,
-        "(<esi:)(.+)(.*/>)",
-        function(m)
-            local vars = ngx_re_gsub(m[2],
-                    "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
-                    function (m)
-                        return replace(m[1])
-                    end,
-                    "oj")
-            return m[1] .. vars .. m[3]
-        end,
-        "oj")
-
-    body = ngx_re_gsub(body, "(<!--esi(.*?)-->)", "$2", "soj")
-
-    body = ngx_re_gsub(body, "(<esi:remove>.*?</esi:remove>)", "", "soj")
-
-
-    local esi_uris = {}
-    for tag in ngx_re_gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
-
-        local httpc = http.new()
-
-        local scheme, host, port, path, query = unpack(httpc:parse_uri(tag[1]))
-
-        local r, err = resolver:new{
-            nameservers = {"8.8.8.8", {"8.8.4.4", 53} },
-            retrans = 5,  -- 5 retransmissions on receive timeout
-            timeout = 2000,  -- 2 sec
-        }
-
-        if not r then
-            ngx_log(ngx_ERROR, "Failed to instantiate resolver: ", err)
-            break
-        end
-
-        local answers, err = r:query(host)
-        if not answers then
-            ngx_log(ngx_ERROR, "Failed to query DNS server: ", err)
-            break
-        end
-
-        local ip
-        for _, ans in ipairs(answers) do
-            ngx_log(ngx_DEBUG, ans.name, " ", ans.address or ans.cname,
-                " type:", ans.type, " class:", ans.class,
-                " ttl:", ans.ttl)
-            if ans.address then
-                ip = ans.address
-            end
-        end
-
-        if not ip then break end
-
-        httpc:connect(ip, port)
-
-        local headers = ngx_req_get_headers()
-
-        -- Remove client validators
-        headers["if-modified-since"] = nil
-        headers["if-none-match"] = nil
-
-        headers["host"] = host
-        headers["accept-encoding"] = nil
-
-        local res, err = httpc:request{ 
-            method = ngx_req_get_method(),
-            path = path,
-            headers = headers,
-        }
-
-        if res then
-            local res_body = res:read_body()
-            body = ngx_re_sub(body, "(<esi:include.*/>)", res_body)
-        end
-    
-        httpc:set_keepalive()
-    end
-
-    return body
 end
 
 
