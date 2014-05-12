@@ -138,6 +138,7 @@ check_ports:
 
 test_ledge: flush_db
 	$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
+	util/lua-releng
 
 test_sentinel: flush_db
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/01-master_up.t
