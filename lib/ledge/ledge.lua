@@ -2090,12 +2090,11 @@ end
 -- after having removed the cache entry.
 function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
     local redis = self:ctx().redis
-    local buffer_size = self:config_get("buffer_size")
     local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
     local deleted_due_to_size = false
     local esi_detected = false
 
-    return co_wrap(function()
+    return co_wrap(function(buffer_size)
         local size = 0
         repeat
             local chunk, has_esi, err = reader(buffer_size)
@@ -2152,9 +2151,8 @@ end
 -- contains a full instruction safe to process on serve.
 function _M.get_esi_scan_filter(self, reader)
     local redis = self:ctx().redis
-    local buffer_size = self:config_get("buffer_size")
 
-    return co_wrap(function()
+    return co_wrap(function(buffer_size)
         local prev_chunk = ""
         local buffering = false
         local esi_enabled = self:ctx().esi_scan_enabled
@@ -2241,8 +2239,6 @@ end
 
 
 function _M.get_esi_process_filter(self, reader)
-    local buffer_size = self:config_get("buffer_size")
-
     return co_wrap(function(buffer_size)
         local i = 1
         repeat
