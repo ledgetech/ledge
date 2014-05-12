@@ -151,6 +151,7 @@ FRAGMENT
 2
 
 
+
 === TEST 6: Include multiple fragments, in correct order.
 --- http_config eval: $::HttpConfig
 --- config

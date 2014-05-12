@@ -2246,30 +2246,31 @@ function _M.get_esi_process_filter(self, reader)
     return co_wrap(function(buffer_size)
         local i = 1
         repeat
-            ngx_log(ngx_DEBUG, "CHUNK #", i)
             local chunk, has_esi, err = reader(buffer_size)
             if chunk then
                 if has_esi then
+                    local replace = function(var)
+                        if var == "$(QUERY_STRING)" then
+                            return ngx_var.args or ""
+                        elseif str_sub(var, 1, 7) == "$(HTTP_" then
+                            -- Look for a HTTP_var that matches
+                            local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
+                            if header then
+                                return ngx_var["http_" .. header] or ""
+                            else
+                                return ""
+                            end
+                        else
+                            return ""
+                        end
+                    end
 
                     -- For every esi:vars block, substitute any number of variables found.
                     chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", function(var_block)
                         return ngx_re_gsub(var_block[1], "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)", 
-                            function(m)
-                                local var = m[0]
-                                if var == "$(QUERY_STRING)" then
-                                    return ngx_var.args or ""
-                                elseif str_sub(var, 1, 7) == "$(HTTP_" then
-                                    -- Look for a HTTP_var that matches
-                                    local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
-                                    if header then
-                                        return ngx_var["http_" .. header] or ""
-                                    else
-                                        return ""
-                                    end
-                                else
-                                    return ""
-                                end
-                            end,
+                        function (m)
+                            return replace(m[0])
+                        end,
                         "soj")
                     end, "soj")
 
@@ -2307,7 +2308,6 @@ function _M.get_esi_process_filter(self, reader)
                         )
 
                         if from then
-                            ngx_log(ngx_DEBUG, "yielding from ", yield_from, " to ", from)
                             -- Yield up to the start of the include tag
                             co_yield(str_sub(chunk, yield_from, from - 1))
                             yield_from = to + 1
@@ -2320,33 +2320,50 @@ function _M.get_esi_process_filter(self, reader)
 
                             if src then
                                 local httpc = http.new()
+                                
+                                local scheme, host, port, path
+                                local uri_parts = httpc:parse_uri(src[1])
 
-                                local scheme, host, port, path, query = unpack(httpc:parse_uri(src[1]))
-
-                                local r, err = resolver:new{
-                                    nameservers = {"8.8.8.8", {"8.8.4.4", 53} },
-                                    retrans = 5,  -- 5 retransmissions on receive timeout
-                                    timeout = 2000,  -- 2 sec
-                                }
-
-                                if not r then
-                                    ngx_log(ngx_ERROR, "Failed to instantiate resolver: ", err)
-                                    break
-                                end
-
-                                local answers, err = r:query(host)
-                                if not answers then
-                                    ngx_log(ngx_ERROR, "Failed to query DNS server: ", err)
-                                    break
+                                if not uri_parts then
+                                    -- Not a valid URI, so probably a relative path. Resolve
+                                    -- local to the current request.
+                                    scheme = ngx_var.scheme
+                                    host = ngx_var.http_host or ngx_var.host
+                                    port = ngx_var.server_port
+                                    path = src[1]
+                                else
+                                    scheme, host, port, path = unpack(uri_parts)
                                 end
 
                                 local ip
-                                for _, ans in ipairs(answers) do
-                                    ngx_log(ngx_DEBUG, ans.name, " ", ans.address or ans.cname,
-                                    " type:", ans.type, " class:", ans.class,
-                                    " ttl:", ans.ttl)
-                                    if ans.address then
-                                        ip = ans.address
+                                if host == "localhost" then
+                                    ip = "127.0.0.1"
+                                else
+
+                                    local r, err = resolver:new{
+                                        nameservers = { "8.8.8.8", "8.8.4.4" },
+                                        retrans = 5,  -- 5 retransmissions on receive timeout
+                                        timeout = 2000,  -- 2 sec
+                                    }
+
+                                    if not r then
+                                        ngx_log(ngx_ERROR, "Failed to instantiate resolver: ", err)
+                                        break
+                                    end
+
+                                    local answers, err = r:query(host)
+                                    if not answers then
+                                        ngx_log(ngx_ERROR, "Failed to query DNS server: ", err)
+                                        break
+                                    end
+
+                                    for _, ans in ipairs(answers) do
+                                 --[[       ngx_log(ngx_DEBUG, ans.name, " ", ans.address or ans.cname,
+                                        " type:", ans.type, " class:", ans.class,
+                                        " ttl:", ans.ttl)]]--
+                                        if ans.address then
+                                            ip = ans.address
+                                        end
                                     end
                                 end
 
