@@ -123,6 +123,7 @@ function _M.new(self)
         cache_max_memory = 2048, -- (KB) Max size for a cache item before we bail on trying to store.
 
         redis_database  = 0,
+        redis_qless_database = 1,
         redis_connect_timeout = 500,    -- (ms) Connect timeout
         redis_read_timeout = 5000,      -- (ms) Read/write timeout
         redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
@@ -249,6 +250,8 @@ function _M.run_workers(self)
         if not premature then
             self:e "init_worker"
             local redis = self:ctx().redis
+            local db = self:config_get("redis_qless_database") or 1
+            redis:select(db)
 
             local q = qless.new({ redis_client = redis })
 
@@ -262,6 +265,7 @@ function _M.run_workers(self)
                     if self[job.klass_name] then
                         local res, err = self[job.klass_name](self, job.data)
                         if res then
+                            ngx_log(ngx_NOTICE, cjson_encode(res))
                             job:complete()
                         else
                             ngx_log(ngx_ERR, err)
@@ -332,9 +336,7 @@ function _M.redis_connect(self, hosts)
 
             -- redis:select always returns OK
             local database = self:config_get("redis_database")
-            if database > 0 then
-                redis:select(database)
-            end
+            redis:select(database)
 
             local read_timeout = self:config_get("redis_read_timeout")
             if read_timeout then
@@ -1914,6 +1916,9 @@ function _M.save_to_cache(self, res)
         local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
         local gc_after = math_ceil((previous_entity_size / dl_rate_Bps)) + 1
 
+        local qless_db = self:config_get("redis_qless_database") or 1
+        redis:select(qless_db)
+
         -- Place this job on the queue
         local q = qless.new({ redis_client = redis })
         q.queues["ledge"]:put("collect_entity", { 
@@ -1921,6 +1926,8 @@ function _M.save_to_cache(self, res)
             size = previous_entity_size,
             entity_keys = previous_entity_keys, 
         }, { delay = gc_after })
+
+        redis:select(self:config_get("redis_database") or 0)
     end
 
     redis:hmset(entity_keys.main,
@@ -2453,6 +2460,9 @@ function _M.collect_entity(self, job_data)
 
     redis:multi()
 
+    -- Switch to the main db
+    redis:select(self:config_get("redis_database") or 0)
+
     local del_keys = {}
     for _, key in pairs(job_data.entity_keys) do
         tbl_insert(del_keys, key)
@@ -2462,7 +2472,20 @@ function _M.collect_entity(self, job_data)
     res, err = redis:decrby(job_data.cache_key .. ":memused", job_data.size)
     res, err = redis:zrem(job_data.cache_key .. ":entities", job_data.entity_keys.main)
 
-    return redis:exec()
+    -- Switch back to the qless db
+    redis:select(self:config_get("redis_qless_database") or 1)
+
+    res, err = redis:exec()
+    if res then
+        -- Verify return values look sane.
+        if res[2] ~= #del_keys or res[3] < 0 or res[4] == 0 then
+            return nil, "entity " .. job_data.entity_keys.main .. " was not collected"
+        else
+            return true, nil
+        end
+    else
+        return nil, err
+    end
 end
 
 
