@@ -243,54 +243,30 @@ function _M.run(self)
 end
 
 
-function _M.run_workers(self)
-    local interval = 1
+function _M.run_workers(self, options)
+    local resty_qless_worker = require "resty.qless.worker"
+    local worker = resty_qless_worker.new()
 
-    local function worker(premature)
-        if not premature then
+    local job_specs = {
+        ["ledge.collect_entity"] = {
+            perform = self:get_collect_entity_job_spec(),
+        }
+    }
+
+    worker:start(job_specs, {
+        interval = options.interval or 10,
+        concurrency = options.concurrency or 1,
+        reserver = "ordered",
+        queues = { "ledge" },
+    }, {
+        before = function() 
             self:e "init_worker"
             local redis = self:ctx().redis
-            local db = self:config_get("redis_qless_database") or 1
-            redis:select(db)
-
-            local q = qless.new({ redis_client = redis })
-
-            -- Keep popping jobs until there's nothing to do. We yield the coroutine
-            -- after each job, allowing the scheduler to resume us.
-            repeat
-                local job = q.queues["ledge"]:pop()
-
-                if job then
-                    -- Run the job
-                    if self[job.klass_name] then
-                        local res, err = self[job.klass_name](self, job.data)
-                        if res then
-                            ngx_log(ngx_NOTICE, cjson_encode(res))
-                            job:complete()
-                        else
-                            ngx_log(ngx_ERR, err)
-                        end
-                    else
-                        ngx_log(ngx_ERR, "Unknown job klass " .. job.klass_name)
-                    end
-                    co_yield()
-                end
-            until not job
-
-            self:e "worker_finished"
-
-            -- Recurse to keep polling
-            local ok, err = ngx_timer_at(interval, worker)
-            if not ok then
-                ngx_log(ngx_ERR, "failed to start task: ", err)
-            end
-        end
-    end
-
-    local ok, err = ngx_timer_at(0, worker)
-    if not ok then
-        ngx_log(ngx_ERR, "failed to start task: ", err)
-    end
+            redis:select(self:config_get("redis_qless_database") or 0)
+            worker:set_redis_client(redis) 
+        end,
+        after = function() self:e "worker_finished" end,
+    })
 end
 
 
@@ -1921,7 +1897,7 @@ function _M.save_to_cache(self, res)
 
         -- Place this job on the queue
         local q = qless.new({ redis_client = redis })
-        q.queues["ledge"]:put("collect_entity", { 
+        q.queues["ledge"]:put("ledge.collect_entity", { 
             cache_key = cache_key,
             size = previous_entity_size,
             entity_keys = previous_entity_keys, 
@@ -2455,36 +2431,38 @@ end
 
 
 -- Cleans up expired items and keeps track of memory usage.
-function _M.collect_entity(self, job_data)
-    local redis = self:ctx().redis
+function _M.get_collect_entity_job_spec(self)
+    return function(job_data)
+        local redis = self:ctx().redis
 
-    redis:multi()
+        redis:multi()
 
-    -- Switch to the main db
-    redis:select(self:config_get("redis_database") or 0)
+        -- Switch to the main db
+        redis:select(self:config_get("redis_database") or 0)
 
-    local del_keys = {}
-    for _, key in pairs(job_data.entity_keys) do
-        tbl_insert(del_keys, key)
-    end
-
-    local res, err = redis:del(unpack(del_keys))
-    res, err = redis:decrby(job_data.cache_key .. ":memused", job_data.size)
-    res, err = redis:zrem(job_data.cache_key .. ":entities", job_data.entity_keys.main)
-
-    -- Switch back to the qless db
-    redis:select(self:config_get("redis_qless_database") or 1)
-
-    res, err = redis:exec()
-    if res then
-        -- Verify return values look sane.
-        if res[2] ~= #del_keys or res[3] < 0 or res[4] == 0 then
-            return nil, "entity " .. job_data.entity_keys.main .. " was not collected"
-        else
-            return true, nil
+        local del_keys = {}
+        for _, key in pairs(job_data.entity_keys) do
+            tbl_insert(del_keys, key)
         end
-    else
-        return nil, err
+
+        local res, err = redis:del(unpack(del_keys))
+        res, err = redis:decrby(job_data.cache_key .. ":memused", job_data.size)
+        res, err = redis:zrem(job_data.cache_key .. ":entities", job_data.entity_keys.main)
+
+        -- Switch back to the qless db
+        redis:select(self:config_get("redis_qless_database") or 1)
+
+        res, err = redis:exec()
+        if res then
+            -- Verify return values look sane.
+            if res[2] ~= #del_keys or res[3] < 0 or res[4] == 0 then
+                return nil, "entity " .. job_data.entity_keys.main .. " was not collected"
+            else
+                return true, nil
+            end
+        else
+            return nil, err
+        end
     end
 end
 
