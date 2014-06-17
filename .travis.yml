@@ -17,5 +17,5 @@ before_install:
 install:
   - "cpanm Test::Nginx" 
 
-before_script: "sudo stop redis-server" # Make sure the default redis is stopped
+#before_script: "sudo stop redis-server" # Make sure the default redis is stopped
 script: "make test_all"
