@@ -1,5 +1,7 @@
 local tonumber = tonumber
 local setmetatable = setmetatable
+local type = type
+local tbl_concat = table.concat
 local ngx = ngx
 
 module(...)
@@ -11,6 +13,8 @@ local mt = { __index = _M }
 
 function header_has_directive(header, directive)
     if header then
+        if type(header) == "table" then header = tbl_concat(header, ", ") end
+
         -- Just checking the directive appears in the header, e.g. no-cache, private etc.
         return (header:find(directive, 1, true) ~= nil)
     end
@@ -20,6 +24,8 @@ end
 
 function get_header_token(header, directive)
     if header_has_directive(header, directive) then
+        if type(header) == "table" then header = tbl_concat(header, ", ") end
+
         -- Want the string value from a token
         local value = ngx.re.match(header, directive:gsub('-','\\-').."=\"?([a-z0-9_~!#%&'`\\$\\*\\+\\-\\|\\^\\.]+)\"?", "ioj")
         if value ~= nil then
@@ -33,6 +39,8 @@ end
 
 function get_numeric_header_token(header, directive)
     if header_has_directive(header, directive) then
+        if type(header) == "table" then header = tbl_concat(header, ", ") end
+
         -- Want the numeric value from a token
         local value = ngx.re.match(header, directive:gsub('-','\\-').."=\"?(\\d+)\"?", "ioj")
         if value ~= nil then
