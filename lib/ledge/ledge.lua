@@ -2426,7 +2426,7 @@ end
 
 
 -- #################################################################################
--- # Worker tasks, called by ngx.timer.at().
+-- # Worker job factories. Return a function which accepts job_data, run by qless.
 -- #################################################################################
 
 
