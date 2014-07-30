@@ -11,6 +11,7 @@ local type = type
 local next = next
 local table = table
 local ngx = ngx
+local tbl_concat = table.concat
 
 module(...)
 
@@ -1467,10 +1468,14 @@ function save_to_cache(self, res)
     }
 
     -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
-    if res.header["Cache-Control"] and res.header["Cache-Control"]:find("=") then
+    local cc = res.header["Cache-Control"]
+    if type(cc) == "table" then
+        cc = tbl_concat(cc, ", ")
+    end
+    if cc and cc:find("=") then
         local patterns = { "no%-cache", "no%-store", "private" }
         for _,p in ipairs(patterns) do
-            for h in res.header["Cache-Control"]:gmatch(p .. "=\"?([%a-]+)\"?") do
+            for h in cc:gmatch(p .. "=\"?([%a-]+)\"?") do
                 table.insert(uncacheable_headers, h)
             end
         end

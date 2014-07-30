@@ -6,7 +6,9 @@ local rawset = rawset
 local rawget = rawget
 local tonumber = tonumber
 local error = error
+local type = type
 local ngx = ngx
+local tbl_concat = table.concat
 
 module(...)
 
@@ -102,9 +104,13 @@ end
 function ttl(self)
     -- Header precedence is Cache-Control: s-maxage=NUM, Cache-Control: max-age=NUM,
     -- and finally Expires: HTTP_TIMESTRING.
-    if self.header["Cache-Control"] then
+    local cc = self.header["Cache-Control"]
+    if cc then
+        if type(cc) == "table" then
+            cc = tbl_concat(cc, ", ")
+        end
         local max_ages = {}
-        for max_age in ngx.re.gmatch(self.header["Cache-Control"], 
+        for max_age in ngx.re.gmatch(cc,
             "(s\\-maxage|max\\-age)=(\\d+)", 
             "io") do
             max_ages[max_age[1]] = max_age[2]
