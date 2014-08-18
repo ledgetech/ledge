@@ -97,6 +97,8 @@ UPDATED
 --- config
     location /gc {
         content_by_lua '
+            ngx.sleep(1) -- Wait for qless to do the work
+
            local redis_mod = require "resty.redis"
            local redis = redis_mod.new()
            redis:connect("127.0.0.1", 6379)
