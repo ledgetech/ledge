@@ -244,28 +244,26 @@ end
 
 
 function _M.run_workers(self, options)
+    if not options then options = {} end
     local resty_qless_worker = require "resty.qless.worker"
-    local worker = resty_qless_worker.new()
 
-    local job_specs = {
-        ["ledge.collect_entity"] = {
-            perform = self:get_collect_entity_job_spec(),
-        }
-    }
+    -- We need to use the sentinel code to connect
+    local worker = resty_qless_worker.new({ database = self:config_get("redis_qless_database") })
 
-    worker:start(job_specs, {
+    worker.middleware = function(job)
+        self:e "init_worker"
+        job.redis = self:ctx().redis
+
+        co_yield() -- Perform the job
+
+        self:e "worker_finished"
+    end
+
+    worker:start({
         interval = options.interval or 10,
         concurrency = options.concurrency or 1,
         reserver = "ordered",
         queues = { "ledge" },
-    }, {
-        before = function() 
-            self:e "init_worker"
-            local redis = self:ctx().redis
-            redis:select(self:config_get("redis_qless_database") or 0)
-            worker:set_redis_client(redis) 
-        end,
-        after = function() self:e "worker_finished" end,
     })
 end
 
@@ -1896,8 +1894,8 @@ function _M.save_to_cache(self, res)
         redis:select(qless_db)
 
         -- Place this job on the queue
-        local q = qless.new({ redis_client = redis })
-        q.queues["ledge"]:put("ledge.collect_entity", { 
+        local q = qless.new({ redis = redis })
+        q.queues["ledge"]:put("ledge.jobs.collect_entity", { 
             cache_key = cache_key,
             size = previous_entity_size,
             entity_keys = previous_entity_keys, 
@@ -2422,48 +2420,6 @@ function _M.add_warning(self, code)
 
     local header = code .. ' ' .. self:visible_hostname() .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(res.header["Warning"], header)
-end
-
-
--- #################################################################################
--- # Worker job factories. Return a function which accepts job_data, run by qless.
--- #################################################################################
-
-
--- Cleans up expired items and keeps track of memory usage.
-function _M.get_collect_entity_job_spec(self)
-    return function(job_data)
-        local redis = self:ctx().redis
-
-        redis:multi()
-
-        -- Switch to the main db
-        redis:select(self:config_get("redis_database") or 0)
-
-        local del_keys = {}
-        for _, key in pairs(job_data.entity_keys) do
-            tbl_insert(del_keys, key)
-        end
-
-        local res, err = redis:del(unpack(del_keys))
-        res, err = redis:decrby(job_data.cache_key .. ":memused", job_data.size)
-        res, err = redis:zrem(job_data.cache_key .. ":entities", job_data.entity_keys.main)
-
-        -- Switch back to the qless db
-        redis:select(self:config_get("redis_qless_database") or 1)
-
-        res, err = redis:exec()
-        if res then
-            -- Verify return values look sane.
-            if res[2] ~= #del_keys or res[3] < 0 or res[4] == 0 then
-                return nil, "entity " .. job_data.entity_keys.main .. " was not collected"
-            else
-                return true, nil
-            end
-        else
-            return nil, err
-        end
-    end
 end
 
 
