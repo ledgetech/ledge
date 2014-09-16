@@ -247,8 +247,33 @@ function _M.run_workers(self, options)
     if not options then options = {} end
     local resty_qless_worker = require "resty.qless.worker"
 
-    -- We need to use the sentinel code to connect
-    local worker = resty_qless_worker.new({ database = self:config_get("redis_qless_database") })
+    local redis_params
+
+    if self:config_get("redis_use_sentinel") then
+        local sentinels = self:config_get("redis_sentinels")
+        redis_params = {
+            sentinel = {
+                host = sentinels[1].host,
+                port = sentinels[1].port,
+                master_name = self:config_get("redis_sentinel_master_name"),
+            }
+        }
+    else
+        redis_params = {
+            redis = {
+                host = self:config_get("redis_host"),
+                port = self:config_get("redis_port"),
+            }
+        }
+    end
+
+    local connection_options = {
+        connect_timeout = self:config_get("redis_connect_timeout"),
+        read_timeout = self:config_get("redis_read_timeout"),
+        database = self:config_get("redis_qless_database"),
+    }
+
+    local worker = resty_qless_worker.new(redis_params, connection_options)
 
     worker.middleware = function(job)
         self:e "init_worker"
