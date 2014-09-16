@@ -128,7 +128,9 @@ function _M.new(self)
         redis_read_timeout = 5000,      -- (ms) Read/write timeout
         redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- (sec) Defaults to 30 or lua_socket_pool_size
-        redis_host = { "127.0.0.1", port = 6379, socket = nil, password = nil },
+        redis_hosts = {
+            { host = "127.0.0.1", port = 6379, socket = nil, password = nil }
+        },
 
         redis_use_sentinel = false,
         redis_sentinels = {
@@ -137,7 +139,6 @@ function _M.new(self)
             -- { host = "127.0.0.1", port = 6382 },
             -- { host = "127.0.0.1", port = 6383 },
         },
-        redis_sentinel_master_name = "mymaster",
 
         keep_cache_for  = 86400 * 30,   -- (sec) Max time to keep cache items past expiry + stale.
                                         -- Items will be evicted when under memory pressure, so this
@@ -244,29 +245,10 @@ end
 
 function _M.run_workers(self, options)
     if not options then options = {} end
-    local qless_worker = require "resty.qless.worker"
+    local resty_qless_worker = require "resty.qless.worker"
 
-    local params
-    if self:config_get("redis_use_sentinel") then
-        params = {
-            sentinel = {
-                hosts = self:config_get("redis_sentinels"),
-                master_name = self:config_get("redis_sentinel_master_name")
-            },
-        }
-    else
-        params = {
-            host = self:config_get("redis_host"),
-        }
-    end
-
-    local connection_options = {
-        connect_timeout = self:config_get("redis_connect_timeout"),
-        read_timeout = self:config_get("redis_read_timeout"),
-        database = self:config_get("redis_qless_database"),
-    }
-
-    local worker = qless_worker.new(params, connection_options)
+    -- We need to use the sentinel code to connect
+    local worker = resty_qless_worker.new({ database = self:config_get("redis_qless_database") })
 
     worker.middleware = function(job)
         self:e "init_worker"
@@ -1912,7 +1894,7 @@ function _M.save_to_cache(self, res)
         redis:select(qless_db)
 
         -- Place this job on the queue
-        local q = qless.new({ redis_client = redis })
+        local q = qless.new({ redis = redis })
         q.queues["ledge"]:put("ledge.jobs.collect_entity", { 
             cache_key = cache_key,
             size = previous_entity_size,
