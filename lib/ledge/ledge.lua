@@ -2337,69 +2337,39 @@ function _M.get_esi_process_filter(self, reader)
                                     scheme, host, port, path = unpack(uri_parts)
                                 end
 
-                                local ip
-                                if host == "localhost" then
-                                    ip = "127.0.0.1"
+                                local res, err = httpc:connect(host, port)
+                                if not res then
+                                    ngx_log(err)
+                                    co_yield()
                                 else
+                                    local headers = ngx_req_get_headers()
 
-                                    local r, err = resolver:new{
-                                        nameservers = { "8.8.8.8", "8.8.4.4" },
-                                        retrans = 5,  -- 5 retransmissions on receive timeout
-                                        timeout = 2000,  -- 2 sec
+                                    -- Remove client validators
+                                    headers["if-modified-since"] = nil
+                                    headers["if-none-match"] = nil
+
+                                    headers["host"] = host
+                                    headers["accept-encoding"] = nil
+
+                                    local res, err = httpc:request{ 
+                                        method = ngx_req_get_method(),
+                                        path = path,
+                                        headers = headers,
                                     }
 
-                                    if not r then
-                                        ngx_log(ngx_ERROR, "Failed to instantiate resolver: ", err)
-                                        break
+                                    if res then
+                                        -- Stream the include fragment, yielding as we go
+                                        local reader = res.body_reader
+                                        repeat
+                                            local ch, err = reader(buffer_size)
+                                            if ch then
+                                                co_yield(ch)
+                                            end
+                                        until not ch
                                     end
 
-                                    local answers, err = r:query(host)
-                                    if not answers then
-                                        ngx_log(ngx_ERROR, "Failed to query DNS server: ", err)
-                                        break
-                                    end
-
-                                    for _, ans in ipairs(answers) do
-                                 --[[       ngx_log(ngx_DEBUG, ans.name, " ", ans.address or ans.cname,
-                                        " type:", ans.type, " class:", ans.class,
-                                        " ttl:", ans.ttl)]]--
-                                        if ans.address then
-                                            ip = ans.address
-                                        end
-                                    end
+                                    httpc:set_keepalive()
                                 end
-
-                                if not ip then break end
-
-                                httpc:connect(ip, port)
-
-                                local headers = ngx_req_get_headers()
-
-                                -- Remove client validators
-                                headers["if-modified-since"] = nil
-                                headers["if-none-match"] = nil
-
-                                headers["host"] = host
-                                headers["accept-encoding"] = nil
-
-                                local res, err = httpc:request{ 
-                                    method = ngx_req_get_method(),
-                                    path = path,
-                                    headers = headers,
-                                }
-
-                                if res then
-                                    -- Stream the include fragment, yielding as we go
-                                    local reader = res.body_reader
-                                    repeat
-                                        local ch, err = reader(buffer_size)
-                                        if ch then
-                                            co_yield(ch)
-                                        end
-                                    until not ch
-                                end
-
-                                httpc:set_keepalive()
                             end
                         else
                             co_yield(str_sub(chunk, ctx.pos, #chunk))
