@@ -1894,7 +1894,7 @@ function _M.save_to_cache(self, res)
         redis:select(qless_db)
 
         -- Place this job on the queue
-        local q = qless.new({ redis = redis })
+        local q = qless.new({ redis_client = redis })
         q.queues["ledge"]:put("ledge.jobs.collect_entity", { 
             cache_key = cache_key,
             size = previous_entity_size,
