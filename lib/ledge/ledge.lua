@@ -2337,9 +2337,11 @@ function _M.get_esi_process_filter(self, reader)
                                     scheme, host, port, path = unpack(uri_parts)
                                 end
 
+                                if host == "localhost" then host = "127.0.0.1" end
+
                                 local res, err = httpc:connect(host, port)
                                 if not res then
-                                    ngx_log(err)
+                                    ngx_log(ngx_ERR, err)
                                     co_yield()
                                 else
                                     local headers = ngx_req_get_headers()

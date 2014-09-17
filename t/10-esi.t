@@ -8,6 +8,7 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
+    resolver 8.8.8.8;
     lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         ledge_mod = require 'ledge.ledge'
@@ -572,6 +573,12 @@ location /fragment_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua 'ledge:run()';
 }
+location /fragment {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("FRAGMENT MODIFIED")
+    ';
+}
 location /esi_11 {
     default_type text/html;
     content_by_lua '
@@ -584,7 +591,7 @@ location /esi_11 {
 GET /esi_11_prx
 --- response_body
 1
-FRAGMENT
+FRAGMENT MODIFIED
 2
 
 
@@ -647,3 +654,5 @@ a=1
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 --- error_log
 cache item deleted as it is larger than 16 bytes
+
+
