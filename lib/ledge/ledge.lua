@@ -7,7 +7,7 @@ local h_util = require "ledge.header_util"
 local ffi = require "ffi"
 
 local redis = require "resty.redis"
-redis.add_commands("sentinel")
+local redis_connector = require "resty.redis.connector"
 
 local   tostring, ipairs, pairs, type, tonumber, next, unpack =
         tostring, ipairs, pairs, type, tonumber, next, unpack
@@ -128,9 +128,7 @@ function _M.new(self)
         redis_read_timeout = 5000,      -- (ms) Read/write timeout
         redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
         redis_keepalive_poolsize = nil, -- (sec) Defaults to 30 or lua_socket_pool_size
-        redis_hosts = {
-            { host = "127.0.0.1", port = 6379, socket = nil, password = nil }
-        },
+        redis_host = { host = "127.0.0.1", port = 6379, socket = nil, password = nil },
 
         redis_use_sentinel = false,
         redis_sentinels = {
@@ -250,20 +248,15 @@ function _M.run_workers(self, options)
     local redis_params
 
     if self:config_get("redis_use_sentinel") then
-        local sentinels = self:config_get("redis_sentinels")
         redis_params = {
             sentinel = {
-                host = sentinels[1].host,
-                port = sentinels[1].port,
+                hosts = self:config_get("redis_sentinels"),
                 master_name = self:config_get("redis_sentinel_master_name"),
             }
         }
     else
         redis_params = {
-            redis = {
-                host = self:config_get("redis_host"),
-                port = self:config_get("redis_port"),
-            }
+            redis = self:config_get("redis_host")
         }
     end
 
@@ -313,73 +306,27 @@ function _M.visible_hostname(self)
 end
 
 
--- Tries hosts in the order given, and returns a redis connection (which may not be connected).
-function _M.redis_connect(self, hosts)
-    local redis = redis:new()
-
-    local timeout = self:config_get("redis_connect_timeout")
-    if timeout then
-        redis:set_timeout(timeout)
-    end
-
-    local ok, err = nil, nil
-
-    for _, conn in ipairs(hosts) do
-        ok, err = redis:connect(conn.socket or conn.host, conn.port or 0)
-        if ok then 
-            -- Attempt authentication.
-            local password = conn.password
-            if password then
-                ok, err = redis:auth(password)
-            end
-
-            -- redis:select always returns OK
-            local database = self:config_get("redis_database")
-            redis:select(database)
-
-            local read_timeout = self:config_get("redis_read_timeout")
-            if read_timeout then
-                redis:set_timeout(read_timeout)
-            end
-
-            break -- We're done
-        end
-    end
-
-    return ok, err, redis
-end
-
-
--- Close and optionally keepalive the redis (and sentinel if enabled) connection.
+-- Close and optionally keepalive the redis connection
 function _M.redis_close(self)
     local redis = self:ctx().redis
-    local sentinel = self:ctx().sentinel
     if redis then
-        self:_redis_close(redis)
-    end
-    if sentinel then
-        self:_redis_close(sentinel)
-    end
-end
-
-
-function _M._redis_close(self, redis)
-    -- Keep the Redis connection based on keepalive settings.
-    local ok, err = nil, nil
-    local keepalive_timeout = self:config_get("redis_keepalive_timeout")
-    if keepalive_timeout then
-        if self:config_get("redis_keepalive_pool_size") then
-            ok, err = redis:set_keepalive(keepalive_timeout, 
+        -- Keep the Redis connection based on keepalive settings.
+        local ok, err = nil, nil
+        local keepalive_timeout = self:config_get("redis_keepalive_timeout")
+        if keepalive_timeout then
+            if self:config_get("redis_keepalive_pool_size") then
+                ok, err = redis:set_keepalive(keepalive_timeout, 
                 self:config_get("redis_keepalive_pool_size"))
+            else
+                ok, err = redis:set_keepalive(keepalive_timeout)
+            end
         else
-            ok, err = redis:set_keepalive(keepalive_timeout)
+            ok, err = redis:set_keepalive()
         end
-    else
-        ok, err = redis:set_keepalive()
-    end
 
-    if not ok then
-        ngx_log(ngx_WARN, "couldn't set keepalive, ", err)
+        if not ok then
+            ngx_log(ngx_WARN, "couldn't set keepalive, ", err)
+        end
     end
 end
 
@@ -595,72 +542,30 @@ end
 -- given event before more generic ones.
 ---------------------------------------------------------------------------------------------------
 _M.events = {
-    -- Initial transition. Let's find out if we're connecting via Sentinel.
+    -- Initial transition. Connect to redis.
     init = {
-        { begin = "considering_sentinel" },
+        { begin = "connecting_to_redis" },
     },
 
     -- Entry point for worker scripts, which need to connect to Redis but
     -- will stop when this is done.
     init_worker = {
-        { begin = "considering_sentinel" }, 
+        { begin = "connecting_to_redis" }, 
     },
 
     -- Background worker who slept due to redis connection failure, has awoken
     -- to try again.
     woken = {
-        { begin = "considering_sentinel" }
+        { begin = "connecting_to_redis" }
     },
 
     worker_finished = {
         { begin = "exiting_worker" }
     },
 
-    -- We have sentinel config, so attempt connection.
-    sentinel_configured = {
-        { begin = "connecting_to_sentinel" },
-    },
-
-    -- We have no sentinel config, connect to redis hosts directly.
-    sentinel_not_configured = {
-        { begin = "connecting_to_redis" },
-    },
-
-    -- We successfully connected to sentinel, try selecting the master.
-    sentinel_connected = {
-        { begin = "selecting_redis_master" },
-    },
-    
-    -- We failed connecting to sentinel(s). Bail. If we're not a worker, set HTTP error code.
-    sentinel_connection_failed = {
-        { in_case = "init_worker", begin = "sleeping" },
-        { begin = "exiting", but_first = "set_http_service_unavailable" },
-    },
-
-    -- We found a master, connect to it.
-    redis_master_selected = {
-        { begin = "connecting_to_redis" },
-    },
-    
-    -- We failed to select a redis instance. If we were already trying slaves, then we have to bail.
-    -- If we were selecting the master, try selecting (as yet unpromoted) slaves.
-    redis_selection_failed = {
-        { in_case = "init_worker", begin = "sleeping" },
-        { after = "selecting_redis_slaves", begin = "exiting", 
-            but_first = "set_http_service_unavailable" },
-        { after = "selecting_redis_master", begin = "selecting_redis_slaves" },
-    },
-
-    -- We managed to find a slave. It will be read-only, but maybe we'll get lucky and have a HIT.
-    redis_slaves_selected = {
-        { begin = "connecting_to_redis" },
-    },
-
-    -- We failed to connect to redis. If we were trying a master at the time, lets give the
-    -- slaves a go. Otherwise, bail.
+    -- We failed to connect to redis. Bail.
     redis_connection_failed = {
         { in_case = "init_worker", begin = "sleeping" },
-        { after = "selecting_redis_master", begin = "selecting_redis_slaves" },
         { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
 
@@ -1167,29 +1072,32 @@ _M.actions = {
 -- table.
 ---------------------------------------------------------------------------------------------------
 _M.states = {
-    considering_sentinel = function(self)
-        if self:config_get("redis_use_sentinel") then
-            return self:e "sentinel_configured"
-        else
-            return self:e "sentinel_not_configured"
-        end
-    end,
-
-    connecting_to_sentinel = function(self)
-        local hosts = self:config_get("redis_sentinels")
-        local ok, err, sentinel = self:redis_connect(hosts)
-        if not ok then
-            return self:e "sentinel_connection_failed"
-        else
-            self:ctx().sentinel = sentinel
-            return self:e "sentinel_connected"
-        end
-    end,
-
     connecting_to_redis = function(self)
-        local hosts = self:config_get("redis_hosts")
-        local ok, err, redis = self:redis_connect(hosts)
-        if not ok then
+        local redis_params
+
+        if self:config_get("redis_use_sentinel") then
+            redis_params = {
+                sentinel = {
+                    hosts = self:config_get("redis_sentinels"),
+                    master_name = self:config_get("redis_sentinel_master_name"),
+                    try_slaves = true,
+                }
+            }
+        else
+            redis_params = {
+                redis = self:config_get("redis_host"),
+            }
+        end
+
+        local connection_options = {
+            connect_timeout = self:config_get("redis_connect_timeout"),
+            read_timeout = self:config_get("redis_read_timeout"),
+            database = self:config_get("redis_database"),
+        }
+
+        local redis, err = redis_connector.connect(redis_params, connection_options)
+        if not redis then
+            ngx_log(ngx_ERR, err)
             return self:e "redis_connection_failed"
         else
             self:ctx().redis = redis
