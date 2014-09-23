@@ -1689,8 +1689,14 @@ function _M.fetch_from_origin(self)
 
     ngx.req.read_body() -- Must read body into lua when passing options into location.capture
 
+
     local httpc = http.new()
-    httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
+    local ok, err = httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
+    if not ok then
+        ngx_log(ngx_ERR, err)
+        res.status = 503
+        return res
+    end
     
     local origin, err = httpc:request{
         method = ngx_req_get_method(),

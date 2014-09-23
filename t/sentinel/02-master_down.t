@@ -8,7 +8,7 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
-	lua_package_path "$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
 	init_by_lua "
 		ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
@@ -40,7 +40,8 @@ GET /sentinel_1
 --- response_body
 OK
 
-=== TEST 2: The write will fail, but we'll still get a 200 with our content.
+
+=== TEST 2: The write will fail, but we'll still get a 200 with our new content.
 --- http_config eval: $::HttpConfig
 --- config
 	location /sentinel_2_prx {
@@ -64,7 +65,7 @@ TEST 2
 === TEST 2b: The write will fail, but we'll still get a 200 with our content.
 --- http_config eval: $::HttpConfig
 --- config
-	location /sentinel_2_prx {
+    location /sentinel_2_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:run()
