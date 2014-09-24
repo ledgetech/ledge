@@ -116,8 +116,14 @@ function _M.new(self)
     local config = {
         origin_mode     = _M.ORIGIN_MODE_NORMAL,
 
+        upstream_connect_timeout = 500,
+        upstream_read_timeout = 5000,
         upstream_host = "",
         upstream_port = 80,
+
+        use_resty_upstream = false,
+        resty_upstream = nil,   -- An instance of lua-resty-upstream, which if enabled will override 
+                                -- upstream_* settings above.
 
         buffer_size = 2^17, -- 131072 (bytes) (128KB) Internal buffer size for data read/written/served.
         cache_max_memory = 2048, -- (KB) Max size for a cache item before we bail on trying to store.
@@ -1681,21 +1687,26 @@ function _M.fetch_from_origin(self)
     self:emit("origin_required")
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
-    -- Unrecognised request method, do not proxy
     if not method then
+        -- Unrecognised request method, do not proxy
         res.status = ngx.HTTP_METHOD_NOT_IMPLEMENTED
         return res
     end
 
     ngx.req.read_body() -- Must read body into lua when passing options into location.capture
 
+    local httpc = self:config_get("resty_upstream")
+    if not httpc then
+        httpc = http.new()
+        httpc:set_timeout(self:config_get("upstream_connect_timeout"))
+        local ok, err = httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
+        if not ok then
+            ngx_log(ngx_ERR, err)
+            res.status = 524 -- server timeout
+            return res
+        end
 
-    local httpc = http.new()
-    local ok, err = httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
-    if not ok then
-        ngx_log(ngx_ERR, err)
-        res.status = 503
-        return res
+        httpc:set_timeout(self:config_get("upstream_read_timeout"))
     end
     
     local origin, err = httpc:request{
@@ -1707,6 +1718,7 @@ function _M.fetch_from_origin(self)
 
     if not origin then
         ngx_log(ngx_ERR, err)
+        res.status = 524
         return res
     end
     
