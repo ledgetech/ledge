@@ -1693,8 +1693,6 @@ function _M.fetch_from_origin(self)
         return res
     end
 
-    ngx.req.read_body() -- Must read body into lua when passing options into location.capture
-
     local httpc = self:config_get("resty_upstream")
     if not httpc then
         httpc = http.new()
@@ -1712,7 +1710,7 @@ function _M.fetch_from_origin(self)
     local origin, err = httpc:request{
         method = ngx_req_get_method(),
         path = self:relative_uri(),
-        body = ngx.req.get_body_data(), -- TODO: stream this into httpc?
+        body = httpc:get_client_body_reader(),
         headers = ngx_req_get_headers(),
     }
 
