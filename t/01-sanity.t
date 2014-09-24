@@ -10,7 +10,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 our $HttpConfig = qq{
     lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
-        ledge_mod = require 'ledge.ledge'
+        local ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
@@ -49,7 +49,7 @@ GET /sanity_1
                     for _,kw in ipairs { "when", "after", "begin" } do
                         if trans[kw] then
                             if "function" ~= type(ledge.states[trans[kw]]) then
-                                ngx.say("State "..trans[kw].." requested during "..ev.." is not defined")
+                                ngx.say("State ", trans[kw], " requested during ", ev, " is not defined")
                             end
                         end
                     end
@@ -57,10 +57,9 @@ GET /sanity_1
                     -- Check "in_case" previous event
                     if trans["in_case"] then
                         if not ledge.events[trans["in_case"]] then
-                            ngx.say("Event "..trans["in_case"].." filtered for but is not in transition table")
+                            ngx.say("Event ", trans["in_case"], " filtered for but is not in transition table")
                         end
                     end
-
 
                     -- Check actions
                     if trans["but_first"] then
@@ -68,12 +67,12 @@ GET /sanity_1
                         if type(action) == "table" then
                             for _,ac in ipairs(action) do
                                 if "function" ~= type(ledge.actions[ac]) then
-                                    ngx.say("Action "..ac.." called during "..ev.." is not defined")
+                                    ngx.say("Action ", ac, " called during ", ev, " is not defined")
                                 end
                             end
                         else
                             if "function" ~= type(ledge.actions[action]) then
-                                ngx.say("Action "..action.." called during "..ev.." is not defined")
+                                ngx.say("Action ", action, " called during ", ev, " is not defined")
                             end
                         end
                     end
@@ -82,14 +81,14 @@ GET /sanity_1
 
             for t,v in pairs(ledge.pre_transitions) do
                 if "function" ~= type(ledge.states[t]) then
-                    ngx.say("Pre-transitions defined for missing state "..t)
+                    ngx.say("Pre-transitions defined for missing state ", t)
                 end
                 if type(v) ~= "table" or #v == 0 then
                     ngx.say("No pre-transition actions defined for "..t)
                 else
                     for _,action in ipairs(v) do
                         if "function" ~= type(ledge.actions[action]) then
-                            ngx.say("Pre-transition action "..action.." is not defined")
+                            ngx.say("Pre-transition action ", action, " is not defined")
                         end
                     end
                 end
