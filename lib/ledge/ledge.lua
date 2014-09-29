@@ -1706,11 +1706,17 @@ function _M.fetch_from_origin(self)
 
         httpc:set_timeout(self:config_get("upstream_read_timeout"))
     end
+
+    local req_body_reader, err = httpc:get_client_body_reader()
+    if not req_body_reader then
+        ngx_log(ngx_NOTICE, err)
+        req_body_reader = ""
+    end
     
     local origin, err = httpc:request{
         method = ngx_req_get_method(),
         path = self:relative_uri(),
-        body = httpc:get_client_body_reader(),
+        body = req_body_reader,
         headers = ngx_req_get_headers(),
     }
 
