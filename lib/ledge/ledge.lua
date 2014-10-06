@@ -120,6 +120,9 @@ function _M.new(self)
         upstream_read_timeout = 5000,
         upstream_host = "",
         upstream_port = 80,
+        upstream_use_ssl = false,
+        upstream_ssl_server_name = nil,
+        upstream_ssl_verify = true,
 
         use_resty_upstream = false,
         resty_upstream = nil,   -- An instance of lua-resty-upstream, which if enabled will override 
@@ -1693,30 +1696,37 @@ function _M.fetch_from_origin(self)
         return res
     end
 
-    local httpc = self:config_get("resty_upstream")
-    if not httpc then
+    local httpc
+    if self:config_get("use_resty_upstream") then
+        httpc = self:config_get("resty_upstream")
+    else
         httpc = http.new()
         httpc:set_timeout(self:config_get("upstream_connect_timeout"))
+
         local ok, err = httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
+
         if not ok then
             ngx_log(ngx_ERR, err)
-            res.status = 524 -- server timeout
+            res.status = 524 -- upstream server timeout
             return res
         end
-
+        
         httpc:set_timeout(self:config_get("upstream_read_timeout"))
+        
+        if self:config_get("upstream_use_ssl") then
+            local ok, err = httpc:ssl_handshake(false, 
+                                                self:config_get("upstream_ssl_server_name"), 
+                                                self:config_get("upstream_ssl_verify"))
+            if not ok then
+                ngx_log(ngx_ERR, "ssl handshake failed: ", err)
+            end
+        end
     end
 
-    local req_body_reader, err = httpc:get_client_body_reader()
-    if not req_body_reader then
-        ngx_log(ngx_NOTICE, err)
-        req_body_reader = ""
-    end
-    
     local origin, err = httpc:request{
         method = ngx_req_get_method(),
         path = self:relative_uri(),
-        body = req_body_reader,
+        body = httpc:get_client_body_reader(),
         headers = ngx_req_get_headers(),
     }
 
