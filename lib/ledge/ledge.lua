@@ -1726,7 +1726,7 @@ function _M.fetch_from_origin(self)
     local origin, err = httpc:request{
         method = ngx_req_get_method(),
         path = self:relative_uri(),
-        body = httpc:get_client_body_reader(),
+        body = httpc:get_client_body_reader(self:config_get("buffer_size")),
         headers = ngx_req_get_headers(),
     }
 
