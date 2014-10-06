@@ -1713,7 +1713,7 @@ function _M.fetch_from_origin(self)
         
         httpc:set_timeout(self:config_get("upstream_read_timeout"))
         
-        if self:config_get("upstream_use_ssl") then
+        if self:config_get("upstream_use_ssl") == true then
             local ok, err = httpc:ssl_handshake(false, 
                                                 self:config_get("upstream_ssl_server_name"), 
                                                 self:config_get("upstream_ssl_verify"))
