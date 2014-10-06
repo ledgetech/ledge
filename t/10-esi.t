@@ -9,6 +9,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
     resolver 8.8.8.8;
+    if_modified_since off;
     lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         ledge_mod = require 'ledge.ledge'
@@ -491,7 +492,7 @@ location /esi_10 {
     default_type text/html;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "esi10c"
+        ngx.header["Etag"] = "esi10d"
         ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
     ';
 }
