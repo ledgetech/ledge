@@ -1,91 +1,34 @@
 # Ledge
 
-A [Lua](http://www.lua.org) module for [OpenResty](http://openresty.org), providing scriptable HTTP cache (edge) functionality for [Nginx](http://nginx.org), using [Redis](http://redis.io) as the cache / metadata store. 
-
-The aim is to provide an efficient and extensible RFC compliant caching HTTP proxy server, including clear expressive configuration and event handling via Lua scripting.
+A [Lua](http://www.lua.org) application for [OpenResty](http://openresty.org), providing scriptable HTTP cache functionality for [Nginx](http://nginx.org), using [Redis](http://redis.io) as a cache / metadata store. 
 
 ## Status
 
-This library is considered experimental and under active development, functionality may change without much notice.
+Under active development, functionality may change without much notice.
 
-[![Build Status](https://travis-ci.org/pintsized/ledge.png?branch=master)](https://travis-ci.org/pintsized/ledge)
+## Features
 
-### Features
-
-* RFC 2616 compliant proxying and caching based on policies derived from HTTP request and response headers (please [raise an issue](https://github.com/pintsized/ledge/issues) if you spot a case we haven't covered).
 * Cache items and metadata stored in [Redis](http://redis.io).
+* Configurable max memory limits for entities.
 * Redis automatic failover with [Sentinel](http://redis.io/topics/sentinel).
-* Mechanisms to override cache policies at various stages using Lua script.
+* Event hooks to override cache policies at various stages using Lua script.
+* End-to-end revalidation (specific and unspecified).
+* Offline modes (bypass, avoid).
+* Stale-if-error (serves stale content on upstream error)
+* Serve stale content for a given time, and revalidate in the background.
+* Collapsed forwarding (concurrent similar requests collapsed into a single upstream request).
+* Caching POST responses (servable to subsequent GET / HEAD requests).
+* Squid-like PURGE requests to remove resources from cache.
 * ESI support:
 	* Variable substitution (strings only currently).
 	* Comments removal.
 	* `<esi:remove>` tags removed.
-	* `<esi:include>` fetched non-blocking and in parallel if mutiple fragments are present (relative URIs only currently, see [this workaround](#absolute-uris).
-	* Fragments properly affect downstream cache lifetime / revalidation for the parent resource.
-* End-to-end revalidation (specific and unspecified).
-* Offline modes (bypass, avoid).
-* Serving stale content.
-* Background revalidation.
-* Collapsed forwarding (concurrent similar requests collapsed into a single upstream request).
-* Caching POST responses (servable to subsequent GET / HEAD requests).
-* Squid-like PURGE requests to remove resources from cache.
+	* `<esi:include>` URIs fetched and included.
+	* Fragment includsion properly affect downstream cache lifetime / revalidation for the parent resource.
+	* Surrogate delegation.
 
-### Limitations
+Please feel free to raise issues / request features at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
 
-Beware of blindly caching large response bodies (videos etc). This could cause excessive memory usage spikes in Nginx, and obviously fill up your Redis instance, potentially forcing evictions. There are a few ideas being kicked around to mitigate this, including adding a streaming API to `ngx.location.capture`. Generally though, massive files don't suit cache so well since they tend to be static and latency constraints give way to bandwidth.
-
-### Next up...
-
-* Vary header support.
-* The large response body problem.
-
-
-Please feel free to raise issues at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
-
-## Basic usage
-
-Ledge can be used to cache any defined `location` blocks in Nginx, the most typical case being one which uses the [proxy module](http://wiki.nginx.org/HttpProxyModule), allowing you to cache upstream resources. The idea being that your actual resources are defined as `internal` locations, and a Ledge enabled location is invoked in their place. 
-
-Simply create an instance of the module during `init_by_lua`, and then instruct Ledge to handle the response with one or more `content_by_lua` directive(s), each potentially containing their own bespoke configuration without risk of collision.
-
-### Simple example
-
-```nginx
-http {
-    init_by_lua '
-        ledge_mod = require "ledge.ledge"
-        ledge = ledge_mod:new()
-    ';
-
-    server {
-        listen 80;
-        server_name example.com;
-
-        location / {
-            content_by_lua 'ledge:run()';
-        }
-
-        location /__ledge_origin {
-			internal;
-	        rewrite ^/__ledge_origin(.*)$ $1 break;
-	        proxy_set_header X-Real-IP  $remote_addr;
-	        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-	        proxy_set_header Host $host;
-	        proxy_read_timeout 30s;
-	        
-	        # Keep the origin Date header for more accurate Age calculation.
-	        proxy_pass_header Date;
-	        
-	        # http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.38
-	        # If the response is being forwarded through a proxy, the proxy application MUST NOT
-	        # modify the Server response-header.
-	        proxy_pass_header Server;
-	        
-	        proxy_pass $scheme://YOUR.UPSTREAM.IP.ADDRESS:80;
-		}
-    }
-}
-```
 
 ## Configuration and scripting
 
