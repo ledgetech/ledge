@@ -26,35 +26,24 @@ no_long_string();
 run_tests();
 
 __DATA__
-=== TEST 1: Read and override globals from init
+=== TEST 1: Short read timeout results in error.
 --- http_config eval: $::HttpConfig
 --- config
-	location /config_1 {
-        content_by_lua '
-            ngx.print(ledge:config_get("redis_database"))
-            ledge:config_set("redis_database", 2)
-            ngx.say(ledge:config_get("redis_database"))
-        ';
-    }
---- request
-GET /config_1
---- response_body
-12
-
-=== TEST 2: Module instance level config must not collide
---- http_config eval: $::HttpConfig
---- config
-location /config_2 {
+location /upstream_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        local ledge2 = ledge_mod:new()
-        ledge:config_set("redis_database", 5)
-        ngx.say(ledge2:config_get("redis_database"))
-        ledge2:config_set("redis_database", 4)
-        ngx.say(ledge2:config_get("redis_database"))
+        ledge:config_set("upstream_read_timeout", 100)
+        ledge:run()
+    ';
+}
+location /upstream {
+    content_by_lua '
+        ngx.sleep(1)
+        ngx.say("OK")
     ';
 }
 --- request
-GET /config_2
+GET /upstream_prx
+--- error_code: 524
 --- response_body
-0
-4
+

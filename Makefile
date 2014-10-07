@@ -48,7 +48,6 @@ define TEST_LEDGE_SENTINEL_CONFIG
 sentinel       monitor $(TEST_LEDGE_SENTINEL_MASTER_NAME) 127.0.0.1 $(REDIS_FIRST_PORT) 2
 sentinel       down-after-milliseconds $(TEST_LEDGE_SENTINEL_MASTER_NAME) 2000
 sentinel       failover-timeout $(TEST_LEDGE_SENTINEL_MASTER_NAME) 10000
-sentinel       can-failover $(TEST_LEDGE_SENTINEL_MASTER_NAME) yes
 sentinel       parallel-syncs $(TEST_LEDGE_SENTINEL_MASTER_NAME) 5
 endef
 
@@ -139,6 +138,7 @@ check_ports:
 
 test_ledge: flush_db
 	$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
+	util/lua-releng
 
 test_sentinel: flush_db
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/01-master_up.t
@@ -146,3 +146,6 @@ test_sentinel: flush_db
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/02-master_down.t
 	sleep $(TEST_LEDGE_SENTINEL_PROMOTION_TIME)
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/03-slave_promoted.t
+
+test_leak: flush_db
+	$(TEST_LEDGE_REDIS_VARS) TEST_NGINX_CHECK_LEAK=1 $(PROVE) $(TEST_FILE)

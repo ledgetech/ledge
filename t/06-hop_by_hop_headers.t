@@ -7,27 +7,34 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 my $pwd = cwd();
 
 our $HttpConfig = qq{
-	lua_package_path "$pwd/../lua-resty-rack/lib/?.lua;$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
-        cjson = require 'cjson'
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('upstream_host', '127.0.0.1')
+        ledge:config_set('upstream_port', 1984)
+        redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
+    ";
+    init_worker_by_lua "
+        ledge:run_workers()
     ";
 };
 
+no_long_string();
 run_tests();
 
 __DATA__
-=== TEST 1: Test hop-by-hop headers are not cached.
+=== TEST 1: Test hop-by-hop headers are not passed on.
 --- http_config eval: $::HttpConfig
 --- config
-	location /hop_by_hop_headers {
+	location /hop_by_hop_headers_prx {
+        rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:run()
         ';
     }
-    location /__ledge_origin {
+    location /hop_by_hop_headers {
         more_set_headers "Cache-Control public, max-age=600";
         # We'll only test a couple of these as some of them alter
         # the response in a confusing (for the test) way.
@@ -35,7 +42,24 @@ __DATA__
         more_set_headers "Upgrade foo";
         echo "OK";
     }
---- request eval
-["GET /hop_by_hop_headers","GET /hop_by_hop_headers"]
---- response_headers eval
-["Proxy-Authenticate: foo\r\nUpgrade: foo","Proxy-Authenticate:\r\nUpgrade:"]
+--- request
+GET /hop_by_hop_headers_prx
+--- response_headers
+Proxy-Authenticate: 
+Upgrade: 
+
+
+=== TEST 2: Test hop-by-hop headers were not cached.
+--- http_config eval: $::HttpConfig
+--- config
+	location /hop_by_hop_headers_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- request
+GET /hop_by_hop_headers_prx
+--- response_headers
+Proxy-Authenticate: 
+Upgrade: 

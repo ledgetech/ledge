@@ -7,35 +7,43 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 
 our $HttpConfig = qq{
-    lua_package_path "$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
     lua_shared_dict test 1m;
     init_by_lua "
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
         ledge:config_set('enable_collapsed_forwarding', true)
+        ledge:config_set('upstream_host', '127.0.0.1')
+        ledge:config_set('upstream_port', 1984)
+    ";
+    init_worker_by_lua "
+        ledge:run_workers()
     ";
 };
 
+no_long_string();
+no_diff();
 run_tests();
 
 __DATA__
-=== TEST 1a: Prime cache
+=== TEST 1a: Prime cache (collapsed forwardind requires having seen a previously cacheable response)
 --- http_config eval: $::HttpConfig
 --- config
-location /collapsed {
+location /collapsed_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /__ledge_origin { 
+location /collapsed { 
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("OK")
     ';
 }
 --- request
-GET /collapsed
+GET /collapsed_prx
 --- repsonse_body
 OK
 --- no_error_log
@@ -65,14 +73,15 @@ location /concurrent_collapsed {
         ngx.shared.test:set("test_2", 0)
     ';
 
-    echo_location_async '/collapsed';
+    echo_location_async '/collapsed_prx';
     echo_sleep 0.05;
-    echo_location_async '/collapsed';
+    echo_location_async '/collapsed_prx';
 }
-location /collapsed {
+location /collapsed_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua 'ledge:run()';
 }
-location /__ledge_origin { 
+location /collapsed { 
     content_by_lua '
         ngx.sleep(0.1)
         ngx.header["Cache-Control"] = "max-age=3600"
@@ -110,17 +119,18 @@ location /concurrent_collapsed {
         ngx.shared.test:set("test_3", 0)
     ';
 
-    echo_location_async '/collapsed';
+    echo_location_async '/collapsed_prx';
     echo_sleep 0.05;
-    echo_location_async '/collapsed';
+    echo_location_async '/collapsed_prx';
 }
-location /collapsed {
+location /collapsed_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:config_set("enable_collapsed_forwarding", false)
         ledge:run()'
     ;
 }
-location /__ledge_origin { 
+location /collapsed { 
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("OK " .. ngx.shared.test:incr("test_3", 1))
@@ -158,16 +168,17 @@ location /concurrent_collapsed {
         ngx.shared.test:set("test_4", 0)
     ';
 
-    echo_location_async '/collapsed';
+    echo_location_async '/collapsed_prx';
     echo_sleep 0.05;
-    echo_location_async '/collapsed';
+    echo_location_async '/collapsed_prx';
 }
-location /collapsed {
+location /collapsed_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()'
     ;
 }
-location /__ledge_origin { 
+location /collapsed { 
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("OK " .. ngx.shared.test:incr("test_4", 1))
@@ -207,16 +218,17 @@ location /concurrent_collapsed {
         ngx.shared.test:set("test_5", 0)
     ';
 
-    echo_location_async '/collapsed';
+    echo_location_async '/collapsed_prx';
     echo_sleep 0.05;
-    echo_location_async '/collapsed';
+    echo_location_async '/collapsed_prx';
 }
-location /collapsed {
+location /collpased_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()'
     ;
 }
-location /__ledge_origin { 
+location /collapsed { 
     content_by_lua '
         ngx.header["Cache-Control"] = "no-cache"
         ngx.say("OK " .. ngx.shared.test:incr("test_5", 1))
@@ -234,30 +246,33 @@ OK 2
 === TEST 6: Concurrent SUBZERO requests
 --- http_config eval: $::HttpConfig
 --- config
-location /concurrent_collapsed {
+location /concurrent_collapsed_6 {
     rewrite_by_lua '
         ngx.shared.test:set("test_6", 0)
     ';
 
-    echo_location_async '/collapsed_6';
+    echo_location_async '/collapsed_6_prx';
     echo_sleep 0.05;
-    echo_location_async '/collapsed_6';
+    echo_location_async '/collapsed_6_prx';
 }
-location /collapsed_6 {
+location /collapsed_6_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()'
     ;
 }
-location /__ledge_origin { 
+location /collapsed_6 { 
     content_by_lua '
+        ngx.sleep(0.1)
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("OK " .. ngx.shared.test:incr("test_6", 1))
-        ngx.sleep(0.1)
     ';
 }
 --- request
-GET /concurrent_collapsed
+GET /concurrent_collapsed_6
 --- error_code: 200
 --- response_body
 OK 1
 OK 2
+
+

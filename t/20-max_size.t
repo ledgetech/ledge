@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 16;
+plan tests => repeat_each() * (blocks() * 3); 
 
 my $pwd = cwd();
 
@@ -15,6 +15,8 @@ our $HttpConfig = qq{
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
+        ledge:config_set('cache_max_memory', 8 / 1024)
+        redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
     ";
     init_worker_by_lua "
         ledge:run_workers()
@@ -25,129 +27,96 @@ no_long_string();
 run_tests();
 
 __DATA__
-=== TEST 1: GET
+=== TEST 1: Response larger than cache_max_memory.
 --- http_config eval: $::HttpConfig
 --- config
-location /req_method_1_prx {
+location /max_memory_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /req_method_1 {
+location /max_memory {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "req_method_1"
-        ngx.say(ngx.req.get_method())
+        ngx.say("RESPONSE IS TOO LARGE TEST 1")
     ';
 }
 --- request
-GET /req_method_1_prx
+GET /max_memory_prx
 --- response_body
-GET
+RESPONSE IS TOO LARGE TEST 1
+--- response_headers_like
+X-Cache: MISS from .*
 
 
-=== TEST 2: HEAD gets GET request
+=== TEST 2: Test we didn't store in previous test.
 --- http_config eval: $::HttpConfig
 --- config
-location /req_method_1 {
+location /max_memory_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
---- request
-GET /req_method_1
---- response_headers
-Etag: req_method_1
-
-
-=== TEST 3: HEAD revalidate
---- http_config eval: $::HttpConfig
---- config
-location /req_method_1_prx {
-    rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
-}
-location /req_method_1 {
+location /max_memory {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "req_method_1"
-    ';
-}
---- more_headers
-Cache-Control: max-age=0
---- request
-HEAD /req_method_1_prx
---- response_headers
-Etag: req_method_1
-
-
-=== TEST 4: GET still has body
---- http_config eval: $::HttpConfig
---- config
-location /req_method_1 {
-    content_by_lua '
-        ledge:run()
+        ngx.say("TEST 2")
     ';
 }
 --- request
-GET /req_method_1
---- response_headers
-Etag: req_method_1
+GET /max_memory_prx
 --- response_body
-GET
+TEST 2
+--- response_headers_like
+X-Cache: MISS from .*
 
 
-=== TEST 5: POST doesn't get cached copy
+=== TEST 3: Non-chunked response larger than cache_max_memory.
 --- http_config eval: $::HttpConfig
 --- config
-location /req_method_1_prx {
+location /max_memory_3_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /req_method_1 {
+location /max_memory_3 {
+    chunked_transfer_encoding off;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Etag"] = "req_method_posted"
-        ngx.say(ngx.req.get_method())
+        local body = "RESPONSE IS TOO LARGE TEST 3\\\n"
+        ngx.header["Content-Length"] = string.len(body)
+        ngx.print(body)
     ';
 }
 --- request
-POST /req_method_1_prx
---- response_headers
-Etag: req_method_posted
+GET /max_memory_3_prx
 --- response_body
-POST
+RESPONSE IS TOO LARGE TEST 3
+--- response_headers_like
+X-Cache: MISS from .*
 
 
-=== TEST 6: GET uses cached POST response.
+=== TEST 4: Test we didn't store in previous test.
 --- http_config eval: $::HttpConfig
 --- config
-location /req_method_1 {
+location /max_memory_3_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
---- request
-GET /req_method_1
---- response_headers
-Etag: req_method_posted
---- response_body
-POST
-
-=== TEST 7: 501 on unrecognised method
---- http_config eval: $::HttpConfig
---- config
-location /req_method_1 {
+location /max_memory_3 {
     content_by_lua '
-        ledge:run()
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 4")
     ';
 }
 --- request
-FOOBAR /req_method_1
---- error_code: 501
+GET /max_memory_3_prx
+--- response_body
+TEST 4
+--- response_headers_like
+X-Cache: MISS from .*
