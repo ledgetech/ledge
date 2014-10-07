@@ -140,6 +140,7 @@ function _M.new(self)
         redis_host = { host = "127.0.0.1", port = 6379, socket = nil, password = nil },
 
         redis_use_sentinel = false,
+        redis_sentinel_master_name = "mymaster",
         redis_sentinels = {
             -- e.g.
             -- { host = "127.0.0.1", port = 6381 },
