@@ -89,7 +89,7 @@ Clone this repo, and the following dependencies into a path defined by [lua_pack
 
 * [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.04
 * [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.02
-* [pintsized/lua-resty-redis](https://github.com/pintsized/lua-resty-redis) (fork under review, which adds Redis Sentinel functionality)
+* [pintsized/lua-resty-redis](https://github.com/pintsized/lua-resty-redis) >= 0.20-pintsized (fork under review, which adds Redis Sentinel functionality)
 
 Enable the [lua_check_client_abort](https://github.com/openresty/lua-nginx-module#lua_check_client_abort) directive to avoid orphaned connections to both the origin and Redis, and ensure [if_modified_since](http://nginx.org/en/docs/http/ngx_http_core_module.html#if_modified_since) is set to `Off`.
 
