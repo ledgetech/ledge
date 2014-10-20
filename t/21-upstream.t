@@ -26,7 +26,7 @@ no_long_string();
 run_tests();
 
 __DATA__
-=== TEST 1: Short read timeout results in error.
+=== TEST 1: Short read timeout results in error 524.
 --- http_config eval: $::HttpConfig
 --- config
 location /upstream_prx {
@@ -45,5 +45,21 @@ location /upstream {
 --- request
 GET /upstream_prx
 --- error_code: 524
+--- response_body
+
+
+=== TEST 2: No upstream results in a 503.
+--- http_config eval: $::HttpConfig
+--- config
+location /upstream_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("upstream_host", "")
+        ledge:run()
+    ';
+}
+--- request
+GET /upstream_prx
+--- error_code: 503
 --- response_body
 
