@@ -1707,8 +1707,11 @@ function _M.fetch_from_origin(self)
         local ok, err = httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
 
         if not ok then
-            ngx_log(ngx_ERR, err)
-            res.status = 524 -- upstream server timeout
+            if err == "timeout" then
+                res.status = 524 -- upstream server timeout
+            else
+                res.status = 503
+            end
             return res
         end
         
