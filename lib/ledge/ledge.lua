@@ -35,12 +35,15 @@ local ngx_re_find = ngx.re.find
 local ngx_var = ngx.var
 local ngx_timer_at = ngx.timer.at
 local ngx_sleep = ngx.sleep
+local ngx_PARTIAL_CONTENT = 206
+local ngx_BAD_RANGE = 416
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 local tbl_remove = table.remove
 local tbl_getn = table.getn
 local str_lower = string.lower
 local str_sub = string.sub
+local str_match = string.match
 local str_gmatch = string.gmatch
 local str_find = string.find
 local str_lower = string.lower
@@ -76,6 +79,23 @@ local function random_hex(len)
     local hex = ffi_new("uint8_t[?]", len * 2)
     C.ngx_hex_dump(hex, bytes, len)
     return ffi_string(hex, len * 2)
+end
+
+
+local function str_split(str, delim)
+    if not str or not delim then return nil end
+    local it, err = str_gmatch(str, "([^"..delim.."]+)")
+    if it then
+        local output = {}
+        while true do
+            local m, err = it()
+            if not m then
+                break
+            end
+            tbl_insert(output, m)
+        end
+        return output
+    end
 end
 
 
@@ -386,6 +406,30 @@ function _M.request_accepts_cache(self)
 end
 
 
+-- returns a table of ranges, or nil
+--
+-- e.g.
+-- {
+--      { from = 0, to = 99 }, 
+--      { from = 100, to = 199 },
+-- }
+function _M.request_byte_range(self)
+    local bytes = h_util.get_header_token(ngx_req_get_headers().range, "bytes")
+    local ranges = nil
+
+    if bytes then
+        ranges = str_split(bytes, ",")
+        if not ranges then ranges = { bytes } end
+        for i,r in ipairs(ranges) do
+            local from, to = str_match(r, "(%d*)%-(%d*)")
+            ranges[i] = { from = tonumber(from), to = tonumber(to) }
+        end
+    end
+
+    return ranges
+end
+
+
 function _M.must_revalidate(self)
     local cc = ngx_req_get_headers()["Cache-Control"]
     if cc == "max-age=0" then
@@ -693,6 +737,10 @@ _M.events = {
     -- before doing anything else.
     response_fetched = {
         { begin = "considering_esi_scan" },
+    },
+
+    partial_response_fetched = {
+        { begin = "considering_esi_scan", but_first = "revalidate_in_background" },
     },
 
     -- If we went upstream and errored, check if we can serve a cached copy (stale-if-error),
@@ -1015,11 +1063,8 @@ _M.actions = {
         return self:serve()
     end,
 
-    background_revalidate = function(self)
-        local res = self:fetch_from_origin()
-        if res.status ~= ngx.HTTP_NOT_MODIFIED then
-            self:set_response(res)
-        end
+    revalidate_in_background = function(self)
+        -- Qless job
     end,
 
     save_to_cache = function(self)
@@ -1410,6 +1455,8 @@ _M.states = {
             return self:e "upstream_error"
         elseif res.status == ngx.HTTP_NOT_MODIFIED then
             return self:e "response_ready"
+        elseif res.status == ngx_PARTIAL_CONTENT then
+            return self:e "partial_response_fetched"
         else
             return self:e "response_fetched"
         end
@@ -1647,6 +1694,8 @@ function _M.read_from_cache(self)
             -- TODO: We should store this as an integer?
             local has_esi = cache_parts[i + 1]
             res.has_esi = cache_parts[i + 1] == "true"
+        elseif cache_parts[i] == "size" then
+            res.size = tonumber(cache_parts[i + 1])
         end
     end
 
@@ -1676,6 +1725,58 @@ function _M.read_from_cache(self)
         elseif res.header["Date"] then
             -- We have no advertised Age, use the generated timestamp.
             res.header["Age"] = time_since_generated
+        end
+    end
+
+    -- Check for range requests.
+    local range_request = self:request_byte_range()
+    if range_request and type(range_request) == "table" then
+        if #range_request == 1 then
+            -- Simple singular range
+            local range = range_request[1]
+
+            ngx_log(ngx_DEBUG, "from: ", range.from, " to: ", range.to)
+
+            -- A missing "to" means to the "end".
+            if not range.to then 
+                if res.has_esi then
+                    res.status = ngx_RANGE_NOT_SATISFIABLE
+                else
+                    range.to = res.size - 1 
+                end
+            end
+
+            -- A missing "from" means "to" is an offset from the end.
+            if not range.from then 
+                range.from = res.size - range.to 
+                range.to = res.size - 1
+            end
+
+            -- Check the range is satisfiable
+            if range.from > range.to or range.to > res.size then
+                res.status = ngx_RANGE_NOT_SATISFIABLE
+                res.header["Content-Range"] = "bytes */"..res.size
+                res.body_reader = nil
+            else
+                local size = res.size
+                if res.has_esi then 
+                    -- If we have ESI to do then advertise an unknown length since
+                    -- we cannot know this in advance.
+                    size = "*"
+                end
+
+                res.status = ngx_PARTIAL_CONTENT
+                ngx.header["Accept-Ranges"] = "bytes"
+                res.header["Content-Range"] = "bytes " .. range.from .. "-" .. range.to .. "/" .. size
+
+                -- For the body reader. COLD range requests don't need filtering.
+                self:ctx().request_range = range
+            end
+        else
+            -- multipart byterange. Potential DOS and probably not used much
+            -- in the wild, so for now we refuse.
+            res.status = ngx_RANGE_NOT_SATISFIABLE
+            res.body_reader = nil
         end
     end
 
@@ -1727,11 +1828,14 @@ function _M.fetch_from_origin(self)
         end
     end
 
+    -- Filter out range requests (we always fetch everything, and serve only what is required)
+    local headers = ngx_req_get_headers()
+
     local origin, err = httpc:request{
         method = ngx_req_get_method(),
         path = self:relative_uri(),
         body = httpc:get_client_body_reader(self:config_get("buffer_size")),
-        headers = ngx_req_get_headers(),
+        headers = headers,
     }
 
     if not origin then
@@ -1739,7 +1843,7 @@ function _M.fetch_from_origin(self)
         res.status = 524
         return res
     end
-    
+
     res.conn = httpc
     res.status = origin.status
 
@@ -1845,6 +1949,7 @@ function _M.save_to_cache(self, res)
     local previous_entity_size, err
     if previous_entity_keys then
         previous_entity_size, err = redis:hget(previous_entity_keys.main, "size")
+        ngx_log(ngx_DEBUG, "previous_entity_size: ", previous_entity_size)
         if not previous_entity_size then
             ngx_log(ngx_ERR, err)
         end
@@ -1994,6 +2099,7 @@ function _M.serve(self)
         end
 
         if res.body_reader then
+            -- Go!
             self:body_server(res.body_reader)
         end
 
@@ -2062,7 +2168,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                             ngx_log(ngx_ERR, err)
                         end
 
-                        ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ", 
+                        ngx_log(ngx_DEBUG, "cache item deleted as it is larger than ", 
                                             max_memory, " bytes")
                     else
                         redis:rpush(entity_keys.body, chunk)
@@ -2225,16 +2331,16 @@ function _M.get_esi_process_filter(self, reader)
 
                     -- Replace vars inline in any other esi: tags.
                     chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*/>)",
-                        function(m)
-                            local vars = ngx_re_gsub(m[2],
-                            "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
-                            function (m)
-                                return replace(m[1])
-                            end,
-                            "oj")
-                            return m[1] .. vars .. m[3]
+                    function(m)
+                        local vars = ngx_re_gsub(m[2],
+                        "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
+                        function (m)
+                            return replace(m[1])
                         end,
                         "oj")
+                        return m[1] .. vars .. m[3]
+                    end,
+                    "oj")
 
                     chunk = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
 
@@ -2333,14 +2439,62 @@ function _M.get_esi_process_filter(self, reader)
 end
 
 
+-- Filters the body reader, only yielding bytes specified in a range request.
+function _M.get_range_request_filter(self, reader)
+    local range = self:ctx().request_range
+
+    if range then
+        return co_wrap(function(buffer_size)
+            local playhead = 0
+            repeat
+                local chunk, err = reader(buffer_size)
+                if chunk then
+                    local chunklen = #chunk
+                    local nextplayhead = playhead + chunklen
+
+                    -- From / to relative to the current chunk
+                    local relativefrom = range.from - playhead
+                    local relativeto = range.to - playhead
+
+                    if range.from <= nextplayhead and range.to >= playhead then
+                        -- The current chunk begins in range
+                        if range.from <= playhead and range.to >= nextplayhead then
+                            -- The whole chunk is in range
+                            co_yield(chunk)
+                        elseif range.to >= nextplayhead then
+                            -- "to" is beyond this chunk, yield from "from" to end of chunk.
+                            co_yield(str_sub(chunk, relativefrom + 1))
+                        else
+                            -- The range is wholly within this chunk
+                            co_yield(str_sub(chunk, relativefrom, relativeto + 1))
+                        end
+                    end
+
+                    playhead = nextplayhead
+                end
+            until not chunk
+        end)
+    end
+
+    return reader
+end
+
+
 -- Resumes the reader coroutine and prints the data yielded. This could be
 -- via a cache read, or a save via a fetch... the interface is uniform.
 function _M.body_server(self, reader)
     local buffer_size = self:config_get("buffer_size")
     local process_esi = self:ctx().esi_process_enabled
+    local request_range = self:ctx().request_range
 
+    -- Filter response for ESI if required
     if process_esi then
         reader = self:get_esi_process_filter(reader)
+    end
+    
+    -- Filter response by requested range if required
+    if request_range then
+        reader = self:get_range_request_filter(reader)
     end
 
     repeat
