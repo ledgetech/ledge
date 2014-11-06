@@ -81,6 +81,11 @@ end
 
 
 function _M.is_cacheable(self)
+    -- Never cache partial content
+    if self.status == 206 then
+        return false
+    end
+
     for k,v in pairs(NOCACHE_HEADERS) do
         for i,h in ipairs(v) do
             if self.header[k] and self.header[k] == h then
