@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) + 2;
+plan tests => repeat_each() * (blocks() * 3) - 3;
 
 my $pwd = cwd();
 
@@ -57,6 +57,10 @@ TEST 1
 === TEST 2: Return stale
 --- http_config eval: $::HttpConfig
 --- config
+location /stale_entry {
+    echo_location /stale_prx;
+    echo_sleep 4;
+}
 location /stale_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
@@ -70,9 +74,10 @@ location /stale {
     ';
 }
 --- request
-GET /stale_prx
+GET /stale_entry
 --- response_body
 TEST 1
+--- timeout: 6
 --- no_error_log
 [error]
 
@@ -86,7 +91,7 @@ location /stale_prx {
         ledge:run()
     ';
 }
-location /stale {
+location /stale_main {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 3")

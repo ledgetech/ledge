@@ -1,9 +1,6 @@
-local cjson = require "cjson"
-local qless = require "resty.qless"
-
-local ngx_log = ngx.log
-local ngx_ERR = ngx.ERR
+local pairs, unpack = pairs, unpack
 local tbl_insert = table.insert
+
 
 local _M = {
     _VERSION = '0.01',

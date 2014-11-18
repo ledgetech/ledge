@@ -54,9 +54,7 @@ function _M.get_numeric_header_token(header, directive)
         if value ~= nil then
             return tonumber(value[1])
         end
-        return 0
     end
-    return 0
 end
 
 return setmetatable(_M, mt)

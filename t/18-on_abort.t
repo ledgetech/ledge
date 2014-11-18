@@ -17,7 +17,7 @@ our $HttpConfig = qq{
         ledge:config_set('upstream_port', 1984)
     ";
     init_worker_by_lua "
-        ledge:run_workers()
+--        ledge:run_workers()
     ";
 };
 

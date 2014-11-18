@@ -141,7 +141,7 @@ function _M.has_expired(self)
     end
 
     local cc = ngx_req_get_headers()["Cache-Control"]
-    if self.remaining_ttl - h_util.get_numeric_header_token(cc, "min-fresh") <= 0 then
+    if self.remaining_ttl - (h_util.get_numeric_header_token(cc, "min-fresh") or 0) <= 0 then
         return true
     end
 end
@@ -159,7 +159,7 @@ function _M.stale_ttl(self)
 
     local min_fresh = h_util.get_numeric_header_token(
         ngx_req_get_headers()["Cache-Control"], "min-fresh"
-    )
+    ) or 0
 
     return self.remaining_ttl - min_fresh
 end

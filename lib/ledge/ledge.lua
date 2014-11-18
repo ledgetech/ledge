@@ -24,6 +24,7 @@ local ngx_get_phase = ngx.get_phase
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_req_set_header = ngx.req.set_header
 local ngx_req_get_method = ngx.req.get_method
+local ngx_req_raw_header = ngx.req.raw_header
 local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
@@ -362,12 +363,6 @@ end
 
 
 function _M.accepts_stale(self, res)
-    -- max_stale config overrides everything
-    local max_stale = self:config_get("max_stale")
-    if max_stale and max_stale > 0 then
-        return max_stale
-    end
-
     -- Check response for headers that prevent serving stale
     local res_cc = res.header["Cache-Control"]
     if h_util.header_has_directive(res_cc, 'revalidate') or
@@ -377,7 +372,17 @@ function _M.accepts_stale(self, res)
 
     -- Check for max-stale request header
     local req_cc = ngx_req_get_headers()['Cache-Control']
-    return h_util.get_numeric_header_token(req_cc, 'max-stale')
+    local req_max_stale = h_util.get_numeric_header_token(req_cc, 'max-stale')
+    if req_max_stale then
+        ngx_log(ngx_DEBUG, "max-stale ", req_max_stale)
+        return req_max_stale
+    end
+    
+    -- Fall back to max_stale config
+    local max_stale = self:config_get("max_stale")
+    if max_stale and max_stale > 0 then
+        return max_stale
+    end
 end
 
 
@@ -387,7 +392,7 @@ function _M.calculate_stale_ttl(self)
     local min_fresh = h_util.get_numeric_header_token(
         ngx_req_get_headers()['Cache-Control'],
         'min-fresh'
-    )
+    ) or 0
 
     return (res.remaining_ttl - min_fresh) + stale
 end
@@ -579,12 +584,24 @@ function _M.accepts_stale_error(self)
 
     -- stale_if_error config option overrides request header
     if stale_age == nil then
-        stale_age = h_util.get_numeric_header_token(req_cc, 'stale-if-error')
+        stale_age = h_util.get_numeric_header_token(req_cc, 'stale-if-error') or 0
     end
 
     return ((res.remaining_ttl + stale_age) > 0)
 end
 
+
+function _M.put_background_job(self, queue, klass, data, options)
+    local redis = self:ctx().redis
+    local qless_db = self:config_get("redis_qless_database") or 1
+    redis:select(qless_db)
+
+    -- Place this job on the queue
+    local q = qless.new({ redis_client = redis })
+    q.queues[queue]:put(klass, data, options)
+
+    redis:select(self:config_get("redis_database") or 0)
+end
 
 
 ---------------------------------------------------------------------------------------------------
@@ -837,6 +854,7 @@ _M.events = {
     -- Our cache has been modified as compared to the validators. But cache is valid, so just
     -- serve it. If we've been upstream, re-compare against client validators.
     modified = {
+        { in_case = "init_worker", begin = "considering_local_revalidation" },
         { when = "revalidating_locally", begin = "considering_esi_process" },
         { when = "revalidating_upstream", begin = "considering_local_revalidation" },
     },
@@ -870,10 +888,7 @@ _M.events = {
     -- response headers.
     -- TODO: "serve_stale" isn't really an event?
     serve_stale = {
-        { when = "checking_can_serve_stale", begin = "serving_stale",
-            but_first = "add_stale_warning" },
-        { when = "considering_stale_error", begin = "serving_stale",
-            but_first = "add_stale_warning" },
+        { begin = "serving_stale", but_first = { "add_stale_warning", "revalidate_in_background" } },
     },
 
     -- We have sent the response. If it was stale, we go back around the fetching path
@@ -881,7 +896,6 @@ _M.events = {
     served = {
         { in_case = "upstream_error", begin = "exiting" },
         { in_case = "collapsed_forwarding_upstream_error", begin = "exiting" },
-        { when = "serving_stale", begin = "checking_can_fetch" },
         { begin = "exiting" },
     },
 
@@ -1064,7 +1078,12 @@ _M.actions = {
     end,
 
     revalidate_in_background = function(self)
-        -- Qless job
+        self:put_background_job("ledge", "ledge.jobs.revalidate", {
+            raw_header = ngx_req_raw_header(),
+            host = ngx_var.host,
+            server_addr = ngx_var.server_addr,
+            server_port = ngx_var.server_port,
+        })
     end,
 
     save_to_cache = function(self)
@@ -1968,14 +1987,11 @@ function _M.save_to_cache(self, res)
         redis:select(qless_db)
 
         -- Place this job on the queue
-        local q = qless.new({ redis_client = redis })
-        q.queues["ledge"]:put("ledge.jobs.collect_entity", { 
+        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
             cache_key = cache_key,
             size = previous_entity_size,
             entity_keys = previous_entity_keys, 
         }, { delay = gc_after })
-
-        redis:select(self:config_get("redis_database") or 0)
     end
 
     redis:hmset(entity_keys.main,

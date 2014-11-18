@@ -163,7 +163,7 @@ GET /stale_prx
 TEST 1
 
 
-=== TEST 4: max_stale config overrides request header
+=== TEST 4: max_stale request overrides config
 --- http_config eval: $::StaleHttpConfig
 --- config
 location /stale_prx {
@@ -182,10 +182,10 @@ Cache-Control: max-stale=0
 --- request
 GET /stale_prx
 --- response_body
-TEST 1
+TEST 4
 
 
-=== TEST 1: Prime cache for subsequent tests
+=== TEST 5a: Prime cache for subsequent tests
 --- http_config eval: $::HttpConfig
 --- config
 location /stale_prx {
