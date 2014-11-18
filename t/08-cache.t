@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 31;
+plan tests => 33;
 
 my $pwd = cwd();
 
@@ -303,3 +303,36 @@ X-Cache: HIT from .*
 --- response_body
 TEST 9
 --- error_code: 404
+
+=== TEST 10: Cache key is the same with nil ngx.var.args and empty string
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_key {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ngx.say(type(ngx.var.args))
+            local key1 = ledge:cache_key()
+
+            ngx.req.set_uri_args({})
+            ledge:ctx().cache_key = nil
+
+            ngx.say(type(ngx.var.args))
+            local key2 = ledge:cache_key()
+
+            if key1 == key2 then
+                ngx.say("OK")
+            else
+                ngx.say("BZZZZT FAiL")
+                ngx.say(key1)
+                ngx.say(key2)
+            end
+
+        ';
+    }
+
+--- request
+GET /cache_key
+--- response_body
+nil
+string
+OK

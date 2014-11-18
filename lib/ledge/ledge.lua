@@ -476,7 +476,7 @@ function _M.cache_key(self)
             ngx_var.scheme,
             ngx_var.host,
             ngx_var.uri,
-            ngx_var.args,
+            ngx_var.args or "",
         }
         tbl_insert(key_spec, 1, "cache_obj")
         tbl_insert(key_spec, 1, "ledge")
