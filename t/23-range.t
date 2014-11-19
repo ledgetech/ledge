@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 1;
+plan tests => repeat_each() * (blocks() * 3) - 4;
 
 my $pwd = cwd();
 
@@ -206,3 +206,54 @@ X-Cache: HIT from .*
 Cache-Control: public, max-age=3600
 --- response_body: 23456789
 --- error_code: 206
+
+
+=== TEST 9: Range end is smaller than range start (unsatisfiable)
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: bytes=12-3
+--- request
+GET /range_prx
+--- response_body:
+--- error_code: 416
+
+
+=== TEST 10: Range is incompreshensible
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: bytes=asdfa
+--- request
+GET /range_prx
+--- response_body:
+--- error_code: 416
+
+
+=== TEST 10b: Range is incompreshensible
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: isdfsdbytes=asdfa
+--- request
+GET /range_prx
+--- response_body:
+--- error_code: 416
