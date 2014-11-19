@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 4;
+plan tests => repeat_each() * (blocks() * 4) - 5;
 
 my $pwd = cwd();
 
@@ -75,6 +75,7 @@ GET /range_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers
+Content-Range: bytes 0-1/10
 Cache-Control: public, max-age=3600
 --- response_body: 01
 --- error_code: 206
@@ -96,6 +97,7 @@ GET /range_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers
+Content-Range: bytes 3-5/10
 Cache-Control: public, max-age=3600
 --- response_body: 2345
 --- error_code: 206
@@ -117,6 +119,7 @@ GET /range_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers
+Content-Range: bytes 6-9/10
 Cache-Control: public, max-age=3600
 --- response_body: 56789
 --- error_code: 206
@@ -138,6 +141,7 @@ GET /range_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers
+Content-Range: bytes 7-9/10
 Cache-Control: public, max-age=3600
 --- response_body: 6789
 --- error_code: 206
@@ -160,6 +164,7 @@ GET /range_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers
+Content-Range: bytes 0-5/10
 Cache-Control: public, max-age=3600
 --- response_body: 012345
 --- error_code: 206
@@ -182,6 +187,7 @@ GET /range_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers
+Content-Range: bytes 3-7/10
 Cache-Control: public, max-age=3600
 --- response_body: 234567
 --- error_code: 206
@@ -203,6 +209,7 @@ GET /range_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers
+Content-Range: bytes 3-9/10
 Cache-Control: public, max-age=3600
 --- response_body: 23456789
 --- error_code: 206
@@ -221,6 +228,8 @@ Cache-Control: public, max-age=3600
 Range: bytes=12-3
 --- request
 GET /range_prx
+--- response_headers
+Content-Range: bytes */10
 --- response_body:
 --- error_code: 416
 
@@ -238,6 +247,8 @@ GET /range_prx
 Range: bytes=asdfa
 --- request
 GET /range_prx
+--- response_headers
+Content-Range: bytes */10
 --- response_body:
 --- error_code: 416
 
@@ -255,5 +266,7 @@ GET /range_prx
 Range: isdfsdbytes=asdfa
 --- request
 GET /range_prx
+--- response_headers
+Content-Range: bytes */10
 --- response_body:
 --- error_code: 416
