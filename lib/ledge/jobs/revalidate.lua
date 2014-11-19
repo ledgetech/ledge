@@ -14,8 +14,6 @@ function _M.perform(job)
         return nil, "job-error", "could not connect to server: " .. err
     end
 
-    ngx.log(ngx.DEBUG, job.data.raw_header)
-
     local request_line = string.match(job.data.raw_header, "[^\r\n]+")
     local uri = string.match(request_line, "[^%s]+%s([^%s]+)")
 
