@@ -122,7 +122,7 @@ Cache-Control: public, max-age=3600
 --- error_code: 206
 
 
-=== TEST 5: Cache HIT, get offset from end bytes. Log error as not supported.
+=== TEST 5: Cache HIT, get offset from end bytes. 
 --- http_config eval: $::HttpConfig
 --- config
     location /range_prx {
@@ -184,4 +184,25 @@ X-Cache: HIT from .*
 --- response_headers
 Cache-Control: public, max-age=3600
 --- response_body: 234567
+--- error_code: 206
+
+
+=== TEST 8: Ask for range outside content length, last byte should be reduced to length.
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: bytes=3-12
+--- request
+GET /range_prx
+--- response_headers_like
+X-Cache: HIT from .*
+--- response_headers
+Cache-Control: public, max-age=3600
+--- response_body: 23456789
 --- error_code: 206
