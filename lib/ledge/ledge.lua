@@ -374,7 +374,6 @@ function _M.accepts_stale(self, res)
     local req_cc = ngx_req_get_headers()['Cache-Control']
     local req_max_stale = h_util.get_numeric_header_token(req_cc, 'max-stale')
     if req_max_stale then
-        ngx_log(ngx_DEBUG, "max-stale ", req_max_stale)
         return req_max_stale
     end
     
@@ -1767,7 +1766,7 @@ function _M.read_from_cache(self)
 
             -- A missing "from" means "to" is an offset from the end.
             if not range.from then 
-                range.from = res.size - range.to 
+                range.from = res.size - (range.to - 1)
                 range.to = res.size - 1
             end
 
@@ -1968,7 +1967,6 @@ function _M.save_to_cache(self, res)
     local previous_entity_size, err
     if previous_entity_keys then
         previous_entity_size, err = redis:hget(previous_entity_keys.main, "size")
-        ngx_log(ngx_DEBUG, "previous_entity_size: ", previous_entity_size)
         if not previous_entity_size then
             ngx_log(ngx_ERR, err)
         end
