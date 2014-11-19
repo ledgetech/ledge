@@ -30,8 +30,8 @@ function _M.get_header_token(header, directive)
 
         -- Want the string value from a token
         local value = ngx_re_match(
-        header, 
-        str_gsub(directive, '-','\\-').."=\"?([a-z0-9_~!#%&'`\\$\\*\\+\\-\\|\\^\\.]+)\"?", "ioj"
+            header, 
+            str_gsub(directive, '-','\\-').."=\"?([a-z0-9_~!#%&',`\\$\\*\\+\\-\\|\\^\\.]+)\"?", "ioj"
         )
         if value ~= nil then
             return value[1]
