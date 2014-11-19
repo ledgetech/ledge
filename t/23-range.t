@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3);
+plan tests => repeat_each() * (blocks() * 3) - 1;
 
 my $pwd = cwd();
 
@@ -16,14 +16,22 @@ our $HttpConfig = qq{
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
     ";
+    init_worker_by_lua "
+        ledge:run_workers()
+    ";
 };
 
 run_tests();
 
 __DATA__
-=== TEST 1: Cache MISS, upstream ignores range
+=== TEST 1: Cache MISS, pass range upstream. Whole entitiy will be revalidated in the background.
 --- http_config eval: $::HttpConfig
 --- config
+    location /range_entry {
+        echo_location /range_prx;
+        echo_flush;
+        echo_sleep 2;
+    }
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
@@ -32,19 +40,23 @@ __DATA__
     }
 
     location /range {
-        more_set_headers "Cache-Control: public, max-age=3600";
-        echo "0123456789";
+        content_by_lua '
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            if ngx.req.get_headers()["Range"] then
+                ngx.status = 206
+                ngx.print("01")
+            else
+                ngx.status = 200
+                ngx.print("0123456789");
+            end
+        ';
     }
 --- more_headers
 Range: bytes=0-1
 --- request
-GET /range_prx
---- response_headers_like
-X-Cache: MISS from .*
---- response_headers
-Cache-Control: public, max-age=3600
---- response_body
-0123456789
+GET /range_entry
+--- response_body: 01
+--- timeout: 6
 
 
 === TEST 2: Cache HIT, get the first byte only
@@ -106,9 +118,9 @@ GET /range_prx
 X-Cache: HIT from .*
 --- response_headers
 Cache-Control: public, max-age=3600
---- response_body
-56789
+--- response_body: 56789
 --- error_code: 206
+
 
 === TEST 5: Cache HIT, get offset from end bytes. Log error as not supported.
 --- http_config eval: $::HttpConfig
@@ -127,8 +139,7 @@ GET /range_prx
 X-Cache: HIT from .*
 --- response_headers
 Cache-Control: public, max-age=3600
---- response_body
-6789
+--- response_body: 6789
 --- error_code: 206
 
 
