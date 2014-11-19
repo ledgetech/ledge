@@ -37,7 +37,7 @@ local ngx_var = ngx.var
 local ngx_timer_at = ngx.timer.at
 local ngx_sleep = ngx.sleep
 local ngx_PARTIAL_CONTENT = 206
-local ngx_BAD_RANGE = 416
+local ngx_RANGE_NOT_SATISFIABLE = 416
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 local tbl_remove = table.remove
@@ -1746,19 +1746,36 @@ function _M.read_from_cache(self)
         end
     end
 
-    -- Check for range requests.
+    -- Modify the response with request range if needed.
+    local res = self:check_range_request(res)
+
+    self:emit("cache_accessed", res)
+
+    return res
+end
+
+
+function _M.check_range_request(self, res)
     local range_request = self:request_byte_range()
     if range_request and type(range_request) == "table" then
         if #range_request == 1 then
             -- Simple singular range
             local range = range_request[1]
 
-            ngx_log(ngx_DEBUG, "from: ", range.from, " to: ", range.to)
+            if not range.to and not range.from then
+                res.status = ngx_RANGE_NOT_SATISFIABLE
+                res.header["Content-Range"] = "bytes */"..res.size
+                res.body_reader = nil
+                return res
+            end
 
             -- A missing "to" means to the "end".
             if not range.to then 
                 if res.has_esi then
                     res.status = ngx_RANGE_NOT_SATISFIABLE
+                    res.header["Content-Range"] = "bytes */"..res.size
+                    res.body_reader = nil
+                    return res
                 else
                     range.to = res.size - 1 
                 end
@@ -1770,12 +1787,22 @@ function _M.read_from_cache(self)
                 range.to = res.size - 1
             end
 
+            -- A "to" greater than size should be "end"
+            if range.to > (res.size - 1) then 
+                range.to = res.size - 1 
+            end
+            
+            ngx_log(ngx_DEBUG, "Range requested from: ", range.from, " to: ", range.to, " size: ", res.size)
+
             -- Check the range is satisfiable
             if range.from > range.to or range.to > res.size then
                 res.status = ngx_RANGE_NOT_SATISFIABLE
                 res.header["Content-Range"] = "bytes */"..res.size
                 res.body_reader = nil
+                return res
             else
+                -- Range looks good
+
                 local size = res.size
                 if res.has_esi then 
                     -- If we have ESI to do then advertise an unknown length since
@@ -1789,16 +1816,17 @@ function _M.read_from_cache(self)
 
                 -- For the body reader. COLD range requests don't need filtering.
                 self:ctx().request_range = range
+
+                return res
             end
         else
             -- multipart byterange. Potential DOS and probably not used much
             -- in the wild, so for now we refuse.
             res.status = ngx_RANGE_NOT_SATISFIABLE
             res.body_reader = nil
+            return res
         end
     end
-
-    self:emit("cache_accessed", res)
 
     return res
 end
