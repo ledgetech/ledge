@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4) - 5;
+plan tests => repeat_each() * (blocks() * 3) + 6;
 
 my $pwd = cwd();
 
@@ -99,7 +99,7 @@ X-Cache: HIT from .*
 --- response_headers
 Content-Range: bytes 3-5/10
 Cache-Control: public, max-age=3600
---- response_body: 2345
+--- response_body: 345
 --- error_code: 206
 
 
@@ -121,7 +121,7 @@ X-Cache: HIT from .*
 --- response_headers
 Content-Range: bytes 6-9/10
 Cache-Control: public, max-age=3600
---- response_body: 56789
+--- response_body: 6789
 --- error_code: 206
 
 
@@ -141,7 +141,7 @@ GET /range_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers
-Content-Range: bytes 7-9/10
+Content-Range: bytes 6-9/10
 Cache-Control: public, max-age=3600
 --- response_body: 6789
 --- error_code: 206
@@ -189,7 +189,7 @@ X-Cache: HIT from .*
 --- response_headers
 Content-Range: bytes 3-7/10
 Cache-Control: public, max-age=3600
---- response_body: 234567
+--- response_body: 34567
 --- error_code: 206
 
 
@@ -211,7 +211,7 @@ X-Cache: HIT from .*
 --- response_headers
 Content-Range: bytes 3-9/10
 Cache-Control: public, max-age=3600
---- response_body: 23456789
+--- response_body: 3456789
 --- error_code: 206
 
 
@@ -226,6 +226,25 @@ Cache-Control: public, max-age=3600
     }
 --- more_headers
 Range: bytes=12-3
+--- request
+GET /range_prx
+--- response_headers
+Content-Range: bytes */10
+--- response_body:
+--- error_code: 416
+
+
+=== TEST 9b: Range end offset is larger than range (unsatisfiable)
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: bytes=-12
 --- request
 GET /range_prx
 --- response_headers
@@ -270,3 +289,34 @@ GET /range_prx
 Content-Range: bytes */10
 --- response_body:
 --- error_code: 416
+
+
+=== TEST 11: Multi byte ranges
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: bytes=0-3,5-8
+--- request
+GET /range_prx
+--- no_error_log
+[error]
+--- response_body_like chop
+
+--[0-9a-z]+
+Content-Type: text/plain
+Content-Range: bytes 0-3/10
+
+0123
+--[0-9a-z]+
+Content-Type: text/plain
+Content-Range: bytes 5-8/10
+
+5678
+--[0-9a-z]+--
+--- error_code: 206

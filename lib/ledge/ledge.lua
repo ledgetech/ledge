@@ -1757,25 +1757,21 @@ end
 
 function _M.check_range_request(self, res)
     local range_request = self:request_byte_range()
+
     if range_request and type(range_request) == "table" then
-        if #range_request == 1 then
-            -- Simple singular range
-            local range = range_request[1]
+        local ranges = {}
+
+        for i,range in ipairs(range_request) do
+            local range_satisfiable = true
 
             if not range.to and not range.from then
-                res.status = ngx_RANGE_NOT_SATISFIABLE
-                res.header["Content-Range"] = "bytes */"..res.size
-                res.body_reader = nil
-                return res
+                range_satisfiable = false
             end
 
             -- A missing "to" means to the "end".
             if not range.to then 
                 if res.has_esi then
-                    res.status = ngx_RANGE_NOT_SATISFIABLE
-                    res.header["Content-Range"] = "bytes */"..res.size
-                    res.body_reader = nil
-                    return res
+                    range_satisfiable = false
                 else
                     range.to = res.size - 1 
                 end
@@ -1783,47 +1779,81 @@ function _M.check_range_request(self, res)
 
             -- A missing "from" means "to" is an offset from the end.
             if not range.from then 
-                range.from = res.size - (range.to - 1)
+                range.from = res.size - (range.to)
                 range.to = res.size - 1
+
+                if range.from < 0 then
+                    range_satisfiable = false
+                end
             end
 
             -- A "to" greater than size should be "end"
             if range.to > (res.size - 1) then 
                 range.to = res.size - 1 
             end
-            
-            ngx_log(ngx_DEBUG, "Range requested from: ", range.from, " to: ", range.to, " size: ", res.size)
 
             -- Check the range is satisfiable
             if range.from > range.to or range.to > res.size then
+                range_satisfiable = false
+            end
+
+            if not range_satisfiable then
+                -- We'll return 416 
                 res.status = ngx_RANGE_NOT_SATISFIABLE
-                res.header["Content-Range"] = "bytes */"..res.size
                 res.body_reader = nil
+                res.header.content_range = "bytes */" .. res.size
+
                 return res
             else
-                -- Range looks good
-
-                local size = res.size
-                if res.has_esi then 
-                    -- If we have ESI to do then advertise an unknown length since
-                    -- we cannot know this in advance.
-                    size = "*"
-                end
-
-                res.status = ngx_PARTIAL_CONTENT
-                ngx.header["Accept-Ranges"] = "bytes"
-                res.header["Content-Range"] = "bytes " .. range.from .. "-" .. range.to .. "/" .. size
-
-                -- For the body reader. COLD range requests don't need filtering.
-                self:ctx().request_range = range
-
-                return res
+                -- We'll need the content range header value for multipart boundaries
+                range.header = "bytes " .. range.from .. "-" .. range.to .. "/" .. res.size
+                tbl_insert(ranges, range)
             end
+        end
+            
+        if #ranges > 1 then
+            -- TODO: We have multiple ranges. Look for overlapping and proximate ranges to mitigate 
+            -- DOS attacks.
+        end
+
+        self:ctx().byterange_request_ranges = ranges
+
+        if #ranges == 1 then
+            -- We have a single range to serve.
+            local range = ranges[1]
+
+            local size = res.size
+            if res.has_esi then 
+                -- If we have ESI to do then advertise an unknown length since
+                -- we cannot know this in advance.
+                size = "*"
+            end
+
+            res.status = ngx_PARTIAL_CONTENT
+            ngx.header["Accept-Ranges"] = "bytes"
+            res.header["Content-Range"] = "bytes " .. range.from .. "-" .. range.to .. "/" .. size
+
+            return res
         else
-            -- multipart byterange. Potential DOS and probably not used much
-            -- in the wild, so for now we refuse.
-            res.status = ngx_RANGE_NOT_SATISFIABLE
-            res.body_reader = nil
+            -- Generate boundary and store it in ctx
+            local boundary_string = random_hex(32)
+            local boundary = {
+                "",
+                "--" .. boundary_string,
+            }
+
+            if res.header["Content-Type"] then
+                tbl_insert(boundary, "Content-Type: " .. res.header["Content-Type"])
+                tbl_insert(boundary, "")
+            end
+            
+            self:ctx().byterange_boundary = tbl_concat(boundary, "\n")
+            self:ctx().byterange_boundary_end = "--" .. boundary_string .. "--"
+
+            res.status = ngx_PARTIAL_CONTENT
+            ngx.header["Accept-Ranges"] = "bytes"
+            res.header["Content-Type"] = "multipart/byteranges; boundary=" .. boundary_string
+
             return res
         end
     end
@@ -2483,38 +2513,61 @@ end
 
 -- Filters the body reader, only yielding bytes specified in a range request.
 function _M.get_range_request_filter(self, reader)
-    local range = self:ctx().request_range
+    local ranges = self:ctx().byterange_request_ranges
+    local boundary_end = self:ctx().byterange_boundary_end
+    local boundary = self:ctx().byterange_boundary
 
-    if range then
+    if ranges then
         return co_wrap(function(buffer_size)
             local playhead = 0
+
+            local num_ranges = #ranges
+
             repeat
                 local chunk, err = reader(buffer_size)
                 if chunk then
                     local chunklen = #chunk
                     local nextplayhead = playhead + chunklen
 
-                    -- From / to relative to the current chunk
-                    local relativefrom = range.from - playhead
-                    local relativeto = range.to - playhead
-
-                    if range.from <= nextplayhead and range.to >= playhead then
-                        -- The current chunk begins in range
-                        if range.from <= playhead and range.to >= nextplayhead then
-                            -- The whole chunk is in range
-                            co_yield(chunk)
-                        elseif range.to >= nextplayhead then
-                            -- "to" is beyond this chunk, yield from "from" to end of chunk.
-                            co_yield(str_sub(chunk, relativefrom + 1))
+                    for i,range in ipairs(ranges) do
+                        if range.from > nextplayhead or range.to < playhead then
+                            -- Skip over non matching ranges (this is algoritmically simpler)
                         else
-                            -- The range is wholly within this chunk
-                            co_yield(str_sub(chunk, relativefrom, relativeto + 1))
+                            -- Yield the multipart byterange boundary if required
+                            if num_ranges > 1 then
+                                co_yield(boundary)
+                                co_yield(range.header .. "\n\n")
+                            end
+                            
+                            -- From / to relative to the current chunk
+                            local relativefrom = range.from - playhead
+                            local relativeto = range.to - playhead
+
+                            if range.from <= nextplayhead and range.to >= playhead then
+                                -- The current chunk begins in range
+                                if range.from <= playhead and range.to >= nextplayhead then
+                                    -- The whole chunk is in range
+                                    co_yield(chunk)
+                                elseif range.to >= nextplayhead then
+                                    -- "to" is beyond this chunk, yield from "from" to end of chunk.
+                                    co_yield(str_sub(chunk, relativefrom + 1))
+                                else
+                                    -- The range is wholly within this chunk
+                                    co_yield(str_sub(chunk, relativefrom + 1, relativeto + 1))
+                                end
+                            end
+
                         end
                     end
 
                     playhead = nextplayhead
                 end
             until not chunk
+
+            -- Yield the multipart byterange end marker
+            if num_ranges > 1 then
+                co_yield("\n--" .. boundary_end .. "--")
+            end
         end)
     end
 
@@ -2527,7 +2580,7 @@ end
 function _M.body_server(self, reader)
     local buffer_size = self:config_get("buffer_size")
     local process_esi = self:ctx().esi_process_enabled
-    local request_range = self:ctx().request_range
+    local request_range = self:ctx().byterange_request_ranges
 
     -- Filter response for ESI if required
     if process_esi then
