@@ -61,9 +61,11 @@ Under active development, functionality may change without much notice. Please f
 * Redis automatic failover with [Sentinel](http://redis.io/topics/sentinel).
 * Event hooks to override cache policies at various stages using Lua script.
 * End-to-end revalidation (specific and unspecified).
+* Range requests (single and multipart)
 * Offline modes (bypass, avoid).
 * Stale-if-error (serves stale content on upstream error)
 * Serve stale content for an additional stale period.
+* Background revalidation (triggered by stale responses and upstream partial responses)
 * Collapsed forwarding (concurrent similar requests collapsed into a single upstream request).
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
 * Squid-like PURGE requests to remove resources from cache.
