@@ -2520,7 +2520,6 @@ function _M.get_range_request_filter(self, reader)
     if ranges then
         return co_wrap(function(buffer_size)
             local playhead = 0
-
             local num_ranges = #ranges
 
             repeat
@@ -2529,41 +2528,42 @@ function _M.get_range_request_filter(self, reader)
                     local chunklen = #chunk
                     local nextplayhead = playhead + chunklen
 
-                    for i,range in ipairs(ranges) do
-                        if range.from > nextplayhead or range.to < playhead then
+                    for i, range in ipairs(ranges) do
+                        if range.from >= nextplayhead or range.to < playhead then
                             -- Skip over non matching ranges (this is algoritmically simpler)
                         else
                             -- Yield the multipart byterange boundary if required
-                            if num_ranges > 1 then
+                            -- and only once per range.
+                            if num_ranges > 1 and not range.boundary_printed then
                                 co_yield(boundary)
                                 co_yield("Content-Range: " .. range.header .. "\n\n")
-                            end
-                            
-                            -- From / to relative to the current chunk
-                            local relativefrom = range.from - playhead
-                            local relativeto = range.to - playhead
-
-                            if range.from <= nextplayhead and range.to >= playhead then
-                                -- The current chunk begins in range
-                                if range.from <= playhead and range.to >= nextplayhead then
-                                    -- The whole chunk is in range
-                                    co_yield(chunk)
-                                elseif range.to >= nextplayhead then
-                                    -- "to" is beyond this chunk, yield from "from" to end of chunk.
-                                    co_yield(str_sub(chunk, relativefrom + 1))
-                                else
-                                    -- The range is wholly within this chunk
-                                    co_yield(str_sub(chunk, relativefrom + 1, relativeto + 1))
-                                end
+                                range.boundary_printed = true
                             end
 
+                            -- Trim range to within this chunk's context
+                            local yield_from = range.from
+                            local yield_to = range.to
+                            if range.from < playhead then
+                                yield_from = playhead
+                            end
+                            if range.to >= nextplayhead then
+                                yield_to = nextplayhead - 1
+                            end
+
+                            -- Find relative points for the range within this chunk
+                            local relative_yield_from = yield_from - playhead
+                            local relative_yield_to = yield_to - playhead
+
+                            -- Ranges are all 0 indexed, finally convert to 1 based Lua indexes.
+                            co_yield(str_sub(chunk, relative_yield_from + 1, relative_yield_to + 1))
                         end
                     end
 
-                    playhead = nextplayhead
+                    playhead = playhead + chunklen
                 end
-            until not chunk
 
+            until not chunk
+            
             -- Yield the multipart byterange end marker
             if num_ranges > 1 then
                 co_yield(boundary_end)
@@ -2595,6 +2595,7 @@ function _M.body_server(self, reader)
     repeat
         local chunk, err = reader(buffer_size)
         if chunk then
+            ngx_log(ngx_DEBUG, chunk)
             ngx_print(chunk)
         end
 

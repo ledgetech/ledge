@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) + 6;
+plan tests => repeat_each() * (blocks() * 3) + 5;
 
 my $pwd = cwd();
 
@@ -319,4 +319,77 @@ Content-Range: bytes 5-8/10
 
 5678
 --[0-9a-z]+--
+--- error_code: 206
+
+
+=== TEST 12a: Prime cache with buffers smaller than range.
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_12_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:config_set("buffer_size", 3)
+            ledge:run()
+        ';
+    }
+
+    location /range_12 {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.status = 200
+            ngx.print("0123456789");
+        ';
+    }
+--- request
+GET /range_12_prx
+--- response_body: 0123456789
+
+
+=== TEST 12b: Multi byte ranges across chunk boundaries
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_12_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: bytes=0-3,5-8
+--- request
+GET /range_12_prx
+--- no_error_log
+[error]
+--- response_body_like chop
+
+--[0-9a-z]+
+Content-Type: text/plain
+Content-Range: bytes 0-3/10
+
+0123
+--[0-9a-z]+
+Content-Type: text/plain
+Content-Range: bytes 5-8/10
+
+5678
+--[0-9a-z]+--
+--- error_code: 206
+
+
+=== TEST 12c: Single range which spans chunk boundaries
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_12_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: bytes=4-7
+--- request
+GET /range_12_prx
+--- response_headers
+Content-Range: bytes 4-7/10
+--- response_body: 4567
 --- error_code: 206
