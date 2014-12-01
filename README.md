@@ -350,11 +350,11 @@ syntax: `ledge:config_set("max_stale", 300)`
 
 default: `nil`
 
-Specifies, in seconds, how far past expiry we can serve cached content.
+Specifies, in seconds, how far past expiry we can serve cached content. If a value is specified by the `Cache-Control: max-stale=xx` request header, then this setting is ignored, placing control in the client's hands.
 
-If set to `nil` then we determine this from the `Cache-Control: max-stale=xx` request header, placing control of this with the client.
+This setting is useful for serving expensive content stale whilst revalidating in the background. For example, if some content has a TTL of one hour, you may wish to change this to 45 minutes, and allow stale serving for 15 minutes. Thus the cache item has the same effective TTL, but any requests in the last 15 minutes will be served quickly, and trigger a background revalidation for the latest version.
 
-**WARNING:** Any setting other than `nil` violates the HTTP specification.
+**WARNING:** Any setting other than `nil` may violate the HTTP specification (i.e. if the client does not override it with a valid request header value).
 
 ### stale_if_error
 
