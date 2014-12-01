@@ -1848,7 +1848,7 @@ function _M.check_range_request(self, res)
             end
             
             self:ctx().byterange_boundary = tbl_concat(boundary, "\n")
-            self:ctx().byterange_boundary_end = "--" .. boundary_string .. "--"
+            self:ctx().byterange_boundary_end = "\n--" .. boundary_string .. "--"
 
             res.status = ngx_PARTIAL_CONTENT
             ngx.header["Accept-Ranges"] = "bytes"
@@ -2536,7 +2536,7 @@ function _M.get_range_request_filter(self, reader)
                             -- Yield the multipart byterange boundary if required
                             if num_ranges > 1 then
                                 co_yield(boundary)
-                                co_yield(range.header .. "\n\n")
+                                co_yield("Content-Range: " .. range.header .. "\n\n")
                             end
                             
                             -- From / to relative to the current chunk
@@ -2566,7 +2566,7 @@ function _M.get_range_request_filter(self, reader)
 
             -- Yield the multipart byterange end marker
             if num_ranges > 1 then
-                co_yield("\n--" .. boundary_end .. "--")
+                co_yield(boundary_end)
             end
         end)
     end
