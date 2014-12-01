@@ -393,3 +393,34 @@ GET /range_12_prx
 Content-Range: bytes 4-7/10
 --- response_body: 4567
 --- error_code: 206
+
+
+=== TEST 12d: Multi byte reversed ranges. Return in sane order.
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_12_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+Range: bytes=5-8,0-3
+--- request
+GET /range_12_prx
+--- no_error_log
+[error]
+--- response_body_like chop
+
+--[0-9a-z]+
+Content-Type: text/plain
+Content-Range: bytes 0-3/10
+
+0123
+--[0-9a-z]+
+Content-Type: text/plain
+Content-Range: bytes 5-8/10
+
+5678
+--[0-9a-z]+--
+--- error_code: 206

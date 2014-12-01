@@ -42,6 +42,7 @@ local tbl_insert = table.insert
 local tbl_concat = table.concat
 local tbl_remove = table.remove
 local tbl_getn = table.getn
+local tbl_sort = table.sort
 local str_lower = string.lower
 local str_sub = string.sub
 local str_match = string.match
@@ -431,6 +432,15 @@ function _M.request_byte_range(self)
     end
 
     return ranges
+end
+
+
+local function sort_byte_ranges(first, second)
+    if not first.from or not second.from then
+        ngx_log(ngx_ERROR, "Attempt to compare invalid byteranges")
+        return true
+    end
+    return first.from <= second.from
 end
 
 
@@ -1812,8 +1822,8 @@ function _M.check_range_request(self, res)
         end
             
         if #ranges > 1 then
-            -- TODO: We have multiple ranges. Look for overlapping and proximate ranges to mitigate 
-            -- DOS attacks.
+            -- Sort ranges as we cannot serve unordered.
+            tbl_sort(ranges, sort_byte_ranges)
         end
 
         self:ctx().byterange_request_ranges = ranges
