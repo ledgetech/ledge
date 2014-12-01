@@ -1820,10 +1820,28 @@ function _M.check_range_request(self, res)
                 tbl_insert(ranges, range)
             end
         end
-            
-        if #ranges > 1 then
+        
+        local numranges = #ranges
+        if numranges > 1 then
             -- Sort ranges as we cannot serve unordered.
             tbl_sort(ranges, sort_byte_ranges)
+
+            -- Coalesce overlapping ranges.
+            for i = numranges,1,-1 do
+                if i > 1 then
+                    local current_range = ranges[i]
+                    local previous_range = ranges[i - 1]
+
+                    if current_range.from <= previous_range.to then
+                        -- extend previous range to encompass this one
+                        previous_range.to = current_range.to
+                        previous_range.header = "bytes " .. 
+                                                previous_range.from .. "-" .. current_range.to 
+                                                .. "/" .. res.size
+                        tbl_remove(ranges, i)
+                    end
+                end
+            end
         end
 
         self:ctx().byterange_request_ranges = ranges
@@ -2605,7 +2623,6 @@ function _M.body_server(self, reader)
     repeat
         local chunk, err = reader(buffer_size)
         if chunk then
-            ngx_log(ngx_DEBUG, chunk)
             ngx_print(chunk)
         end
 
