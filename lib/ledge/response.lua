@@ -1,4 +1,5 @@
 local h_util = require "ledge.header_util"
+local http_headers = require "resty.http_headers"
 
 local pairs = pairs
 local ipairs = ipairs
@@ -37,39 +38,8 @@ local NOCACHE_HEADERS = {
 
 function _M.new()
     local body = ""
-    local header = {}
+    local header = http_headers.new()
     local status = nil
-
-    -- Header metatable for field case insensitivity.
-    local header_mt = {
-        normalised = {},
-    }
-
-    -- If we've seen this key in any case before, return it.
-    header_mt.__index = function(t, k)
-        k = str_gsub(str_lower(k), "-", "_")
-        if header_mt.normalised[k] then
-            return rawget(t, header_mt.normalised[k])
-        end
-    end
-
-    -- First check the normalised table. If there's no match (first time) add an entry for 
-    -- our current case in the normalised table. This is to preserve the human (prettier) case
-    -- instead of outputting lowercased / underscored header names.
-    --
-    -- If there's a match, we're being updated, just with a different case for the key. We use
-    -- the normalised table to give us the original key, and perorm a rawset().
-    header_mt.__newindex = function(t, k, v)
-        local k_low = str_gsub(str_lower(k), "-", "_")
-        if not header_mt.normalised[k_low] then
-            header_mt.normalised[k_low] = k 
-            rawset(t, k, v)
-        else
-            rawset(t, header_mt.normalised[k_low], v)
-        end
-    end
-
-    setmetatable(header, header_mt)
 
     return setmetatable({   status = nil, 
                             body = body,
@@ -111,7 +81,7 @@ function _M.ttl(self)
             cc = tbl_concat(cc, ", ")
         end
         local max_ages = {}
-        for max_age in ngx_re_gmatch(self.header["Cache-Control"], 
+        for max_age in ngx_re_gmatch(cc, 
             "(s\\-maxage|max\\-age)=(\\d+)", 
             "io") do
             max_ages[max_age[1]] = max_age[2]

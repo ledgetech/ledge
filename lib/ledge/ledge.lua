@@ -102,7 +102,7 @@ end
 
 
 local _M = {
-    _VERSION = '0.09',
+    _VERSION = '0.13',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -1734,13 +1734,13 @@ function _M.read_from_cache(self)
 
         for i = 1, headers_len, 2 do
             local header = headers[i]
-            if header:sub(2, 2) == ':' then
-                -- Multiple headers, we also need to preserve the order?
-                local index = tonumber(header:sub(1, 1))
-                if res.header[header] == nil then
-                    res.header[header] = {}
+            if str_find(header, ":") then
+                -- We have multiple headers with the same field name
+                local index, key = unpack(str_split(header, ":"))
+                if not res.header[key] then
+                    res.header[key] = {}
                 end
-                res.header[header][index] = headers[i + 1]
+                tbl_insert(res.header[key], headers[i + 1])
             else
                 res.header[header] = headers[i + 1]
             end
@@ -1998,11 +1998,16 @@ function _M.save_to_cache(self, res)
     end
 
     -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
-    if res.header["Cache-Control"] and str_find(res.header["Cache-Control"], "=") then
-        local patterns = { "no%-cache", "no%-store", "private" }
-        for _,p in ipairs(patterns) do
-            for h in str_gmatch(res.header["Cache-Control"], p .. "=\"?([%a-]+)\"?") do
-                tbl_insert(uncacheable_headers, h)
+    local cc = res.header["Cache-Control"]
+    if cc then
+        if type(cc) == "table" then cc = tbl_concat(cc, ", ") end
+
+        if str_find(cc, "=") then
+            local patterns = { "no%-cache", "no%-store", "private" }
+            for _,p in ipairs(patterns) do
+                for h in str_gmatch(cc, p .. "=\"?([%a-]+)\"?") do
+                    tbl_insert(uncacheable_headers, h)
+                end
             end
         end
     end
@@ -2194,6 +2199,7 @@ function _M.serve(self)
 
         if res.header then
             for k,v in pairs(res.header) do
+                ngx_log(ngx_DEBUG, k, ": ", tostring(v))
                 ngx.header[k] = v
             end
         end
