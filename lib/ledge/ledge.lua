@@ -556,7 +556,7 @@ function _M.cache_entity_keys(self, cache_key)
 
     for k, v in pairs(keys) do
         local res = redis:exists(v)
-        if not res then return nil end
+        if not res or res == ngx_null or res == 0 then return nil end
     end
 
     return keys
@@ -2052,14 +2052,18 @@ function _M.save_to_cache(self, res)
     local entity = random_hex(8)  
     local entity_keys = self:entity_keys(cache_key .. ":" .. entity)
     
-    -- Mark the old entity for expiration shortly (reads could still be in progress)
+    -- We'll need to mark the old entity for expiration shortly, as reads could still 
+    -- be in progress. We need to know the previous entity keys and the size.
     local previous_entity_keys = self:cache_entity_keys(cache_key)
 
     local previous_entity_size, err
     if previous_entity_keys then
         previous_entity_size, err = redis:hget(previous_entity_keys.main, "size")
-        if not previous_entity_size then
-            ngx_log(ngx_ERR, err)
+        if previous_entity_size == ngx_null then
+            previous_entity_keys = nil
+            if err then
+                ngx_log(ngx_ERR, err)
+            end
         end
     end
 
