@@ -313,6 +313,7 @@ location /esi_10 {
 }
 location /__ledge_origin {
     content_by_lua '
+        ngx.status = 404
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "esi10"
         ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
@@ -322,6 +323,7 @@ location /__ledge_origin {
 GET /esi_10?t=1
 --- response_body
 t=1
+--- error_code: 404
 --- response_headers_like
 X-Cache: MISS from .*
 
@@ -344,6 +346,7 @@ location /esi_10 {
 GET /esi_10?t=2
 --- response_body
 t=2
+--- error_code: 404
 --- response_headers_like
 X-Cache: HIT from .*
 
@@ -364,6 +367,7 @@ location /esi_10 {
 }
 location /__ledge_origin {
     content_by_lua '
+        ngx.status = 404
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "esi10c"
         ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
@@ -376,6 +380,7 @@ If-None-Match: esi10
 GET /esi_10?t=3
 --- response_body
 t=3
+--- error_code: 404
 --- response_headers_like
 X-Cache: MISS from .*
 
@@ -396,6 +401,7 @@ location /esi_10 {
 }
 location /__ledge_origin {
     content_by_lua '
+        ngx.status = 404
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "esi10c"
         ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
@@ -408,6 +414,7 @@ If-None-Match: esi10c
 GET /esi_10?t=4
 --- response_body
 t=4
+--- error_code: 404
 --- response_headers_like
 X-Cache: MISS from .*
 
@@ -438,6 +445,7 @@ If-None-Match: esi10
 GET /esi_10?t=5
 --- response_body
 t=5
+--- error_code: 404
 --- response_headers_like
 X-Cache: MISS from .*
 
