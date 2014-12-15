@@ -15,6 +15,7 @@ our $HttpConfig = qq{
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
+        ledge:config_set('keep_cache_for', 0)
     ";
 
     init_worker_by_lua "
@@ -78,7 +79,7 @@ OK
         ';
     }
     location /gc {
-        more_set_headers "Cache-Control: public, max-age=60";
+        more_set_headers "Cache-Control: public, max-age=5";
         echo "UPDATED";
     }
 --- more_headers
@@ -117,3 +118,24 @@ GET /gc
 1
 8
 
+
+=== TEST 4: Entity will have expired, check everything is still ok
+--- http_config eval: $::HttpConfig
+--- config
+    location /gc_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ngx.sleep(4)
+            ledge:run()
+        ';
+    }
+    location /gc {
+        more_set_headers "Cache-Control: public, max-age=60";
+        echo "OK";
+    }
+--- request
+GET /gc_prx
+--- timeout: 6
+--- no_error_log
+--- response_body
+OK
