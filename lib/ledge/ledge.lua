@@ -1734,6 +1734,7 @@ function process_esi(self)
     if res.header["Content-Length"] then res.header["Content-Length"] = #body end
     res.body = body
     self:set_response(res)
+    self.actions["set_http_status_from_response"](self)
     self:add_warning("214")
 end
 
