@@ -711,6 +711,7 @@ _M.events = {
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
     cache_valid = {
+        { in_case = "collapsed_response_ready", begin = "considering_local_revalidation" },
         { when = "checking_cache", begin = "considering_revalidation" },
     },
 
@@ -718,8 +719,9 @@ _M.events = {
     -- is on, so if cache is accepted and in an "expired" state (i.e. not missing), lets try
     -- to collapse. Otherwise we just start fetching.
     can_fetch_but_try_collapse = {
-        { in_case = "cache_expired", begin = "requesting_collapse_lock" },
-        { begin = "fetching" },
+        { in_case = "cache_missing", begin = "fetching" },
+        { in_case = "cache_accepted", begin = "requesting_collapse_lock" },
+        { begin = "fetching" }, 
     },
 
     -- We have the lock on this "fetch". We might be the only one. We'll never know. But we fetch
@@ -845,7 +847,8 @@ _M.events = {
 
     -- Client requests a max-age of 0 or stored response requires revalidation.
     must_revalidate = {
-        { begin = "revalidating_upstream" },
+        --{ begin = "revalidating_upstream" },
+        { begin = "checking_can_fetch" },
     },
 
     -- We can validate locally, so do it. This doesn't imply it's valid, merely that we have
