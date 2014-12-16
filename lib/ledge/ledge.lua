@@ -238,12 +238,11 @@ function _M.config_get(self, param)
 end
 
 
-function _M.cleanup(self)
+function _M.handle_abort(self)
     -- Use a closure to pass through the ledge instance
-    local ledge = self
-    return function ()
-                ledge:e "aborted"
-           end
+    return function()
+        self:e "aborted"
+    end
 end
 
 
@@ -265,9 +264,9 @@ end
 
 
 function _M.run(self)
-    local set, msg = ngx.on_abort(self:cleanup())
+    local set, msg = ngx.on_abort(self:handle_abort())
     if set == nil then
-        ngx_log(ngx_WARN, "on_abort handler not set: "..msg)
+       ngx_log(ngx_WARN, "on_abort handler not set: "..msg)
     end
     self:e "init"
 end
@@ -342,6 +341,12 @@ end
 function _M.redis_close(self)
     local redis = self:ctx().redis
     if redis then
+        -- We should only be able to close outside of the transactional
+        -- code (as abort gets suspended on write), but just in case we 
+        -- restore this connection to "NORMAL" before putting it in the 
+        -- keepalive pool.
+        redis:discard()
+
         -- Keep the Redis connection based on keepalive settings.
         local ok, err = nil, nil
         local keepalive_timeout = self:config_get("redis_keepalive_timeout")
@@ -908,13 +913,12 @@ _M.events = {
         { begin = "exiting" },
     },
 
-    -- When the client request is aborted clean up redis connections and collapsed locks
-    -- Then return ngx.exit(499) to abort any running sub-requests
+    -- When the client request is aborted clean up redis / http connections. If we're saving
+    -- or have the collapse lock, then don't abort as we want to finish regardless.
+    -- Note: this is a special entry point, triggered by ngx_lua client abort notification.
     aborted = {
-        { after = "publishing_collapse_abort", begin = "exiting",
-             but_first = "set_http_client_abort"
-        },
-        { in_case = "obtained_collapsed_forwarding_lock", begin = "publishing_collapse_abort" },
+        { in_case = "response_cacheable", begin = "cancelling_abort_request" },
+        { in_case = "obtained_collapsed_forwarding_lock", begin = "cancelling_abort_request" },
         { begin = "exiting", but_first = "set_http_client_abort" },
     },
 
@@ -1023,6 +1027,7 @@ _M.actions = {
         self:ctx().esi_scan_enabled = true
     end,
 
+    
     set_esi_process_enabled = function(self)
         self:ctx().esi_process_enabled = true
     end,
@@ -1106,6 +1111,10 @@ _M.actions = {
 
     release_collapse_lock = function(self)
         self:ctx().redis:del(self:fetching_key())
+    end,
+
+    set_client_aborted = function(self)
+        self:ctx().client_aborted = true
     end,
 
     set_http_ok = function(self)
@@ -1602,6 +1611,10 @@ _M.states = {
     end,
 
     exiting_worker = function(self)
+        return true
+    end,
+
+    cancelling_abort_request = function(self)
         return true
     end,
 }
@@ -2203,7 +2216,6 @@ function _M.serve(self)
 
         if res.header then
             for k,v in pairs(res.header) do
-                ngx_log(ngx_DEBUG, k, ": ", tostring(v))
                 ngx.header[k] = v
             end
         end
