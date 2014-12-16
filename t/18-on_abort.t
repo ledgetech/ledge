@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 5; 
+plan tests => repeat_each() * (blocks() * 2) + 1;
 
 my $pwd = cwd();
 
@@ -17,8 +17,10 @@ our $HttpConfig = qq{
         ledge:config_set('upstream_port', 1984)
     ";
     init_worker_by_lua "
---        ledge:run_workers()
+        --ledge:run_workers()
     ";
+        
+    lua_check_client_abort on;
 };
 
 no_long_string();
@@ -45,100 +47,178 @@ GET /abort_prx
 on_abort handler not set
 
 
-=== TEST 2: Client abort should abort sub-request
+=== TEST 2a: Client abort mid save should still save to cache (run and abort)
 --- http_config eval: $::HttpConfig
 --- config
     location /abort_prx {
         rewrite ^(.*)_prx$ $1 break;
-        lua_check_client_abort on;
         content_by_lua '
             ledge:run()
         ';
     }
     location /abort {
-        lua_check_client_abort on;
         content_by_lua '
-        ngx.log(ngx.WARN, "Origin Start")
-        ngx.sleep(1)
-        ngx.log(ngx.ERR, "Origin Finish")
+            ngx.status = 200
+            ngx.header["Cache-Control"] = "public, max-age=3600"
+            ngx.say("START")
+            ngx.flush(true)
+            ngx.sleep(2)
+            ngx.say("FINISH")
        ';
     }
 --- request
 GET /abort_prx
---- timeout: 0.5
---- wait: 1
+--- timeout: 1
+--- wait: 1.5
 --- abort
 --- ignore_response
 --- no_error_log
 [error]
 
 
-=== TEST 3a: Client abort should remove collapse key - prime
+=== TEST 2b: Prove we have a complete cache entry
 --- http_config eval: $::HttpConfig
 --- config
     location /abort_prx {
         rewrite ^(.*)_prx$ $1 break;
-        lua_check_client_abort on;
         content_by_lua '
-            ledge:config_set("enable_collapsed_forwarding", true)
-            ledge:bind("before_save", function(res)
-                -- immediately expire cache entries
-                res.header["Cache-Control"] = "max-age=0"
-            end)            
             ledge:run()
         ';
-    }
-    location /abort {
-            content_by_lua '
-               ngx.header["Cache-Control"] = "max-age=3600"
-               ngx.say("OK")
-           ';
     }
 --- request
 GET /abort_prx
+--- response_body
+START
+FINISH
+--- error_code: 200
+--- no_error_log
+[error]
 
 
-=== TEST 3b: Client abort should remove collapse key - abort
+=== TEST 3a: Client abort before save aborts fetching
 --- http_config eval: $::HttpConfig
 --- config
     location /abort_prx {
         rewrite ^(.*)_prx$ $1 break;
-        lua_check_client_abort on;
         content_by_lua '
-            ledge:config_set("enable_collapsed_forwarding", true)
             ledge:run()
         ';
     }
     location /abort {
         content_by_lua '
-        ngx.sleep(1)
+            ngx.sleep(2)
+            ngx.status = 200
+            ngx.header["Cache-Control"] = "public, max-age=3600"
+            ngx.say("START 2")
+            ngx.say("FINISH 2")
        ';
     }
 --- request
 GET /abort_prx
---- timeout: 0.5
---- wait: 1
+--- more_headers
+Cache-Control: max-age=0
+--- timeout: 1
+--- wait: 1.5
 --- abort
 --- ignore_response
+--- no_error_log
+[error]
 
 
-=== TEST 3c: Client abort should remove collapse key - should not collapse
+=== TEST 3b: Prove we still have the previous cache entry
 --- http_config eval: $::HttpConfig
 --- config
     location /abort_prx {
-        lua_check_client_abort on;
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- request
+GET /abort_prx
+--- response_body
+START
+FINISH
+--- error_code: 200
+--- no_error_log
+[error]
+
+
+=== TEST 4a: Prime immediately expiring cache item
+--- http_config eval: $::HttpConfig
+--- config
+location /abort_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("before_save", function(res)
+            -- immediately expire cache entries
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        ledge:run()
+    ';
+}
+location /abort {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("OK")
+    ';
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /abort_prx
+--- response_body
+OK
+--- error_code: 200
+--- no_error_log
+[error]
+
+
+=== TEST 4b: Client abort before fetch with collapsed forwarding on cancels abort
+--- http_config eval: $::HttpConfig
+--- config
+    location /abort_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:config_set("enable_collapsed_forwarding", true)
+            ledge:bind("origin_required", function(res)
+                ngx.sleep(2)
+            end)
             ledge:run()
         ';
     }
     location /abort {
         content_by_lua '
-        ngx.exit(200)
+            ngx.status = 200
+            ngx.header["Cache-Control"] = "public, max-age=3600"
+            ngx.say("START")
+            ngx.say("FINISH")
        ';
     }
 --- request
-GET /abort
---- timeout: 0.5
+GET /abort_prx
+--- timeout: 1
+--- wait: 1.5
 --- abort
+--- ignore_response
+--- no_error_log
+[error]
+
+
+=== TEST 4c: Prove we have the previous cache entry
+--- http_config eval: $::HttpConfig
+--- config
+    location /abort_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- request
+GET /abort_prx
+--- response_body
+START
+FINISH
+--- error_code: 200
+--- no_error_log
+[error]
