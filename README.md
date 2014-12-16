@@ -89,7 +89,7 @@ Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) doc
 
 Clone this repo, and the following dependencies into a path defined by [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path):
 
-* [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.04
+* [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.05
 * [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.02
 * [pintsized/lua-resty-redis](https://github.com/pintsized/lua-resty-redis) >= 0.20-pintsized (fork under review, which adds Redis Sentinel functionality)
 
