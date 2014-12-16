@@ -1113,10 +1113,6 @@ _M.actions = {
         self:ctx().redis:del(self:fetching_key())
     end,
 
-    set_client_aborted = function(self)
-        self:ctx().client_aborted = true
-    end,
-
     set_http_ok = function(self)
         ngx.status = ngx.HTTP_OK
     end,
