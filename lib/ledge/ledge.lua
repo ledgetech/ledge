@@ -2415,6 +2415,23 @@ function _M.get_esi_scan_filter(self, reader)
 end
 
 
+local function esi_eval_var(var)
+    if var == "$(QUERY_STRING)" then
+        return ngx_var.args or ""
+    elseif str_sub(var, 1, 7) == "$(HTTP_" then
+        -- Look for a HTTP_var that matches
+        local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
+        if header then
+            return ngx_var["http_" .. header] or ""
+        else
+            return ""
+        end
+    else
+        return ""
+    end
+end
+
+
 function _M.get_esi_process_filter(self, reader)
     return co_wrap(function(buffer_size)
         local i = 1
@@ -2422,27 +2439,12 @@ function _M.get_esi_process_filter(self, reader)
             local chunk, has_esi, err = reader(buffer_size)
             if chunk then
                 if has_esi then
-                    local replace = function(var)
-                        if var == "$(QUERY_STRING)" then
-                            return ngx_var.args or ""
-                        elseif str_sub(var, 1, 7) == "$(HTTP_" then
-                            -- Look for a HTTP_var that matches
-                            local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
-                            if header then
-                                return ngx_var["http_" .. header] or ""
-                            else
-                                return ""
-                            end
-                        else
-                            return ""
-                        end
-                    end
 
                     -- For every esi:vars block, substitute any number of variables found.
                     chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", function(var_block)
                         return ngx_re_gsub(var_block[1], "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)", 
                         function (m)
-                            return replace(m[0])
+                            return esi_eval_var(m[0])
                         end,
                         "soj")
                     end, "soj")
@@ -2456,7 +2458,7 @@ function _M.get_esi_process_filter(self, reader)
                         local vars = ngx_re_gsub(m[2],
                         "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
                         function (m)
-                            return replace(m[1])
+                            return esi_eval_var(m[1])
                         end,
                         "oj")
                         return m[1] .. vars .. m[3]
