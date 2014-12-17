@@ -2469,6 +2469,74 @@ local function esi_replace_vars(chunk)
 end
 
 
+local function esi_fetch_include(include_tag, buffer_size)
+    local src, err = ngx_re_match(
+        include_tag,
+        "src=\"(.+)\".*/>",
+        "oj"
+    )
+
+    if src then
+        local httpc = http.new()
+
+        local scheme, host, port, path
+        local uri_parts = httpc:parse_uri(src[1])
+
+        if not uri_parts then
+            -- Not a valid URI, so probably a relative path. Resolve
+            -- local to the current request.
+            scheme = ngx_var.scheme
+            host = ngx_var.http_host or ngx_var.host
+            port = ngx_var.server_port
+            path = src[1]
+        else
+            scheme, host, port, path = unpack(uri_parts)
+        end
+
+        if host == "localhost" then host = "127.0.0.1" end
+
+        local res, err = httpc:connect(host, port)
+        if not res then
+            ngx_log(ngx_ERR, err)
+            co_yield()
+        else
+            local headers = ngx_req_get_headers()
+
+            -- Remove client validators
+            headers["if-modified-since"] = nil
+            headers["if-none-match"] = nil
+
+            headers["host"] = host
+            headers["accept-encoding"] = nil
+
+            local res, err = httpc:request{ 
+                method = ngx_req_get_method(),
+                path = path,
+                headers = headers,
+            }
+            
+            if not res then
+                ngx_log(ngx_ERR, err)
+                co_yield()
+            else
+                if res then
+                    -- Stream the include fragment, yielding as we go
+                    local reader = res.body_reader
+                    repeat
+                        local ch, err = reader(buffer_size)
+                        if ch then
+                            co_yield(ch)
+                        end
+                    until not ch
+                end
+            end
+
+            httpc:set_keepalive()
+        end
+    end
+end
+
+
 function _M.get_esi_process_filter(self, reader)
     return co_wrap(function(buffer_size)
         local i = 1
@@ -2483,10 +2551,9 @@ function _M.get_esi_process_filter(self, reader)
                     chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
 
                     -- Evaluate and replace all esi vars
-                    chunk = esi_replace_vars(chunk)
+                    chunk = esi_replace_vars(chunk, buffer_size)
 
-                    -- Find and loop start points of includes
-                    
+                    -- Find and loop over esi:include tags
                     local ctx = { pos = 1 }
                     local yield_from = 1
                     repeat
@@ -2502,67 +2569,16 @@ function _M.get_esi_process_filter(self, reader)
                             co_yield(str_sub(chunk, yield_from, from - 1))
                             yield_from = to + 1
 
-                            local src, err = ngx_re_match(
-                                str_sub(chunk, from, to), 
-                                "src=\"(.+)\".*/>",
-                                "oj"
-                            )
-
-                            if src then
-                                local httpc = http.new()
-                                
-                                local scheme, host, port, path
-                                local uri_parts = httpc:parse_uri(src[1])
-
-                                if not uri_parts then
-                                    -- Not a valid URI, so probably a relative path. Resolve
-                                    -- local to the current request.
-                                    scheme = ngx_var.scheme
-                                    host = ngx_var.http_host or ngx_var.host
-                                    port = ngx_var.server_port
-                                    path = src[1]
-                                else
-                                    scheme, host, port, path = unpack(uri_parts)
-                                end
-
-                                if host == "localhost" then host = "127.0.0.1" end
-
-                                local res, err = httpc:connect(host, port)
-                                if not res then
-                                    ngx_log(ngx_ERR, err)
-                                    co_yield()
-                                else
-                                    local headers = ngx_req_get_headers()
-
-                                    -- Remove client validators
-                                    headers["if-modified-since"] = nil
-                                    headers["if-none-match"] = nil
-
-                                    headers["host"] = host
-                                    headers["accept-encoding"] = nil
-
-                                    local res, err = httpc:request{ 
-                                        method = ngx_req_get_method(),
-                                        path = path,
-                                        headers = headers,
-                                    }
-
-                                    if res then
-                                        -- Stream the include fragment, yielding as we go
-                                        local reader = res.body_reader
-                                        repeat
-                                            local ch, err = reader(buffer_size)
-                                            if ch then
-                                                co_yield(ch)
-                                            end
-                                        until not ch
-                                    end
-
-                                    httpc:set_keepalive()
-                                end
-                            end
+                            -- Fetches and yields the streamed response
+                            esi_fetch_include(str_sub(chunk, from, to))
                         else
-                            co_yield(str_sub(chunk, ctx.pos, #chunk))
+                            if yield_from == 1 then
+                                -- No includes found, yield everything
+                                co_yield(chunk)
+                            else
+                                -- No *more* includes, yield what's left
+                                co_yield(str_sub(chunk, ctx.pos, #chunk))
+                            end
                         end
 
                     until not from
