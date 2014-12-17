@@ -2476,14 +2476,14 @@ function _M.get_esi_process_filter(self, reader)
             local chunk, has_esi, err = reader(buffer_size)
             if chunk then
                 if has_esi then
-                    -- Evaluate and replace all esi vars
-                    chunk = esi_replace_vars(chunk)
-
                     -- Remove comments
                     chunk = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
 
                     -- Remove 'remove' blocks
                     chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
+
+                    -- Evaluate and replace all esi vars
+                    chunk = esi_replace_vars(chunk)
 
                     -- Find and loop start points of includes
                     
