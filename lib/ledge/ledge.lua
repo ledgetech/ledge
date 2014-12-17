@@ -2415,7 +2415,16 @@ function _M.get_esi_scan_filter(self, reader)
 end
 
 
-local esi_var_pattern = "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)" 
+local esi_var_pattern = "\\$\\(([A-Z_]+){?([a-zA-Z\\.\\-~_%0-9]*)}?\\)"
+
+local esi_var_types = {
+    ["HTTP_ACCEPT_LANGUAGE"] = "list",
+    ["QUERY_STRING"] = "dictionary",
+    ["HTTP_COOKIE"] = "dictionary",
+    ["HTTP_HOST"] = "string",
+    ["HTTP_REFERER"] = "stirng",
+    ["HTTP_USER_AGENT"] = "dictionary",
+}
 
 
 -- Evaluates a given ESI variable. 
@@ -2426,11 +2435,28 @@ local esi_var_pattern = "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)"
 --  * Default strings
 --  * Match / replace regex patterns: $(QUERY_STRING~=/mymatch/) etc.
 local function esi_eval_var(var)
-    if var == "$(QUERY_STRING)" then
-        return ngx_var.args or ""
-    elseif str_sub(var, 1, 7) == "$(HTTP_" then
+    local var_name = var[1] or ""
+    local key = var[2]
+
+    local var_type = esi_var_types[var_name] or "string"
+
+    if var_name == "QUERY_STRING" then
+        if not key or key == "" then
+            return ngx_var.args or ""
+        else
+            local value = ngx.req.get_uri_args()[key]
+            if value then
+                if type(value) == "table" then
+                    return tbl_concat(value, ", ")
+                else
+                    return value
+                end
+            end
+            return ""
+        end
+    elseif str_sub(var_name, 1, 5) == "HTTP_" then
         -- Look for a HTTP_var that matches
-        local _, _, header = str_find(var, "%$%(HTTP%_(.+)%)")
+        local _, _, header = str_find(var_name, "HTTP%_(.+)")
         if header then
             return ngx_var["http_" .. header] or ""
         else
@@ -2442,18 +2468,12 @@ local function esi_eval_var(var)
 end
 
 
--- Used in ngx_re_gsub as the replacement function
-local function esi_var_replacer(match)
-    return esi_eval_var(match[0])
-end
-
-
 -- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
 -- Also removes the <esi:vars> tags themselves.
 local function esi_replace_vars(chunk)
     -- For every esi:vars block, substitute any number of variables found.
     chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", function(var_block)
-        return ngx_re_gsub(var_block[1], esi_var_pattern, esi_var_replacer, "soj")
+        return ngx_re_gsub(var_block[1], esi_var_pattern, esi_eval_var, "soj")
     end, "soj")
 
     -- Remove vars tags that are left over
@@ -2461,7 +2481,7 @@ local function esi_replace_vars(chunk)
 
     -- Replace vars inline in any other esi: tags, retaining the surrounding tags.
     chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*/>)", function(m)
-        local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_var_replacer, "oj")
+        local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "oj")
         return m[1] .. vars .. m[3]
     end, "oj")
 
