@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3); 
+plan tests => repeat_each() * (blocks() * 3) + 1; 
 
 my $pwd = cwd();
 
@@ -48,6 +48,8 @@ GET /max_memory_prx
 RESPONSE IS TOO LARGE TEST 1
 --- response_headers_like
 X-Cache: MISS from .*
+--- error_log
+cache item deleted as it is larger than 8 bytes
 
 
 === TEST 2: Test we didn't store in previous test.
@@ -71,6 +73,7 @@ GET /max_memory_prx
 TEST 2
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log
 
 
 === TEST 3: Non-chunked response larger than cache_max_memory.
@@ -97,6 +100,7 @@ GET /max_memory_3_prx
 RESPONSE IS TOO LARGE TEST 3
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log
 
 
 === TEST 4: Test we didn't store in previous test.
@@ -120,3 +124,4 @@ GET /max_memory_3_prx
 TEST 4
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log

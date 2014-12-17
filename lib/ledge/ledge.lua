@@ -2282,14 +2282,14 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                     -- If we cannot store any more, delete everything.
                     -- TODO: Options for persistent storage and retaining metadata etc.
                     if size > max_memory then
-                        self:delete_from_cache()
                         deleted_due_to_size = true
-                        local res, err = redis:exec()
+                        local res, err = redis:discard()
                         if err then
                             ngx_log(ngx_ERR, err)
                         end
+                        self:delete_from_cache()
 
-                        ngx_log(ngx_DEBUG, "cache item deleted as it is larger than ", 
+                        ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ", 
                                             max_memory, " bytes")
                     else
                         redis:rpush(entity_keys.body, chunk)
