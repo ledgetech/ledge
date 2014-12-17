@@ -182,7 +182,7 @@ location /esi_6 {
     default_type text/html;
     content_by_lua '
         ngx.say("<esi:include src=\\"/fragment_3\\" />")
-        ngx.say("<esi:include src=\\"/fragment_1\\" />")
+        ngx.say("MID LINE <esi:include src=\\"/fragment_1\\" />")
         ngx.say("<esi:include src=\\"/fragment_2\\" />")
     ';
 }
@@ -190,7 +190,7 @@ location /esi_6 {
 GET /esi_6_prx
 --- response_body
 FRAGMENT_3
-FRAGMENT_1
+MID LINE FRAGMENT_1
 FRAGMENT_2
 
 
