@@ -2415,6 +2415,16 @@ function _M.get_esi_scan_filter(self, reader)
 end
 
 
+local esi_var_pattern = "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)" 
+
+
+-- Evaluates a given ESI variable. 
+-- TODO: Expand this to include substructure access.
+-- TODO: Expand this to handle
+--  * HTTP_REFERER_QUERY_STRING
+--  * GEO
+--  * Default strings
+--  * Match / replace regex patterns: $(QUERY_STRING~=/mymatch/) etc.
 local function esi_eval_var(var)
     if var == "$(QUERY_STRING)" then
         return ngx_var.args or ""
@@ -2432,6 +2442,33 @@ local function esi_eval_var(var)
 end
 
 
+-- Used in ngx_re_gsub as the replacement function
+local function esi_var_replacer(match)
+    return esi_eval_var(match[0])
+end
+
+
+-- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
+-- Also removes the <esi:vars> tags themselves.
+local function esi_replace_vars(chunk)
+    -- For every esi:vars block, substitute any number of variables found.
+    chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", function(var_block)
+        return ngx_re_gsub(var_block[1], esi_var_pattern, esi_var_replacer, "soj")
+    end, "soj")
+
+    -- Remove vars tags that are left over
+    chunk = ngx_re_gsub(chunk, "(<esi:vars>|</esi:vars>)", "", "soj")
+
+    -- Replace vars inline in any other esi: tags, retaining the surrounding tags.
+    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*/>)", function(m)
+        local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_var_replacer, "oj")
+        return m[1] .. vars .. m[3]
+    end, "oj")
+
+    return chunk
+end
+
+
 function _M.get_esi_process_filter(self, reader)
     return co_wrap(function(buffer_size)
         local i = 1
@@ -2439,36 +2476,14 @@ function _M.get_esi_process_filter(self, reader)
             local chunk, has_esi, err = reader(buffer_size)
             if chunk then
                 if has_esi then
+                    -- Evaluate and replace all esi vars
+                    chunk = esi_replace_vars(chunk)
 
-                    -- For every esi:vars block, substitute any number of variables found.
-                    chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", function(var_block)
-                        return ngx_re_gsub(var_block[1], "\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\)", 
-                        function (m)
-                            return esi_eval_var(m[0])
-                        end,
-                        "soj")
-                    end, "soj")
-
-                    -- Remove vars tags that are left over
-                    chunk = ngx_re_gsub(chunk, "(<esi:vars>|</esi:vars>)", "", "soj")
-
-                    -- Replace vars inline in any other esi: tags.
-                    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*/>)",
-                    function(m)
-                        local vars = ngx_re_gsub(m[2],
-                        "(\\$\\([A-Z_]+[{a-zA-Z\\.-~_%0-9}]*\\))",
-                        function (m)
-                            return esi_eval_var(m[1])
-                        end,
-                        "oj")
-                        return m[1] .. vars .. m[3]
-                    end,
-                    "oj")
-
+                    -- Remove comments
                     chunk = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
 
+                    -- Remove 'remove' blocks
                     chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
-
 
                     -- Find and loop start points of includes
                     
