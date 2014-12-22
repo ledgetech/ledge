@@ -5,6 +5,7 @@ local qless = require "resty.qless"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
 local ffi = require "ffi"
+local cookie = require "resty.cookie"
 
 local redis = require "resty.redis"
 local redis_connector = require "resty.redis.connector"
@@ -25,6 +26,7 @@ local ngx_req_get_headers = ngx.req.get_headers
 local ngx_req_set_header = ngx.req.set_header
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_raw_header = ngx.req.raw_header
+local ngx_req_get_uri_args = ngx.req.get_uri_args
 local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
@@ -2437,14 +2439,15 @@ local esi_var_types = {
 local function esi_eval_var(var)
     local var_name = var[1] or ""
     local key = var[2]
+    if key == "" then key = nil end
 
     local var_type = esi_var_types[var_name] or "string"
 
     if var_name == "QUERY_STRING" then
-        if not key or key == "" then
+        if not key then
             return ngx_var.args or ""
         else
-            local value = ngx.req.get_uri_args()[key]
+            local value = ngx_req_get_uri_args()[key]
             if value then
                 if type(value) == "table" then
                     return tbl_concat(value, ", ")
@@ -2456,9 +2459,24 @@ local function esi_eval_var(var)
         end
     elseif str_sub(var_name, 1, 5) == "HTTP_" then
         -- Look for a HTTP_var that matches
-        local _, _, header = str_find(var_name, "HTTP%_(.+)")
+        --local _, _, header = str_find(var_name, "HTTP%_(.+)")
+        local header = str_sub(var_name, 6)
         if header then
-            return ngx_var["http_" .. header] or ""
+            local value = ngx.req.get_headers()[header]
+
+            if not value then
+                return ""
+            elseif var_type == "dictionary" and key then
+                if header == "COOKIE" then
+                    local ck = cookie:new()
+                    local cookie_value, err = ck:get(key)
+                    return cookie_value or ""
+                else
+                    return "" -- TODO
+                end
+            else
+                return value
+            end
         else
             return ""
         end
@@ -2468,22 +2486,31 @@ local function esi_eval_var(var)
 end
 
 
+-- Used in esi_replace_vars. Declared locally to avoid runtime closure definition.
+local function _esi_gsub_in_vars_tags(m)
+    return ngx_re_gsub(m[1], esi_var_pattern, esi_eval_var, "soj")
+end
+
+
+-- Used in esi_replace_vars. Declared locally to avoid runtime closure definition.
+local function _esi_gsub_in_other_tags(m)
+    local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "oj")
+    return m[1] .. vars .. m[3]
+end
+
+
 -- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
 -- Also removes the <esi:vars> tags themselves.
 local function esi_replace_vars(chunk)
+    ngx_log(ngx_DEBUG, chunk)
     -- For every esi:vars block, substitute any number of variables found.
-    chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", function(var_block)
-        return ngx_re_gsub(var_block[1], esi_var_pattern, esi_eval_var, "soj")
-    end, "soj")
+    chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", _esi_gsub_in_vars_tags, "soj")
 
     -- Remove vars tags that are left over
     chunk = ngx_re_gsub(chunk, "(<esi:vars>|</esi:vars>)", "", "soj")
 
     -- Replace vars inline in any other esi: tags, retaining the surrounding tags.
-    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*/>)", function(m)
-        local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "oj")
-        return m[1] .. vars .. m[3]
-    end, "oj")
+    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*/>)", _esi_gsub_in_other_tags, "oj")
 
     return chunk
 end

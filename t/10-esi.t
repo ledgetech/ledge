@@ -10,7 +10,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 our $HttpConfig = qq{
     resolver 8.8.8.8;
     if_modified_since off;
-    lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
@@ -24,6 +24,7 @@ our $HttpConfig = qq{
     ";
 };
 
+master_on();
 no_long_string();
 run_tests();
 
@@ -151,7 +152,6 @@ GET /esi_5_prx
 1
 FRAGMENT
 2
-
 
 
 === TEST 6: Include multiple fragments, in correct order.
@@ -335,29 +335,24 @@ location /esi_9_prx {
 location /esi_9 {
     default_type text/html;
     content_by_lua '
-        ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
-        ngx.say("<esi:include src=\\"/fragment1?$(QUERY_STRING)\\" />")
-        ngx.say("<esi:vars>$(QUERY_STRING)")
-        ngx.say("$(QUERY_STRING)")
-        ngx.say("</esi:vars>")
-        ngx.say("$(QUERY_STRING)")
+        ngx.say("HTTP_COOKIE: <esi:vars>$(HTTP_COOKIE)</esi:vars>");
+        ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: <esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>");
+        ngx.say("<esi:vars>");
+        ngx.say("HTTP_COOKIE: $(HTTP_COOKIE)");
+        ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: $(HTTP_COOKIE{SQ_SYSTEM_SESSION})");
+        ngx.print("</esi:vars>");
     ';
 }
-location /fragment1 {
-    content_by_lua '
-        ngx.say("FRAGMENT:"..ngx.var.args)
-    ';
-}
+--- more_headers
+Cookie: myvar=foo; SQ_SYSTEM_SESSION=hello
 --- request
 GET /esi_9_prx?t=1
 --- response_body
-t=1
-FRAGMENT:t=1
+HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
+HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
-t=1
-t=1
-
-$(QUERY_STRING)
+HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
+HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
 
 === TEST 9b: Multiple Variable evaluation
@@ -370,7 +365,7 @@ location /esi_9b_prx {
 location /esi_9b {
     default_type text/html;
     content_by_lua '
-        ngx.say("<esi:include src=\\"/fragment1b?$(QUERY_STRING)&test=$(HTTP_x_esi_test)\\" />")
+        ngx.say("<esi:include src=\\"/fragment1b?$(QUERY_STRING)&test=$(HTTP_X_ESI_TEST)\\" />")
     ';
 }
 location /fragment1b {
@@ -384,6 +379,32 @@ GET /esi_9b_prx?t=1
 X-ESI-Test: foobar
 --- response_body
 FRAGMENT:t=1&test=foobar
+
+
+=== TEST 9c: Dictionary variable syntax
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_9b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'ledge:run()';
+}
+location /esi_9b {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("<esi:include src=\\"/fragment1b?$(QUERY_STRING{t})&test=$(HTTP_COOKIE{foo})\\" />")
+    ';
+}
+location /fragment1b {
+    content_by_lua '
+        ngx.print("FRAGMENT:"..ngx.var.args)
+    ';
+}
+--- request
+GET /esi_9b_prx?t=1
+--- more_headers
+Cookie: foo=bar
+--- response_body
+FRAGMENT:1&test=bar
 
 
 === TEST 10: Prime ESI in cache.
