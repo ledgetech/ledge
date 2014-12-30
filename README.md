@@ -111,10 +111,10 @@ nginx {
     lua_package_path '/path/to/lua-resty-http/?.lua;/path/to/lua-resty-redis/?.lua;/path/to/lua-resty-qless/?.lua;/path/to/ledge/?.lua;;';
     
     init_by_lua '
-        # Require the module
+        -- Require the module
         local ledge_m = require "ledge.ledge"
         
-        # Create a global instance and set any global configuration
+        -- Create a global instance and set any global configuration
         ledge = ledge_m.new()
         ledge:config_set("upstream_host", "HOST.EXAMPLE.COM")
     ';
