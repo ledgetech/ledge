@@ -364,7 +364,7 @@ default: `nil`
 
 Specifies, in seconds, how far past expiry to serve stale cached content if the origin returns an error.
 
-If set to `nil` then this is determined from the [stale-if-error](http://tools.ietf.org/html/rfc5861) Cache-Control extension.
+This can be overriden by the request using the [stale-if-error](http://tools.ietf.org/html/rfc5861) Cache-Control extension.
 
 ### cache_key_spec
 
