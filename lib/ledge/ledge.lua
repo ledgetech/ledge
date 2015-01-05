@@ -585,16 +585,20 @@ end
 
 function _M.accepts_stale_error(self)
     local req_cc = ngx_req_get_headers()["Cache-Control"]
-    local stale_age = self:config_get("stale_if_error") or 0
+    local stale_age = self:config_get("stale_if_error")
 
     local res = self:get_response()
     if not res then return false end
 
     if h_util.header_has_directive(req_cc, "stale-if-error") then
-        stale_age = h_util.get_numeric_header_token(req_cc, "stale-if-error") or 0
+        stale_age = h_util.get_numeric_header_token(req_cc, "stale-if-error")
     end
 
-    return ((res.remaining_ttl + stale_age) > 0)
+    if not stale_age then
+        return false 
+    else
+        return ((res.remaining_ttl + stale_age) > 0)
+    end
 end
 
 
@@ -1902,7 +1906,6 @@ function _M.fetch_from_origin(self)
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
     if not method then
-        -- Unrecognised request method, do not proxy
         res.status = ngx.HTTP_METHOD_NOT_IMPLEMENTED
         return res
     end
