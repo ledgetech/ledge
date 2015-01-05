@@ -586,24 +586,21 @@ end
 
 
 function _M.accepts_stale_error(self)
-    local req_cc = ngx_req_get_headers()['Cache-Control']
+    local req_cc = ngx_req_get_headers()["Cache-Control"]
     local stale_age = self:config_get("stale_if_error")
+
     local res = self:get_response()
+    if not res then return false end
 
-    if not res then
-        return false
+    if h_util.header_has_directive(req_cc, "stale-if-error") then
+        stale_age = h_util.get_numeric_header_token(req_cc, "stale-if-error")
     end
 
-    if not h_util.header_has_directive(req_cc, 'stale-if-error') and stale_age == nil then
-        return false
+    if not stale_age then
+        return false 
+    else
+        return ((res.remaining_ttl + stale_age) > 0)
     end
-
-    -- stale_if_error config option overrides request header
-    if stale_age == nil then
-        stale_age = h_util.get_numeric_header_token(req_cc, 'stale-if-error') or 0
-    end
-
-    return ((res.remaining_ttl + stale_age) > 0)
 end
 
 
@@ -907,6 +904,7 @@ _M.events = {
     -- response headers.
     -- TODO: "serve_stale" isn't really an event?
     serve_stale = {
+        { after = "considering_stale_error", begin = "serving_stale", but_first = "add_stale_warning" },
         { begin = "serving_stale", but_first = { "add_stale_warning", "revalidate_in_background" } },
     },
 
@@ -1911,7 +1909,6 @@ function _M.fetch_from_origin(self)
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
     if not method then
-        -- Unrecognised request method, do not proxy
         res.status = ngx.HTTP_METHOD_NOT_IMPLEMENTED
         return res
     end

@@ -111,10 +111,10 @@ nginx {
     lua_package_path '/path/to/lua-resty-http/?.lua;/path/to/lua-resty-redis/?.lua;/path/to/lua-resty-qless/?.lua;/path/to/ledge/?.lua;;';
     
     init_by_lua '
-        # Require the module
+        -- Require the module
         local ledge_m = require "ledge.ledge"
         
-        # Create a global instance and set any global configuration
+        -- Create a global instance and set any global configuration
         ledge = ledge_m.new()
         ledge:config_set("upstream_host", "HOST.EXAMPLE.COM")
     ';
@@ -364,7 +364,7 @@ default: `nil`
 
 Specifies, in seconds, how far past expiry to serve stale cached content if the origin returns an error.
 
-If set to `nil` then this is determined from the [stale-if-error](http://tools.ietf.org/html/rfc5861) Cache-Control extension.
+This can be overriden by the request using the [stale-if-error](http://tools.ietf.org/html/rfc5861) Cache-Control extension.
 
 ### cache_key_spec
 
