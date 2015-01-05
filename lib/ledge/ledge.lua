@@ -2502,7 +2502,6 @@ end
 -- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
 -- Also removes the <esi:vars> tags themselves.
 local function esi_replace_vars(chunk)
-    ngx_log(ngx_DEBUG, chunk)
     -- For every esi:vars block, substitute any number of variables found.
     chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", _esi_gsub_in_vars_tags, "soj")
 
