@@ -902,6 +902,7 @@ _M.events = {
     -- response headers.
     -- TODO: "serve_stale" isn't really an event?
     serve_stale = {
+        { after = "considering_stale_error", begin = "serving_stale", but_first = "add_stale_warning" },
         { begin = "serving_stale", but_first = { "add_stale_warning", "revalidate_in_background" } },
     },
 
