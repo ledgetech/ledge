@@ -1,5 +1,7 @@
 local http = require "resty.http"
 
+local str_match = string.match
+
 local _M = {
     _VERSION = '0.01',
 }
@@ -10,12 +12,11 @@ function _M.perform(job)
 
     local ok, err = httpc:connect(job.data.server_addr, job.data.server_port)
     if not ok then
-        ngx.log(ngx.DEBUG, err)
         return nil, "job-error", "could not connect to server: " .. err
     end
 
-    local request_line = string.match(job.data.raw_header, "[^\r\n]+")
-    local uri = string.match(request_line, "[^%s]+%s([^%s]+)")
+    local request_line = str_match(job.data.raw_header, "[^\r\n]+")
+    local uri = str_match(request_line, "[^%s]+%s([^%s]+)")
 
     local res, err = httpc:request{
         method = "GET",
