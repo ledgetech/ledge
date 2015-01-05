@@ -22,7 +22,7 @@ function _M.perform(job)
         path = uri,
         headers = {
             ["Host"] = job.data.host,
-            ["Cache-Control"] = "max-stale=0",
+            ["Cache-Control"] = "max-stale=0, stale-if-error=0",
         },
     }
 
