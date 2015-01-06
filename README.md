@@ -70,7 +70,7 @@ Under active development, functionality may change without much notice. Please f
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
 * Squid-like PURGE requests to remove resources from cache.
 * ESI support:
-	* Variable substitution (strings only currently).
+	* Variable substitution.
 	* Comments removal.
 	* `<esi:remove>` tags removed.
 	* `<esi:include>` URIs fetched and included.
