@@ -451,6 +451,8 @@ location /esi_9e {
         ngx.print("<esi:vars>")
         ngx.say("$(QUERY_STRING{a}|novalue)")
         ngx.say("$(QUERY_STRING{b}|novalue)")
+        ngx.say("$(QUERY_STRING{c}|\'quoted values can have spaces\')")
+        ngx.say("$(QUERY_STRING{d}|unquoted values must not have spaces)")
         ngx.print("</esi:vars>")
     ';
 }
@@ -459,6 +461,8 @@ GET /esi_9e_prx?a=1
 --- response_body
 1
 novalue
+quoted values can have spaces
+$(QUERY_STRING{d}|unquoted values must not have spaces)
 
 
 === TEST 10: Prime ESI in cache.

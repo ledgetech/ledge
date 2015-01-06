@@ -2414,7 +2414,7 @@ function _M.get_esi_scan_filter(self, reader)
 end
 
 
-local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?([^\)]*)\)]]
+local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+)|'([^\')]+)')?\)]]
 
 local esi_var_types = {
     ["HTTP_ACCEPT_LANGUAGE"] = "list",
@@ -2434,10 +2434,15 @@ local esi_var_types = {
 --  * GEO
 --  * Match / replace regex patterns: $(QUERY_STRING~=/mymatch/) etc.
 local function esi_eval_var(var)
+    -- Extract variables from capture results table
     local var_name = var[1] or ""
+
     local key = var[2]
     if key == "" then key = nil end
-    local default = var[3] or ""
+
+    local default = var[3]
+    local default_quoted = var[4]
+    local default = default or default_quoted
 
     -- Variable types list and dictionary have subsctructures
     local var_type = esi_var_types[var_name] or "string"
