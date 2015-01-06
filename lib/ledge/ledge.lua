@@ -2428,11 +2428,6 @@ local esi_var_types = {
 
 
 -- Evaluates a given ESI variable. 
--- TODO: Expand this to include substructure access.
--- TODO: Expand this to handle
---  * HTTP_REFERER_QUERY_STRING
---  * GEO
---  * Match / replace regex patterns: $(QUERY_STRING~=/mymatch/) etc.
 local function esi_eval_var(var)
     -- Extract variables from capture results table
     local var_name = var[1] or ""
@@ -2442,7 +2437,7 @@ local function esi_eval_var(var)
 
     local default = var[3]
     local default_quoted = var[4]
-    local default = default or default_quoted
+    local default = default or default_quoted or ""
 
     -- Variable types list and dictionary have subsctructures
     local var_type = esi_var_types[var_name] or "string"
@@ -2512,7 +2507,7 @@ local function esi_replace_vars(chunk)
     chunk = ngx_re_gsub(chunk, "(<esi:vars>|</esi:vars>)", "", "soj")
 
     -- Replace vars inline in any other esi: tags, retaining the surrounding tags.
-    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*/>)", _esi_gsub_in_other_tags, "oj")
+    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*>)", _esi_gsub_in_other_tags, "oj")
 
     return chunk
 end
