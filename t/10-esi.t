@@ -386,7 +386,7 @@ X-ESI-Test: foobar
 FRAGMENT:t=1&test=foobar
 
 
-=== TEST 9c: Dictionary variable syntax
+=== TEST 9c: Dictionary variable syntax (cookie)
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_9b_prx {
@@ -410,6 +410,32 @@ GET /esi_9b_prx?t=1
 Cookie: foo=bar
 --- response_body
 FRAGMENT:1&test=bar
+
+
+=== TEST 9d: List variable syntax (accept-language)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_9b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'ledge:run()';
+}
+location /esi_9b {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("<esi:include src=\\"/fragment1b?$(QUERY_STRING{t})&en-gb=$(HTTP_ACCEPT_LANGUAGE{en-gb})&de=$(HTTP_ACCEPT_LANGUAGE{de})\\" />")
+    ';
+}
+location /fragment1b {
+    content_by_lua '
+        ngx.print("FRAGMENT:"..ngx.var.args)
+    ';
+}
+--- request
+GET /esi_9b_prx?t=1
+--- more_headers
+Accept-Language: da, en-gb, fr 
+--- response_body
+FRAGMENT:1&en-gb=true&de=false
 
 
 === TEST 10: Prime ESI in cache.

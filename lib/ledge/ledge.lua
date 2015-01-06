@@ -2421,8 +2421,9 @@ local esi_var_types = {
     ["QUERY_STRING"] = "dictionary",
     ["HTTP_COOKIE"] = "dictionary",
     ["HTTP_HOST"] = "string",
-    ["HTTP_REFERER"] = "stirng",
-    ["HTTP_USER_AGENT"] = "dictionary",
+    ["HTTP_REFERER"] = "string",
+    ["HTTP_USER_AGENT"] = "string", -- The "special dictionary" mode in the spec seems clunky
+                                    -- compared to modern techniques, so we just support "string".
 }
 
 
@@ -2437,13 +2438,17 @@ local function esi_eval_var(var)
     local var_name = var[1] or ""
     local key = var[2]
     if key == "" then key = nil end
+    local default = ""
 
+    -- Variable types list and dictionary have subsctructures
     local var_type = esi_var_types[var_name] or "string"
 
     if var_name == "QUERY_STRING" then
         if not key then
-            return ngx_var.args or ""
+            -- We don't have a key so give them the whole string
+            return ngx_var.args or default
         else
+            -- Lookup the querystring component by key
             local value = ngx_req_get_uri_args()[key]
             if value then
                 if type(value) == "table" then
@@ -2452,33 +2457,29 @@ local function esi_eval_var(var)
                     return value
                 end
             end
-            return ""
+            return default
         end
     elseif str_sub(var_name, 1, 5) == "HTTP_" then
-        -- Look for a HTTP_var that matches
-        --local _, _, header = str_find(var_name, "HTTP%_(.+)")
         local header = str_sub(var_name, 6)
-        if header then
-            local value = ngx.req.get_headers()[header]
+        local value = ngx.req.get_headers()[header]
 
-            if not value then
-                return ""
-            elseif var_type == "dictionary" and key then
-                if header == "COOKIE" then
-                    local ck = cookie:new()
-                    local cookie_value, err = ck:get(key)
-                    return cookie_value or ""
-                else
-                    return "" -- TODO
-                end
+        if not value then
+            return default
+        elseif header == "COOKIE" and key then
+            local ck = cookie:new()
+            local cookie_value = ck:get(key)
+            return cookie_value or default
+        elseif header == "ACCEPT_LANGUAGE" and key then
+            if ngx_re_find(value, key, "oj") then
+                return "true"
             else
-                return value
+                return "false"
             end
         else
-            return ""
+            return value
         end
     else
-        return ""
+        return default
     end
 end
 
