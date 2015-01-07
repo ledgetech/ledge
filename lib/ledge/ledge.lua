@@ -2516,7 +2516,7 @@ local function _esi_evaluate_condition(condition)
         ["!"] = " not ",
     }
     
-    condition = ngx_re_gsub(condition, [[(\!=|!|\|{1,2}|&{1,2}|\!=)]], function(m)
+    condition = ngx_re_gsub(condition, [[(\!=|!|\|{1,2}|&{1,2})]], function(m)
         return op_replacements[m[1]] or ""
     end, "soj")
 
