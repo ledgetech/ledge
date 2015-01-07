@@ -781,11 +781,11 @@ Goodbye
 === TEST 15: choose - when - otherwise, second when matched
 --- http_config eval: $::HttpConfig
 --- config
-location /esi_14_prx {
+location /esi_15_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua 'ledge:run()';
 }
-location /esi_14 {
+location /esi_15 {
     default_type text/html;
     content_by_lua '
 local content = [[Hello
@@ -808,7 +808,7 @@ Goodbye]]
     ';
 }
 --- request
-GET /esi_14_prx?a=2
+GET /esi_15_prx?a=2
 --- response_body
 Hello
 2
@@ -818,11 +818,11 @@ Goodbye
 === TEST 16: choose - when - otherwise, otherwise catchall
 --- http_config eval: $::HttpConfig
 --- config
-location /esi_14_prx {
+location /esi_16_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua 'ledge:run()';
 }
-location /esi_14 {
+location /esi_16 {
     default_type text/html;
     content_by_lua '
 local content = [[Hello
@@ -842,8 +842,53 @@ Goodbye]]
     ';
 }
 --- request
-GET /esi_14_prx?a=3
+GET /esi_16_prx?a=3
 --- response_body
 Hello
 Otherwise
 Goodbye
+
+
+=== TEST 17: choose - when - test, conditional syntax
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_17_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'ledge:run()';
+}
+location /esi_17 {
+    default_type text/html;
+    content_by_lua '
+        local conditions = {
+            "1 == 1",
+            "1==1",
+            "1 != 2",
+            "2 > 1",
+            "1 > 2 | 3 > 2",
+            "(1 > 2) | (3 > 2 & 2 > 1)",
+            "(1>2)||(3>2&&2>1)",
+            "! (2 > 1) | (3 > 2 and 2 > 1)",
+            "\\\'hello\\\' == \\\'hello\\\'",
+            "\\\'hello\\\' != \\\'goodbye\\\'",
+        }
+
+        for _,c in ipairs(conditions) do
+            ngx.say([[<esi:choose><esi:when test="]], c, [[">]], c, 
+                    [[</esi:when><esi:otherwise>Failed</esi:otherwise></esi:choose>]])
+            ngx.say("")
+        end
+    ';
+}
+--- request
+GET /esi_17_prx
+--- response_body
+1 == 1
+1==1
+1 != 2
+2 > 1
+1 > 2 | 3 > 2
+(1 > 2) | (3 > 2 & 2 > 1)
+(1>2)||(3>2&&2>1)
+! (2 > 1) | (3 > 2 and 2 > 1)
+'hello' == 'hello'
+'hello' != 'goodbye'
