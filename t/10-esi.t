@@ -744,3 +744,106 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 cache item deleted as it is larger than 16 bytes
 
 
+=== TEST 14: choose - when - otherwise, first when matched
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_14_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'ledge:run()';
+}
+location /esi_14 {
+    default_type text/html;
+    content_by_lua '
+local content = [[Hello
+<esi:choose>
+<esi:when test="$(QUERY_STRING{a}) == 1">
+True
+</esi:when>
+<esi:when test="2 == 2">
+Still true, but first match wins
+</esi:when>
+<esi:otherwise>
+Will never happen
+</esi:otherwise>
+</esi:choose>
+Goodbye]]
+        ngx.say(content)
+    ';
+}
+--- request
+GET /esi_14_prx?a=1
+--- response_body
+Hello
+True
+Goodbye
+
+
+=== TEST 15: choose - when - otherwise, second when matched
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_14_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'ledge:run()';
+}
+location /esi_14 {
+    default_type text/html;
+    content_by_lua '
+local content = [[Hello
+<esi:choose>
+<esi:when test="$(QUERY_STRING{a}) == 1">
+1
+</esi:when>
+<esi:when test="$(QUERY_STRING{a}) == 2">
+2
+</esi:when>
+<esi:when test="2 == 2">
+Still true, but first match wins
+</esi:when>
+<esi:otherwise>
+Will never happen
+</esi:otherwise>
+</esi:choose>
+Goodbye]]
+        ngx.say(content)
+    ';
+}
+--- request
+GET /esi_14_prx?a=2
+--- response_body
+Hello
+2
+Goodbye
+
+
+=== TEST 16: choose - when - otherwise, otherwise catchall
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_14_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'ledge:run()';
+}
+location /esi_14 {
+    default_type text/html;
+    content_by_lua '
+local content = [[Hello
+<esi:choose>
+<esi:when test="$(QUERY_STRING{a}) == 1">
+1
+</esi:when>
+<esi:when test="$(QUERY_STRING{a}) == 2">
+2
+</esi:when>
+<esi:otherwise>
+Otherwise
+</esi:otherwise>
+</esi:choose>
+Goodbye]]
+        ngx.say(content)
+    ';
+}
+--- request
+GET /esi_14_prx?a=3
+--- response_body
+Hello
+Otherwise
+Goodbye

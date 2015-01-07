@@ -2416,6 +2416,17 @@ end
 
 local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+)|'([^\')]+)')?\)]]
 
+-- $1: everything inside the esi:choose tags
+local esi_choose_pattern = [[(?:<esi:choose>\n?)(.+)(?:</esi:choose>\n?)]]
+
+-- $1: the condition inside test=""
+-- $2: the contents of the branch
+local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>\n?)(.*?)(?:</esi:when>\n?)]]
+
+-- $1: the contents of the otherwise branch 
+local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*)(?:</esi:otherwise>\n?)]]
+
+
 local esi_var_types = {
     ["HTTP_ACCEPT_LANGUAGE"] = "list",
     ["QUERY_STRING"] = "dictionary",
@@ -2491,9 +2502,46 @@ end
 
 
 -- Used in esi_replace_vars. Declared locally to avoid runtime closure definition.
-local function _esi_gsub_in_other_tags(m)
+local function _esi_gsub_vars_in_other_tags(m)
     local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "oj")
     return m[1] .. vars .. m[3]
+end
+
+
+local function _esi_evaluate_condition(condition)
+    -- TODO: This is massively dangerous, obviously!
+    local eval = loadstring("return " .. condition)
+    if eval then
+        return eval()
+    end
+end
+
+
+local function _esi_gsub_choose(m_choose)
+    local matched = false
+
+    local res = ngx_re_gsub(m_choose[1], esi_when_pattern, function(m_when)
+        -- We only show the first matching branch, others must be removed
+        -- even if they also match.
+        if matched then return "" end
+
+        local condition = m_when[1]
+        local branch_contents = m_when[2]
+        if _esi_evaluate_condition(condition) then
+            matched = true
+            return branch_contents
+        end
+        return ""
+    end, "soj")
+
+    -- Finally we replace the <esi:otherwise> block, either by removing
+    -- it or rendering its contents
+    local otherwise_replacement = ""
+    if not matched then
+        otherwise_replacement = "$1"
+    end
+
+    return ngx_re_sub(res, esi_otherwise_pattern, otherwise_replacement, "soj")
 end
 
 
@@ -2507,7 +2555,7 @@ local function esi_replace_vars(chunk)
     chunk = ngx_re_gsub(chunk, "(<esi:vars>|</esi:vars>)", "", "soj")
 
     -- Replace vars inline in any other esi: tags, retaining the surrounding tags.
-    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*>)", _esi_gsub_in_other_tags, "oj")
+    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*>)", _esi_gsub_vars_in_other_tags, "oj")
 
     return chunk
 end
@@ -2596,6 +2644,9 @@ function _M.get_esi_process_filter(self, reader)
 
                     -- Evaluate and replace all esi vars
                     chunk = esi_replace_vars(chunk, buffer_size)
+
+                    -- Evaluate choose / when / otherwise conditions...
+                    chunk = ngx_re_gsub(chunk, esi_choose_pattern, _esi_gsub_choose, "soj")
 
                     -- Find and loop over esi:include tags
                     local ctx = { pos = 1 }
