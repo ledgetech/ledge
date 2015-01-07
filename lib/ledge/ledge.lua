@@ -2435,17 +2435,6 @@ local lua_word_blacklist =  "\band|break|false|true|function|for|repeat|while|do
                             "local|nil|not|or|return|then|until|else|elseif\b"
 
 
-local esi_var_types = {
-    ["HTTP_ACCEPT_LANGUAGE"] = "list",
-    ["QUERY_STRING"] = "dictionary",
-    ["HTTP_COOKIE"] = "dictionary",
-    ["HTTP_HOST"] = "string",
-    ["HTTP_REFERER"] = "string",
-    ["HTTP_USER_AGENT"] = "string", -- The "special dictionary" mode in the spec seems clunky
-                                    -- compared to modern techniques, so we just support "string".
-}
-
-
 -- Evaluates a given ESI variable. 
 local function esi_eval_var(var)
     -- Extract variables from capture results table
@@ -2457,9 +2446,6 @@ local function esi_eval_var(var)
     local default = var[3]
     local default_quoted = var[4]
     local default = default or default_quoted or ""
-
-    -- Variable types list and dictionary have subsctructures
-    local var_type = esi_var_types[var_name] or "string"
 
     if var_name == "QUERY_STRING" then
         if not key then
