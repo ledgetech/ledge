@@ -2414,6 +2414,10 @@ function _M.get_esi_scan_filter(self, reader)
 end
 
 
+-- $1: variable name (e.g. QUERY_STRING)
+-- $2: substructure key
+-- $3: default value
+-- $4: default value if quoted
 local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+)|'([^\')]+)')?\)]]
 
 -- $1: everything inside the esi:choose tags
@@ -2425,6 +2429,10 @@ local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>\n?)(.*?)(?:</esi:
 
 -- $1: the contents of the otherwise branch 
 local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*)(?:</esi:otherwise>\n?)]]
+
+-- Matches any lua reserved word
+local lua_word_blacklist =  "\band|break|false|true|function|for|repeat|while|do|end|if|in" ..
+                            "local|nil|not|or|return|then|until|else|elseif\b"
 
 
 local esi_var_types = {
@@ -2509,10 +2517,38 @@ end
 
 
 local function _esi_evaluate_condition(condition)
-    -- TODO: This is massively dangerous, obviously!
-    local eval = loadstring("return " .. condition)
+    -- Remove lua reserved words (if / then / repeat / function etc)
+    condition = ngx_re_gsub(condition, lua_word_blacklist, "", "oj")
+    
+    -- Replace ESI operand syntax with Lua equivalents.
+    local op_replacements = {
+        ["!="] = "~=",
+        ["|"] = " or ",
+        ["&"] = " and ",
+        ["||"] = " or ",
+        ["&&"] = " and ",
+        ["!"] = " not ",
+    }
+    
+    condition = ngx_re_gsub(condition, [[(\!^=|\|{1,2}|&{1,2}|\!=)]], function(m)
+        return op_replacements[m[1]] or ""
+    end, "soj")
+
+    -- Try to parse as Lua code, place in an empty sandbox, and pcall to evaluate
+    -- the condition.
+    local eval, err = loadstring("return " .. condition)
     if eval then
-        return eval()
+        setfenv(eval, {})
+        local ok, res =  pcall(eval)
+        if ok then
+            return res
+        else
+            ngx_log(ngx_ERR, res)
+            return false
+        end
+    else
+        ngx_log(ngx_ERR, err)
+        return false
     end
 end
 
