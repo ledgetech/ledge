@@ -2431,8 +2431,12 @@ local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>\n?)(.*?)(?:</esi:
 local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*)(?:</esi:otherwise>\n?)]]
 
 -- Matches any lua reserved word
-local lua_word_blacklist =  "\band|break|false|true|function|for|repeat|while|do|end|if|in" ..
-                            "local|nil|not|or|return|then|until|else|elseif\b"
+local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|end|if|in" ..
+                            "local|nil|not|or|return|then|until|else|elseif"
+
+-- $1: Any lua reserved words not find within quotation marks
+local esi_non_quoted_lua_words =    [[(?!\'{1}|\"{1})(?:.*)(\b]] .. lua_reserved_words .. 
+                                    [[\b)(?!\'{1}|\"{1})]]
 
 
 -- Evaluates a given ESI variable. 
@@ -2503,8 +2507,9 @@ end
 
 
 local function _esi_evaluate_condition(condition)
-    -- Remove lua reserved words (if / then / repeat / function etc)
-    condition = ngx_re_gsub(condition, lua_word_blacklist, "", "oj")
+    -- Remove lua reserved words (if / then / repeat / function etc) 
+    -- which are not quoted as strings
+    condition = ngx_re_gsub(condition, esi_non_quoted_lua_words, "", "oj")
     
     -- Replace ESI operand syntax with Lua equivalents.
     local op_replacements = {

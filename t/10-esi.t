@@ -867,9 +867,11 @@ location /esi_17 {
             "1 > 2 | 3 > 2",
             "(1 > 2) | (3 > 2 & 2 > 1)",
             "(1>2)||(3>2&&2>1)",
-            "! (2 > 1) | (3 > 2 and 2 > 1)",
+            "! (2 > 1) | (3 > 2 & 2 > 1)",
             "\\\'hello\\\' == \\\'hello\\\'",
             "\\\'hello\\\' != \\\'goodbye\\\'",
+            "\\\'repeat\\\' != \\\'function\\\'", -- use of lua words in strings
+            [["repeat" != " sentence with function in it "]], -- use of lua words in strings
         }
 
         for _,c in ipairs(conditions) do
@@ -889,6 +891,8 @@ GET /esi_17_prx
 1 > 2 | 3 > 2
 (1 > 2) | (3 > 2 & 2 > 1)
 (1>2)||(3>2&&2>1)
-! (2 > 1) | (3 > 2 and 2 > 1)
+! (2 > 1) | (3 > 2 & 2 > 1)
 'hello' == 'hello'
 'hello' != 'goodbye'
+'repeat' != 'function'
+"repeat" != " sentence with function in it "
