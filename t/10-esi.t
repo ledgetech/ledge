@@ -871,7 +871,9 @@ location /esi_17 {
             "\\\'hello\\\' == \\\'hello\\\'",
             "\\\'hello\\\' != \\\'goodbye\\\'",
             "\\\'repeat\\\' != \\\'function\\\'", -- use of lua words in strings
-            [["repeat" != " sentence with function in it "]], -- use of lua words in strings
+            "\\\'repeat\\\' != \\\' sentence with function in it \\\'", -- use of lua words in strings
+            [["this string has \\\"quotes\\\"" == "this string has \\\"quotes\\\""]],
+            "$(QUERY_STRING{msg}) == \\\'hello\\\'",
         }
 
         for _,c in ipairs(conditions) do
@@ -882,7 +884,7 @@ location /esi_17 {
     ';
 }
 --- request
-GET /esi_17_prx
+GET /esi_17_prx?msg=hello
 --- response_body
 1 == 1
 1==1
@@ -895,4 +897,6 @@ GET /esi_17_prx
 'hello' == 'hello'
 'hello' != 'goodbye'
 'repeat' != 'function'
-"repeat" != " sentence with function in it "
+'repeat' != ' sentence with function in it '
+"this string has \"quotes\"" == "this string has \"quotes\""
+hello == 'hello'

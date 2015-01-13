@@ -54,13 +54,38 @@ local str_lower = string.lower
 local str_len = string.len
 local math_floor = math.floor
 local math_ceil = math.ceil
-local co_wrap = coroutine.wrap
 local co_yield = coroutine.yield
+local co_create = coroutine.create
+local co_status = coroutine.status
+local co_resume = coroutine.resume
 local cjson_encode = cjson.encode
 local ffi_cdef = ffi.cdef
 local ffi_new = ffi.new
 local ffi_string = ffi.string
 local C = ffi.C
+
+-- Reimplemented coroutine.wrap, returning "nil, err" if the coroutine cannot
+-- be resumed. This protects user code from inifite loops when doing things like
+-- repeat
+--   local chunk, err = res.body_reader()
+--   if chunk then -- <-- This could be a string msg in the core wrap function.
+--     ...
+--   end
+-- until not chunk
+local co_wrap = function(func) 
+    local co = co_create(func)
+    if not co then
+        return nil, "could not create coroutine"
+    else
+        return function(...)
+            if co_status(co) == "suspended" then
+                return select(2, co_resume(co, ...))
+            else
+                return nil, "can't resume a " .. co_status(co) .. " coroutine"
+            end
+        end
+    end
+end
 
 
 ffi_cdef[[
@@ -2434,7 +2459,7 @@ local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*)(?:</esi:otherwise>\n?
 local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|end|if|in" ..
                             "local|nil|not|or|return|then|until|else|elseif"
 
--- $1: Any lua reserved words not find within quotation marks
+-- $1: Any lua reserved words not found within quotation marks
 local esi_non_quoted_lua_words =    [[(?!\'{1}|\"{1})(?:.*)(\b]] .. lua_reserved_words .. 
                                     [[\b)(?!\'{1}|\"{1})]]
 
@@ -2500,6 +2525,23 @@ end
 
 
 -- Used in esi_replace_vars. Declared locally to avoid runtime closure definition.
+local function _esi_gsub_in_when_test_tags(m)
+    local vars = ngx_re_gsub(m[2], esi_var_pattern, function(m_var)
+        local res = esi_eval_var(m_var)
+        -- Quote unless we can be considered a number
+        local number = tonumber(res)
+        if number then
+            return number
+        else
+            return "\'" .. res .. "\'"
+        end
+    end, "soj")
+
+    return m[1] .. vars .. m[3]
+end
+
+
+-- Used in esi_replace_vars. Declared locally to avoid runtime closure definition.
 local function _esi_gsub_vars_in_other_tags(m)
     local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "oj")
     return m[1] .. vars .. m[3]
@@ -2524,8 +2566,6 @@ local function _esi_evaluate_condition(condition)
     condition = ngx_re_gsub(condition, [[(\!=|!|\|{1,2}|&{1,2})]], function(m)
         return op_replacements[m[1]] or ""
     end, "soj")
-
-    ngx.log(ngx.DEBUG, condition)
 
     -- Try to parse as Lua code, place in an empty sandbox, and pcall to evaluate
     -- the condition.
@@ -2577,6 +2617,14 @@ end
 -- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
 -- Also removes the <esi:vars> tags themselves.
 local function esi_replace_vars(chunk)
+    -- First replace any variables in esi:when test="" tags, as these may need to be
+    -- quoted for expression evaluation
+    chunk = ngx_re_gsub(chunk, 
+        [[(<esi:when\s*test=\")(.+?)(\"\s*>(?:.*?)</esi:when>)]], 
+        _esi_gsub_in_when_test_tags, 
+        "soj"
+    )
+
     -- For every esi:vars block, substitute any number of variables found.
     chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", _esi_gsub_in_vars_tags, "soj")
 
