@@ -2658,6 +2658,12 @@ local function esi_fetch_include(include_tag, buffer_size)
             host = ngx_var.http_host or ngx_var.host
             port = ngx_var.server_port
             path = src[1]
+
+            -- No leading slash means we have a relative path. Append
+            -- this to the current URI.
+            if str_sub(path, 1, 1) ~= "/" then
+                path = ngx_var.uri .. "/" .. path
+            end
         else
             scheme, host, port, path = unpack(uri_parts)
         end

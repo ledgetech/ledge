@@ -683,6 +683,36 @@ FRAGMENT MODIFIED
 2
 
 
+=== TEST 11c: Include fragment with relative path
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_11c_prx/test {
+    rewrite ^(.*)_prx(.*) $1$2 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /esi_11c/test/fragment {
+    content_by_lua '
+        ngx.say("RELATIVE FRAGMENT")
+    ';
+}
+location /esi_11c/test {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("1")
+        ngx.print("<esi:include src=\\"fragment\\" />")
+        ngx.say("2")
+    ';
+}
+--- request
+GET /esi_11c_prx/test
+--- response_body
+1
+RELATIVE FRAGMENT
+2
+
+
 === TEST 12: ESI processed over buffer larger than buffer_size.
 --- http_config eval: $::HttpConfig
 --- config
