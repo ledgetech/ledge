@@ -144,6 +144,34 @@ FRAGMENT
 2
 
 
+=== TEST 5b: Include fragment with relative URI
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_5 {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /esi_5/fragment_1 {
+    echo "FRAGMENT";
+}
+location /__ledge_origin {
+    content_by_lua '
+        ngx.say("1")
+        ngx.print("<esi:include src=\\"fragment_1\\" />")
+        ngx.say("2")
+    ';
+}
+--- request
+GET /esi_5
+--- response_headers_like 
+Warning: ^214 .* "Transformation applied"$  
+--- response_body
+1
+FRAGMENT
+2
+
+
 === TEST 6: Include multiple fragments, in correct order.
 --- http_config eval: $::HttpConfig
 --- config

@@ -1704,7 +1704,15 @@ function process_esi(self)
     if res:has_esi_include() then
         local esi_uris = {}
         for tag in ngx.re.gmatch(body, "<esi:include src=\"(.+)\".*/>", "oj") do
-            table.insert(esi_uris, { tag[1] })
+            local path = tag[1]
+
+            -- No leading slash means we have a relative path. Append
+            -- this to the current URI.
+            if path:sub(1, 1) ~= "/" then
+                path = ngx.var.uri .. "/" .. path
+            end
+                
+            table.insert(esi_uris, { path })
         end
 
         if table.getn(esi_uris) > 0 then
