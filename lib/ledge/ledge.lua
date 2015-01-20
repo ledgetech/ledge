@@ -2513,6 +2513,20 @@ local function esi_eval_var(var)
             return value
         end
     else
+        local custom_variables = ngx.ctx.ledge_esi_custom_variables
+        if custom_variables and type(custom_variables) == "table" then
+            local var = custom_variables[var_name]
+            if var then
+                if key then
+                    if type(var) == "table" then
+                        return tostring(var[key]) or default
+                    end
+                else
+                    if type(var) == "table" then var = default end
+                    return var or default
+                end
+            end
+        end
         return default
     end
 end

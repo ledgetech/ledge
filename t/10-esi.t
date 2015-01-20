@@ -465,6 +465,42 @@ quoted values can have spaces
 $(QUERY_STRING{d}|unquoted values must not have spaces)
 
 
+=== TEST 9f: Custom variable injection
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_9f_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ngx.ctx.ledge_esi_custom_variables = {
+            ["CUSTOM_DICTIONARY"] = { a = 1, b = 2},
+            ["CUSTOM_STRING"] = "foo"
+        }
+
+        ledge:run()    
+    ';
+}
+location /esi_9f {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<esi:vars>")
+        ngx.say("$(CUSTOM_DICTIONARY|novalue)")
+        ngx.say("$(CUSTOM_DICTIONARY{a})")
+        ngx.say("$(CUSTOM_DICTIONARY{b})")
+        ngx.say("$(CUSTOM_STRING)")
+        ngx.say("$(CUSTOM_STRING{x}|novalue)")
+        ngx.print("</esi:vars>")
+    ';
+}
+--- request
+GET /esi_9f_prx?a=1
+--- response_body
+novalue
+1
+2
+foo
+novalue
+
+
 === TEST 10: Prime ESI in cache.
 --- http_config eval: $::HttpConfig
 --- config
@@ -901,7 +937,7 @@ location /esi_17 {
             "\\\'hello\\\' == \\\'hello\\\'",
             "\\\'hello\\\' != \\\'goodbye\\\'",
             "\\\'repeat\\\' != \\\'function\\\'", -- use of lua words in strings
-            "\\\'repeat\\\' != \\\' sentence with function in it \\\'", -- use of lua words in strings
+            "\\\' repeat sentence with function in it \\\' == \\\' repeat sentence with function in it \\\'", -- use of lua words in strings
             [["this string has \\\"quotes\\\"" == "this string has \\\"quotes\\\""]],
             "$(QUERY_STRING{msg}) == \\\'hello\\\'",
         }
@@ -927,6 +963,6 @@ GET /esi_17_prx?msg=hello
 'hello' == 'hello'
 'hello' != 'goodbye'
 'repeat' != 'function'
-'repeat' != ' sentence with function in it '
+' repeat sentence with function in it ' == ' repeat sentence with function in it '
 "this string has \"quotes\"" == "this string has \"quotes\""
 hello == 'hello'
