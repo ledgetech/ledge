@@ -1944,10 +1944,15 @@ function _M.fetch_from_origin(self)
     -- Filter out range requests (we always fetch everything, and serve only what is required)
     local headers = ngx_req_get_headers()
 
+    local client_body_reader, err = httpc:get_client_body_reader(self:config_get("buffer_size"))
+    if err then
+        ngx_log(ngx_ERR, "error getting client body reader: ", err)
+    end
+
     local origin, err = httpc:request{
         method = ngx_req_get_method(),
         path = self:relative_uri(),
-        body = httpc:get_client_body_reader(self:config_get("buffer_size")),
+        body = client_body_reader,
         headers = headers,
     }
 
