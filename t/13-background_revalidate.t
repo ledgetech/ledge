@@ -62,10 +62,6 @@ TEST 1
 === TEST 2: Return stale
 --- http_config eval: $::HttpConfig
 --- config
-location /stale_entry {
-    echo_location /stale_prx;
-    echo_sleep 4;
-}
 location /stale_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
@@ -79,10 +75,10 @@ location /stale {
     ';
 }
 --- request
-GET /stale_entry
+GET /stale_prx
 --- response_body
 TEST 1
---- timeout: 6
+--- wait: 4
 --- no_error_log
 [error]
 
