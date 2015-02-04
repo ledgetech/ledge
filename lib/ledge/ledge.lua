@@ -1359,7 +1359,7 @@ _M.states = {
         -- should scan earlier, so can assume there *may* be work to do.
         if res.has_esi == true or self:ctx().esi_scan_enabled == true then
             -- Check s/c
-            local surrogate_capability = ngx.req.get_headers()["Surrogate-Capability"]
+            local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
 
             -- TODO: We should have a sense of capability tokens somewhere, perhaps
             -- instantiating different parsers (ESI/1.0 EdgeSuite/5.0) etc. 
@@ -2500,7 +2500,7 @@ local function esi_eval_var(var)
         end
     elseif str_sub(var_name, 1, 5) == "HTTP_" then
         local header = str_sub(var_name, 6)
-        local value = ngx.req.get_headers()[header]
+        local value = ngx_req_get_headers()[header]
 
         if not value then
             return default
