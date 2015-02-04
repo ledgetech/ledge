@@ -858,7 +858,7 @@ _M.events = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
         { after = "revalidating_in_background", begin = "exiting" },
-        { begin = "serving" },
+        { begin = "serving", but_first = "set_http_status_from_response" },
     },
 
     -- We were the collapser, so digressed into being a surrogate. We're done now and have published

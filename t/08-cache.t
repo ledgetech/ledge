@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 33;
+plan tests => 36;
 
 my $pwd = cwd();
 
@@ -341,3 +341,29 @@ GET /cache_key
 nil
 string
 OK
+
+
+=== TEST 11: Prime with HEAD into cache (no body); X-Cache: MISS
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_11_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location /cache_11 {
+        content_by_lua '
+            ngx.status = 301
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.header["Location"] = "http://example.com"
+        ';
+    }
+--- more_headers
+Cache-Control: no-cache
+--- request
+HEAD /cache_11_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+--- error_code: 301
