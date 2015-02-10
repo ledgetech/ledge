@@ -15,7 +15,7 @@ local tbl_concat = table.concat
 
 module(...)
 
-_VERSION = '0.15'
+_VERSION = '0.16'
 
 local mt = { __index = _M }
 
