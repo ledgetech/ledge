@@ -1540,9 +1540,6 @@ function save_to_cache(self, res)
 
     redis:expire(cache_key(self), ttl + tonumber(self:config_get("keep_cache_for")))
 
-    -- Add this to the uris_by_expiry sorted set, for cache priming and analysis
-    redis:zadd('ledge:uris_by_expiry', expires, uri)
-
     -- Run transaction
     if redis:exec() == ngx.null then
         ngx.log(ngx.ERR, "Failed to save cache item")
