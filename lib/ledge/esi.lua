@@ -66,7 +66,7 @@ local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>\n?)(.*?)(?:</esi:
 local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*)(?:</esi:otherwise>\n?)]]
 
 -- Matches any lua reserved word
-local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|end|if|in" ..
+local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|end|if|in|" ..
                             "local|nil|not|or|return|then|until|else|elseif"
 
 -- $1: Any lua reserved words not found within quotation marks
@@ -196,7 +196,7 @@ local function _esi_evaluate_condition(condition)
     local eval, err = loadstring("return " .. condition)
     if eval then
         setfenv(eval, {})
-        local ok, res =  pcall(eval)
+        local ok, res = pcall(eval)
         if ok then
             return res
         else
@@ -368,7 +368,6 @@ function _M.get_scan_filter(reader)
                         break
                     else
                         -- we definitely have something.
-                        -- ngx_log(ngx_info, "adding warning")
                         has_esi = true
 
                         -- give our start tag positions absolute chunk positions.
