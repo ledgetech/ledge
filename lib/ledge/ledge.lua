@@ -1342,7 +1342,6 @@ _M.states = {
         return self:e "esi_scan_disabled"
     end,
 
-
     -- We decide to process if:
     --  - We know the response has_esi (fast path)
     --  - We already decided to scan for esi (slow path)
