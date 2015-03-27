@@ -5,8 +5,6 @@ local qless = require "resty.qless"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
 local ffi = require "ffi"
-local esi = require "ledge.esi"
-
 local redis = require "resty.redis"
 local redis_connector = require "resty.redis.connector"
 
@@ -58,20 +56,6 @@ local co_yield = coroutine.yield
 local co_create = coroutine.create
 local co_status = coroutine.status
 local co_resume = coroutine.resume
-local cjson_encode = cjson.encode
-local ffi_cdef = ffi.cdef
-local ffi_new = ffi.new
-local ffi_string = ffi.string
-local C = ffi.C
-
--- Reimplemented coroutine.wrap, returning "nil, err" if the coroutine cannot
--- be resumed. This protects user code from inifite loops when doing things like
--- repeat
---   local chunk, err = res.body_reader()
---   if chunk then -- <-- This could be a string msg in the core wrap function.
---     ...
---   end
--- until not chunk
 local co_wrap = function(func) 
     local co = co_create(func)
     if not co then
@@ -86,7 +70,11 @@ local co_wrap = function(func)
         end
     end
 end
-
+local cjson_encode = cjson.encode
+local ffi_cdef = ffi.cdef
+local ffi_new = ffi.new
+local ffi_string = ffi.string
+local C = ffi.C
 
 ffi_cdef[[
 typedef unsigned char u_char;
@@ -108,6 +96,25 @@ local function random_hex(len)
     local hex = ffi_new("uint8_t[?]", len * 2)
     C.ngx_hex_dump(hex, bytes, len)
     return ffi_string(hex, len * 2)
+end
+
+
+local esi_parsers = {
+    ["ESI"] = {
+        [1.0] = require "ledge.esi",
+        -- 2.0 = require ledge.esi_2", -- for example
+    },
+}
+
+local function choose_esi_parser(token, version)
+    local parser_type = esi_parsers[token]
+    if parser_type then
+        for v,parser in pairs(parser_type) do
+            if tonumber(version) <= tonumber(v) then
+                return parser
+            end
+        end
+    end  
 end
 
 
@@ -1053,8 +1060,11 @@ _M.actions = {
 
     set_esi_scan_enabled = function(self)
         local res = self:get_response()
-        res.body_reader = esi.get_scan_filter(res.body_reader)
-        self:ctx().esi_scan_enabled = true
+        local esi_parser = self:ctx().esi_parser
+        if esi_parser then
+            res.body_reader = esi_parser.get_scan_filter(res.body_reader)
+            self:ctx().esi_scan_enabled = true
+        end
     end,
     
     set_esi_process_enabled = function(self)
@@ -1326,14 +1336,24 @@ _M.states = {
     considering_esi_scan = function(self)
         if self:config_get("esi_enabled") == true then
             local res = self:get_response()
-            local res_content_type = res.header["Content-Type"]
+            local res_surrogate_control = res.header["Surrogate-Control"]
 
-            if res_content_type then
-                local allowed_types = self:config_get("esi_content_types") or {}
-
-                for _, content_type in ipairs(allowed_types) do
-                    if str_sub(res_content_type, 1, str_len(content_type)) == content_type then
-                        return self:e "esi_scan_enabled"
+            if res_surrogate_control then
+                local content_token = h_util.get_header_token(res_surrogate_control, "content")
+                if content_token then
+                    local parser_type, version = unpack(str_split(content_token, "/"))
+                    local parser = choose_esi_parser(parser_type, version)
+                    if parser then
+                        self:ctx().esi_parser = parser
+                        local res_content_type = res.header["Content-Type"]
+                        if res_content_type then
+                            local allowed_types = self:config_get("esi_content_types") or {}
+                            for _, content_type in ipairs(allowed_types) do
+                                if str_sub(res_content_type, 1, str_len(content_type)) == content_type then
+                                    return self:e "esi_scan_enabled"
+                                end
+                            end
+                        end
                     end
                 end
             end
@@ -1363,6 +1383,7 @@ _M.states = {
 
             -- TODO: We should have a sense of capability tokens somewhere, perhaps
             -- instantiating different parsers (ESI/1.0 EdgeSuite/5.0) etc. 
+            -- -- Check content type filtering
             -- For now, if the surrogate claims *any* capabaility, then we blindly delegate
             -- so long as delegation is enabled or the request IP is in the table of IPs.
             if surrogate_capability then
@@ -2423,7 +2444,10 @@ function _M.body_server(self, reader)
 
     -- Filter response for ESI if required
     if process_esi then
-        reader = esi.get_process_filter(reader)
+        local esi_parser = self:ctx().esi_parser
+        if esi_parser then
+            reader = esi_parser.get_process_filter(reader)
+        end
     end
     
     -- Filter response by requested range if required
