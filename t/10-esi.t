@@ -973,3 +973,49 @@ GET /esi_17_prx?msg=hello
 ' repeat sentence with function in it ' == ' repeat sentence with function in it '
 "this string has \"quotes\"" == "this string has \"quotes\""
 hello == 'hello'
+
+
+=== TEST 18: Surrogate-Control with lower version number still works.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_18_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("origin_fetched", function(res)
+            res.header["Surrogate-Control"] = [[content="ESI/0.8"]]
+        end)
+        ledge:run()
+    ';
+}
+location /esi_18 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<!--esiCOMMENTED-->")
+    ';
+}
+--- request
+GET /esi_18_prx
+--- response_body: COMMENTED
+
+
+=== TEST 19: Surrogate-Control with higher version fails
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_19_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("origin_fetched", function(res)
+            res.header["Surrogate-Control"] = [[content="ESI/1.1"]]
+        end)
+        ledge:run()
+    ';
+}
+location /esi_19 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<!--esiCOMMENTED-->")
+    ';
+}
+--- request
+GET /esi_19_prx
+--- response_body: <!--esiCOMMENTED-->
