@@ -99,25 +99,6 @@ local function random_hex(len)
 end
 
 
-local esi_parsers = {
-    ["ESI"] = {
-        [1.0] = require "ledge.esi",
-        -- 2.0 = require ledge.esi_2", -- for example
-    },
-}
-
-local function choose_esi_parser(token, version)
-    local parser_type = esi_parsers[token]
-    if parser_type then
-        for v,parser in pairs(parser_type) do
-            if tonumber(version) <= tonumber(v) then
-                return parser
-            end
-        end
-    end  
-end
-
-
 local function str_split(str, delim)
     if not str or not delim then return nil end
     local it, err = str_gmatch(str, "([^"..delim.."]+)")
@@ -131,6 +112,29 @@ local function str_split(str, delim)
             tbl_insert(output, m)
         end
         return output
+    end
+end
+
+
+local esi_parsers = {
+    ["ESI"] = {
+        [1.0] = require "ledge.esi",
+        -- 2.0 = require ledge.esi_2", -- for example
+    },
+}
+
+
+local function choose_esi_parser(token)
+    local parser_token, version = unpack(str_split(token, "/") or {})
+    if parser_token and version then
+        local parser_type = esi_parsers[parser_token]
+        if parser_type then
+            for v,parser in pairs(parser_type) do
+                if tonumber(version) <= tonumber(v) then
+                    return parser
+                end
+            end
+        end  
     end
 end
 
@@ -1061,8 +1065,8 @@ _M.actions = {
     set_esi_scan_enabled = function(self)
         local res = self:get_response()
         local esi_parser = self:ctx().esi_parser
-        if esi_parser then
-            res.body_reader = esi_parser.get_scan_filter(res.body_reader)
+        if esi_parser and esi_parser.parser then
+            res.body_reader = esi_parser.parser.get_scan_filter(res.body_reader)
             self:ctx().esi_scan_enabled = true
         end
     end,
@@ -1341,10 +1345,13 @@ _M.states = {
             if res_surrogate_control then
                 local content_token = h_util.get_header_token(res_surrogate_control, "content")
                 if content_token then
-                    local parser_type, version = unpack(str_split(content_token, "/"))
-                    local parser = choose_esi_parser(parser_type, version)
+                    local parser = choose_esi_parser(content_token)
                     if parser then
-                        self:ctx().esi_parser = parser
+                        self:ctx().esi_parser = { 
+                            parser = parser,
+                            token = content_token,
+                        }
+
                         local res_content_type = res.header["Content-Type"]
                         if res_content_type then
                             local allowed_types = self:config_get("esi_content_types") or {}
@@ -1374,11 +1381,21 @@ _M.states = {
     considering_esi_process = function(self)
         local res = self:get_response()
 
-        -- If res.has_esi then we're on the fast path and know there's work to be done.
-        -- If res.esi_scan_enabled, then we're on the slow path, but we already checked if we
-        -- should scan earlier, so can assume there *may* be work to do.
-        if res.has_esi == true or self:ctx().esi_scan_enabled == true then
-            -- Check s/c
+        -- On the fast path with ESI already detected, the parser wont have been loaded 
+        -- yet, so we must do that now
+        local token = res.has_esi
+        if token then
+            local parser = choose_esi_parser(token)
+            if parser then
+                self:ctx().esi_parser = { 
+                    parser = parser,
+                    token = token,
+                }
+            end
+        end
+
+        if self:ctx().esi_parser then
+            local token = self:ctx().esi_parser.token
             local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
 
             -- TODO: We should have a sense of capability tokens somewhere, perhaps
@@ -1403,9 +1420,8 @@ _M.states = {
                     end
                 end
             end
-            
-            return self:e "esi_process_enabled"
-        end
+                return self:e "esi_process_enabled"
+            end
 
         return self:e "esi_process_disabled"
     end,
@@ -1777,9 +1793,7 @@ function _M.read_from_cache(self)
         elseif cache_parts[i] == "generated_ts" then
             time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "has_esi" then
-            -- TODO: We should store this as an integer?
-            local has_esi = cache_parts[i + 1]
-            res.has_esi = cache_parts[i + 1] == "true"
+            res.has_esi = cache_parts[i + 1]
         elseif cache_parts[i] == "size" then
             res.size = tonumber(cache_parts[i + 1])
         end
@@ -2344,9 +2358,14 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                         redis:rpush(entity_keys.body_esi, tostring(has_esi))
 
                         if not esi_detected and has_esi then
-                            -- Flag this in the main key
-                            redis:hset(entity_keys.main, "has_esi", "true")
-                            esi_detected = true
+                            local esi_parser = self:ctx().esi_parser
+                            if not esi_parser or not esi_parser.token then
+                                ngx_log(ngx.ERR, "ESI detected but no parser identified")
+                            else
+                                -- Flag this in the main key
+                                redis:hset(entity_keys.main, "has_esi", esi_parser.token)
+                                esi_detected = true
+                            end
                         end
                     end
                 end
@@ -2445,8 +2464,8 @@ function _M.body_server(self, reader)
     -- Filter response for ESI if required
     if process_esi then
         local esi_parser = self:ctx().esi_parser
-        if esi_parser then
-            reader = esi_parser.get_process_filter(reader)
+        if esi_parser and esi_parser.parser then
+            reader = esi_parser.parser.get_process_filter(reader)
         end
     end
     

@@ -23,6 +23,13 @@ our $HttpConfig = qq{
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('esi_enabled', true)
+
+        function run()
+            ledge:bind('origin_fetched', function(res)
+                res.header['Surrogate-Control'] = [[content=\\"ESI/1.0\\"]]
+            end)
+            ledge:run()
+        end
     ";
     init_worker_by_lua "
         ledge:run_workers()
@@ -40,7 +47,7 @@ __DATA__
 location /esi_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /esi_1 {
@@ -60,7 +67,7 @@ GET /esi_1_prx
 location /esi_2_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /esi_2 {
@@ -90,7 +97,7 @@ GET /esi_2_prx
 location /esi_3_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /esi_3 {
@@ -110,7 +117,7 @@ GET /esi_3_prx
 location /esi_4_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /esi_4 {
@@ -137,7 +144,7 @@ GET /esi_4_prx
 location /esi_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /fragment_1 {
@@ -165,7 +172,7 @@ FRAGMENT
 location /esi_6_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /fragment_1 {
@@ -206,7 +213,7 @@ location /esi_7_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:config_set("esi_enabled", false)
-        ledge:run()
+        run()
     ';
 }
 location /esi_7 {
@@ -227,7 +234,7 @@ location /esi_7b_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:config_set("esi_allow_surrogate_delegation", true)
-        ledge:run()
+        run()
     ';
 }
 location /esi_7b {
@@ -251,7 +258,7 @@ location /esi_7b_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:config_set("esi_allow_surrogate_delegation", true)
-        ledge:run()
+        run()
     ';
 }
 --- request
@@ -268,7 +275,7 @@ location /esi_7d_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:config_set("esi_allow_surrogate_delegation", {"127.0.0.1"} )
-        ledge:run()
+        run()
     ';
 }
 location /esi_7d {
@@ -292,7 +299,7 @@ location /esi_7d_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:config_set("esi_allow_surrogate_delegation", {"127.0.0.1"} )
-        ledge:run()
+        run()
     ';
 }
 --- request
@@ -308,7 +315,7 @@ Surrogate-Capability: localhost="ESI 1.0"
 location /esi_8_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /fragment_1 {
@@ -335,7 +342,7 @@ Cache-Control: private, must-revalidate
 --- config
 location /esi_9_prx {
     rewrite ^(.*)_prx(.*)$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_9 {
     default_type text/html;
@@ -365,7 +372,7 @@ HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 --- config
 location /esi_9b_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_9b {
     default_type text/html;
@@ -391,7 +398,7 @@ FRAGMENT:t=1&test=foobar
 --- config
 location /esi_9c_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_9c {
     default_type text/html;
@@ -417,7 +424,7 @@ FRAGMENT:1&test=bar
 --- config
 location /esi_9d_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_9d {
     default_type text/html;
@@ -443,7 +450,7 @@ FRAGMENT:1&en-gb=true&de=false
 --- config
 location /esi_9e_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_9e {
     default_type text/html;
@@ -476,7 +483,7 @@ location /esi_9f_prx {
             ["CUSTOM_STRING"] = "foo"
         }
 
-        ledge:run()    
+        run()    
     ';
 }
 location /esi_9f {
@@ -513,7 +520,7 @@ location /esi_10_prx {
             ngx.var.host,
             ngx.var.uri,
         }) 
-        ledge:run()
+        run()
     ';
 }
 location /esi_10 {
@@ -545,7 +552,7 @@ location /esi_10 {
             ngx.var.host,
             ngx.var.uri,
         }) 
-        ledge:run()
+        run()
     ';
 }
 --- request
@@ -569,7 +576,7 @@ location /esi_10_prx {
             ngx.var.host,
             ngx.var.uri,
         }) 
-        ledge:run()
+        run()
     ';
 }
 location /esi_10 {
@@ -605,7 +612,7 @@ location /esi_10_prx {
             ngx.var.host,
             ngx.var.uri,
         }) 
-        ledge:run()
+        run()
     ';
 }
 location /esi_10 {
@@ -641,7 +648,7 @@ location /esi_10_prx {
             ngx.var.host,
             ngx.var.uri,
         }) 
-        ledge:run()
+        run()
     ';
 }
 location /esi_10 {
@@ -667,7 +674,7 @@ X-Cache: MISS from .*
 location /fragment_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /fragment {
@@ -690,12 +697,12 @@ location /esi_11_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() + 150))
-        ledge:run()
+        run()
     ';
 }
 location /fragment_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /fragment {
     content_by_lua '
@@ -725,7 +732,7 @@ FRAGMENT MODIFIED
 location /esi_11c_prx/test {
     rewrite ^(.*)_prx(.*) $1$2 break;
     content_by_lua '
-        ledge:run()
+        run()
     ';
 }
 location /esi_11c/test/fragment {
@@ -756,7 +763,7 @@ location /esi_12_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:config_set("buffer_size", 16)
-        ledge:run()
+        run()
     ';
 }
 location /esi_12 {
@@ -785,7 +792,7 @@ location /esi_13_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:config_set("cache_max_memory", 16 / 1024)
-        ledge:run()
+        run()
     ';
 }
 location /esi_13 {
@@ -815,7 +822,7 @@ cache item deleted as it is larger than 16 bytes
 --- config
 location /esi_14_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_14 {
     default_type text/html;
@@ -849,7 +856,7 @@ Goodbye
 --- config
 location /esi_15_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_15 {
     default_type text/html;
@@ -886,7 +893,7 @@ Goodbye
 --- config
 location /esi_16_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_16 {
     default_type text/html;
@@ -920,7 +927,7 @@ Goodbye
 --- config
 location /esi_17_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua 'ledge:run()';
+    content_by_lua 'run()';
 }
 location /esi_17 {
     default_type text/html;
