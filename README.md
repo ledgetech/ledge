@@ -74,6 +74,8 @@ Under active development, functionality may change without much notice. Please f
 	* Comments removal.
 	* `<esi:remove>` tags removed.
 	* `<esi:include>` URIs fetched and included.
+    * `<esi:choose | when | otherwise>` conditional logic
+    * Honours the `Surrogate-Control` response header, and `Surrogate-Capability` request header to control / delegate processing.
 	* Fragment inclusion properly affects downstream cache lifetime / revalidation for the parent resource.
 	* Surrogate delegation.
 
@@ -432,18 +434,9 @@ syntax: `ledge:config_set("esi_enabled", true)`
 
 default: `false`
 
-Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though behaviour is also contingent upon [esi_content_types](#esi_content_types) and [esi_surrogate_delegation](#esi_surrogate_delegation) settings.
+Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though behaviour is also contingent upon [esi_content_types](#esi_content_types) and [esi_surrogate_delegation](#esi_surrogate_delegation) settings, as well as `Surrogate-Control` / `Surrogate-Capability` headers.
 
 ESI instructions are detected on the slow path (i.e. when fetching from the origin), so only instructions which are known to be present are processed on cache HITs.
-
-Currently, only the following subset of ESI features is supported:
-
-* Variable substitution (strings only).
-* Comments removal.
-* `<esi:remove>` tags removed.
-* `<esi:include>` URIs fetched and included.
-* Fragment inclusion properly affects downstream cache lifetime / revalidation for the parent resource.	
-* Surrogate delegation.
 
 ### esi_content_types
 
