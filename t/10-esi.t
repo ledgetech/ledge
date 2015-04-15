@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 2) + 6; 
+plan tests =>  repeat_each() * (blocks() * 3) + 5; 
 
 my $pwd = cwd();
 
@@ -59,6 +59,7 @@ location /esi_1 {
 --- request
 GET /esi_1_prx
 --- response_body: COMMENTED
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
 === TEST 2: Multi line comments removed
@@ -84,6 +85,7 @@ location /esi_2 {
 }
 --- request
 GET /esi_2_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
 2
@@ -108,6 +110,7 @@ location /esi_3 {
 }
 --- request
 GET /esi_3_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 
 
@@ -132,6 +135,7 @@ location /esi_4 {
 }
 --- request
 GET /esi_4_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
 
@@ -160,6 +164,7 @@ location /esi_5 {
 }
 --- request
 GET /esi_5_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
 FRAGMENT
@@ -200,6 +205,7 @@ location /esi_6 {
 }
 --- request
 GET /esi_6_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT_3
 MID LINE FRAGMENT_1
@@ -249,6 +255,8 @@ GET /esi_7b_prx
 --- more_headers
 Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <!--esiCOMMENTED-->
+--- response_headers
+Surrogate-Control: content="ESI/1.0"
 
 
 === TEST 7c: Leave instructions intact if ESI delegation is enabled - fast path.
@@ -266,6 +274,8 @@ GET /esi_7b_prx
 --- more_headers
 Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <!--esiCOMMENTED-->
+--- response_headers
+Surrogate-Control: content="ESI/1.0"
 
 
 === TEST 7d: Leave instructions intact if ESI delegation is enabled by IP, slow path.
@@ -290,6 +300,8 @@ GET /esi_7d_prx
 --- more_headers
 Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <!--esiCOMMENTED-->
+--- response_headers
+Surrogate-Control: content="ESI/1.0"
 
 
 === TEST 7e: Leave instructions intact if ESI delegation is enabled by IP, fast path.
@@ -307,6 +319,8 @@ GET /esi_7d_prx
 --- more_headers
 Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <!--esiCOMMENTED-->
+--- response_headers
+Surrogate-Control: content="ESI/1.0"
 
 
 === TEST 8: Response downstrean cacheability is zero'd when ESI processing has occured.
@@ -335,6 +349,7 @@ location /esi_8 {
 GET /esi_8_prx
 --- response_headers_like 
 Cache-Control: private, must-revalidate
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
 === TEST 9: Variable evaluation
@@ -359,6 +374,7 @@ location /esi_9 {
 Cookie: myvar=foo; SQ_SYSTEM_SESSION=hello
 --- request
 GET /esi_9_prx?t=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
 HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
@@ -389,6 +405,7 @@ location /fragment1b {
 GET /esi_9b_prx?t=1
 --- more_headers
 X-ESI-Test: foobar
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT:t=1&test=foobar
 
@@ -415,6 +432,7 @@ location /fragment1c {
 GET /esi_9c_prx?t=1
 --- more_headers
 Cookie: foo=bar
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT:1&test=bar
 
@@ -441,6 +459,7 @@ location /fragment1d {
 GET /esi_9d_prx?t=1
 --- more_headers
 Accept-Language: da, en-gb, fr 
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT:1&en-gb=true&de=false
 
@@ -465,6 +484,7 @@ location /esi_9e {
 }
 --- request
 GET /esi_9e_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
 novalue
@@ -500,6 +520,7 @@ location /esi_9f {
 }
 --- request
 GET /esi_9f_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 novalue
 1
@@ -539,6 +560,7 @@ t=1
 --- error_code: 404
 --- response_headers_like
 X-Cache: MISS from .*
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
 === TEST 10b: ESI still runs on cache HIT.
@@ -562,6 +584,7 @@ t=2
 --- error_code: 404
 --- response_headers_like
 X-Cache: HIT from .*
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
 === TEST 10c: ESI still runs on cache revalidation, upstream 200.
@@ -598,6 +621,7 @@ t=3
 --- error_code: 404
 --- response_headers_like
 X-Cache: MISS from .*
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
 === TEST 10d: ESI still runs on cache revalidation, upstream 200, locally valid.
@@ -634,6 +658,7 @@ t=4
 --- error_code: 404
 --- response_headers_like
 X-Cache: MISS from .*
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
 === TEST 10e: ESI still runs on cache revalidation, upstream 304, locally valid.
@@ -666,6 +691,7 @@ t=5
 --- error_code: 404
 --- response_headers_like
 X-Cache: MISS from .*
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
 === TEST 11a: Prime fragment
@@ -688,6 +714,7 @@ GET /fragment_prx
 --- response_body
 FRAGMENT
 --- error_code: 200
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
 === TEST 11b: Include fragment with client validators.
@@ -720,6 +747,7 @@ location /esi_11 {
 }
 --- request
 GET /esi_11_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
 FRAGMENT MODIFIED
@@ -750,6 +778,7 @@ location /esi_11c/test {
 }
 --- request
 GET /esi_11c_prx/test
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
 RELATIVE FRAGMENT
@@ -779,6 +808,7 @@ location /esi_12 {
 }
 --- request
 GET /esi_12_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 a=1
@@ -809,6 +839,7 @@ location /esi_13 {
 }
 --- request
 GET /esi_13_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 a=1
@@ -845,6 +876,7 @@ Goodbye]]
 }
 --- request
 GET /esi_14_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
 True
@@ -882,6 +914,7 @@ Goodbye]]
 }
 --- request
 GET /esi_15_prx?a=2
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
 2
@@ -916,6 +949,7 @@ Goodbye]]
 }
 --- request
 GET /esi_16_prx?a=3
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
 Otherwise
@@ -958,6 +992,7 @@ location /esi_17 {
 }
 --- request
 GET /esi_17_prx?msg=hello
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1 == 1
 1==1
@@ -995,6 +1030,7 @@ location /esi_18 {
 }
 --- request
 GET /esi_18_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: COMMENTED
 
 
@@ -1018,4 +1054,5 @@ location /esi_19 {
 }
 --- request
 GET /esi_19_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: <!--esiCOMMENTED-->
