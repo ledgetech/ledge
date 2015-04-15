@@ -1,5 +1,6 @@
 local cjson = require "cjson"
 local http = require "resty.http"
+local http_headers = require "resty.http_headers"
 local resolver = require "resty.dns.resolver"
 local qless = require "resty.qless"
 local response = require "ledge.response"
@@ -118,10 +119,21 @@ end
 
 local esi_parsers = {
     ["ESI"] = {
-        [1.0] = require "ledge.esi",
+        ["1.0"] = require "ledge.esi",
         -- 2.0 = require ledge.esi_2", -- for example
     },
 }
+
+
+local function esi_capabilities()
+    local capabilities = {}
+    for parser_type,parsers in pairs(esi_parsers) do
+        for version,_ in pairs(parsers) do
+            tbl_insert(capabilities, parser_type .. "/" .. version)
+        end
+    end
+    return tbl_concat(capabilities, " ")
+end
 
 
 local function split_esi_token(token)
@@ -918,7 +930,12 @@ _M.events = {
 
     esi_process_enabled = {
         { begin = "preparing_response", 
-            but_first = { "set_esi_process_enabled", "zero_downstream_lifetime"} },
+            but_first = { 
+                "set_esi_process_enabled", 
+                "zero_downstream_lifetime", 
+                "remove_surrogate_control_header" 
+            } 
+        },
     },
 
     esi_process_disabled = {
@@ -1088,6 +1105,13 @@ _M.actions = {
         local res = self:get_response()
         if res.header then
             res.header["Cache-Control"] = "private, must-revalidate"
+        end
+    end,
+
+    remove_surrogate_control_header = function(self)
+        local res = self:get_response()
+        if res.header then
+            res.header["Surrogate-Control"] = nil
         end
     end,
 
@@ -2016,8 +2040,23 @@ function _M.fetch_from_origin(self)
         end
     end
 
-    -- Filter out range requests (we always fetch everything, and serve only what is required)
-    local headers = ngx_req_get_headers()
+    -- Case insensitve headers so that we can safely manipulate them
+    local headers = http_headers.new()
+    for k,v in pairs(ngx_req_get_headers()) do
+        headers[k] = v
+    end
+
+    -- Advertise ESI surrogate capabilities
+    if self:config_get("esi_enabled") then
+        local capability_entry = ngx_var.host .. '="' .. esi_capabilities() .. '"'
+        local sc = headers.surrogate_capability
+
+        if not sc then
+            headers.surrogate_capability = capability_entry 
+        else
+            headers.surrogate_capability = sc .. ", " .. capability_entry
+        end
+    end
 
     local client_body_reader, err = httpc:get_client_body_reader(self:config_get("buffer_size"))
     if err then

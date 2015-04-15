@@ -1056,3 +1056,53 @@ location /esi_19 {
 GET /esi_19_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: <!--esiCOMMENTED-->
+
+
+=== TEST 20: Test we advertise Surrogate-Capability
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_20_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("origin_fetched", function(res)
+            res.header["Surrogate-Control"] = [[content="ESI/1.1"]]
+        end)
+        ledge:run()
+    ';
+}
+location /esi_20 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print(ngx.req.get_headers()["Surrogate-Capability"])
+    ';
+}
+--- request
+GET /esi_20_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: localhost="ESI/1.0"
+
+
+=== TEST 21: Test Surrogate-Capability is appended when needed
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_21_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("origin_fetched", function(res)
+            res.header["Surrogate-Control"] = [[content="ESI/1.1"]]
+        end)
+        ledge:run()
+    ';
+}
+location /esi_21 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print(ngx.req.get_headers()["Surrogate-Capability"])
+    ';
+}
+--- request
+GET /esi_21_prx
+--- more_headers
+Surrogate-Capability: abc="ESI/0.8"
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: abc="ESI/0.8", localhost="ESI/1.0"
