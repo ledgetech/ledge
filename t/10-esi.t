@@ -247,7 +247,7 @@ location /esi_7b {
 --- request
 GET /esi_7b_prx
 --- more_headers
-Surrogate-Capability: localhost="ESI 1.0"
+Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <!--esiCOMMENTED-->
 
 
@@ -264,7 +264,7 @@ location /esi_7b_prx {
 --- request
 GET /esi_7b_prx
 --- more_headers
-Surrogate-Capability: localhost="ESI 1.0"
+Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <!--esiCOMMENTED-->
 
 
@@ -288,7 +288,7 @@ location /esi_7d {
 --- request
 GET /esi_7d_prx
 --- more_headers
-Surrogate-Capability: localhost="ESI 1.0"
+Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <!--esiCOMMENTED-->
 
 
@@ -305,7 +305,7 @@ location /esi_7d_prx {
 --- request
 GET /esi_7d_prx
 --- more_headers
-Surrogate-Capability: localhost="ESI 1.0"
+Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <!--esiCOMMENTED-->
 
 

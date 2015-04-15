@@ -124,8 +124,13 @@ local esi_parsers = {
 }
 
 
+local function split_esi_token(token)
+    return unpack(str_split(token, "/") or {})
+end
+
+
 local function choose_esi_parser(token)
-    local parser_token, version = unpack(str_split(token, "/") or {})
+    local parser_token, version = split_esi_token(token)
     if parser_token and version then
         local parser_type = esi_parsers[parser_token]
         if parser_type then
@@ -1372,9 +1377,9 @@ _M.states = {
     -- We decide to process if:
     --  - We know the response has_esi (fast path)
     --  - We already decided to scan for esi (slow path)
-    --  - We aren't delegating responsibility downstream, which would occur if:
-    --      - Delegation is blindly set to true
-    --      - Delegation IP table contains the request IP
+    --  - We aren't delegating responsibility downstream, which would occur when both:
+    --      - Surrogate-Capability is set with a matching parser type and version.
+    --      - Delegation is enabled in configuration.
     --
     --  So essentially, if we think we may need to process, then we do. We don't want to 
     --  accidentally send ESI instructions to a client, so we only delegate if we're sure.
@@ -1398,23 +1403,31 @@ _M.states = {
             local token = self:ctx().esi_parser.token
             local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
 
-            -- TODO: We should have a sense of capability tokens somewhere, perhaps
-            -- instantiating different parsers (ESI/1.0 EdgeSuite/5.0) etc. 
-            -- -- Check content type filtering
-            -- For now, if the surrogate claims *any* capabaility, then we blindly delegate
-            -- so long as delegation is enabled or the request IP is in the table of IPs.
             if surrogate_capability then
-                local surrogates = self:config_get("esi_allow_surrogate_delegation")
-                if type(surrogates) == "boolean" then
-                    if surrogates == true then 
-                        return self:e "esi_process_disabled"
-                    end
-                elseif type(surrogates) == "table" then
-                    local remote_addr = ngx_var.remote_addr
-                    if remote_addr then
-                        for _, ip in ipairs(surrogates) do
-                            if ip == remote_addr then
+                local capability_parser, capability_version = split_esi_token(
+                    h_util.get_header_token(surrogate_capability, ngx_var.host)
+                )
+
+                if capability_parser and capability_version then
+                    local control_parser, control_version = split_esi_token(token)
+
+                    if control_parser and control_version 
+                        and control_parser == capability_parser 
+                        and tonumber(control_version) <= tonumber(capability_version) then 
+
+                        local surrogates = self:config_get("esi_allow_surrogate_delegation")
+                        if type(surrogates) == "boolean" then
+                            if surrogates == true then 
                                 return self:e "esi_process_disabled"
+                            end
+                        elseif type(surrogates) == "table" then
+                            local remote_addr = ngx_var.remote_addr
+                            if remote_addr then
+                                for _, ip in ipairs(surrogates) do
+                                    if ip == remote_addr then
+                                        return self:e "esi_process_disabled"
+                                    end
+                                end
                             end
                         end
                     end
@@ -1428,7 +1441,7 @@ _M.states = {
 
     checking_can_fetch = function(self)
         if self:config_get("origin_mode") == _M.ORIGIN_MODE_BYPASS then
-            return self:e "http_service_unavailable"
+           return self:e "http_service_unavailable"
         end
 
         if h_util.header_has_directive(
