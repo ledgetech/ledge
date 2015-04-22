@@ -14,6 +14,8 @@ local ngx_req_get_headers = ngx.req.get_headers
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_uri_args = ngx.req.get_uri_args
 local ngx_var = ngx.var
+local ngx_log = ngx.log
+local ngx_ERR = ngx.ERR
 local tbl_concat = table.concat
 local co_yield = coroutine.yield
 local co_create = coroutine.create
@@ -292,9 +294,16 @@ local function esi_fetch_include(include_tag, buffer_size)
             scheme, host, port, path = unpack(uri_parts)
         end
 
-        if host == "localhost" then host = "127.0.0.1" end
+        local upstream = host
 
-        local res, err = httpc:connect(host, port)
+        -- If our upstream matches the current host, use server_addr / server_port
+        -- instead. This keeps the connection local to this node where possible.
+        if upstream == ngx_var.http_host then
+            upstream = ngx_var.server_addr
+            port = ngx_var.server_port
+        end
+
+        local res, err = httpc:connect(upstream, port)
         if not res then
             ngx_log(ngx_ERR, err)
             co_yield()
@@ -316,6 +325,9 @@ local function esi_fetch_include(include_tag, buffer_size)
             
             if not res then
                 ngx_log(ngx_ERR, err)
+                co_yield()
+            elseif res.status >= 500 then
+                ngx_log(ngx_ERR, res.status)
                 co_yield()
             else
                 if res then

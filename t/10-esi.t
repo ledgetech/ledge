@@ -171,6 +171,7 @@ FRAGMENT
 2
 
 
+
 === TEST 6: Include multiple fragments, in correct order.
 --- http_config eval: $::HttpConfig
 --- config
@@ -750,38 +751,7 @@ GET /esi_11_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
-FRAGMENT MODIFIED
-2
-
-
-=== TEST 11c: Include fragment with relative path
---- http_config eval: $::HttpConfig
---- config
-location /esi_11c_prx/test {
-    rewrite ^(.*)_prx(.*) $1$2 break;
-    content_by_lua '
-        run()
-    ';
-}
-location /esi_11c/test/fragment {
-    content_by_lua '
-        ngx.say("RELATIVE FRAGMENT")
-    ';
-}
-location /esi_11c/test {
-    default_type text/html;
-    content_by_lua '
-        ngx.say("1")
-        ngx.print("<esi:include src=\\"fragment\\" />")
-        ngx.say("2")
-    ';
-}
---- request
-GET /esi_11c_prx/test
---- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body
-1
-RELATIVE FRAGMENT
+FRAGMENT
 2
 
 
