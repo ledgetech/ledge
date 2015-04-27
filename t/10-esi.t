@@ -226,12 +226,12 @@ location /esi_7_prx {
 location /esi_7 {
     default_type text/html;
     content_by_lua '
-        ngx.print("<!--esiCOMMENTED-->")
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
     ';
 }
 --- request
-GET /esi_7_prx
---- response_body: <!--esiCOMMENTED-->
+GET /esi_7_prx?a=1
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 
 
 === TEST 7b: Leave instructions intact if ESI delegation is enabled - slow path.
@@ -248,14 +248,14 @@ location /esi_7b {
     default_type text/html;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.print("<!--esiCOMMENTED-->")
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
     ';
 }
 --- request
-GET /esi_7b_prx
+GET /esi_7b_prx?a=1
 --- more_headers
 Surrogate-Capability: localhost="ESI/1.0"
---- response_body: <!--esiCOMMENTED-->
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 --- response_headers
 Surrogate-Control: content="ESI/1.0"
 
@@ -271,10 +271,10 @@ location /esi_7b_prx {
     ';
 }
 --- request
-GET /esi_7b_prx
+GET /esi_7b_prx?a=1
 --- more_headers
 Surrogate-Capability: localhost="ESI/1.0"
---- response_body: <!--esiCOMMENTED-->
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 --- response_headers
 Surrogate-Control: content="ESI/1.0"
 
@@ -293,14 +293,14 @@ location /esi_7d {
     default_type text/html;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.print("<!--esiCOMMENTED-->")
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
     ';
 }
 --- request
-GET /esi_7d_prx
+GET /esi_7d_prx?a=1
 --- more_headers
 Surrogate-Capability: localhost="ESI/1.0"
---- response_body: <!--esiCOMMENTED-->
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 --- response_headers
 Surrogate-Control: content="ESI/1.0"
 
@@ -316,10 +316,10 @@ location /esi_7d_prx {
     ';
 }
 --- request
-GET /esi_7d_prx
+GET /esi_7d_prx?a=1
 --- more_headers
 Surrogate-Capability: localhost="ESI/1.0"
---- response_body: <!--esiCOMMENTED-->
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 --- response_headers
 Surrogate-Control: content="ESI/1.0"
 
@@ -1067,13 +1067,13 @@ location /esi_18_prx {
 location /esi_18 {
     default_type text/html;
     content_by_lua '
-        ngx.print("<!--esiCOMMENTED-->")
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
     ';
 }
 --- request
-GET /esi_18_prx
+GET /esi_18_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body: COMMENTED
+--- response_body: a=1
 
 
 === TEST 19: Surrogate-Control with higher version fails
@@ -1091,13 +1091,13 @@ location /esi_19_prx {
 location /esi_19 {
     default_type text/html;
     content_by_lua '
-        ngx.print("<!--esiCOMMENTED-->")
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
     ';
 }
 --- request
 GET /esi_19_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body: <!--esiCOMMENTED-->
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 
 
 === TEST 20: Test we advertise Surrogate-Capability
