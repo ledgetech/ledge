@@ -399,8 +399,6 @@ function _M.get_scan_filter(reader)
                             tag_hint = hint_match[0]
                             -- Remove the hint from this chunk, it'll be prepending to the next one.
                             chunk = str_sub(chunk, 1, - (#tag_hint + 1))
-                        else
-                            tag_hint = nil
                         end
 
                         break
