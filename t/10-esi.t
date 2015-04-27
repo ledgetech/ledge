@@ -785,6 +785,78 @@ a=1
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 
+=== TEST 12b: Incomplete ESI tag opening at the end of buffer (lookahead)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_12b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 4)
+        run()
+    ';
+}
+location /esi_12b {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("---<esi:vars>")
+        ngx.print("$(QUERY_STRING)")
+        ngx.print("</esi:vars>")
+    ';
+}
+--- request
+GET /esi_12b_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: ---a=1
+
+
+=== TEST 12c: Incomplete ESI tag opening at the end of buffer (lookahead)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_12c_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 5)
+        run()
+    ';
+}
+location /esi_12c {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("---<esi:vars>")
+        ngx.print("$(QUERY_STRING)")
+        ngx.print("</esi:vars>")
+    ';
+}
+--- request
+GET /esi_12c_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: ---a=1
+
+
+=== TEST 12d: Incomplete ESI tag opening at the end of buffer (lookahead)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_12d_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 6)
+        run()
+    ';
+}
+location /esi_12d {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("---<esi:vars>")
+        ngx.print("$(QUERY_STRING)")
+        ngx.print("</esi:vars>")
+    ';
+}
+--- request
+GET /esi_12d_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: ---a=1
+
+
 === TEST 13: ESI processed over buffer larger than max_memory.
 --- http_config eval: $::HttpConfig
 --- config

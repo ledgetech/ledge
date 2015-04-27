@@ -355,12 +355,22 @@ function _M.get_scan_filter(reader)
     return co_wrap(function(buffer_size)
         local prev_chunk = ""
         local buffering = false
+        local tag_hint
 
         repeat
             local chunk, err = reader(buffer_size)
             local has_esi = false
+                
+            -- If we have a tag hint (partial opening ESI tag) from the previous chunk
+            -- then prepend it here.
+            if tag_hint then 
+                chunk = tag_hint .. (chunk or "") 
+                tag_hint = nil
+            end
 
             if chunk then
+                -- prev_chunk will contain the last buffer if we have an ESI instruction spanning
+                -- buffers.
                 chunk = prev_chunk .. chunk
                 local chunk_len = #chunk
 
@@ -376,7 +386,24 @@ function _M.get_scan_filter(reader)
                     )
 
                     if not start_from then
-                        -- nothing to do in this chunk, stop looping.
+                        -- No complete opening tag found. 
+                        -- Check the end of the chunk for the beginning of an opening tag, 
+                        -- incase it spans to the next buffer.
+                        tag_hint = str_sub(chunk, -3, -1)
+                        if tag_hint ~= "<es" then
+                            tag_hint = str_sub(chunk, -2, -1)
+                            if tag_hint ~= "<e" then
+                                tag_hint = str_sub(chunk, -1, -1)
+                                if tag_hint ~= "<" then
+                                    tag_hint = nil
+                                end
+                            end
+                        end
+
+                        if tag_hint then
+                            -- Remove the hint from this chunk, it'll be prepending to the next one.
+                            chunk = str_sub(chunk, 1, - (#tag_hint + 1))
+                        end
                         break
                     else
                         -- we definitely have something.
