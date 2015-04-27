@@ -404,6 +404,7 @@ function _M.get_scan_filter(reader)
                             -- Remove the hint from this chunk, it'll be prepending to the next one.
                             chunk = str_sub(chunk, 1, - (#tag_hint + 1))
                         end
+
                         break
                     else
                         -- we definitely have something.
