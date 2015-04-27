@@ -387,22 +387,20 @@ function _M.get_scan_filter(reader)
 
                     if not start_from then
                         -- No complete opening tag found. 
-                        -- Check the end of the chunk for the beginning of an opening tag, 
+                        -- Check the end of the chunk for the beginning of an opening tag (a hint), 
                         -- incase it spans to the next buffer.
-                        tag_hint = str_sub(chunk, -3, -1)
-                        if tag_hint ~= "<es" then
-                            tag_hint = str_sub(chunk, -2, -1)
-                            if tag_hint ~= "<e" then
-                                tag_hint = str_sub(chunk, -1, -1)
-                                if tag_hint ~= "<" then
-                                    tag_hint = nil
-                                end
-                            end
-                        end
 
-                        if tag_hint then
+                        local hint_match, err = ngx_re_match(
+                            str_sub(chunk, -6, -1),
+                            "(?:<!--es|<!--e|<!--|<es|<!-|<e|<!|<)$", "soj"
+                        )
+
+                        if hint_match then
+                            tag_hint = hint_match[0]
                             -- Remove the hint from this chunk, it'll be prepending to the next one.
                             chunk = str_sub(chunk, 1, - (#tag_hint + 1))
+                        else
+                            tag_hint = nil
                         end
 
                         break
