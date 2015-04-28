@@ -13,6 +13,7 @@ local ngx_re_find = ngx.re.find
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_uri_args = ngx.req.get_uri_args
+local ngx_crc32_long = ngx.crc32_long
 local ngx_var = ngx.var
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
@@ -21,15 +22,6 @@ local co_yield = coroutine.yield
 local co_create = coroutine.create
 local co_status = coroutine.status
 local co_resume = coroutine.resume
-
--- Reimplemented coroutine.wrap, returning "nil, err" if the coroutine cannot
--- be resumed. This protects user code from inifite loops when doing things like
--- repeat
---   local chunk, err = res.body_reader()
---   if chunk then -- <-- This could be a string msg in the core wrap function.
---     ...
---   end
--- until not chunk
 local co_wrap = function(func) 
     local co = co_create(func)
     if not co then
@@ -264,6 +256,16 @@ local function esi_replace_vars(chunk)
 end
 
 
+-- Replace back in any escaped markup, and clean up the escaped_vars tags.
+local function esi_unescape_comments(chunk, escaped)
+    if escaped and tonumber(escaped) > 0 then
+        chunk = ngx_re_gsub(chunk, "<--esi:escaped_vars>(.*)</--esi:escaped_vars>", _esi_gsub_in_vars_tags, "soj")
+        chunk = ngx_re_gsub(chunk, "(<--esi:escaped_vars>|</--esi:escaped_vars>)", "", "soj")
+    end
+    return chunk
+end
+
+
 local function esi_fetch_include(include_tag, buffer_size)
     local src, err = ngx_re_match(
         include_tag,
@@ -458,13 +460,32 @@ end
 
 function _M.get_process_filter(reader)
     return co_wrap(function(buffer_size)
-        local i = 1
         repeat
             local chunk, has_esi, err = reader(buffer_size)
             if chunk then
                 if has_esi then
-                    -- Remove comments
-                    chunk = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
+                    -- Escape out any ESI markup not inteded for processing. We create
+                    -- special variables for these, and replace them back in afterwards as we yield.
+                    local escaped = 0
+                    chunk, escaped = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", function(matches)
+                        local escaped = matches[2]
+                        local hash = tostring(ngx_crc32_long(escaped))
+
+                        -- Push the escaped instructions into the custom_variables table
+                        local custom_variables = ngx.ctx.ledge_esi_custom_variables
+                        if not custom_variables or type(custom_variables) ~= "table" then
+                            custom_variables = {}
+                        end
+                        if not custom_variables["__ESI_ESCAPED"] then
+                            custom_variables["__ESI_ESCAPED"] = {}
+                        end
+                        custom_variables["__ESI_ESCAPED"][hash] = escaped
+
+                        ngx.ctx.ledge_esi_custom_variables = custom_variables
+
+                        -- Print using a special escaped vars tag
+                        return "<--esi:escaped_vars>$(__ESI_ESCAPED{" .. hash .. "})</--esi:escaped_vars>"
+                    end, "soj")
 
                     -- Remove 'remove' blocks
                     chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
@@ -488,7 +509,7 @@ function _M.get_process_filter(reader)
 
                         if from then
                             -- Yield up to the start of the include tag
-                            co_yield(str_sub(chunk, yield_from, from - 1))
+                            co_yield(esi_unescape_comments(str_sub(chunk, yield_from, from - 1), escaped))
                             yield_from = to + 1
 
                             -- Fetches and yields the streamed response
@@ -496,10 +517,10 @@ function _M.get_process_filter(reader)
                         else
                             if yield_from == 1 then
                                 -- No includes found, yield everything
-                                co_yield(chunk)
+                                co_yield(esi_unescape_comments(chunk, escaped))
                             else
                                 -- No *more* includes, yield what's left
-                                co_yield(str_sub(chunk, ctx.pos, #chunk))
+                                co_yield(esi_unescape_comments(str_sub(chunk, ctx.pos, #chunk), escaped))
                             end
                         end
 
@@ -508,8 +529,6 @@ function _M.get_process_filter(reader)
                     co_yield(chunk)
                 end
             end
-
-            i = i + 1
         until not chunk
     end)
 end

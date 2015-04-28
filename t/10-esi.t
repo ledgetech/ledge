@@ -62,6 +62,27 @@ GET /esi_1_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
+=== TEST 1b: Single line comments removed, esi instructions remain
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_1b_prx {
+    rewrite ^(.*)_prx$ $1b break;
+    content_by_lua '
+        run()
+    ';
+}
+location /esi_1b {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<!--esi<esi:vars>$(QUERY_STRING)</esi:vars>-->")
+    ';
+}
+--- request
+GET /esi_1b_prx?a=1b
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+
+
 === TEST 2: Multi line comments removed
 --- http_config eval: $::HttpConfig
 --- config
@@ -91,6 +112,37 @@ GET /esi_2_prx
 2
 
 3
+
+
+=== TEST 2b: Multi line comments removed, ESI instructions still intact
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_2_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /esi_2 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<!--esi")
+        ngx.print([[1234 <esi:include src="/test" />]])
+        ngx.say("-->")
+        ngx.say("2345")
+        ngx.say("<!--esi")
+        ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
+        ngx.print("-->")
+    ';
+}
+--- request
+GET /esi_2_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+1234 <esi:include src="/test" />
+2345
+
+<esi:vars>$(QUERY_STRING)</esi:vars>
 
 
 === TEST 3: Single line <esi:remove> removed.
