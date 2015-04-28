@@ -69,15 +69,7 @@ Under active development, functionality may change without much notice. Please f
 * Collapsed forwarding (concurrent similar requests collapsed into a single upstream request).
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
 * Squid-like PURGE requests to remove resources from cache.
-* ESI support:
-	* Variable substitution.
-	* Comments removal.
-	* `<esi:remove>` tags removed.
-	* `<esi:include>` URIs fetched and included.
-    * `<esi:choose | when | otherwise>` conditional logic
-    * Honours the `Surrogate-Control` response header, and `Surrogate-Capability` request header to control / delegate processing.
-	* Fragment inclusion properly affects downstream cache lifetime / revalidation for the parent resource.
-	* Surrogate delegation.
+* ESI 1.0 support. See [documentation](#esi_enabled) for exceptions.
 
 
 ## Installation
@@ -437,6 +429,13 @@ default: `false`
 Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though behaviour is also contingent upon [esi_content_types](#esi_content_types) and [esi_surrogate_delegation](#esi_surrogate_delegation) settings, as well as `Surrogate-Control` / `Surrogate-Capability` headers.
 
 ESI instructions are detected on the slow path (i.e. when fetching from the origin), so only instructions which are known to be present are processed on cache HITs.
+
+All features documented in the [ESI 1.0 Language Specification](http://www.w3.org/TR/esi-lang) are supported, with the following exceptions:
+
+    * `<esi:inline>` not implemented (or advertised as a capability).
+    * No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
+    * `<esi:try | attempt | except>` not implemented.
+    * The "dictionary (special)" substructure variable type for `HTTP_USER_AGENT` is not implemented. 
 
 ### esi_content_types
 
