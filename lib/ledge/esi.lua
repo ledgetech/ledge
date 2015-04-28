@@ -256,6 +256,27 @@ local function esi_replace_vars(chunk)
 end
 
 
+local function _esi_escape_comments(m)
+    local escaped = m[2]
+    local hash = tostring(ngx_crc32_long(escaped))
+
+    -- Push the escaped instructions into the custom_variables table
+    local custom_variables = ngx.ctx.ledge_esi_custom_variables
+    if not custom_variables or type(custom_variables) ~= "table" then
+        custom_variables = {}
+    end
+    if not custom_variables["__ESI_ESCAPED"] then
+        custom_variables["__ESI_ESCAPED"] = {}
+    end
+    custom_variables["__ESI_ESCAPED"][hash] = escaped
+
+    ngx.ctx.ledge_esi_custom_variables = custom_variables
+
+    -- Print using a special escaped vars tag
+    return "<--esi:escaped_vars>$(__ESI_ESCAPED{" .. hash .. "})</--esi:escaped_vars>"
+end
+
+
 -- Replace back in any escaped markup, and clean up the escaped_vars tags.
 local function esi_unescape_comments(chunk, escaped)
     if escaped and tonumber(escaped) > 0 then
@@ -462,30 +483,12 @@ function _M.get_process_filter(reader)
     return co_wrap(function(buffer_size)
         repeat
             local chunk, has_esi, err = reader(buffer_size)
+            local escaped = 0
             if chunk then
                 if has_esi then
                     -- Escape out any ESI markup not inteded for processing. We create
                     -- special variables for these, and replace them back in afterwards as we yield.
-                    local escaped = 0
-                    chunk, escaped = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", function(matches)
-                        local escaped = matches[2]
-                        local hash = tostring(ngx_crc32_long(escaped))
-
-                        -- Push the escaped instructions into the custom_variables table
-                        local custom_variables = ngx.ctx.ledge_esi_custom_variables
-                        if not custom_variables or type(custom_variables) ~= "table" then
-                            custom_variables = {}
-                        end
-                        if not custom_variables["__ESI_ESCAPED"] then
-                            custom_variables["__ESI_ESCAPED"] = {}
-                        end
-                        custom_variables["__ESI_ESCAPED"][hash] = escaped
-
-                        ngx.ctx.ledge_esi_custom_variables = custom_variables
-
-                        -- Print using a special escaped vars tag
-                        return "<--esi:escaped_vars>$(__ESI_ESCAPED{" .. hash .. "})</--esi:escaped_vars>"
-                    end, "soj")
+                    chunk, escaped = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", _esi_escape_comments, "soj")
 
                     -- Remove 'remove' blocks
                     chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
