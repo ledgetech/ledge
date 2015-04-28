@@ -208,6 +208,8 @@ function _M.new(self)
         buffer_size = 2^17, -- 131072 (bytes) (128KB) Internal buffer size for data read/written/served.
         cache_max_memory = 2048, -- (KB) Max size for a cache item before we bail on trying to store.
 
+        advertise_ledge = true, -- Set this to false to omit (ledge/_VERSION) from the "Server" response header.
+
         redis_database  = 0,
         redis_qless_database = 1,
         redis_connect_timeout = 500,    -- (ms) Connect timeout
@@ -2292,7 +2294,10 @@ function _M.serve(self)
         local visible_hostname = self:visible_hostname()
 
         -- Via header
-        local via = "1.1 " .. visible_hostname .. " (ledge/" .. _M._VERSION .. ")"
+        local via = "1.1 " .. visible_hostname
+        if self:config_get("advertise_ledge") then
+            via = via .. " (ledge/" .. _M._VERSION .. ")"
+        end
         local res_via = res.header["Via"]
         if  (res_via ~= nil) then
             res.header["Via"] = via .. ", " .. res_via
