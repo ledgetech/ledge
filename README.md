@@ -22,6 +22,7 @@ This offers Squid / Varnish like functionality and performance, directly within 
     * [resty_upstream](#resty_upstream)
     * [buffer_size](#buffer_size)
     * [cache_max_memory](#cache_max_memory)
+    * [advertise_ledge](#advertise_ledge)
     * [redis_database](#redis_database)
     * [redis_qless_database](#redis_qless_database)
     * [redis_connect_timeout](#redis_connect_timeout)
@@ -237,6 +238,14 @@ Specifies (in kilobytes) the maximum size a cache item can occupy before we give
 Note that since entities are written and served as a list of buffers, when replacing an entity we create a new entity list and only delete the old one after existing read operations should have completed, marking the old entity for garbage collection.
 
 As a result, it is possible for multiple entities for a given cache key to exist, each up to a maximum of `cache_max_memory`. However this should only every happen quite temporarily, the timing of which is configurable with [minimum_old_entity_download_rate](#minimum_old_entity_download_rate).
+
+### advertise_ledge
+
+syntax: `ledge:config_set("advertise_ledge", false)`
+
+default `true`
+
+If set to false, disables advertising the software name and version eg `(ledge/1.00)` from the `Via` response header.
 
 ### redis_database
 
