@@ -432,10 +432,10 @@ ESI instructions are detected on the slow path (i.e. when fetching from the orig
 
 All features documented in the [ESI 1.0 Language Specification](http://www.w3.org/TR/esi-lang) are supported, with the following exceptions:
 
-    * `<esi:inline>` not implemented (or advertised as a capability).
-    * No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
-    * `<esi:try | attempt | except>` not implemented.
-    * The "dictionary (special)" substructure variable type for `HTTP_USER_AGENT` is not implemented. 
+* `<esi:inline>` not implemented (or advertised as a capability).
+* No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
+* `<esi:try | attempt | except>` not implemented.
+* The "dictionary (special)" substructure variable type for `HTTP_USER_AGENT` is not implemented. 
 
 ### esi_content_types
 
