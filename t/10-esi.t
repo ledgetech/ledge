@@ -1200,3 +1200,24 @@ GET /esi_21_prx
 Surrogate-Capability: abc="ESI/0.8"
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: abc="ESI/0.8", localhost="ESI/1.0"
+
+
+=== TEST 22: Test comments are removed.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_22_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /esi_22 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print([[1234<esi:comment text="comment text" />]])
+    ';
+}
+--- request
+GET /esi_22_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: 1234

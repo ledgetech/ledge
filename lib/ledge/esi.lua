@@ -490,6 +490,9 @@ function _M.get_process_filter(reader)
                     -- special variables for these, and replace them back in afterwards as we yield.
                     chunk, escaped = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", _esi_escape_comments, "soj")
 
+                    -- Remove comments.
+                    chunk = ngx_re_gsub(chunk, "<esi:comment (?:.*)/>", "", "soj")
+
                     -- Remove 'remove' blocks
                     chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
 
