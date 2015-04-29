@@ -124,23 +124,29 @@ GET /gc
 8
 
 
-=== TEST 4: Entity will have expired, check everything is still ok
+=== TEST 4: Entity will have expired, check Redis has cleaned up all keys.
 --- http_config eval: $::HttpConfig
 --- config
-    location /gc_prx {
+    location /gc {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ngx.sleep(4)
-            ledge:run()
+            local redis_mod = require "resty.redis"
+            local redis = redis_mod.new()
+            redis:connect("127.0.0.1", 6379)
+            redis:select(ledge:config_get("redis_database"))
+            local key_chain = ledge:cache_key_chain()
+
+            local res, err = redis:keys(key_chain.root .. "*")
+            if res then
+                for i,v in ipairs(res) do
+                    ngx.say(v)
+                end
+            end
         ';
     }
-    location /gc {
-        more_set_headers "Cache-Control: public, max-age=60";
-        echo "OK";
-    }
 --- request
-GET /gc_prx
+GET /gc
 --- timeout: 6
 --- no_error_log
 --- response_body
-OK

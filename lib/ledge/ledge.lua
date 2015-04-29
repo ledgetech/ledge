@@ -2246,6 +2246,7 @@ function _M.save_to_cache(self, res)
 
     -- Update main cache key pointer
     redis:set(key_chain.key, entity)
+    redis:expire(key_chain.key, keep_cache_for)
 
     -- Instantiate writer coroutine with the entity key set.
     -- The writer will commit the transaction later.
@@ -2449,7 +2450,11 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
             local key_chain = self:cache_key_chain()
             redis:incrby(key_chain.memused, size)
             redis:zadd(key_chain.entities, size, entity_keys.main) 
+            
+            redis:expire(key_chain.memused, ttl)
+            redis:expire(key_chain.entities, ttl)
             redis:expire(entity_keys.body, ttl)
+            redis:expire(entity_keys.body_esi, ttl)
 
             local res, err = redis:exec()
             if err then
