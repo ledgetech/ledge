@@ -76,10 +76,10 @@ OK
            local redis = redis_mod.new()
            redis:connect("127.0.0.1", 6379)
            redis:select(ledge:config_get("redis_database"))
-           local cache_key = ledge:cache_key()
-           local num_entities, err = redis:zcard(cache_key .. ":entities")
+           local key_chain = ledge:cache_key_chain()
+           local num_entities, err = redis:zcard(key_chain.entities)
            ngx.say(num_entities)
-           local memused  = redis:get(cache_key .. ":memused")
+           local memused  = redis:get(key_chain.memused)
            ngx.say(memused)
         ';
     }
@@ -109,10 +109,10 @@ UPDATED
            local redis = redis_mod.new()
            redis:connect("127.0.0.1", 6379)
            redis:select(ledge:config_get("redis_database"))
-           local cache_key = ledge:cache_key()
-           local num_entities, err = redis:zcard(cache_key .. ":entities")
+           local key_chain = ledge:cache_key_chain()
+           local num_entities, err = redis:zcard(key_chain.entities)
            ngx.say(num_entities)
-           local memused  = redis:get(cache_key .. ":memused")
+           local memused  = redis:get(key_chain.memused)
            ngx.say(memused)
         ';
     }

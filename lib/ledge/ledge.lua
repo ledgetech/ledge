@@ -598,7 +598,7 @@ function _M.cache_key(self)
             ngx_var.uri,
             ngx_var.args or "",
         }
-        tbl_insert(key_spec, 1, "cache_obj")
+        tbl_insert(key_spec, 1, "cache")
         tbl_insert(key_spec, 1, "ledge")
         self:ctx().cache_key = tbl_concat(key_spec, ":")
     end
@@ -606,15 +606,31 @@ function _M.cache_key(self)
 end
 
 
-function _M.cache_entity_keys(self, cache_key)
+function _M.cache_key_chain(self)
+    if not self:ctx().cache_key_chain then
+        local cache_key = self:cache_key()
+        self:ctx().cache_key_chain = {
+            root = cache_key,
+            key = cache_key .. "::key",
+            memused = cache_key .. "::memused",
+            entities = cache_key .. "::entities",
+            fetching_lock = cache_key .. "::fetching",
+        }
+    end
+    return self:ctx().cache_key_chain
+end
+
+
+function _M.cache_entity_keys(self)
+    local key_chain = self:cache_key_chain()
     local redis = self:ctx().redis
-    local entity = redis:get(cache_key)
+    local entity = redis:get(key_chain.key)
 
     if not entity or entity == ngx_null then -- MISS
         return nil
     end
     
-    local keys = self:entity_keys(cache_key .. ":" .. entity)
+    local keys = self:entity_keys(key_chain.root .. "::" .. entity)
 
     for k, v in pairs(keys) do
         local res = redis:exists(v)
@@ -632,11 +648,6 @@ function _M.entity_keys(self, entity_key)
         body = entity_key .. ":body",
         body_esi = entity_key .. ":body_esi",
     }
-end
-
-
-function _M.fetching_key(self)
-    return self:cache_key() .. ":fetching"
 end
 
 
@@ -1184,7 +1195,7 @@ _M.actions = {
     end,
 
     release_collapse_lock = function(self)
-        self:ctx().redis:del(self:fetching_key())
+        self:ctx().redis:del(self:cache_key_chain().fetching_lock)
     end,
 
     set_http_ok = function(self)
@@ -1485,7 +1496,8 @@ _M.states = {
 
     requesting_collapse_lock = function(self)
         local redis = self:ctx().redis
-        local lock_key = self:fetching_key()
+        local key_chain = self:cache_key_chain()
+        local lock_key = key_chain.fetching_lock
         
         local timeout = tonumber(self:config_get("collapsed_forwarding_window"))
         if not timeout then
@@ -1526,7 +1538,7 @@ _M.states = {
             return self:e "obtained_collapsed_forwarding_lock"
         elseif res == "BUSY" then -- Lock is busy
             redis:multi()
-            redis:subscribe(self:cache_key())
+            redis:subscribe(key_chain.root)
             if redis:exec() ~= ngx_null then -- We subscribed before the lock was freed
                 return self:e "subscribed_to_collapsed_forwarding_channel"
             else -- Lock was freed before we subscribed
@@ -1537,30 +1549,34 @@ _M.states = {
 
     publishing_collapse_success = function(self)
         local redis = self:ctx().redis
-        redis:del(self:fetching_key()) -- Clear the lock
-        redis:publish(self:cache_key(), "collapsed_response_ready")
+        local key_chain = self:cache_key_chain()
+        redis:del(key_chain.fetching_lock) -- Clear the lock
+        redis:publish(key_chain.root, "collapsed_response_ready")
         self:e "published"
     end,
 
     publishing_collapse_failure = function(self)
         local redis = self:ctx().redis
-        redis:del(self:fetching_key()) -- Clear the lock
-        redis:publish(self:cache_key(), "collapsed_forwarding_failed")
+        local key_chain = self:cache_key_chain()
+        redis:del(key_chain.fetching_lock) -- Clear the lock
+        redis:publish(key_chain.root, "collapsed_forwarding_failed")
         self:e "published"
     end,
 
     publishing_collapse_upstream_error = function(self)
         local redis = self:ctx().redis
-        redis:del(self:fetching_key()) -- Clear the lock
-        redis:publish(self:cache_key(), "collapsed_forwarding_upstream_error")
+        local key_chain = self:cache_key_chain()
+        redis:del(key_chain.fetching_lock) -- Clear the lock
+        redis:publish(key_chain.root, "collapsed_forwarding_upstream_error")
         self:e "published"
     end,
 
     publishing_collapse_abort = function(self)
         local redis = self:ctx().redis
-        redis:del(self:fetching_key()) -- Clear the lock
+        local key_chain = self:cache_key_chain()
+        redis:del(key_chain.fetching_lock) -- Clear the lock
         -- Surrogate aborted, go back and attempt to fetch or collapse again
-        redis:publish(self:cache_key(), "can_fetch_but_try_collapse")
+        redis:publish(key_chain.root, "can_fetch_but_try_collapse")
         self:e "aborted"
     end,
 
@@ -1788,9 +1804,7 @@ function _M.read_from_cache(self)
     local redis = self:ctx().redis
     local res = response.new()
 
-    local cache_key = self:cache_key()
-
-    local entity_keys = self:cache_entity_keys(cache_key)
+    local entity_keys = self:cache_entity_keys()
 
     if not entity_keys  then
         -- MISS
@@ -2174,15 +2188,15 @@ function _M.save_to_cache(self, res)
     
 
     local redis = self:ctx().redis
-    local cache_key = self:cache_key()
+    local key_chain = self:cache_key_chain()
     
     -- Create new entity keys
     local entity = random_hex(8)  
-    local entity_keys = self:entity_keys(cache_key .. ":" .. entity)
+    local entity_keys = self:entity_keys(key_chain.root .. "::" .. entity)
     
     -- We'll need to mark the old entity for expiration shortly, as reads could still 
     -- be in progress. We need to know the previous entity keys and the size.
-    local previous_entity_keys = self:cache_entity_keys(cache_key)
+    local previous_entity_keys = self:cache_entity_keys()
 
     local previous_entity_size, err
     if previous_entity_keys then
@@ -2209,7 +2223,7 @@ function _M.save_to_cache(self, res)
 
         -- Place this job on the queue
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-            cache_key = cache_key,
+            cache_key_chain = key_chain,
             size = previous_entity_size,
             entity_keys = previous_entity_keys, 
         }, { delay = gc_after })
@@ -2231,7 +2245,7 @@ function _M.save_to_cache(self, res)
     redis:expire(entity_keys.headers, keep_cache_for)
 
     -- Update main cache key pointer
-    redis:set(cache_key, entity)
+    redis:set(key_chain.key, entity)
 
     -- Instantiate writer coroutine with the entity key set.
     -- The writer will commit the transaction later.
@@ -2251,11 +2265,11 @@ end
 
 
 function _M.delete_from_cache(self)
-    local cache_key = self:cache_key()
-    local entity_keys = self:cache_entity_keys(cache_key)
+    local key_chain = self:cache_key_chain()
+    local entity_keys = self:cache_entity_keys()
     if entity_keys then
         local redis = self:ctx().redis
-        local keys = { cache_key, cache_key .. ":entities", cache_key .. ":memused" }
+        local keys = { key_chain.key, key_chain.entities, key_chain.memused }
         local i = #keys
         for k,v in pairs(entity_keys) do
             i = i + 1
@@ -2267,8 +2281,7 @@ end
 
 
 function _M.expire(self)
-    local cache_key = self:cache_key()
-    local entity_keys = self:cache_entity_keys(cache_key)
+    local entity_keys = self:cache_entity_keys()
     if not entity_keys then return false end -- nothing to expire
 
     local redis = self:ctx().redis
@@ -2433,9 +2446,9 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
         if not deleted_due_to_size then
             redis:hset(entity_keys.main, "size", size)
 
-            local cache_key = self:cache_key()
-            redis:incrby(self:cache_key() .. ":memused", size)
-            redis:zadd(self:cache_key() .. ":entities", size, entity_keys.main) 
+            local key_chain = self:cache_key_chain()
+            redis:incrby(key_chain.memused, size)
+            redis:zadd(key_chain.entities, size, entity_keys.main) 
             redis:expire(entity_keys.body, ttl)
 
             local res, err = redis:exec()

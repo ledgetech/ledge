@@ -22,8 +22,8 @@ function _M.perform(job)
     end
 
     local res, err = redis:del(unpack(del_keys))
-    res, err = redis:decrby(job.data.cache_key .. ":memused", job.data.size)
-    res, err = redis:zrem(job.data.cache_key .. ":entities", job.data.entity_keys.main)
+    res, err = redis:decrby(job.data.cache_key_chain.memused, job.data.size)
+    res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.entity_keys.main)
 
     res, err = redis:exec()
 

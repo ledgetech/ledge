@@ -316,13 +316,16 @@ TEST 9
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ngx.say(type(ngx.var.args))
-            local key1 = ledge:cache_key()
+            local key_chain = ledge:cache_key_chain()
+            local key1 = key_chain.key
 
             ngx.req.set_uri_args({})
             ledge:ctx().cache_key = nil
+            ledge:ctx().cache_key_chain = nil
 
             ngx.say(type(ngx.var.args))
-            local key2 = ledge:cache_key()
+            key_chain = ledge:cache_key_chain()
+            local key2 = key_chain.key
 
             if key1 == key2 then
                 ngx.say("OK")
