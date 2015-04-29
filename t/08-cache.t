@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 36;
+plan tests => 41;
 
 my $pwd = cwd();
 
@@ -199,7 +199,31 @@ X-Cache: MISS from .*
 TEST 4
 
 
-=== TEST 6: Non-cacheable response (no X-*-Cache headers).
+=== TEST 6a: Prime a resource into cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_6_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /cache_6 {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.say("TEST 6")
+        ';
+    }
+--- request
+GET /cache_6_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+TEST 6
+
+
+=== TEST 6b: Revalidate - now the response is non-cacheable.
 --- http_config eval: $::HttpConfig
 --- config
     location /cache_6_prx {
@@ -212,15 +236,43 @@ TEST 4
     location /cache_6 {
         content_by_lua '
             ngx.header["Cache-Control"] = "no-cache"
-            ngx.say("TEST 6")
+            ngx.say("TEST 6b")
         ';
     }
+--- more_headers
+Cache-Control: no-cache
 --- request
 GET /cache_6_prx
 --- response_headers_like
 X-Cache:
 --- response_body
-TEST 6
+TEST 6b
+
+
+=== TEST 6c: Confirm all keys have been removed
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_6 {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            local redis_mod = require "resty.redis"
+            local redis = redis_mod.new()
+            redis:connect("127.0.0.1", 6379)
+            redis:select(ledge:config_get("redis_database"))
+            local key_chain = ledge:cache_key_chain()
+
+            local res, err = redis:keys(key_chain.root .. "*")
+            if res then
+                for i,v in ipairs(res) do
+                    ngx.say(v)
+                end
+            end
+        ';
+    }
+--- request
+GET /cache_6
+--- timeout: 6
+--- response_body
 
 
 === TEST 7: only-if-cached should return 504 on cache miss
@@ -243,6 +295,7 @@ Cache-Control: only-if-cached
 --- request
 GET /cache_7_prx
 --- error_code: 504
+
 
 === TEST 8: min-fresh reduces calculated ttl
 --- http_config eval: $::HttpConfig
