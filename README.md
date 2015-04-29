@@ -263,9 +263,9 @@ healthchecks.
 
 ### buffer_size
 
-syntax: `ledge:config_set("buffer_size", 2^16)`
+syntax: `ledge:config_set("buffer_size", 2^17)`
 
-default: `2^17 (128KB in bytes)`
+default: `2^16 (64KB in bytes)`
 
 Specifies the internal buffer size (in bytes) used for data to be read/written/served. Upstream
 responses are read in chunks of this maximum size, preventing allocation of large amounts of memory

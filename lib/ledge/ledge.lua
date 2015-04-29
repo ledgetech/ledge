@@ -205,7 +205,7 @@ function _M.new(self)
         resty_upstream = nil,   -- An instance of lua-resty-upstream, which if enabled will override 
                                 -- upstream_* settings above.
 
-        buffer_size = 2^17, -- 131072 (bytes) (128KB) Internal buffer size for data read/written/served.
+        buffer_size = 2^16, -- 65536 (bytes) (64KB) Internal buffer size for data read/written/served.
         cache_max_memory = 2048, -- (KB) Max size for a cache item before we bail on trying to store.
 
         advertise_ledge = true, -- Set this to false to omit (ledge/_VERSION) from the "Server" response header.
