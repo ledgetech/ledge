@@ -94,6 +94,7 @@ Clone this repo, and the following dependencies into a path defined by
 
 * [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.05
 * [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.02
+* [lua-resty-cookie](https://github.com/cloudflare/lua-resty-cookie)
 * [pintsized/lua-resty-redis](https://github.com/pintsized/lua-resty-redis) >= 0.20-pintsized (fork under review, which adds Redis Sentinel functionality)
 
 Enable the
