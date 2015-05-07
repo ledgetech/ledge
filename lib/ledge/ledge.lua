@@ -57,7 +57,7 @@ local co_yield = coroutine.yield
 local co_create = coroutine.create
 local co_status = coroutine.status
 local co_resume = coroutine.resume
-local co_wrap = function(func) 
+local co_wrap = function(func)
     local co = co_create(func)
     if not co then
         return nil, "could not create coroutine"
@@ -89,7 +89,7 @@ local function random_hex(len)
 
     local bytes = ffi_new("uint8_t[?]", len)
     C.RAND_pseudo_bytes(bytes, len)
-    if not bytes then 
+    if not bytes then
         ngx_log(ngx_ERR, "error getting random bytes via FFI")
         return nil
     end
@@ -151,7 +151,7 @@ local function choose_esi_parser(token)
                     return parser
                 end
             end
-        end  
+        end
     end
 end
 
@@ -164,7 +164,7 @@ local _M = {
     ORIGIN_MODE_NORMAL = 4, -- Assume the origin is happy, use at will.
 }
 
-local mt = { 
+local mt = {
     __index = _M,
 }
 
@@ -202,7 +202,7 @@ function _M.new(self)
         upstream_ssl_verify = true,
 
         use_resty_upstream = false,
-        resty_upstream = nil,   -- An instance of lua-resty-upstream, which if enabled will override 
+        resty_upstream = nil,   -- An instance of lua-resty-upstream, which if enabled will override
                                 -- upstream_* settings above.
 
         buffer_size = 2^16, -- 65536 (bytes) (64KB) Internal buffer size for data read/written/served.
@@ -229,14 +229,14 @@ function _M.new(self)
 
         keep_cache_for  = 86400 * 30,   -- (sec) Max time to keep cache items past expiry + stale.
                                         -- Items will be evicted when under memory pressure, so this
-                                        -- setting is just about trying to keep cache around to serve 
+                                        -- setting is just about trying to keep cache around to serve
                                         -- stale in the event of origin disconnection.
 
         minimum_old_entity_download_rate = 56,  -- (kbps). Slower clients than this unfortunate enough
-                                                -- to be reading from replaced (in memory) entities will 
+                                                -- to be reading from replaced (in memory) entities will
                                                 -- have their entity garbage collected before they finish.
 
-        max_stale       = nil,  -- (sec) Overrides how long cache will continue be served 
+        max_stale       = nil,  -- (sec) Overrides how long cache will continue be served
                                 -- for beyond the TTL. This violates the spec, and adds a warning header.
         stale_if_error  = nil,  -- (sec) Overrides how long to serve stale on upstream error.
 
@@ -399,8 +399,8 @@ function _M.redis_close(self)
     local redis = self:ctx().redis
     if redis then
         -- We should only be able to close outside of the transactional
-        -- code (as abort gets suspended on write), but just in case we 
-        -- restore this connection to "NORMAL" before putting it in the 
+        -- code (as abort gets suspended on write), but just in case we
+        -- restore this connection to "NORMAL" before putting it in the
         -- keepalive pool.
         redis:discard()
 
@@ -409,7 +409,7 @@ function _M.redis_close(self)
         local keepalive_timeout = self:config_get("redis_keepalive_timeout")
         if keepalive_timeout then
             if self:config_get("redis_keepalive_pool_size") then
-                ok, err = redis:set_keepalive(keepalive_timeout, 
+                ok, err = redis:set_keepalive(keepalive_timeout,
                 self:config_get("redis_keepalive_pool_size"))
             else
                 ok, err = redis:set_keepalive(keepalive_timeout)
@@ -439,7 +439,7 @@ function _M.accepts_stale(self, res)
     if req_max_stale then
         return req_max_stale
     end
-    
+
     -- Fall back to max_stale config
     local max_stale = self:config_get("max_stale")
     if max_stale and max_stale > 0 then
@@ -477,7 +477,7 @@ end
 --
 -- e.g.
 -- {
---      { from = 0, to = 99 }, 
+--      { from = 0, to = 99 },
 --      { from = 100, to = 199 },
 -- }
 function _M.request_byte_range(self)
@@ -543,7 +543,7 @@ function _M.can_revalidate_locally(self)
     if req_h["If-None-Match"] then
         return true
     end
-    
+
     return false
 end
 
@@ -644,7 +644,7 @@ function _M.cache_entity_keys(self)
     if not entity or entity == ngx_null then -- MISS
         return nil
     end
-    
+
     local keys = self:entity_keys(key_chain.root .. "::" .. entity)
 
     for k, v in pairs(keys) do
@@ -678,7 +678,7 @@ function _M.accepts_stale_error(self)
     end
 
     if not stale_age then
-        return false 
+        return false
     else
         return ((res.remaining_ttl + stale_age) > 0)
     end
@@ -715,7 +715,7 @@ _M.events = {
     -- Entry point for worker scripts, which need to connect to Redis but
     -- will stop when this is done.
     init_worker = {
-        { begin = "connecting_to_redis" }, 
+        { begin = "connecting_to_redis" },
     },
 
     -- Background worker who slept due to redis connection failure, has awoken
@@ -777,7 +777,7 @@ _M.events = {
         { begin = "checking_can_fetch" },
     },
 
-    -- We don't know anything about this URI, so we've got to see about fetching. 
+    -- We don't know anything about this URI, so we've got to see about fetching.
     cache_missing = {
         { begin = "checking_can_fetch" },
     },
@@ -786,7 +786,7 @@ _M.events = {
     -- that, see about fetching.
     cache_expired = {
         { when = "checking_cache", begin = "checking_can_serve_stale" },
-        { when = "checking_can_serve_stale", begin = "checking_can_fetch" }, 
+        { when = "checking_can_serve_stale", begin = "checking_can_fetch" },
     },
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
@@ -801,7 +801,7 @@ _M.events = {
     can_fetch_but_try_collapse = {
         { in_case = "cache_missing", begin = "fetching" },
         { in_case = "cache_accepted", begin = "requesting_collapse_lock" },
-        { begin = "fetching" }, 
+        { begin = "fetching" },
     },
 
     -- We have the lock on this "fetch". We might be the only one. We'll never know. But we fetch
@@ -817,13 +817,13 @@ _M.events = {
     },
 
     -- Another request was fetching when we asked, but by the time we subscribed the channel was
-    -- closed (small window, but potentially possible). Chances are the item is now in cache, 
+    -- closed (small window, but potentially possible). Chances are the item is now in cache,
     -- so start there.
     collapsed_forwarding_channel_closed = {
         { begin = "checking_cache" },
     },
 
-    -- We were waiting on a collapse channel, and got a message saying the response is now ready. 
+    -- We were waiting on a collapse channel, and got a message saying the response is now ready.
     -- The item will now be fresh in cache.
     collapsed_response_ready = {
         { begin = "checking_cache" },
@@ -887,11 +887,11 @@ _M.events = {
     -- a background revalidate (having served stale), we can just exit. Otherwise go back through
     -- validationg in case we can 304 to the client.
     response_cacheable = {
-        { after = "fetching_as_surrogate", begin = "publishing_collapse_success", 
+        { after = "fetching_as_surrogate", begin = "publishing_collapse_success",
             but_first = "save_to_cache" },
-        { after = "revalidating_in_background", begin = "exiting", 
+        { after = "revalidating_in_background", begin = "exiting",
             but_first = "save_to_cache" },
-        { begin = "considering_local_revalidation", 
+        { begin = "considering_local_revalidation",
             but_first = "save_to_cache" },
     },
 
@@ -900,14 +900,14 @@ _M.events = {
     response_not_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
-        { after = "revalidating_in_background", begin = "exiting", 
+        { after = "revalidating_in_background", begin = "exiting",
             but_first = "delete_from_cache" },
         { begin = "considering_esi_process", but_first = "delete_from_cache" },
     },
 
     -- A missing response body means a HEAD request or a 304 Not Modified upstream response, for
-    -- example. If we were revalidating upstream, we can now re-revalidate against local cache. 
-    -- If we're collapsing or background revalidating, ensure we either clean up the collapsees 
+    -- example. If we were revalidating upstream, we can now re-revalidate against local cache.
+    -- If we're collapsing or background revalidating, ensure we either clean up the collapsees
     -- or exit respectively.
     response_body_missing = {
         { in_case = "must_revalidate", begin = "considering_local_revalidation" } ,
@@ -957,12 +957,12 @@ _M.events = {
     },
 
     esi_process_enabled = {
-        { begin = "preparing_response", 
-            but_first = { 
-                "set_esi_process_enabled", 
-                "zero_downstream_lifetime", 
-                "remove_surrogate_control_header" 
-            } 
+        { begin = "preparing_response",
+            but_first = {
+                "set_esi_process_enabled",
+                "zero_downstream_lifetime",
+                "remove_surrogate_control_header"
+            }
         },
     },
 
@@ -970,7 +970,7 @@ _M.events = {
         { begin = "preparing_response", but_first = "set_esi_process_disabled" },
     },
 
-    -- We have a response we can use. If we've already served (we are doing background work) then 
+    -- We have a response we can use. If we've already served (we are doing background work) then
     -- just exit. If it has been prepared and we were not_modified, then set 304 and serve.
     -- If it has been prepared, set status accordingly and serve. If not, prepare it.
     response_ready = {
@@ -981,7 +981,7 @@ _M.events = {
             begin = "serving", but_first = "set_http_status_from_response" },
         { when = "preparing_response", in_case = "not_modified",
             begin = "serving", but_first = "set_http_not_modified" },
-        { when = "preparing_response", begin = "serving", 
+        { when = "preparing_response", begin = "serving",
             but_first = "set_http_status_from_response" },
         { begin = "preparing_response" },
     },
@@ -1101,14 +1101,14 @@ _M.actions = {
         local error_res = self:get_response()
         self:set_response(error_res, "error")
     end,
-    
+
     restore_error_response = function(self)
         local error_res = self:get_response('error')
         self:set_response(error_res)
     end,
 
     read_cache = function(self)
-        local res = self:read_from_cache() 
+        local res = self:read_from_cache()
         self:set_response(res)
     end,
 
@@ -1120,7 +1120,7 @@ _M.actions = {
             self:ctx().esi_scan_enabled = true
         end
     end,
-    
+
     set_esi_process_enabled = function(self)
         self:ctx().esi_process_enabled = true
     end,
@@ -1128,7 +1128,7 @@ _M.actions = {
     set_esi_process_disabled = function(self)
         self:ctx().esi_process_enabled = false
     end,
-    
+
     zero_downstream_lifetime = function(self)
         local res = self:get_response()
         if res.header then
@@ -1185,7 +1185,7 @@ _M.actions = {
 
     add_disconnected_warning = function(self)
         return self:add_warning("112")
-    end,    
+    end,
 
     serve = function(self)
         return self:serve()
@@ -1236,7 +1236,7 @@ _M.actions = {
     set_http_client_abort = function(self)
         ngx.status = 499 -- No ngx constant for client aborted
     end,
-    
+
     set_http_connection_timed_out = function(self)
         ngx.status = 524
     end,
@@ -1255,8 +1255,8 @@ _M.actions = {
 ---------------------------------------------------------------------------------------------------
 -- Decision states.
 ---------------------------------------------------------------------------------------------------
--- Represented as functions which should simply make a decision, and return calling self:e(ev) with 
--- the event that has occurred. Place any further logic in actions triggered by the transition 
+-- Represented as functions which should simply make a decision, and return calling self:e(ev) with
+-- the event that has occurred. Place any further logic in actions triggered by the transition
 -- table.
 ---------------------------------------------------------------------------------------------------
 _M.states = {
@@ -1381,7 +1381,7 @@ _M.states = {
             return self:e "cache_not_accepted"
         end
     end,
-    
+
     checking_cache = function(self)
         local res = self:get_response()
 
@@ -1404,7 +1404,7 @@ _M.states = {
                 if content_token then
                     local parser = choose_esi_parser(content_token)
                     if parser then
-                        self:ctx().esi_parser = { 
+                        self:ctx().esi_parser = {
                             parser = parser,
                             token = content_token,
                         }
@@ -1433,18 +1433,18 @@ _M.states = {
     --      - Surrogate-Capability is set with a matching parser type and version.
     --      - Delegation is enabled in configuration.
     --
-    --  So essentially, if we think we may need to process, then we do. We don't want to 
+    --  So essentially, if we think we may need to process, then we do. We don't want to
     --  accidentally send ESI instructions to a client, so we only delegate if we're sure.
     considering_esi_process = function(self)
         local res = self:get_response()
 
-        -- On the fast path with ESI already detected, the parser wont have been loaded 
+        -- On the fast path with ESI already detected, the parser wont have been loaded
         -- yet, so we must do that now
         local token = res.has_esi
         if token then
             local parser = choose_esi_parser(token)
             if parser then
-                self:ctx().esi_parser = { 
+                self:ctx().esi_parser = {
                     parser = parser,
                     token = token,
                 }
@@ -1463,13 +1463,13 @@ _M.states = {
                 if capability_parser and capability_version then
                     local control_parser, control_version = split_esi_token(token)
 
-                    if control_parser and control_version 
-                        and control_parser == capability_parser 
-                        and tonumber(control_version) <= tonumber(capability_version) then 
+                    if control_parser and control_version
+                        and control_parser == capability_parser
+                        and tonumber(control_version) <= tonumber(capability_version) then
 
                         local surrogates = self:config_get("esi_allow_surrogate_delegation")
                         if type(surrogates) == "boolean" then
-                            if surrogates == true then 
+                            if surrogates == true then
                                 return self:e "esi_process_disabled"
                             end
                         elseif type(surrogates) == "table" then
@@ -1513,7 +1513,7 @@ _M.states = {
         local redis = self:ctx().redis
         local key_chain = self:cache_key_chain()
         local lock_key = key_chain.fetching_lock
-        
+
         local timeout = tonumber(self:config_get("collapsed_forwarding_window"))
         if not timeout then
             ngx_log(ngx_ERR, "collapsed_forwarding_window must be a number")
@@ -1535,7 +1535,7 @@ _M.states = {
         -- Return: OK or BUSY
         local SETNEX = [[
             local lock = redis.call("GET", KEYS[1])
-            if not lock then    
+            if not lock then
                 return redis.call("PSETEX", KEYS[1], ARGV[1], "locked")
             else
                 return "BUSY"
@@ -1612,7 +1612,7 @@ _M.states = {
             redis:unsubscribe()
 
             -- Returns either "collapsed_response_ready" or "collapsed_forwarding_failed"
-            return self:e(res[3]) 
+            return self:e(res[3])
         end
     end,
 
@@ -1786,12 +1786,12 @@ function _M.e(self, event)
         ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
         self:t("exiting")
     end
-    
+
     for _, trans in ipairs(self.events[event]) do
         local t_when = trans["when"]
         if t_when == nil or t_when == ctx.current_state then
             local t_after = trans["after"]
-            if not t_after or ctx.state_history[t_after] then 
+            if not t_after or ctx.state_history[t_after] then
                 local t_in_case = trans["in_case"]
                 if not t_in_case or ctx.event_history[t_in_case] then
                     local t_but_first = trans["but_first"]
@@ -1919,16 +1919,16 @@ function _M.check_range_request(self, res)
             end
 
             -- A missing "to" means to the "end".
-            if not range.to then 
+            if not range.to then
                 if res.has_esi then
                     range_satisfiable = false
                 else
-                    range.to = res.size - 1 
+                    range.to = res.size - 1
                 end
             end
 
             -- A missing "from" means "to" is an offset from the end.
-            if not range.from then 
+            if not range.from then
                 range.from = res.size - (range.to)
                 range.to = res.size - 1
 
@@ -1938,8 +1938,8 @@ function _M.check_range_request(self, res)
             end
 
             -- A "to" greater than size should be "end"
-            if range.to > (res.size - 1) then 
-                range.to = res.size - 1 
+            if range.to > (res.size - 1) then
+                range.to = res.size - 1
             end
 
             -- Check the range is satisfiable
@@ -1948,7 +1948,7 @@ function _M.check_range_request(self, res)
             end
 
             if not range_satisfiable then
-                -- We'll return 416 
+                -- We'll return 416
                 res.status = ngx_RANGE_NOT_SATISFIABLE
                 res.body_reader = nil
                 res.header.content_range = "bytes */" .. res.size
@@ -1960,7 +1960,7 @@ function _M.check_range_request(self, res)
                 tbl_insert(ranges, range)
             end
         end
-        
+
         local numranges = #ranges
         if numranges > 1 then
             -- Sort ranges as we cannot serve unordered.
@@ -1975,8 +1975,8 @@ function _M.check_range_request(self, res)
                     if current_range.from <= previous_range.to then
                         -- extend previous range to encompass this one
                         previous_range.to = current_range.to
-                        previous_range.header = "bytes " .. 
-                                                previous_range.from .. "-" .. current_range.to 
+                        previous_range.header = "bytes " ..
+                                                previous_range.from .. "-" .. current_range.to
                                                 .. "/" .. res.size
                         tbl_remove(ranges, i)
                     end
@@ -1991,7 +1991,7 @@ function _M.check_range_request(self, res)
             local range = ranges[1]
 
             local size = res.size
-            if res.has_esi then 
+            if res.has_esi then
                 -- If we have ESI to do then advertise an unknown length since
                 -- we cannot know this in advance.
                 size = "*"
@@ -2014,7 +2014,7 @@ function _M.check_range_request(self, res)
                 tbl_insert(boundary, "Content-Type: " .. res.header["Content-Type"])
                 tbl_insert(boundary, "")
             end
-            
+
             self:ctx().byterange_boundary = tbl_concat(boundary, "\n")
             self:ctx().byterange_boundary_end = "\n--" .. boundary_string .. "--"
 
@@ -2058,12 +2058,12 @@ function _M.fetch_from_origin(self)
             end
             return res
         end
-        
+
         httpc:set_timeout(self:config_get("upstream_read_timeout"))
-        
+
         if self:config_get("upstream_use_ssl") == true then
-            local ok, err = httpc:ssl_handshake(false, 
-                                                self:config_get("upstream_ssl_server_name"), 
+            local ok, err = httpc:ssl_handshake(false,
+                                                self:config_get("upstream_ssl_server_name"),
                                                 self:config_get("upstream_ssl_verify"))
             if not ok then
                 ngx_log(ngx_ERR, "ssl handshake failed: ", err)
@@ -2083,7 +2083,7 @@ function _M.fetch_from_origin(self)
         local sc = headers.surrogate_capability
 
         if not sc then
-            headers.surrogate_capability = capability_entry 
+            headers.surrogate_capability = capability_entry
         else
             headers.surrogate_capability = sc .. ", " .. capability_entry
         end
@@ -2196,20 +2196,19 @@ function _M.save_to_cache(self, res)
             end
         end
     end
-    
+
     local ttl = res:ttl()
     local expires = ttl + ngx_time()
     local uri = self:full_uri()
-    
 
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
-    
+
     -- Create new entity keys
-    local entity = random_hex(8)  
+    local entity = random_hex(8)
     local entity_keys = self:entity_keys(key_chain.root .. "::" .. entity)
-    
-    -- We'll need to mark the old entity for expiration shortly, as reads could still 
+
+    -- We'll need to mark the old entity for expiration shortly, as reads could still
     -- be in progress. We need to know the previous entity keys and the size.
     local previous_entity_keys = self:cache_entity_keys()
 
@@ -2237,7 +2236,7 @@ function _M.save_to_cache(self, res)
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
             cache_key_chain = key_chain,
             size = previous_entity_size,
-            entity_keys = previous_entity_keys, 
+            entity_keys = previous_entity_keys,
         }, { delay = gc_after })
     end
 
@@ -2264,8 +2263,8 @@ function _M.save_to_cache(self, res)
     -- The writer will commit the transaction later.
     if res.has_body then
         res.body_reader = self:get_cache_body_writer(
-            res.body_reader, 
-            entity_keys, 
+            res.body_reader,
+            entity_keys,
             keep_cache_for
         )
     else
@@ -2293,7 +2292,7 @@ function _M.delete_from_cache(self)
 end
 
 
--- Scans the keyspace based on a pattern (asterisk) present in the main key, 
+-- Scans the keyspace based on a pattern (asterisk) present in the main key,
 -- including the ::key suffix to denote the main key entry.
 -- (i.e. one per entry)
 function _M.scan_keys(self, cursor, key_chain)
@@ -2339,17 +2338,17 @@ function _M.expire(self)
         return self:scan_keys(0, key_chain)
     else
         local entity_keys = self:cache_entity_keys()
-        if not entity_keys then 
+        if not entity_keys then
             -- nothing to expire
             return false
         else
             return self:expire_keys(key_chain, entity_keys)
-        end 
+        end
     end
 end
 
 
--- Expires the keys in key_chain and the entity provided by entity_keys 
+-- Expires the keys in key_chain and the entity provided by entity_keys
 function _M.expire_keys(self, key_chain, entity_keys)
     local redis = self:ctx().redis
 
@@ -2371,7 +2370,7 @@ function _M.expire_keys(self, key_chain, entity_keys)
         if ttl_reduction < 0 then ttl_reduction = 0 end
 
         redis:multi()
-        
+
         -- Set the expires field of the main key to the new time, to control
         -- its validity.
         redis:hset(entity_keys.main, "expires", tostring(time - 1))
@@ -2386,7 +2385,7 @@ function _M.expire_keys(self, key_chain, entity_keys)
         for _,key in pairs(entity_keys) do
             redis:expire(key, ttl - ttl_reduction)
         end
-        
+
         local ok, err = redis:exec()
         if err then
             ngx_log(ngx_ERR, err)
@@ -2522,7 +2521,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                         end
                         self:delete_from_cache()
 
-                        ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ", 
+                        ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ",
                                             max_memory, " bytes")
                     else
                         redis:rpush(entity_keys.body, chunk)
@@ -2549,8 +2548,8 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
 
             local key_chain = self:cache_key_chain()
             redis:incrby(key_chain.memused, size)
-            redis:zadd(key_chain.entities, size, entity_keys.main) 
-            
+            redis:zadd(key_chain.entities, size, entity_keys.main)
+
             redis:expire(key_chain.memused, ttl)
             redis:expire(key_chain.entities, ttl)
             redis:expire(entity_keys.body, ttl)
@@ -2617,7 +2616,7 @@ function _M.get_range_request_filter(self, reader)
                 end
 
             until not chunk
-            
+
             -- Yield the multipart byterange end marker
             if num_ranges > 1 then
                 co_yield(boundary_end)
@@ -2643,7 +2642,7 @@ function _M.body_server(self, reader)
             reader = esi_parser.parser.get_process_filter(reader)
         end
     end
-    
+
     -- Filter response by requested range if required
     if request_range then
         reader = self:get_range_request_filter(reader)
