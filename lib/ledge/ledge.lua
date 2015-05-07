@@ -588,15 +588,25 @@ function _M.get_response(self, name)
 end
 
 
+-- Generates or returns the cache key. The default spec is:
+-- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
     if not self:ctx().cache_key then
-        -- Generate the cache key. The default spec is:
-        -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
+
+        -- If this is a wildcard PURGE request, we use * in place of empty
+        -- args to ensure keyspace scans work properly.
+        local args_default = ""
+        if ngx_req_get_method() == "PURGE" then
+            if ngx_re_find(ngx_var.request_uri, "\\*", "soj") then
+                args_default = "*"
+            end
+        end
+
         local key_spec = self:config_get("cache_key_spec") or {
             ngx_var.scheme,
             ngx_var.host,
             ngx_var.uri,
-            ngx_var.args or "",
+            ngx_var.args or args_default,
         }
         tbl_insert(key_spec, 1, "cache")
         tbl_insert(key_spec, 1, "ledge")
@@ -609,15 +619,20 @@ end
 function _M.cache_key_chain(self)
     if not self:ctx().cache_key_chain then
         local cache_key = self:cache_key()
-        self:ctx().cache_key_chain = {
-            root = cache_key,
-            key = cache_key .. "::key",
-            memused = cache_key .. "::memused",
-            entities = cache_key .. "::entities",
-            fetching_lock = cache_key .. "::fetching",
-        }
+        self:ctx().cache_key_chain = self:key_chain(cache_key)
     end
     return self:ctx().cache_key_chain
+end
+
+
+function _M.key_chain(self, cache_key)
+    return {
+        root = cache_key,
+        key = cache_key .. "::key",
+        memused = cache_key .. "::memused",
+        entities = cache_key .. "::entities",
+        fetching_lock = cache_key .. "::fetching",
+    }
 end
 
 
@@ -2218,9 +2233,6 @@ function _M.save_to_cache(self, res)
         local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
         local gc_after = math_ceil((previous_entity_size / dl_rate_Bps)) + 1
 
-        local qless_db = self:config_get("redis_qless_database") or 1
-        redis:select(qless_db)
-
         -- Place this job on the queue
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
             cache_key_chain = key_chain,
@@ -2281,14 +2293,102 @@ function _M.delete_from_cache(self)
 end
 
 
-function _M.expire(self)
-    local entity_keys = self:cache_entity_keys()
-    if not entity_keys then return false end -- nothing to expire
+-- Scans the keyspace based on a pattern (asterisk) present in the main key, 
+-- including the ::key suffix to denote the main key entry.
+-- (i.e. one per entry)
+function _M.scan_keys(self, cursor, key_chain)
+    -- We return 200 if something is expired, 404 if not a single key matches.
+    local expired = false
 
     local redis = self:ctx().redis
+    local res, err = redis:scan(cursor, "MATCH", key_chain.key, "COUNT", 100)
+
+    if not res or res == ngx_null then
+        ngx_log(ngx_ERR, err)
+    else
+        for _,key in ipairs(res[2]) do
+            local entity = redis:get(key)
+            if entity then
+                -- Remove the ::key part to give the cache_key without a suffix
+                local cache_key = str_sub(key, 1, -(str_len("::key") + 1))
+                expired = self:expire_keys(
+                    self:key_chain(cache_key), -- a keychain for this key
+                    self:entity_keys(cache_key .. "::" .. entity) -- the entity keys for the live entity
+                )
+            end
+        end
+
+        local cursor = tonumber(res[1])
+        if cursor > 1 then
+            -- If we have a valid cursor, recurse to move on.
+            return self:scan_keys(cursor, key_chain)
+        end
+    end
+
+    return expired
+end
+
+
+-- Marks the current live entity as expired. If the cache key contains
+-- asterisks then we scan the keyspace for matching keys and expire
+-- the live entity for each key found.
+function _M.expire(self)
+    local redis = self:ctx().redis
+    local key_chain = self:cache_key_chain()
+    if ngx_re_find(key_chain.root, "\\*", "soj") then
+        return self:scan_keys(0, key_chain)
+    else
+        local entity_keys = self:cache_entity_keys()
+        if not entity_keys then 
+            -- nothing to expire
+            return false
+        else
+            return self:expire_keys(key_chain, entity_keys)
+        end 
+    end
+end
+
+
+-- Expires the keys in key_chain and the entity provided by entity_keys 
+function _M.expire_keys(self, key_chain, entity_keys)
+    local redis = self:ctx().redis
+
     if redis:exists(entity_keys.main) == 1 then
-        local ok, err = redis:hset(entity_keys.main, "expires", tostring(ngx_time() - 1))
-        if not ok then
+        local time = ngx_time()
+        local expires, err = redis:hget(entity_keys.main, "expires")
+        if not expires or expires == ngx_null then
+            ngx_log(ngx_ERR, "could not determine existing expiry: ", err)
+            return false
+        end
+
+        local ttl = redis:ttl(entity_keys.main)
+        if not ttl or ttl == ngx_null then
+            ngx_log(ngx_ERR, "count not determine exsiting ttl: ", err)
+            return false
+        end
+
+        local ttl_reduction = expires - time
+        if ttl_reduction < 0 then ttl_reduction = 0 end
+
+        redis:multi()
+        
+        -- Set the expires field of the main key to the new time, to control
+        -- its validity.
+        redis:hset(entity_keys.main, "expires", tostring(time - 1))
+
+        -- Set new TTLs for all keys in the key chain
+        key_chain.fetching_lock = nil -- this looks after itself
+        for _,key in pairs(key_chain) do
+            redis:expire(key, ttl - ttl_reduction)
+        end
+
+        -- Set new TTLs for all entity keys
+        for _,key in pairs(entity_keys) do
+            redis:expire(key, ttl - ttl_reduction)
+        end
+        
+        local ok, err = redis:exec()
+        if err then
             ngx_log(ngx_ERR, err)
             return false
         else
