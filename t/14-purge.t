@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 6;
+plan tests => repeat_each() * (blocks() * 2) - 3;
 
 my $pwd = cwd();
 
@@ -98,3 +98,79 @@ location /foobar {
 --- request
 PURGE /foobar
 --- error_code: 404
+
+
+=== TEST 5a: Prime another key with args
+--- http_config eval: $::HttpConfig
+--- config
+location /cached_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /cached {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 5")
+    ';
+}
+--- request
+GET /cached_prx?t=1
+--- response_body
+TEST 5
+
+
+=== TEST 5b: Wildcard Purge
+--- http_config eval: $::HttpConfig
+--- config
+location /cached {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request
+PURGE /cached*
+--- error_code: 200
+
+
+=== TEST 5c: Cache has been purged with args
+--- http_config eval: $::HttpConfig
+--- config
+location /cached_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /cached {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 5c")
+    ';
+}
+--- request
+GET /cached_prx?t=1
+--- response_body
+TEST 5c
+
+
+=== TEST 5d: Cache has been purged without args
+--- http_config eval: $::HttpConfig
+--- config
+location /cached_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /cached {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 5d")
+    ';
+}
+--- request
+GET /cached_prx
+--- response_body
+TEST 5d
