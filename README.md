@@ -74,7 +74,7 @@ feel free to raise issues / request features at
 * Background revalidation (triggered by stale responses and upstream partial responses).
 * Collapsed forwarding (concurrent similar requests collapsed into a single upstream request).
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
-* Squid-like PURGE requests to remove resources from cache.
+* PURGE requests to expire resources by URI (also supports wildcard patterns).
 * ESI 1.0 support. See [documentation](#esi_enabled) for exceptions.
 
 
