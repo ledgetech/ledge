@@ -83,7 +83,7 @@ feel free to raise issues / request features at
 Download and install:
 
 * [OpenResty](http://openresty.org/) >= 1.7.x
-* [Redis](http://redis.io/download) >= 2.6.x
+* [Redis](http://redis.io/download) >= 2.8.x
 
 Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to
 run Lua code in Nginx. If you are new to OpenResty, it's important to take the time to do this
