@@ -602,11 +602,17 @@ function _M.cache_key(self)
             end
         end
 
+        -- If args is manipulated before us, it may be a zero length string.
+        local args = ngx_var.args
+        if not args or args == "" then
+            args = args_default
+        end
+
         local key_spec = self:config_get("cache_key_spec") or {
             ngx_var.scheme,
             ngx_var.host,
             ngx_var.uri,
-            ngx_var.args or args_default,
+            args,
         }
         tbl_insert(key_spec, 1, "cache")
         tbl_insert(key_spec, 1, "ledge")
