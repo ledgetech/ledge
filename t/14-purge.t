@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) - 3;
+plan tests => repeat_each() * (blocks() * 2) - 4;
 
 my $pwd = cwd();
 
@@ -20,6 +20,7 @@ our $HttpConfig = qq{
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
+        ledge:config_set('keep_cache_for', 0)
     ";
     init_worker_by_lua "
         ledge:run_workers()
@@ -47,6 +48,7 @@ location /cached {
 }
 --- request
 GET /cached_prx
+--- no_error_log
 --- response_body
 TEST 1
 
@@ -62,6 +64,7 @@ location /cached {
 
 --- request
 PURGE /cached
+--- no_error_log
 --- error_code: 200
 
 
@@ -82,6 +85,7 @@ location /cached {
 }
 --- request
 GET /cached_prx
+--- no_error_log
 --- response_body
 TEST 3
 
@@ -97,6 +101,7 @@ location /foobar {
 
 --- request
 PURGE /foobar
+--- no_error_log
 --- error_code: 404
 
 
@@ -117,6 +122,7 @@ location /cached {
 }
 --- request
 GET /cached_prx?t=1
+--- no_error_log
 --- response_body
 TEST 5
 
@@ -124,13 +130,14 @@ TEST 5
 === TEST 5b: Wildcard Purge
 --- http_config eval: $::HttpConfig
 --- config
-location /cached {
+location /c {
     content_by_lua '
         ledge:run()
     ';
 }
 --- request
 PURGE /cached*
+--- no_error_log
 --- error_code: 200
 
 
@@ -151,6 +158,7 @@ location /cached {
 }
 --- request
 GET /cached_prx?t=1
+--- no_error_log
 --- response_body
 TEST 5c
 
@@ -172,5 +180,42 @@ location /cached {
 }
 --- request
 GET /cached_prx
+--- no_error_log
 --- response_body
 TEST 5d
+
+
+=== TEST 6a: Purge everything
+--- http_config eval: $::HttpConfig
+--- config
+location /c {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request
+PURGE /c*
+--- error_code: 200
+--- no_error_log
+
+
+=== TEST 6: Cache keys have been collected by Redis
+--- http_config eval: $::HttpConfig
+--- config
+location /cached {
+    content_by_lua '
+        local redis_mod = require "resty.redis"
+        local redis = redis_mod.new()
+        redis:connect("127.0.0.1", 6379)
+        redis:select(ledge:config_get("redis_database"))
+        local key_chain = ledge:cache_key_chain()
+
+        local res, err = redis:keys(key_chain.root .. "*")
+        ngx.say("keys: ", #res)
+    ';
+}
+--- request
+GET /cached
+--- no_error_log
+--- response_body
+keys: 0
