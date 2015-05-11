@@ -593,11 +593,11 @@ end
 function _M.cache_key(self)
     if not self:ctx().cache_key then
 
-        -- If this is a wildcard PURGE request, we use * in place of empty
-        -- args to ensure keyspace scans work properly.
+        -- If there is is a wildcard PURGE request with an asterisk placed
+        -- at the end of the path, and we have no args, use * as the args.
         local args_default = ""
         if ngx_req_get_method() == "PURGE" then
-            if ngx_re_find(ngx_var.request_uri, "\\*", "soj") then
+            if ngx_re_find(ngx_var.request_uri, "\\*$", "soj") then
                 args_default = "*"
             end
         end

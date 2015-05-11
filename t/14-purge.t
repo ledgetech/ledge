@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) - 4;
+plan tests => repeat_each() * (blocks() * 2) - 5;
 
 my $pwd = cwd();
 
@@ -219,3 +219,39 @@ GET /cached
 --- no_error_log
 --- response_body
 keys: 0
+
+
+=== TEST 7a: Prime another key with args
+--- http_config eval: $::HttpConfig
+--- config
+location /cached_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /cached {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 5")
+    ';
+}
+--- request
+GET /cached_prx?t=1
+--- no_error_log
+--- response_body
+TEST 5
+
+
+=== TEST 5b: Wildcard Purge, mid path (no match due to args)
+--- http_config eval: $::HttpConfig
+--- config
+location /c {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request
+PURGE /ca*ed
+--- no_error_log
+--- error_code: 404
