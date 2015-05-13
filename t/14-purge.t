@@ -9,7 +9,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 
 our $HttpConfig = qq{
-    lua_package_path "$pwd/../lua-resty-redis/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
+    lua_package_path "$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
         if use_resty_core then
@@ -204,6 +204,7 @@ PURGE /c*
 --- config
 location /cached {
     content_by_lua '
+        ngx.sleep(4)
         local redis_mod = require "resty.redis"
         local redis = redis_mod.new()
         redis:connect("127.0.0.1", 6379)
@@ -216,6 +217,7 @@ location /cached {
 }
 --- request
 GET /cached
+--- timeout: 6
 --- no_error_log
 --- response_body
 keys: 0

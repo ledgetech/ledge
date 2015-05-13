@@ -337,21 +337,19 @@ function _M.run_workers(self, options)
 
     if self:config_get("redis_use_sentinel") then
         redis_params = {
-            sentinel = {
-                hosts = self:config_get("redis_sentinels"),
-                master_name = self:config_get("redis_sentinel_master_name"),
-            }
+            sentinels = self:config_get("redis_sentinels"),
+            master_name = self:config_get("redis_sentinel_master_name"),
+            role = "master",
+            db = self:config_get("redis_database")
         }
     else
-        redis_params = {
-            redis = self:config_get("redis_host")
-        }
+        redis_params = self:config_get("redis_host")
+        redis_params.db = self:config_get("redis_database")
     end
 
     local connection_options = {
         connect_timeout = self:config_get("redis_connect_timeout"),
         read_timeout = self:config_get("redis_read_timeout"),
-        database = self:config_get("redis_qless_database"),
     }
 
     local worker = resty_qless_worker.new(redis_params, connection_options)
@@ -1271,25 +1269,21 @@ _M.states = {
 
         if self:config_get("redis_use_sentinel") then
             redis_params = {
-                sentinel = {
-                    hosts = self:config_get("redis_sentinels"),
-                    master_name = self:config_get("redis_sentinel_master_name"),
-                    try_slaves = true,
-                }
+                sentinels = self:config_get("redis_sentinels"),
+                master_name = self:config_get("redis_sentinel_master_name"),
+                role = "any",
+                db = self:config_get("redis_database")
             }
         else
-            redis_params = {
-                redis = self:config_get("redis_host"),
-            }
+            redis_params = self:config_get("redis_host")
+            redis_params.db = self:config_get("redis_database")
         end
 
-        local connection_options = {
-            connect_timeout = self:config_get("redis_connect_timeout"),
-            read_timeout = self:config_get("redis_read_timeout"),
-            database = self:config_get("redis_database"),
-        }
+        local rc = redis_connector.new()
+        rc:set_connect_timeout(self:config_get("redis_connect_timeout"))
+        rc:set_read_timeout(self:config_get("redis_read_timeout"))
 
-        local redis, err = redis_connector.connect(redis_params, connection_options)
+        local redis, err = rc:connect(redis_params)
         if not redis then
             ngx_log(ngx_ERR, err)
             return self:e "redis_connection_failed"
@@ -1297,53 +1291,6 @@ _M.states = {
             self:ctx().redis = redis
             return self:e "redis_connected"
         end
-    end,
-
-    selecting_redis_master = function(self)
-        local sentinel = self:ctx().sentinel
-        local res, err = sentinel:sentinel(
-            "get-master-addr-by-name",
-            self:config_get("redis_sentinel_master_name")
-         )
-         if res and res ~= ngx_null and res[1] and res[2] then
-             self:config_set("redis_hosts", {
-                 { host = res[1], port = res[2] },
-             })
-
-             return self:e "redis_master_selected"
-         else
-             return self:e "redis_selection_failed"
-         end
-    end,
-
-    selecting_redis_slaves = function(self)
-        local sentinel = self:ctx().sentinel
-        local res, err = sentinel:sentinel(
-            "slaves",
-            self:config_get("redis_sentinel_master_name")
-        )
-        if type(res) == "table" then
-            local hosts = {}
-            for _,slave in ipairs(res) do
-                local host = {}
-                for i = 1, #slave, 2 do
-                    if slave[i] == "ip" then
-                        host.host = slave[i + 1]
-                    elseif slave[i] == "port" then
-                        host.port = slave[i + 1]
-                        break
-                    end
-                end
-                if host.host and host.port then
-                    tbl_insert(hosts, host)
-                end
-            end
-            if next(hosts) ~= nil then
-                self:config_set("redis_hosts", hosts)
-                self:e "redis_slaves_selected"
-            end
-        end
-        self:e "redis_selection_failed"
     end,
 
     sleeping = function(self)
