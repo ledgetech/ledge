@@ -1012,7 +1012,7 @@ _M.events = {
     aborted = {
         { in_case = "response_cacheable", begin = "cancelling_abort_request" },
         { in_case = "obtained_collapsed_forwarding_lock", begin = "cancelling_abort_request" },
-        { begin = "exiting", but_first = "set_http_client_abort" },
+        { begin = "exiting"},
     },
 
     -- The cache body reader was reading from the list, but the entity was collected by a worker
@@ -1235,10 +1235,6 @@ _M.actions = {
 
     set_http_gateway_timeout = function(self)
         ngx.status = ngx.HTTP_GATEWAY_TIMEOUT
-    end,
-
-    set_http_client_abort = function(self)
-        ngx.status = 499 -- No ngx constant for client aborted
     end,
 
     set_http_connection_timed_out = function(self)
