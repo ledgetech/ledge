@@ -5,7 +5,8 @@ plan tests => repeat_each() * (blocks() * 2) - 5;
 
 my $pwd = cwd();
 
-$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
+$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
+$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 
 our $HttpConfig = qq{
@@ -18,6 +19,7 @@ our $HttpConfig = qq{
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('keep_cache_for', 0)
@@ -34,20 +36,20 @@ __DATA__
 === TEST 1: Prime cache for subsequent tests
 --- http_config eval: $::HttpConfig
 --- config
-location /cached_prx {
+location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /cached {
+location /purge_cached {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 1")
     ';
 }
 --- request
-GET /cached_prx
+GET /purge_cached_prx
 --- no_error_log
 --- response_body
 TEST 1
@@ -56,14 +58,14 @@ TEST 1
 === TEST 2: Purge cache
 --- http_config eval: $::HttpConfig
 --- config
-location /cached {
+location /purge_cached {
     content_by_lua '
         ledge:run()
     ';
 }
 
 --- request
-PURGE /cached
+PURGE /purge_cached
 --- no_error_log
 --- error_code: 200
 
@@ -71,20 +73,20 @@ PURGE /cached
 === TEST 3: Cache has been purged
 --- http_config eval: $::HttpConfig
 --- config
-location /cached_prx {
+location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /cached {
+location /purge_cached {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 3")
     ';
 }
 --- request
-GET /cached_prx
+GET /purge_cached_prx
 --- no_error_log
 --- response_body
 TEST 3
@@ -108,20 +110,20 @@ PURGE /foobar
 === TEST 5a: Prime another key with args
 --- http_config eval: $::HttpConfig
 --- config
-location /cached_prx {
+location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /cached {
+location /purge_cached {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5")
     ';
 }
 --- request
-GET /cached_prx?t=1
+GET /purge_cached_prx?t=1
 --- no_error_log
 --- response_body
 TEST 5
@@ -130,13 +132,13 @@ TEST 5
 === TEST 5b: Wildcard Purge
 --- http_config eval: $::HttpConfig
 --- config
-location /c {
+location /purge_cached {
     content_by_lua '
         ledge:run()
     ';
 }
 --- request
-PURGE /cached*
+PURGE /purge_cached*
 --- no_error_log
 --- error_code: 200
 
@@ -144,20 +146,20 @@ PURGE /cached*
 === TEST 5c: Cache has been purged with args
 --- http_config eval: $::HttpConfig
 --- config
-location /cached_prx {
+location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /cached {
+location /purge_cached {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5c")
     ';
 }
 --- request
-GET /cached_prx?t=1
+GET /purge_cached_prx?t=1
 --- no_error_log
 --- response_body
 TEST 5c
@@ -166,20 +168,20 @@ TEST 5c
 === TEST 5d: Cache has been purged without args
 --- http_config eval: $::HttpConfig
 --- config
-location /cached_prx {
+location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /cached {
+location /purge_cached {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5d")
     ';
 }
 --- request
-GET /cached_prx
+GET /purge_cached_prx
 --- no_error_log
 --- response_body
 TEST 5d
@@ -188,13 +190,13 @@ TEST 5d
 === TEST 6a: Purge everything
 --- http_config eval: $::HttpConfig
 --- config
-location /c {
+location /purge_c {
     content_by_lua '
         ledge:run()
     ';
 }
 --- request
-PURGE /c*
+PURGE /purge_c*
 --- error_code: 200
 --- no_error_log
 
@@ -202,9 +204,9 @@ PURGE /c*
 === TEST 6: Cache keys have been collected by Redis
 --- http_config eval: $::HttpConfig
 --- config
-location /cached {
+location /purge_cached {
     content_by_lua '
-        ngx.sleep(4)
+        ngx.sleep(1)
         local redis_mod = require "resty.redis"
         local redis = redis_mod.new()
         redis:connect("127.0.0.1", 6379)
@@ -216,8 +218,8 @@ location /cached {
     ';
 }
 --- request
-GET /cached
---- timeout: 6
+GET /purge_cached
+--- timeout: 2
 --- no_error_log
 --- response_body
 keys: 0
@@ -226,20 +228,20 @@ keys: 0
 === TEST 7a: Prime another key with args
 --- http_config eval: $::HttpConfig
 --- config
-location /cached_prx {
+location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:run()
     ';
 }
-location /cached {
+location /purge_cached {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5")
     ';
 }
 --- request
-GET /cached_prx?t=1
+GET /purge_cached_prx?t=1
 --- no_error_log
 --- response_body
 TEST 5
@@ -248,12 +250,12 @@ TEST 5
 === TEST 5b: Wildcard Purge, mid path (no match due to args)
 --- http_config eval: $::HttpConfig
 --- config
-location /c {
+location /purge_c {
     content_by_lua '
         ledge:run()
     ';
 }
 --- request
-PURGE /ca*ed
+PURGE /purge_ca*ed
 --- no_error_log
 --- error_code: 404

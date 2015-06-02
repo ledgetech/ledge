@@ -340,11 +340,11 @@ function _M.run_workers(self, options)
             sentinels = self:config_get("redis_sentinels"),
             master_name = self:config_get("redis_sentinel_master_name"),
             role = "master",
-            db = self:config_get("redis_database")
+            db = self:config_get("redis_qless_database")
         }
     else
         redis_params = self:config_get("redis_host")
-        redis_params.db = self:config_get("redis_database")
+        redis_params.db = self:config_get("redis_qless_database")
     end
 
     local connection_options = {
@@ -1275,8 +1275,12 @@ _M.states = {
                 db = self:config_get("redis_database")
             }
         else
-            redis_params = self:config_get("redis_host")
-            redis_params.db = self:config_get("redis_database")
+            local host = self:config_get("redis_host")
+            redis_params = {
+                host = host.host,
+                port = host.port,
+                db = self:config_get("redis_database")
+            }
         end
 
         local rc = redis_connector.new()

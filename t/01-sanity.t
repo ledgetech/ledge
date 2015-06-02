@@ -5,7 +5,8 @@ plan tests => repeat_each() * (blocks() * 3) - 1;
 
 my $pwd = cwd();
 
-$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
+$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
+$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 
 our $HttpConfig = qq{
@@ -18,6 +19,7 @@ our $HttpConfig = qq{
         local ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'

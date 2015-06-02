@@ -15,11 +15,12 @@ REDIS_PREFIX        = /tmp/redis-
 
 # Overrideable ledge test variables
 TEST_LEDGE_REDIS_PORTS              ?= 6379 6380
-TEST_LEDGE_REDIS_DATABASE           ?= 1
+TEST_LEDGE_REDIS_DATABASE           ?= 2
+TEST_LEDGE_REDIS_QLESS_DATABASE     ?= 3
 
 REDIS_FIRST_PORT                    := $(firstword $(TEST_LEDGE_REDIS_PORTS))
 REDIS_SLAVE_ARG                     := --slaveof 127.0.0.1 $(REDIS_FIRST_PORT)
-REDIS_CLI                           := redis-cli -p $(REDIS_FIRST_PORT) -n $(TEST_LEDGE_REDIS_DATABASE)
+REDIS_CLI                           := redis-cli -p $(REDIS_FIRST_PORT)
 
 # Override ledge socket for running make test on its' own 
 # (make test TEST_LEDGE_REDIS_SOCKET=/path/to/sock.sock)
@@ -122,7 +123,8 @@ cleanup_redis_instance: stop_redis_instance
 
 flush_db:
 	-@echo "Flushing Redis DB"
-	@$(REDIS_CLI) flushdb
+	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_DATABASE) flushdb
+	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) flushdb
 
 create_sentinel_config:
 	-@echo "Creating $(SENTINEL_CONFIG_FILE)"

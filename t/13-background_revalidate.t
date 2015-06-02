@@ -5,7 +5,8 @@ plan tests => repeat_each() * (blocks() * 3) - 3;
 
 my $pwd = cwd();
 
-$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
+$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
+$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 
 our $HttpConfig = qq{
@@ -18,6 +19,7 @@ our $HttpConfig = qq{
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('background_revalidate', true)
         ledge:config_set('max_stale', 99999)
         ledge:config_set('upstream_host', '127.0.0.1')
@@ -89,6 +91,7 @@ TEST 1
 location /stale_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+ngx.sleep(3)
         ledge:run()
     ';
 }
@@ -100,6 +103,7 @@ location /stale_main {
 }
 --- request
 GET /stale_prx
+--- timeout: 6
 --- response_body
 TEST 2
 

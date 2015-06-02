@@ -5,7 +5,8 @@ plan tests => 6;
 
 my $pwd = cwd();
 
-$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
+$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
+$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 
 our $HttpConfig = qq{
@@ -20,6 +21,7 @@ our $HttpConfig = qq{
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
     ";
 };
 
