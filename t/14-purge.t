@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) - 5;
+plan tests => repeat_each() * (blocks() * 2) - 7;
 
 my $pwd = cwd();
 
@@ -260,3 +260,77 @@ location /purge_c {
 PURGE /purge_ca*ed
 --- no_error_log
 --- error_code: 404
+
+
+=== TEST 8a: Prime another key - with keep_cache_for set
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_8_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("keep_cache_for", 3600)
+        ledge:run()
+    ';
+}
+location /purge_cached_8 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 8")
+    ';
+}
+--- request
+GET /purge_cached_8_prx
+--- no_error_log
+--- response_body
+TEST 8
+
+
+=== TEST 8b: Wildcard Purge (200)
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_8 {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request
+PURGE /purge_cached_8*
+--- no_error_log
+--- error_code: 200
+
+
+=== TEST 8c: Wildcard Purge again (404)
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_8 {
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request
+PURGE /purge_cached_8*
+--- no_error_log
+--- error_code: 404
+
+
+=== TEST 8d: Cache has been purged with args
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_8_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /purge_cached_8 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 8c")
+    ';
+}
+--- request
+GET /purge_cached_8_prx
+--- no_error_log
+--- response_body
+TEST 8c
+

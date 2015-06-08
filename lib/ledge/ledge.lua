@@ -2313,6 +2313,11 @@ function _M.expire_keys(self, key_chain, entity_keys)
             return false
         end
 
+        -- If expires is in the past then this key is stale. Nothing to do here. 
+        if tonumber(expires) <= time then
+            return false
+        end
+
         local ttl = redis:ttl(entity_keys.main)
         if not ttl or ttl == ngx_null then
             ngx_log(ngx_ERR, "count not determine exsiting ttl: ", err)
