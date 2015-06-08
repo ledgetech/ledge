@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) + 1;
+plan tests => repeat_each() * (blocks() * 2) + 2;
 
 my $pwd = cwd();
 
@@ -28,6 +28,11 @@ our $HttpConfig = qq{
     ";
         
     lua_check_client_abort on;
+
+    upstream test-upstream {
+        server 127.0.0.1:1984;
+        keepalive 16;
+    }
 };
 
 no_long_string();
@@ -226,6 +231,51 @@ GET /abort_prx
 --- response_body
 START
 FINISH
+--- error_code: 200
+--- no_error_log
+[error]
+
+=== TEST 5: No error when keepalive_requests exceeded
+--- http_config eval: $::HttpConfig
+--- config
+    location = /abort_top {
+        content_by_lua '
+            local http = require "resty.http"
+            local httpc = http.new()
+            local res, err = httpc:request_uri("http://"..ngx.var.server_addr..":"..ngx.var.server_port.."/abort_ngx")
+            if not res then
+                ngx.log(ngx.ERR, err)
+            end
+            local res, err = httpc:request_uri("http://"..ngx.var.server_addr..":"..ngx.var.server_port.."/abort_ngx")
+            if not res then
+                ngx.log(ngx.ERR, err)
+            end
+            ngx.say("OK")
+        ';
+    }
+    location = /abort_ngx {
+        rewrite ^ /abort_prx break;
+        proxy_pass http://test-upstream;
+    }
+    location = /abort_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        keepalive_requests 1;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location = /abort {
+        content_by_lua '
+            ngx.status = 200
+            ngx.header["Cache-Control"] = "public, max-age=3600"
+            ngx.say("START")
+            ngx.say("FINISH")
+       ';
+    }
+--- request
+GET /abort_top
+--- response_body
+OK
 --- error_code: 200
 --- no_error_log
 [error]
