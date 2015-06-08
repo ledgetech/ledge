@@ -50,6 +50,7 @@ location /purge_cached {
 }
 --- request
 GET /purge_cached_prx
+--- timeout: 6
 --- no_error_log
 --- response_body
 TEST 1
@@ -206,7 +207,7 @@ PURGE /purge_c*
 --- config
 location /purge_cached {
     content_by_lua '
-        ngx.sleep(1)
+        ngx.sleep(3)
         local redis_mod = require "resty.redis"
         local redis = redis_mod.new()
         redis:connect("127.0.0.1", 6379)
@@ -219,7 +220,7 @@ location /purge_cached {
 }
 --- request
 GET /purge_cached
---- timeout: 2
+--- timeout: 4
 --- no_error_log
 --- response_body
 keys: 0
@@ -247,7 +248,7 @@ GET /purge_cached_prx?t=1
 TEST 5
 
 
-=== TEST 5b: Wildcard Purge, mid path (no match due to args)
+=== TEST 7b: Wildcard Purge, mid path (no match due to args)
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_c {

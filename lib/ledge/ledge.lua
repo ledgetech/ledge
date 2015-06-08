@@ -2252,9 +2252,9 @@ end
 -- Scans the keyspace based on a pattern (asterisk) present in the main key,
 -- including the ::key suffix to denote the main key entry.
 -- (i.e. one per entry)
-function _M.scan_keys(self, cursor, key_chain)
+function _M.scan_keys(self, cursor, key_chain, expired)
     -- We return 200 if something is expired, 404 if not a single key matches.
-    local expired = false
+    if not expired then expired = false end
 
     local redis = self:ctx().redis
     local res, err = redis:scan(cursor, "MATCH", key_chain.key, "COUNT", 100)
@@ -2277,7 +2277,7 @@ function _M.scan_keys(self, cursor, key_chain)
         local cursor = tonumber(res[1])
         if cursor > 1 then
             -- If we have a valid cursor, recurse to move on.
-            return self:scan_keys(cursor, key_chain)
+            return self:scan_keys(cursor, key_chain, expired)
         end
     end
 

@@ -465,6 +465,7 @@ X-ESI-Test: foobar
 FRAGMENT:t=1&test=foobar
 
 
+
 === TEST 9c: Dictionary variable syntax (cookie)
 --- http_config eval: $::HttpConfig
 --- config
