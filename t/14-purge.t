@@ -207,7 +207,7 @@ PURGE /purge_c*
 --- config
 location /purge_cached {
     content_by_lua '
-        ngx.sleep(3)
+        ngx.sleep(5)
         local redis_mod = require "resty.redis"
         local redis = redis_mod.new()
         redis:connect("127.0.0.1", 6379)
@@ -220,7 +220,7 @@ location /purge_cached {
 }
 --- request
 GET /purge_cached
---- timeout: 4
+--- timeout: 6
 --- no_error_log
 --- response_body
 keys: 0
