@@ -883,7 +883,7 @@ _M.events = {
 
     -- We've determined no need to scan the body for ESI.
     esi_scan_disabled = {
-        { begin = "updating_cache" },
+        { begin = "updating_cache", but_first = "set_esi_scan_disabled" },
     },
 
     -- We deduced that the new response can cached. We always "save_to_cache". If we were fetching
@@ -972,6 +972,12 @@ _M.events = {
 
     esi_process_disabled = {
         { begin = "preparing_response", but_first = "set_esi_process_disabled" },
+    },
+    
+    esi_process_not_required = {
+        { begin = "preparing_response", 
+            but_first = { "set_esi_process_disabled", "remove_surrogate_control_header" },
+        },
     },
 
     -- We have a response we can use. If we've already served (we are doing background work) then
@@ -1122,7 +1128,14 @@ _M.actions = {
         if esi_parser and esi_parser.parser then
             res.body_reader = esi_parser.parser.get_scan_filter(res.body_reader)
             self:ctx().esi_scan_enabled = true
+            res.esi_scanned = true
         end
+    end,
+    
+    set_esi_scan_disabled = function(self)
+        local res = self:get_response()
+        self:ctx().esi_scan_disabled = true
+        res.esi_scanned = false
     end,
 
     set_esi_process_enabled = function(self)
@@ -1357,16 +1370,16 @@ _M.states = {
                 if content_token then
                     local parser = choose_esi_parser(content_token)
                     if parser then
-                        self:ctx().esi_parser = {
-                            parser = parser,
-                            token = content_token,
-                        }
-
                         local res_content_type = res.header["Content-Type"]
                         if res_content_type then
                             local allowed_types = self:config_get("esi_content_types") or {}
                             for _, content_type in ipairs(allowed_types) do
                                 if str_sub(res_content_type, 1, str_len(content_type)) == content_type then
+                                    -- Store parser for processing
+                                    self:ctx().esi_parser = {
+                                        parser = parser,
+                                        token = content_token,
+                                    }
                                     return self:e "esi_scan_enabled"
                                 end
                             end
@@ -1391,16 +1404,25 @@ _M.states = {
     considering_esi_process = function(self)
         local res = self:get_response()
 
-        -- On the fast path with ESI already detected, the parser wont have been loaded
-        -- yet, so we must do that now
-        local token = res.has_esi
-        if token then
-            local parser = choose_esi_parser(token)
-            if parser then
-                self:ctx().esi_parser = {
-                    parser = parser,
-                    token = token,
-                }
+        if res.esi_scanned == false then
+            self:e "esi_process_disabled"
+        end
+
+        if not self:ctx().esi_parser then
+            -- On the fast path with ESI already detected, the parser wont have been loaded
+            -- yet, so we must do that now
+            local token = res.has_esi
+            if token then
+                local parser = choose_esi_parser(token)
+                if parser then
+                    self:ctx().esi_parser = {
+                        parser = parser,
+                        token = token,
+                    }
+                end
+            else
+                -- We know there's nothing to do
+                self:e "esi_process_not_required"
             end
         end
 
@@ -1438,10 +1460,8 @@ _M.states = {
                     end
                 end
             end
-                return self:e "esi_process_enabled"
-            end
-
-        return self:e "esi_process_disabled"
+            return self:e "esi_process_enabled"
+        end
     end,
 
     checking_can_fetch = function(self)
@@ -1815,6 +1835,13 @@ function _M.read_from_cache(self)
             time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "has_esi" then
             res.has_esi = cache_parts[i + 1]
+        elseif cache_parts[i] == "esi_scanned" then
+            local scanned = cache_parts[i + 1]
+            if scanned == "false" then
+                res.esi_scanned = false
+            else
+                res.esi_scanned = true
+            end
         elseif cache_parts[i] == "size" then
             res.size = tonumber(cache_parts[i + 1])
         end
@@ -2192,13 +2219,14 @@ function _M.save_to_cache(self, res)
             entity_keys = previous_entity_keys,
         }, { delay = gc_after })
     end
-
+    
     redis:hmset(entity_keys.main,
         'status', res.status,
         'uri', uri,
         'expires', expires,
         'generated_ts', ngx_parse_http_time(res.header["Date"]),
-        'saved_ts', ngx_time()
+        'saved_ts', ngx_time(),
+        'esi_scanned', tostring(res.esi_scanned)
     )
 
     redis:hmset(entity_keys.headers, unpack(h))

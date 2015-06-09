@@ -378,6 +378,49 @@ Surrogate-Capability: localhost="ESI/1.0"
 Surrogate-Control: content="ESI/1.0"
 
 
+=== TEST 7f: Leave instructions intact if allowed types does not match (slow path)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_7f_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_content_types", { "text/plain" })
+        run()
+    ';
+}
+location /esi_7f {
+    default_type text/html;
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    ';
+}
+--- request
+GET /esi_7f_prx?a=1
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
+--- response_headers
+Surrogate-Control: content="ESI/1.0"
+
+
+=== TEST 7g: Leave instructions intact if allowed types does not match (fast path)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_7f_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_content_types", { "text/plain" })
+        run()
+    ';
+}
+--- request
+GET /esi_7f_prx?a=1
+--- more_headers
+Surrogate-Capability: localhost="ESI/1.0"
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
+--- response_headers
+Surrogate-Control: content="ESI/1.0"
+
+
 === TEST 8: Response downstrean cacheability is zero'd when ESI processing has occured.
 --- http_config eval: $::HttpConfig
 --- config
@@ -760,6 +803,7 @@ location /fragment_prx {
     ';
 }
 location /fragment {
+    default_type text/html;
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("FRAGMENT")
@@ -1224,3 +1268,40 @@ location /esi_22 {
 GET /esi_22_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: 1234
+
+
+=== TEST 23a: Surrogate-Control removed when ESI enabled but no work needed (slow path)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_23_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /esi_23 {
+    default_type text/html;
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("NO ESI")
+    ';
+}
+--- request
+GET /esi_23_prx?a=1
+--- response_body: NO ESI
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+
+
+=== TEST 23b: Surrogate-Control removed when ESI enabled but no work needed (fast path)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_23_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+--- request
+GET /esi_23_prx?a=1
+--- response_body: NO ESI
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
