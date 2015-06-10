@@ -140,6 +140,8 @@ check_ports:
 
 test_ledge: flush_db
 	$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
+	-@echo "Qless errors:"
+	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) llen ql:f:job-error
 	util/lua-releng
 
 test_sentinel: flush_db
