@@ -471,7 +471,7 @@ function _M.get_scan_filter(reader)
 
                 if not buffering then
                     -- we've got a chunk we can yield with.
-                    co_yield(chunk, has_esi)
+                    co_yield(chunk, nil, has_esi)
                 end
             end
         until not chunk
@@ -482,7 +482,7 @@ end
 function _M.get_process_filter(reader)
     return co_wrap(function(buffer_size)
         repeat
-            local chunk, has_esi, err = reader(buffer_size)
+            local chunk, err, has_esi = reader(buffer_size)
             local escaped = 0
             if chunk then
                 if has_esi then

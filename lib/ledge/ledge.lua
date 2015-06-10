@@ -2477,7 +2477,7 @@ function _M.get_cache_body_reader(self, entity_keys)
                 self:e "entity_removed_during_read"
             end
 
-            co_yield(chunk, has_esi == "true")
+            co_yield(chunk, nil, has_esi == "true")
         end
     end)
 end
@@ -2496,7 +2496,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
     return co_wrap(function(buffer_size)
         local size = 0
         repeat
-            local chunk, has_esi, err = reader(buffer_size)
+            local chunk, err, has_esi = reader(buffer_size)
             if chunk then
                 if not deleted_due_to_size then
                     size = size + #chunk
@@ -2529,7 +2529,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                         end
                     end
                 end
-                co_yield(chunk, has_esi)
+                co_yield(chunk, nil, has_esi)
             end
         until not chunk
 
