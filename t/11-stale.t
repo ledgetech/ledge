@@ -34,6 +34,7 @@ our $StaleHttpConfig = qq{
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('max_stale', 1000)
