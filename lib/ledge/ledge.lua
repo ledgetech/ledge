@@ -2183,6 +2183,10 @@ function _M.save_to_cache(self, res)
 
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
+    
+    -- Watch the main key pointer. We abort the transaction if another request updates
+    -- this key before we finish.
+    redis:watch(key_chain.key)
 
     -- Create new entity keys
     local entity = random_hex(8)
@@ -2202,10 +2206,6 @@ function _M.save_to_cache(self, res)
             end
         end
     end
-    
-    -- Watch the main key pointer. We abort the transaction if another request updates
-    -- this key before we finish.
-    redis:watch(key_chain.key)
 
     -- Start the transaction
     redis:multi()
