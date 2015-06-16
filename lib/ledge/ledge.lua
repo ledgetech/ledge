@@ -364,7 +364,7 @@ function _M.run_workers(self, options)
     end
 
     worker:start({
-        interval = options.interval or 10,
+        interval = options.interval or 1,
         concurrency = options.concurrency or 1,
         reserver = "ordered",
         queues = { "ledge" },
@@ -653,7 +653,10 @@ function _M.cache_entity_keys(self)
 
     for k, v in pairs(keys) do
         local res = redis:exists(v)
-        if not res or res == ngx_null or res == 0 then return nil end
+        if not res or res == ngx_null or res == 0 then 
+            ngx_log(ngx_ERR, "no entities found for ", key_chain.root)
+            return nil
+        end
     end
 
     return keys
