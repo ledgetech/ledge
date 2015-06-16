@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 41;
+plan tests => repeat_each() * (blocks() * 3); 
 
 my $pwd = cwd();
 
@@ -154,6 +154,8 @@ GET /cache_prx
 X-Cache: MISS from .*
 --- response_body
 TEST 3c
+--- no_error_log
+[error]
 
 
 === TEST 4a: PURGE
@@ -175,6 +177,8 @@ TEST 3c
 --- request
 PURGE /cache_prx
 --- error_code: 200
+--- no_error_log
+[error]
 
 
 === TEST 4: Cold request (expired but known); X-Cache: MISS
@@ -223,6 +227,8 @@ GET /cache_6_prx
 X-Cache: MISS from .*
 --- response_body
 TEST 6
+--- no_error_log
+[error]
 
 
 === TEST 6b: Revalidate - now the response is non-cacheable.
@@ -249,6 +255,8 @@ GET /cache_6_prx
 X-Cache:
 --- response_body
 TEST 6b
+--- no_error_log
+[error]
 
 
 === TEST 6c: Confirm all keys have been removed
@@ -275,6 +283,8 @@ TEST 6b
 GET /cache_6
 --- timeout: 6
 --- response_body
+--- no_error_log
+[error]
 
 
 === TEST 7: only-if-cached should return 504 on cache miss
@@ -320,6 +330,9 @@ Cache-Control: min-fresh=9999
 GET /cache_prx
 --- response_body
 TEST 8
+--- no_error_log
+[error]
+
 
 === TEST 9a: Prime a 404 response into cache; X-Cache: MISS
 --- http_config eval: $::HttpConfig
@@ -425,3 +438,23 @@ HEAD /cache_11_prx
 X-Cache: MISS from .*
 --- response_body
 --- error_code: 301
+--- no_error_log
+[error]
+
+
+=== TEST 12: Allow pending qless jobs to run
+--- http_config eval: $::HttpConfig
+--- config
+location /qless {
+    content_by_lua '
+        ngx.sleep(5)
+        ngx.say("TEST 12")
+    ';
+}
+--- request
+GET /qless
+--- timeout: 6
+--- response_body
+TEST 12
+--- no_error_log
+[error]
