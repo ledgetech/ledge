@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2);
+plan tests => repeat_each() * (blocks() * 3);
 
 my $pwd = cwd();
 
@@ -73,6 +73,8 @@ Cache-Control: no-cache
 GET /stale_prx
 --- response_body
 TEST 1
+--- no_error_log
+[error]
 
 
 === TEST 2: Honour max-stale request header
@@ -95,6 +97,8 @@ Cache-Control: max-stale=1000
 GET /stale_prx
 --- response_body
 TEST 1
+--- no_error_log
+[error]
 
 
 === TEST 1: Prime cache for subsequent tests
@@ -122,6 +126,8 @@ Cache-Control: no-cache
 GET /stale_prx
 --- response_body
 TEST 1
+--- no_error_log
+[error]
 
 
 === TEST 3: Honour max_stale ledge config option
@@ -142,6 +148,8 @@ location /stale {
 GET /stale_prx
 --- response_body
 TEST 1
+--- no_error_log
+[error]
 
 
 === TEST 1: Prime cache for subsequent tests
@@ -169,6 +177,8 @@ Cache-Control: no-cache
 GET /stale_prx
 --- response_body
 TEST 1
+--- no_error_log
+[error]
 
 
 === TEST 4: max_stale request overrides config
@@ -191,6 +201,8 @@ Cache-Control: max-stale=0
 GET /stale_prx
 --- response_body
 TEST 4
+--- no_error_log
+[error]
 
 
 === TEST 5a: Prime cache for subsequent tests
@@ -218,6 +230,8 @@ Cache-Control: no-cache
 GET /stale_prx
 --- response_body
 TEST 1
+--- no_error_log
+[error]
 
 
 === TEST 5: Stale responses should set Warning header
@@ -238,6 +252,8 @@ location /stale {
 GET /stale_prx
 --- response_headers_like
 Warning: 110 .*
+--- no_error_log
+[error]
 
 
 === TEST 5: Reset cache for subsequent tests
@@ -265,6 +281,8 @@ Cache-Control: no-cache
 GET /stale_s_prx
 --- response_body
 TEST 5
+--- no_error_log
+[error]
 
 
 === TEST 6: s-maxage prevents serving stale
@@ -287,6 +305,8 @@ Cache-Control: max-stale=1000
 GET /stale_s_prx
 --- response_body
 TEST 6
+--- no_error_log
+[error]
 
 
 === TEST 7: Reset cache for subsequent tests
@@ -314,6 +334,8 @@ Cache-Control: no-cache
 GET /stale_pv_prx
 --- response_body
 TEST 7
+--- no_error_log
+[error]
 
 
 === TEST 8: proxy-revalidate prevents serving stale
@@ -336,6 +358,8 @@ Cache-Control: max-stale=1000
 GET /stale_pv_prx
 --- response_body
 TEST 8
+--- no_error_log
+[error]
 
 
 === TEST 9: Reset cache for subsequent tests
@@ -363,6 +387,8 @@ Cache-Control: no-cache
 GET /stale_mv_prx
 --- response_body
 TEST 9
+--- no_error_log
+[error]
 
 
 === TEST 10: must-revalidate prevents serving stale
@@ -385,6 +411,8 @@ Cache-Control: max-stale=1000
 GET /stale_mv_prx
 --- response_body
 TEST 10
+--- no_error_log
+[error]
 
 
 === TEST 11: Do not attempt to serve stale with no cache entry
@@ -407,3 +435,28 @@ Cache-Control: max-stale=1000
 GET /stale_subzero_prx
 --- response_body
 TEST 11
+--- no_error_log
+[error]
+
+
+=== TEST 12: Allow pending qless jobs to run
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_qless {
+    content_by_lua '
+        ngx.sleep(5)
+        ngx.say("TEST 12")
+    ';
+}
+location /stale_prx {
+    content_by_lua '
+        ngx.say("QLESS")
+    ';
+}
+--- request
+GET /stale_qless
+--- timeout: 6
+--- response_body
+TEST 12
+--- no_error_log
+[error]
