@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2);
+plan tests => repeat_each() * (blocks() * 3) - 1;
 
 my $pwd = cwd();
 
@@ -51,6 +51,7 @@ __DATA__
 --- request
 GET /gc_prx
 --- no_error_log
+[error]
 --- response_body
 OK
 
@@ -93,7 +94,6 @@ OK
 Cache-Control: no-cache
 --- request
 GET /gc_prx
---- no_error_log
 --- response_body
 UPDATED
 2
@@ -107,20 +107,22 @@ UPDATED
         content_by_lua '
             ngx.sleep(1) -- Wait for qless to do the work
 
-           local redis_mod = require "resty.redis"
-           local redis = redis_mod.new()
-           redis:connect("127.0.0.1", 6379)
-           redis:select(ledge:config_get("redis_database"))
-           local key_chain = ledge:cache_key_chain()
-           local num_entities, err = redis:zcard(key_chain.entities)
-           ngx.say(num_entities)
-           local memused  = redis:get(key_chain.memused)
-           ngx.say(memused)
+            local redis_mod = require "resty.redis"
+            local redis = redis_mod.new()
+            redis:connect("127.0.0.1", 6379)
+            redis:select(ledge:config_get("redis_database"))
+            local key_chain = ledge:cache_key_chain()
+            local num_entities, err = redis:zcard(key_chain.entities)
+            ngx.say(num_entities)
+            local memused  = redis:get(key_chain.memused)
+            ngx.say(memused)
         ';
     }
 --- request
 GET /gc
+--- timeout: 4
 --- no_error_log
+[error]
 --- response_body
 1
 8
@@ -151,4 +153,5 @@ GET /gc
 GET /gc
 --- timeout: 6
 --- no_error_log
+[error]
 --- response_body
