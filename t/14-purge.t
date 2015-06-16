@@ -207,15 +207,16 @@ PURGE /purge_c*
 --- config
 location /purge_cached {
     content_by_lua '
-        ngx.sleep(5)
         local redis_mod = require "resty.redis"
         local redis = redis_mod.new()
         redis:connect("127.0.0.1", 6379)
         redis:select(ledge:config_get("redis_database"))
         local key_chain = ledge:cache_key_chain()
 
+        ngx.sleep(3)
         local res, err = redis:keys(key_chain.root .. "*")
-        ngx.say("keys: ", #res)
+
+        ngx.say("keys: ", table.getn(res))
     ';
 }
 --- request
