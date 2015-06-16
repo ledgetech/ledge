@@ -42,13 +42,7 @@ function _M.perform(job)
     res, err = redis:exec()
 
     if res then
-        -- Verify return values look sane.
-        if res[1] ~= #del_keys or res[2] < 0 then
-            return nil, "job-error", "entity " .. job.data.entity_keys.main .. " was not collected. " ..
-            "#del_keys: " .. #del_keys .. "; del: " .. res[1] .. "; decrby: " .. res[2] .. "; zrem: " .. res[3]
-        else
             return true, nil
-        end
     else
         return nil, "redis-error", err
     end
