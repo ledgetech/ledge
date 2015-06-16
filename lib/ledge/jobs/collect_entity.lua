@@ -22,16 +22,30 @@ function _M.perform(job)
     end
 
     local res, err = redis:del(unpack(del_keys))
-    res, err = redis:decrby(job.data.cache_key_chain.memused, job.data.size)
+
+    -- Decrement the integer value of a key by the given number, only if the key exists,
+    -- and only if the current value is a positive integer.
+    -- Params: key, decrement
+    -- Return: (integer): the value of the key after the operation.
+    local POSDECRBYX = [[
+        local value = redis.call("GET", KEYS[1])
+        if value and tonumber(value) > 0 then
+            return redis.call("DECRBY", KEYS[1], ARGV[1])
+        else
+            return 0
+        end
+    ]]
+
+    res, err = redis:eval(POSDECRBYX, 1, job.data.cache_key_chain.memused, job.data.size)
     res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.entity_keys.main)
 
     res, err = redis:exec()
 
     if res then
         -- Verify return values look sane.
-        if res[1] ~= #del_keys or res[2] < 0 or res[3] == 0 then
-            return nil, "job-error", "entity " .. job.data.entity_keys.main .. 
-                " was not collected. del: " .. res[1] .. "; decrby: " .. res[2] .. "; zrem: " .. res[3]
+        if res[1] ~= #del_keys or res[2] < 0 then
+            return nil, "job-error", "entity " .. job.data.entity_keys.main .. " was not collected. " ..
+            "#del_keys: " .. #del_keys .. "; del: " .. res[1] .. "; decrby: " .. res[2] .. "; zrem: " .. res[3]
         else
             return true, nil
         end
