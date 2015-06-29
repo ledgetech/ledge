@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3); 
+plan tests => repeat_each() * (blocks() * 3) + 3; 
 
 my $pwd = cwd();
 
@@ -425,9 +425,7 @@ OK
     }
     location /cache_11 {
         content_by_lua '
-            ngx.status = 301
             ngx.header["Cache-Control"] = "max-age=3600"
-            ngx.header["Location"] = "http://example.com"
         ';
     }
 --- more_headers
@@ -437,12 +435,81 @@ HEAD /cache_11_prx
 --- response_headers_like
 X-Cache: MISS from .*
 --- response_body
+--- error_code: 200
+--- no_error_log
+[error]
+
+
+=== TEST 11b: Check HEAD request did not cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_11_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location /cache_11 {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+        ';
+    }
+--- request
+HEAD /cache_11_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+--- error_code: 200
+--- no_error_log
+[error]
+
+
+=== TEST 12: Prime 301 into cache with no body; X-Cache: MISS
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_12_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location /cache_12 {
+        content_by_lua '
+            ngx.status = 301
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.header["Location"] = "http://example.com"
+        ';
+    }
+--- request
+GET /cache_12_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
 --- error_code: 301
 --- no_error_log
 [error]
 
 
-=== TEST 12: Allow pending qless jobs to run
+=== TEST 12b: Check 301 request cached with no body
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_12_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- request
+GET /cache_12_prx
+--- response_headers_like
+X-Cache: HIT from .*
+--- response_body
+--- error_code: 301
+--- no_error_log
+[error]
+
+
+=== TEST 13: Allow pending qless jobs to run
 --- http_config eval: $::HttpConfig
 --- config
 location /qless {

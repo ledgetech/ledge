@@ -2514,7 +2514,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                         transaction_aborted = true
 
                         local ok, err = self:delete_from_cache()
-                        if not ok then
+                        if err then
                             ngx_log(ngx_ERR, "error deleting from cache: ", err)
                         else
                             ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ",
@@ -2549,6 +2549,17 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                     end
                 end
                 co_yield(chunk, nil, has_esi)
+            elseif size == 0 then
+                local ok, err = redis:rpush(entity_keys.body, "")
+                if not ok then
+                    transaction_aborted = true
+                    ngx_log(ngx_ERR, "error writing blank cache chunk: ", err)
+                end
+                local ok, err = redis:rpush(entity_keys.body_esi, tostring(has_esi))
+                if not ok then
+                    transaction_aborted = true
+                    ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
+                end
             end
         until not chunk
 
