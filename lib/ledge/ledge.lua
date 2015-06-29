@@ -2493,7 +2493,7 @@ end
 function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
     local redis = self:ctx().redis
     local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
-    local deleted_due_to_size = false
+    local transaction_aborted = false
     local esi_detected = false
 
     return co_wrap(function(buffer_size)
@@ -2501,24 +2501,36 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
         repeat
             local chunk, err, has_esi = reader(buffer_size)
             if chunk then
-                if not deleted_due_to_size then
+                if not transaction_aborted then
                     size = size + #chunk
 
                     -- If we cannot store any more, delete everything.
                     -- TODO: Options for persistent storage and retaining metadata etc.
                     if size > max_memory then
-                        deleted_due_to_size = true
                         local res, err = redis:discard()
                         if err then
                             ngx_log(ngx_ERR, err)
                         end
-                        self:delete_from_cache()
+                        transaction_aborted = true
 
-                        ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ",
-                                            max_memory, " bytes")
+                        local ok, err = self:delete_from_cache()
+                        if not ok then
+                            ngx_log(ngx_ERR, "error deleting from cache: ", err)
+                        else
+                            ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ",
+                                                max_memory, " bytes")
+                        end
                     else
-                        redis:rpush(entity_keys.body, chunk)
-                        redis:rpush(entity_keys.body_esi, tostring(has_esi))
+                        local ok, err = redis:rpush(entity_keys.body, chunk)
+                        if not ok then
+                            transaction_aborted = true
+                            ngx_log(ngx_ERR, "error writing cache chunk: ", err)
+                        end
+                        local ok, err = redis:rpush(entity_keys.body_esi, tostring(has_esi))
+                        if not ok then
+                            transaction_aborted = true
+                            ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
+                        end
 
                         if not esi_detected and has_esi then
                             local esi_parser = self:ctx().esi_parser
@@ -2526,7 +2538,11 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                                 ngx_log(ngx.ERR, "ESI detected but no parser identified")
                             else
                                 -- Flag this in the main key
-                                redis:hset(entity_keys.main, "has_esi", esi_parser.token)
+                                local ok, err = redis:hset(entity_keys.main, "has_esi", esi_parser.token)
+                                if not ok then
+                                    transaction_aborted = true
+                                    ngx_log(ngx_ERR, "error setting esi flag: ", err)
+                                end
                                 esi_detected = true
                             end
                         end
@@ -2536,12 +2552,21 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
             end
         until not chunk
 
-        if not deleted_due_to_size then
-            redis:hset(entity_keys.main, "size", size)
+        if not transaction_aborted then
+            local ok, err = redis:hset(entity_keys.main, "size", size)
+            if not ok then
+                ngx_log(ngx_ERR, "error setting size: ", err)
+            end
 
             local key_chain = self:cache_key_chain()
-            redis:incrby(key_chain.memused, size)
-            redis:zadd(key_chain.entities, size, entity_keys.main)
+            local ok, err = redis:incrby(key_chain.memused, size)
+            if not ok then
+                ngx_log(ngx_ERR, "error incrementing memused: ", err)
+            end
+            local ok, err = redis:zadd(key_chain.entities, size, entity_keys.main)
+            if not ok then
+                ngx_log(ngx_ERR, "error adding entity to set: ", err)
+            end
 
             redis:expire(key_chain.memused, ttl)
             redis:expire(key_chain.entities, ttl)
@@ -2550,8 +2575,12 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
 
             local res, err = redis:exec()
             if err then
-                ngx_log(ngx_ERR, err)
+                ngx_log(ngx_ERR, "error executing cache transaction: ",  err)
             end
+        else
+            -- If the transaction was aborted make sure we discard
+            -- May have been discarded cleanly due to memory so ignore errors
+            redis:discard()
         end
     end)
 end
