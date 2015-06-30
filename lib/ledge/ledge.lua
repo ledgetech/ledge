@@ -700,6 +700,14 @@ function _M.accepts_stale_error(self)
 end
 
 
+-- Calculate when to GC an entity based on its size and the minimum download rate setting,
+-- plus 1 second of arbitrary latency for good measure.
+function _M.gc_wait(self, entity_size)
+    local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
+    return math_ceil((entity_size / dl_rate_Bps)) + 1
+end
+
+
 function _M.put_background_job(self, queue, klass, data, options)
     local redis = self:ctx().redis
     local qless_db = self:config_get("redis_qless_database") or 1
@@ -2222,17 +2230,12 @@ function _M.save_to_cache(self, res)
     redis:multi()
 
     if previous_entity_keys then
-        -- We use the previous entity size and the minimum download rate to calculate when to expire
-        -- the old entity, plus 1 second of arbitrary latency for good measure.
-        local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
-        local gc_after = math_ceil((previous_entity_size / dl_rate_Bps)) + 1
-
         -- Place this job on the queue
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
             cache_key_chain = key_chain,
             size = previous_entity_size,
             entity_keys = previous_entity_keys,
-        }, { delay = gc_after })
+        }, { delay = self:gc_wait(previous_entity_size) })
     end
     
     redis:hmset(entity_keys.main,
