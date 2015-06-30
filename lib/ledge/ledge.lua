@@ -654,7 +654,15 @@ function _M.cache_entity_keys(self)
     for k, v in pairs(keys) do
         local res = redis:exists(v)
         if not res or res == ngx_null or res == 0 then 
-            ngx_log(ngx_ERR, "no entities found for ", key_chain.root)
+            ngx_log(ngx_NOTICE, "entity key ", v, " is missing. Will clean up.")
+
+            -- Partial entities wont get used, and thus wont get replaced.
+            local size = redis:zscore(key_chain.entities, keys.main)
+            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+                cache_key_chain = key_chain,
+                entity_keys = keys,
+                size = size,
+            })
             return nil
         end
     end

@@ -155,3 +155,84 @@ GET /gc
 --- no_error_log
 [error]
 --- response_body
+
+
+=== TEST 5: Prime cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /gc_5_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location /gc_5 {
+        more_set_headers "Cache-Control: public, max-age=60";
+        echo "OK";
+    }
+--- request
+GET /gc_5_prx
+--- no_error_log
+[error]
+--- response_body
+OK
+
+
+=== TEST 5b: Delete one part of the key chain (simulate eviction under memory pressure). Will cause a MISS.
+--- http_config eval: $::HttpConfig
+--- config
+    location /gc_5_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            local redis_mod = require "resty.redis"
+            local redis = redis_mod.new()
+            redis:connect("127.0.0.1", 6379)
+            redis:select(ledge:config_get("redis_database"))
+            local key_chain = ledge:cache_key_chain()
+            local entity = redis:get(key_chain.key) 
+            local entity_keys = ledge:entity_keys(key_chain.root .. "::" .. entity)
+
+            redis:del(entity_keys.body_esi)
+            redis:set_keepalive()
+
+            ledge:run()
+        ';
+    }
+    location /gc_5 {
+        more_set_headers "Cache-Control: public, max-age=60";
+        echo "OK 2";
+    }
+--- request
+GET /gc_5_prx
+--- no_error_log
+[error]
+--- response_body
+OK 2
+
+
+=== TEST 5c: Missing keys should cause colleciton of the remaining keys. Confirm they are gone.
+--- http_config eval: $::HttpConfig
+--- config
+    location /gc_5 {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ngx.sleep(4)
+            local redis_mod = require "resty.redis"
+            local redis = redis_mod.new()
+            redis:connect("127.0.0.1", 6379)
+            redis:select(ledge:config_get("redis_database"))
+            local key_chain = ledge:cache_key_chain()
+
+            local res, err = redis:keys(key_chain.root .. "*")
+            if res then
+                ngx.say(#res)
+            end
+        ';
+    }
+--- request
+GET /gc_5
+--- timeout: 6
+--- no_error_log
+[error]
+--- response_body
+7
