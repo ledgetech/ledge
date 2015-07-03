@@ -2278,18 +2278,26 @@ end
 
 
 function _M.delete_from_cache(self)
+    local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
+
     local entity_keys = self:cache_entity_keys()
     if entity_keys then
-        local redis = self:ctx().redis
-        local keys = { key_chain.key, key_chain.entities, key_chain.memused }
-        local i = #keys
-        for k,v in pairs(entity_keys) do
-            i = i + 1
-            keys[i] = v
-        end
-        return redis:del(unpack(keys))
+        -- Set a gc job for the current entity, delayed for current reads
+        local size = redis:zscore(key_chain.entities, entity_keys.main)
+        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+            cache_key_chain = key_chain,
+            entity_keys = entity_keys,
+            size = size,
+        }, { delay = self:gc_wait(size) })
     end
+
+    -- Delete the main cache keys straight away
+    local keys = {}
+    for k, v in pairs(key_chain) do
+        tbl_insert(keys, v)
+    end
+    return redis:del(unpack(keys))
 end
 
 

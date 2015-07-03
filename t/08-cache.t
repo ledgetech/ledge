@@ -270,9 +270,17 @@ TEST 6b
             redis:connect("127.0.0.1", 6379)
             redis:select(ledge:config_get("redis_database"))
             local key_chain = ledge:cache_key_chain()
+            
+            local res, err = redis:keys(key_chain.root .. "*")
+            if res then
+                ngx.say("Numkeys: ", #res)
+            end
+
+            ngx.sleep(2) -- Wait for gc
 
             local res, err = redis:keys(key_chain.root .. "*")
             if res then
+                ngx.say("Numkeys: ", #res)
                 for i,v in ipairs(res) do
                     ngx.say(v)
                 end
@@ -283,6 +291,8 @@ TEST 6b
 GET /cache_6
 --- timeout: 6
 --- response_body
+Numkeys: 4
+Numkeys: 0
 --- no_error_log
 [error]
 
