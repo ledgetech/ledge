@@ -630,13 +630,15 @@ end
 
 
 function _M.key_chain(self, cache_key)
-    return {
-        root = cache_key,
+    return setmetatable({
         key = cache_key .. "::key",
         memused = cache_key .. "::memused",
-        entities = cache_key .. "::entities",
+        entities = cache_key .. "::entities" 
+    }, { __index = {
+        -- Hide "root" and "fetching_lock" from iterators.
+        root = cache_key,
         fetching_lock = cache_key .. "::fetching",
-    }
+    }})
 end
 
 
