@@ -2284,7 +2284,14 @@ function _M.delete_from_cache(self)
     local entity_keys = self:cache_entity_keys()
     if entity_keys then
         -- Set a gc job for the current entity, delayed for current reads
-        local size = redis:zscore(key_chain.entities, entity_keys.main)
+        local size, err = redis:zscore(key_chain.entities, entity_keys.main)
+        if not size or size == ngx_null then
+            ngx_log(ngx_ERR, err)
+            -- Something weird has happened with the data structure. Try to clean
+            -- up in 1 minute.
+            size = 60
+        end
+
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
             cache_key_chain = key_chain,
             entity_keys = entity_keys,
