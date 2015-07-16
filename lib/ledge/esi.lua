@@ -331,6 +331,13 @@ local function esi_fetch_include(include_tag, buffer_size)
             ngx_log(ngx_ERR, err)
             co_yield()
         else
+            if scheme == "https" then
+                local ok, err = httpc:ssl_handshake(false, host, false)
+                if not ok then
+                    ngx_log(ngx_ERR, "ssl handshake failed: ", err)
+                end
+            end
+
             local headers = ngx_req_get_headers()
 
             -- Remove client validators
