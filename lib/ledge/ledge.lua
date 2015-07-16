@@ -2286,10 +2286,8 @@ function _M.delete_from_cache(self)
         -- Set a gc job for the current entity, delayed for current reads
         local size, err = redis:zscore(key_chain.entities, entity_keys.main)
         if not size or size == ngx_null then
-            ngx_log(ngx_ERR, err)
-            -- Something weird has happened with the data structure. Try to clean
-            -- up in 1 minute.
             size = 60
+            ngx_log(ngx_ERR, "could not determine entity size for scheduling GC, will collect in 60 seconds")
         end
 
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
