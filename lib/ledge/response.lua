@@ -22,15 +22,15 @@ local _M = {
     _VERSION = '0.3'
 }
 
-local mt = { 
+local mt = {
     __index = _M,
 }
 
 local NOCACHE_HEADERS = {
     ["Pragma"] = { "no-cache" },
     ["Cache-Control"] = {
-        "no-cache", 
-        "no-store", 
+        "no-cache",
+        "no-store",
         "private",
     }
 }
@@ -41,9 +41,9 @@ function _M.new()
     local header = http_headers.new()
     local status = nil
 
-    return setmetatable({   status = nil, 
+    return setmetatable({   status = nil,
                             body = body,
-                            header = header, 
+                            header = header,
                             remaining_ttl = 0,
                             has_esi = false,
     }, mt)
@@ -146,8 +146,8 @@ function _M.minimise_lifetime(self, responses)
                 self.header["Expires"] = ngx_http_time(ngx_time() + ttl)
             end
         end
-        
-        if res.header["Age"] and self.header["Age"] and 
+
+        if res.header["Age"] and self.header["Age"] and
             (tonumber(res.header["Age"]) < tonumber(self.header["Age"])) then
             self.header["Age"] = res.header["Age"]
         end
