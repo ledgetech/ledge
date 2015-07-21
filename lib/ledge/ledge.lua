@@ -497,7 +497,7 @@ end
 
 local function sort_byte_ranges(first, second)
     if not first.from or not second.from then
-        ngx_log(ngx_ERROR, "Attempt to compare invalid byteranges")
+        ngx_log(ngx_ERR, "Attempt to compare invalid byteranges")
         return true
     end
     return first.from <= second.from
