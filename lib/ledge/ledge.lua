@@ -1309,6 +1309,7 @@ _M.states = {
             redis_params = {
                 host = host.host,
                 port = host.port,
+                password = host.password,
                 db = self:config_get("redis_database")
             }
         end
