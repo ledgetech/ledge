@@ -59,14 +59,6 @@ coupled with the flexibility to script configuration dynamically.
 * [Logging](#logging)
 * [Licence](#licence)
 
-
-cache_accessed
-origin_required
-before_request
-origin_fetched
-before_save
-response_ready
-
 ## Status
 
 Under active development, functionality may change without much notice. Please
