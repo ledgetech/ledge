@@ -629,12 +629,63 @@ syntax: `ledge:bind(event_name, callback)`
 Binds a user defined function to an event.
 
 
-### Event types
+## Event types
 
-* **cache_accessed:** After the response was successfully loaded from cache.  **origin_required:**
-* When Ledge is about to proxy to the origin.  **origin_fetched:** When the response was
-* successfully fetched from the origin, but before it was saved to cache.  **before_save:** When
-* about to save a cacheable response.  **response_ready:** Just before serving.
+### cache_accessed
+
+syntax: `ledge:bind("cache_accessed", function(res) -- end)`
+
+params: `res` The cached response table (does not include the body).
+
+Fires directly fter the response was successfully loaded from cache.
+
+
+### origin_required
+
+syntax: `ledge:bind("origin_required", function() -- end)`
+
+params: `nil`
+
+Fires when decided we need to request from the origin.
+
+
+### before_request
+
+syntax: `ledge:bind("before_request", function(req_params) -- end)`
+
+params: `req_params`. The table of request params about to send to the [httpc:request](https://github.com/pintsized/lua-resty-http#request) method. 
+
+Fires when about to perform an origin request.
+
+
+### origin_fetched
+
+syntax: `ledge:bind("origin_fetched", function(res) -- end)`
+
+params: `res`. The response table (does not include the body).
+
+Fires when the status/headers have been fetched, but before it is stored. Typically used to override 
+cache headers before we decide what to do with this response. Note unlike `before_save` below, this
+fires for all fetched content, not just cacheable content.
+
+
+## before_save
+
+syntax: `ledge:bind("before_save", function(res) -- end)`
+
+params: `res`. The response table (does not include the body).
+
+Fires when we're about to save the response.
+
+
+## response_ready
+
+syntax: `ledge:bind("response_ready", function(res) -- end)`
+
+params: `res`. The response table (does not include the body).
+
+Fires when we're about to serve. Often used to modify downstream headers seperately
+to the ones used to determine proxy cacheability. 
 
 
 
