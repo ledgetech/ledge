@@ -48,10 +48,24 @@ coupled with the flexibility to script configuration dynamically.
     * [run_workers](#run_workers)
 * [Events](#events)
     * [bind](#bind)
+* [Event types](#event-types)
+    * [cache_accessed](#cache_accessed)
+    * [origin_required](#origin_required)
+    * [before_request](#before_request)
+    * [origin_fetched](#origin_fetched)
+    * [before_save](#before_save)
+    * [response_ready](#response_ready)
 * [Protecting purge requests](#protecting-purge-requests)
 * [Logging](#logging)
 * [Licence](#licence)
 
+
+cache_accessed
+origin_required
+before_request
+origin_fetched
+before_save
+response_ready
 
 ## Status
 
