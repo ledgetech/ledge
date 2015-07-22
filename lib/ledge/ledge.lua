@@ -497,7 +497,7 @@ end
 
 local function sort_byte_ranges(first, second)
     if not first.from or not second.from then
-        ngx_log(ngx_ERROR, "Attempt to compare invalid byteranges")
+        ngx_log(ngx_ERR, "Attempt to compare invalid byteranges")
         return true
     end
     return first.from <= second.from
@@ -633,7 +633,7 @@ function _M.key_chain(self, cache_key)
     return setmetatable({
         key = cache_key .. "::key",
         memused = cache_key .. "::memused",
-        entities = cache_key .. "::entities" 
+        entities = cache_key .. "::entities"
     }, { __index = {
         -- Hide "root" and "fetching_lock" from iterators.
         root = cache_key,
@@ -655,7 +655,7 @@ function _M.cache_entity_keys(self)
 
     for k, v in pairs(keys) do
         local res = redis:exists(v)
-        if not res or res == ngx_null or res == 0 then 
+        if not res or res == ngx_null or res == 0 then
             ngx_log(ngx_NOTICE, "entity key ", v, " is missing. Will clean up.")
 
             -- Partial entities wont get used, and thus wont get replaced.
@@ -994,9 +994,9 @@ _M.events = {
     esi_process_disabled = {
         { begin = "preparing_response", but_first = "set_esi_process_disabled" },
     },
-    
+
     esi_process_not_required = {
-        { begin = "preparing_response", 
+        { begin = "preparing_response",
             but_first = { "set_esi_process_disabled", "remove_surrogate_control_header" },
         },
     },
@@ -1152,7 +1152,7 @@ _M.actions = {
             res.esi_scanned = true
         end
     end,
-    
+
     set_esi_scan_disabled = function(self)
         local res = self:get_response()
         self:ctx().esi_scan_disabled = true
@@ -1309,6 +1309,7 @@ _M.states = {
             redis_params = {
                 host = host.host,
                 port = host.port,
+                password = host.password,
                 db = self:config_get("redis_database")
             }
         end
@@ -2204,7 +2205,7 @@ function _M.save_to_cache(self, res)
 
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
-    
+
     -- Watch the main key pointer. We abort the transaction if another request updates
     -- this key before we finish.
     redis:watch(key_chain.key)
@@ -2239,7 +2240,7 @@ function _M.save_to_cache(self, res)
             entity_keys = previous_entity_keys,
         }, { delay = self:gc_wait(previous_entity_size) })
     end
-    
+
     redis:hmset(entity_keys.main,
         'status', res.status,
         'uri', uri,
@@ -2374,7 +2375,7 @@ function _M.expire_keys(self, key_chain, entity_keys)
             return false
         end
 
-        -- If expires is in the past then this key is stale. Nothing to do here. 
+        -- If expires is in the past then this key is stale. Nothing to do here.
         if tonumber(expires) <= time then
             return false
         end
