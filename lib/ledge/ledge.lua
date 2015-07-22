@@ -2096,12 +2096,17 @@ function _M.fetch_from_origin(self)
         ngx_log(ngx_ERR, "error getting client body reader: ", err)
     end
 
-    local origin, err = httpc:request{
+    local req_params = {
         method = ngx_req_get_method(),
         path = self:relative_uri(),
         body = client_body_reader,
         headers = headers,
     }
+
+    -- allow request params to be customised
+    self:emit("before_request", req_params)
+
+    local origin, err = httpc:request(req_params)
 
     if not origin then
         ngx_log(ngx_ERR, err)

@@ -53,3 +53,22 @@ GET /events_1_prx
 --- response_headers
 X-Modified: Modified
 
+=== TEST 2: Customise params prior to request
+--- http_config eval: $::HttpConfig
+--- config
+location /events_2 {
+    content_by_lua '
+        ledge:bind("before_request", function(params)
+            params.path = "/modified"
+        end)
+        ledge:run()
+    ';
+}
+location /modified {
+    echo "ORIGIN";
+}
+--- request
+GET /events_2
+--- response_body
+ORIGIN
+
