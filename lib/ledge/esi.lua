@@ -348,7 +348,7 @@ local function esi_fetch_include(include_tag, buffer_size)
             headers["accept-encoding"] = nil
 
             local res, err = httpc:request{ 
-                method = ngx_req_get_method(),
+                method = "GET",
                 path = path,
                 headers = headers,
             }
