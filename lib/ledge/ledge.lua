@@ -1192,9 +1192,15 @@ _M.actions = {
             -- If the response is gzip encoded then we must decode to scan for ESI
             if res.header["Content-Encoding"] == 'gzip' then
                 res.header["Content-Encoding"] = nil
-                res.body_reader = self:filter_body_reader("gzip_decoder", get_gzip_decoder(res.body_reader))
+                res.body_reader = self:filter_body_reader(
+                    "gzip_decoder",
+                    get_gzip_decoder(res.body_reader)
+                )
             end
-            res.body_reader = self:filter_body_reader("esi_scan_filter", esi_parser.parser.get_scan_filter(res.body_reader))
+            res.body_reader = self:filter_body_reader(
+                "esi_scan_filter",
+                esi_parser.parser.get_scan_filter(res.body_reader)
+            )
             ctx.esi_scan_enabled = true
             res.esi_scanned = true
         end
@@ -1869,7 +1875,10 @@ function _M.read_from_cache(self)
     end
 
     -- Get our body reader coroutine for later
-    res.body_reader = self:filter_body_reader("cache_body_reader", self:get_cache_body_reader(entity_keys))
+    res.body_reader = self:filter_body_reader(
+        "cache_body_reader",
+        self:get_cache_body_reader(entity_keys)
+    )
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(entity_keys.main)
@@ -2326,7 +2335,7 @@ function _M.save_to_cache(self, res)
     -- The writer will commit the transaction later.
     if res.has_body then
         res.body_reader = self:filter_body_reader(
-            "cache_body_writer", 
+            "cache_body_writer",
             self:get_cache_body_writer(res.body_reader, entity_keys, keep_cache_for)
         )
     else
@@ -2533,7 +2542,10 @@ function _M.serve(self)
             then
                 res.header["Content-Encoding"] = nil
                 if res.body_reader then
-                    res.body_reader = self:filter_body_reader("gzip_decoder", get_gzip_decoder(res.body_reader))
+                    res.body_reader = self:filter_body_reader(
+                        "gzip_decoder",
+                        get_gzip_decoder(res.body_reader)
+                    )
                 end
         end
 
