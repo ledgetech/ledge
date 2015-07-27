@@ -739,6 +739,31 @@ function _M.put_background_job(self, queue, klass, data, options)
 end
 
 
+local zlib_output = function(data)
+    co_yield(data)
+end
+
+
+local function get_gzip_decoder(reader)
+    return co_wrap(function(buffer_size)
+        local ok, err = zlib.inflateGzip(reader, zlib_output, buffer_size)
+        if not ok then
+            ngx_log(ngx_ERR, err)
+        end
+    end)
+end
+
+
+local function get_gzip_encoder(reader)
+    return co_wrap(function(buffer_size)
+        local ok, err = zlib.deflateGzip(reader, zlib_output, buffer_size)
+        if not ok then
+            ngx_log(ngx_ERR, err)
+        end
+    end)
+end
+
+
 ---------------------------------------------------------------------------------------------------
 -- Event transition table.
 ---------------------------------------------------------------------------------------------------
@@ -2061,29 +2086,6 @@ function _M.check_range_request(self, res)
 end
 
 
-local zlib_output = function(data)
-    co_yield(data)
-end
-
-
-local function get_gzip_decoder(reader)
-    return co_wrap(function(buffer_size)
-        local ok, err = zlib.inflateGzip(reader, zlib_output, buffer_size)
-        if not ok then
-            ngx_log(ngx_ERR, err)
-        end
-    end)
-end
-
-
-local function get_gzip_encoder(reader)
-    return co_wrap(function(buffer_size)
-        local ok, err = zlib.deflateGzip(reader, zlib_output, buffer_size)
-        if not ok then
-            ngx_log(ngx_ERR, err)
-        end
-    end)
-end
 
 
 -- Fetches a resource from the origin server.
