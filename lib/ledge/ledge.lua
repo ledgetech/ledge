@@ -52,6 +52,7 @@ local str_gmatch = string.gmatch
 local str_find = string.find
 local str_lower = string.lower
 local str_len = string.len
+local str_rep = string.rep
 local math_floor = math.floor
 local math_ceil = math.ceil
 local co_yield = coroutine.yield
@@ -584,6 +585,20 @@ end
 function _M.get_response(self, name)
     local name = name or "response"
     return self:ctx()[name]
+end
+
+
+function _M.filter_body_reader(self, filter_name, filter)
+    -- Keep track of the filters by name, just for debugging
+    local filters = self:ctx().body_filters
+    if not filters then filters = {} end
+
+    ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")") 
+
+    tbl_insert(filters, 1, filter_name)
+    self:ctx().body_filters = filters
+
+    return filter
 end
 
 
@@ -1152,9 +1167,9 @@ _M.actions = {
             -- If the response is gzip encoded then we must decode to scan for ESI
             if res.header["Content-Encoding"] == 'gzip' then
                 res.header["Content-Encoding"] = nil
-                res.body_reader = get_gzip_decoder(res.body_reader)
+                res.body_reader = self:filter_body_reader("gzip_decoder", get_gzip_decoder(res.body_reader))
             end
-            res.body_reader = esi_parser.parser.get_scan_filter(res.body_reader)
+            res.body_reader = self:filter_body_reader("esi_scan_filter", esi_parser.parser.get_scan_filter(res.body_reader))
             ctx.esi_scan_enabled = true
             res.esi_scanned = true
         end
@@ -1829,7 +1844,7 @@ function _M.read_from_cache(self)
     end
 
     -- Get our body reader coroutine for later
-    res.body_reader = self:get_cache_body_reader(entity_keys)
+    res.body_reader = self:filter_body_reader("cache_body_reader", self:get_cache_body_reader(entity_keys))
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(entity_keys.main)
@@ -2168,7 +2183,7 @@ function _M.fetch_from_origin(self)
     res.length = tonumber(origin.headers["Content-Length"])
 
     res.has_body = origin.has_body
-    res.body_reader = origin.body_reader
+    res.body_reader = self:filter_body_reader("upstream_body_reader", origin.body_reader)
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -2308,10 +2323,9 @@ function _M.save_to_cache(self, res)
     -- Instantiate writer coroutine with the entity key set.
     -- The writer will commit the transaction later.
     if res.has_body then
-        res.body_reader = self:get_cache_body_writer(
-            res.body_reader,
-            entity_keys,
-            keep_cache_for
+        res.body_reader = self:filter_body_reader(
+            "cache_body_writer", 
+            self:get_cache_body_writer(res.body_reader, entity_keys, keep_cache_for)
         )
     else
         -- Run transaction
@@ -2517,7 +2531,7 @@ function _M.serve(self)
             then
                 res.header["Content-Encoding"] = nil
                 if res.body_reader then
-                    res.body_reader = get_gzip_decoder(res.body_reader)
+                    res.body_reader = self:filter_body_reader("gzip_decoder", get_gzip_decoder(res.body_reader))
                 end
         end
 
@@ -2755,13 +2769,13 @@ function _M.body_server(self, reader)
     if process_esi then
         local esi_parser = self:ctx().esi_parser
         if esi_parser and esi_parser.parser then
-            reader = esi_parser.parser.get_process_filter(reader)
+            reader = self:filter_body_reader("esi_process_filter", esi_parser.parser.get_process_filter(reader))
         end
     end
 
     -- Filter response by requested range if required
     if request_range then
-        reader = self:get_range_request_filter(reader)
+        reader = self:filter_body_reader("range_request_filter", self:get_range_request_filter(reader))
     end
 
     repeat
