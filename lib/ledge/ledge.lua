@@ -6,6 +6,7 @@ local qless = require "resty.qless"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
 local ffi = require "ffi"
+local zlib = require "ffi-zlib"
 local redis = require "resty.redis"
 local redis_connector = require "resty.redis.connector"
 
@@ -1145,10 +1146,16 @@ _M.actions = {
 
     set_esi_scan_enabled = function(self)
         local res = self:get_response()
-        local esi_parser = self:ctx().esi_parser
+        local ctx = self:ctx()
+        local esi_parser = ctx.esi_parser
         if esi_parser and esi_parser.parser then
+            -- If the response is gzip encoded then we must decode to scan for ESI
+            if res.header["Content-Encoding"] == 'gzip' then
+                res.header["Content-Encoding"] = nil
+                res.body_reader = get_gzip_decoder(res.body_reader)
+            end
             res.body_reader = esi_parser.parser.get_scan_filter(res.body_reader)
-            self:ctx().esi_scan_enabled = true
+            ctx.esi_scan_enabled = true
             res.esi_scanned = true
         end
     end,
@@ -1913,6 +1920,13 @@ function _M.check_range_request(self, res)
     if range_request and type(range_request) == "table" then
         local ranges = {}
 
+        -- If response is gzip encoded and the client can't handle gzip then we need to abort
+        if res.header["Content-Encoding"] == 'gzip'
+            and not h_util.header_has_directive(ngx.var.http_accept_encoding, "gzip")
+            then
+                return res
+        end
+
         for i,range in ipairs(range_request) do
             local range_satisfiable = true
 
@@ -2029,6 +2043,31 @@ function _M.check_range_request(self, res)
     end
 
     return res
+end
+
+
+local zlib_output = function(data)
+    co_yield(data)
+end
+
+
+local function get_gzip_decoder(reader)
+    return co_wrap(function(buffer_size)
+        local ok, err = zlib.inflateGzip(reader, zlib_output, buffer_size)
+        if not ok then
+            ngx_log(ngx_ERR, err)
+        end
+    end)
+end
+
+
+local function get_gzip_encoder(reader)
+    return co_wrap(function(buffer_size)
+        local ok, err = zlib.deflateGzip(reader, zlib_output, buffer_size)
+        if not ok then
+            ngx_log(ngx_ERR, err)
+        end
+    end)
 end
 
 
@@ -2470,6 +2509,17 @@ function _M.serve(self)
         end
 
         self:emit("response_ready", res)
+
+        -- Uncompress gzip responses for clients which cannot accept them
+        -- Mimics nginx gunzip module functionality
+        if res.header["Content-Encoding"] == 'gzip'
+            and not h_util.header_has_directive(ngx.var.http_accept_encoding, "gzip")
+            then
+                res.header["Content-Encoding"] = nil
+                if res.body_reader then
+                    res.body_reader = get_gzip_decoder(res.body_reader)
+                end
+        end
 
         if res.header then
             for k,v in pairs(res.header) do
