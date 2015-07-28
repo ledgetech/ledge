@@ -944,9 +944,17 @@ _M.events = {
     },
 
     gzip_inflate_enabled = {
+        { after = "updating_cache", begin = "preparing_response", but_first = "install_gzip_decoder" },
         { in_case = "esi_scan_enabled", begin = "updating_cache",
             but_first = { "install_gzip_decoder", "set_esi_scan_enabled" } },
-        { begin = "preparing_response", but_first = "install_gzip_decoder" },
+        { begin = "preparing_response" },
+    },
+
+    gzip_inflate_disabled = {
+        { after = "updating_cache", begin = "preparing_response" },
+        { after = "considering_esi_scan", in_case = "esi_scan_enabled", begin = "updating_cache",
+            but_first = { "set_esi_scan_enabled" } },
+        { begin = "preparing_response" },
     },
 
     -- We've determined no need to scan the body for ESI.
