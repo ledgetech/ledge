@@ -593,7 +593,7 @@ function _M.filter_body_reader(self, filter_name, filter)
     local filters = self:ctx().body_filters
     if not filters then filters = {} end
 
-    ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")") 
+    ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")")
 
     tbl_insert(filters, 1, filter_name)
     self:ctx().body_filters = filters
@@ -940,7 +940,13 @@ _M.events = {
 
     -- We've determined we need to scan the body for ESI.
     esi_scan_enabled = {
-        { begin = "updating_cache", but_first = "set_esi_scan_enabled" },
+        { begin = "considering_gzip_inflate" },
+    },
+
+    gzip_inflate_enabled = {
+        { in_case = "esi_scan_enabled", begin = "updating_cache",
+            but_first = { "install_gzip_decoder", "set_esi_scan_enabled" } },
+        { begin = "preparing_response", but_first = "install_gzip_decoder" },
     },
 
     -- We've determined no need to scan the body for ESI.
@@ -1033,11 +1039,11 @@ _M.events = {
     },
 
     esi_process_disabled = {
-        { begin = "preparing_response", but_first = "set_esi_process_disabled" },
+        { begin = "considering_gzip_inflate", but_first = "set_esi_process_disabled" },
     },
 
     esi_process_not_required = {
-        { begin = "preparing_response",
+        { begin = "considering_gzip_inflate",
             but_first = { "set_esi_process_disabled", "remove_surrogate_control_header" },
         },
     },
@@ -1184,19 +1190,20 @@ _M.actions = {
         self:set_response(res)
     end,
 
+    install_gzip_decoder = function(self)
+        local res = self:get_response()
+        res.header["Content-Encoding"] = nil
+        res.body_reader = self:filter_body_reader(
+            "gzip_decoder",
+            get_gzip_decoder(res.body_reader)
+        )
+    end,
+
     set_esi_scan_enabled = function(self)
         local res = self:get_response()
         local ctx = self:ctx()
         local esi_parser = ctx.esi_parser
         if esi_parser and esi_parser.parser then
-            -- If the response is gzip encoded then we must decode to scan for ESI
-            if res.header["Content-Encoding"] == 'gzip' then
-                res.header["Content-Encoding"] = nil
-                res.body_reader = self:filter_body_reader(
-                    "gzip_decoder",
-                    get_gzip_decoder(res.body_reader)
-                )
-            end
             res.body_reader = self:filter_body_reader(
                 "esi_scan_filter",
                 esi_parser.parser.get_scan_filter(res.body_reader)
@@ -1432,6 +1439,16 @@ _M.states = {
             return self:e "cache_expired"
         else
             return self:e "cache_valid"
+        end
+    end,
+
+    considering_gzip_inflate = function(self)
+        local res = self:get_response()
+        -- If the response is gzip encoded then we must decode to scan for ESI
+        if res.header["Content-Encoding"] == "gzip" then
+            return self:e "gzip_inflate_enabled"
+        else
+            return self:e "gzip_inflate_disabled"
         end
     end,
 
@@ -1970,7 +1987,7 @@ function _M.check_range_request(self, res)
         local ranges = {}
 
         -- If response is gzip encoded and the client can't handle gzip then we need to abort
-        if res.header["Content-Encoding"] == 'gzip'
+        if res.header["Content-Encoding"] == "gzip"
             and not h_util.header_has_directive(ngx.var.http_accept_encoding, "gzip")
             then
                 return res
@@ -2534,20 +2551,6 @@ function _M.serve(self)
         end
 
         self:emit("response_ready", res)
-
-        -- Uncompress gzip responses for clients which cannot accept them
-        -- Mimics nginx gunzip module functionality
-        if res.header["Content-Encoding"] == 'gzip'
-            and not h_util.header_has_directive(ngx.var.http_accept_encoding, "gzip")
-            then
-                res.header["Content-Encoding"] = nil
-                if res.body_reader then
-                    res.body_reader = self:filter_body_reader(
-                        "gzip_decoder",
-                        get_gzip_decoder(res.body_reader)
-                    )
-                end
-        end
 
         if res.header then
             for k,v in pairs(res.header) do
