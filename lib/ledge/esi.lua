@@ -338,21 +338,23 @@ local function esi_fetch_include(include_tag, buffer_size)
                 end
             end
 
-            local headers = ngx_req_get_headers()
+            local parent_headers = ngx_req_get_headers()
 
-            -- Remove client validators
-            headers["if-modified-since"] = nil
-            headers["if-none-match"] = nil
+            local headers = {
+                ["Host"] = host,
+                ["Cookie"] = parent_headers["Cookie"],
+                ["Cache-Control"] = parent_headers["Cache-Control"],
+                ["Authorization"] = parent_headers["Authorization"],
+                ["X-ESI-Parent-URI"] = ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri,
+                ["User-Agent"] = httpc._USER_AGENT .. " ledge_esi/" .. _M._VERSION
+            }
 
-            headers["host"] = host
-            headers["accept-encoding"] = nil
-
-            local res, err = httpc:request{ 
+            local res, err = httpc:request{
                 method = "GET",
                 path = path,
                 headers = headers,
             }
-            
+
             if not res then
                 ngx_log(ngx_ERR, err)
                 co_yield()

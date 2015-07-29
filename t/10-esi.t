@@ -225,6 +225,47 @@ FRAGMENT
 2
 
 
+=== TEST 5b: Test fragment always issues GET and only inherits correct req headers
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_5b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /fragment_1 {
+    content_by_lua '
+        ngx.say("method: ", ngx.req.get_method())
+        local h = ngx.req.get_headers()
+        for k,v in pairs(h) do
+            ngx.say(k, ": ", v)
+        end
+    ';
+}
+location /esi_5b {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<esi:include src=\\"/fragment_1\\" />")
+    ';
+}
+--- request
+POST /esi_5b_prx
+--- more_headers
+Cache-Control: no-cache
+Cookie: foo
+Authorization: bar
+Range: bytes=0-
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body_like
+method: GET
+host: localhost
+cookie: foo
+x-esi-parent-uri: http://localhost/esi_5b_prx
+user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+
+cache-control: no-cache
+authorization: bar
+
 
 === TEST 6: Include multiple fragments, in correct order.
 --- http_config eval: $::HttpConfig
