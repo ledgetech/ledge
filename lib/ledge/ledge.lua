@@ -251,6 +251,9 @@ function _M.new(self)
 
         enable_collapsed_forwarding = false,
         collapsed_forwarding_window = 60 * 1000, -- Window for collapsed requests (ms)
+
+        gunzip_enabled = true,  -- Auto gunzip compressed responses for requests
+                                -- which do not support gzip encoding.
     }
 
     return setmetatable({ config = config }, mt)
@@ -1502,8 +1505,10 @@ _M.states = {
 
         -- If the response is gzip encoded and the client doesn't support it, then inflate
         if res.header["Content-Encoding"] == "gzip" then
+            local accepts_gzip = h_util.header_has_directive(accept_encoding, "gzip")
+
             if self:ctx().esi_scan_enabled or
-                h_util.header_has_directive(accept_encoding, "gzip") == false then
+                (self:config_get("gunzip_enabled") and accepts_gzip == false) then
                 return self:e "gzip_inflate_enabled"
             end
         end

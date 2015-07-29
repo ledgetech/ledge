@@ -74,6 +74,21 @@ GET /gzip_prx
 OK
 
 
+=== TEST 2: Client doesn't support gzip, gunzip is disabled, gets zipped response
+--- http_config eval: $::HttpConfig
+--- config
+	location /gzip_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:config_set("gunzip_enabled", false)
+            ledge:run()
+        ';
+    }
+--- request
+GET /gzip_prx
+--- response_body_unlike: OK
+
+
 === TEST 3: Client does support gzip, gets zipped response
 --- http_config eval: $::HttpConfig
 --- config
