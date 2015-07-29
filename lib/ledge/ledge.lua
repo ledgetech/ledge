@@ -1493,8 +1493,11 @@ _M.states = {
 
     considering_gzip_inflate = function(self)
         local res = self:get_response()
-        -- If the response is gzip encoded then we must decode to scan for ESI
-        if res.header["Content-Encoding"] == "gzip" then
+        local accept_encoding = ngx_req_get_headers()["Accept-Encoding"] or ""
+
+        -- If the response is gzip encoded and the client doesn't support it, then inflate
+        if res.header["Content-Encoding"] == "gzip" and 
+            h_util.header_has_directive(accept_encoding, "gzip") == false then
             return self:e "gzip_inflate_enabled"
         else
             return self:e "gzip_inflate_disabled"
