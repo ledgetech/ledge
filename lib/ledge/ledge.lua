@@ -2064,13 +2064,6 @@ function _M.handle_range_request(self, res)
     if range_request and type(range_request) == "table" and res.size then
         local ranges = {}
 
-        -- If response is gzip encoded and the client can't handle gzip then we need to abort
-        if res.header["Content-Encoding"] == "gzip"
-            and not h_util.header_has_directive(ngx.var.http_accept_encoding, "gzip")
-            then
-                return res, false
-        end
-
         for i,range in ipairs(range_request) do
             local range_satisfiable = true
 
