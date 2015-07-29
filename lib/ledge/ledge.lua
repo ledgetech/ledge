@@ -1052,6 +1052,7 @@ _M.events = {
     esi_process_enabled = {
         { begin = "preparing_response",
             but_first = {
+                "install_esi_process_filter",
                 "set_esi_process_enabled",
                 "zero_downstream_lifetime",
                 "remove_surrogate_control_header"
@@ -1246,6 +1247,17 @@ _M.actions = {
         local res = self:get_response()
         self:ctx().esi_scan_disabled = true
         res.esi_scanned = false
+    end,
+
+    install_esi_process_filter = function(self)
+        local res = self:get_response()
+        local esi_parser = self:ctx().esi_parser
+        if esi_parser and esi_parser.parser then
+            res.body_reader = self:filter_body_reader(
+                "esi_process_filter", 
+                esi_parser.parser.get_process_filter(res.body_reader)
+            )
+        end
     end,
 
     set_esi_process_enabled = function(self)
@@ -1552,12 +1564,10 @@ _M.states = {
             local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
 
             if surrogate_capability then
-                ngx.log(ngx.DEBUG, "s/c")
                 local capability_parser, capability_version = split_esi_token(
                     h_util.get_header_token(surrogate_capability, ngx_var.host)
                 )
 
-                ngx.log(ngx.DEBUG, ngx_var.host)
                 if capability_parser and capability_version then
                     local control_parser, control_version = split_esi_token(token)
 
@@ -2028,7 +2038,6 @@ end
 function _M.handle_range_request(self, res)
     local range_request = self:request_byte_range()
 
-    ngx.log(ngx.DEBUG, res.size)
     if range_request and type(range_request) == "table" and res.size then
         local ranges = {}
 
@@ -2814,16 +2823,6 @@ end
 -- via a cache read, or a save via a fetch... the interface is uniform.
 function _M.body_server(self, reader)
     local buffer_size = self:config_get("buffer_size")
-    local process_esi = self:ctx().esi_process_enabled
-    local request_range = self:ctx().byterange_request_ranges
-
-    -- Filter response for ESI if required
-    if process_esi then
-        local esi_parser = self:ctx().esi_parser
-        if esi_parser and esi_parser.parser then
-            reader = self:filter_body_reader("esi_process_filter", esi_parser.parser.get_process_filter(reader))
-        end
-    end
 
     repeat
         local chunk, err = reader(buffer_size)
