@@ -954,6 +954,19 @@ _M.events = {
         { after = "updating_cache", begin = "preparing_response" },
         { after = "considering_esi_scan", in_case = "esi_scan_enabled", begin = "updating_cache",
             but_first = { "set_esi_scan_enabled" } },
+        { in_case = "esi_process_disabled", begin = "checking_range_request" },
+        { begin = "preparing_response" },
+    },
+
+    range_accepted = {
+        { begin = "preparing_response", but_first = "install_range_filter" },
+    },
+
+    range_not_accepted = {
+        { begin = "preparing_response" },
+    },
+
+    range_not_requested = {
         { begin = "preparing_response" },
     },
 
@@ -1204,6 +1217,14 @@ _M.actions = {
         res.body_reader = self:filter_body_reader(
             "gzip_decoder",
             get_gzip_decoder(res.body_reader)
+        )
+    end,
+
+    install_range_filter = function(self)
+        local res = self:get_response()
+        res.body_reader = self:filter_body_reader(
+            "range_request_filter", 
+            self:get_range_request_filter(res.body_reader)
         )
     end,
 
@@ -1531,10 +1552,12 @@ _M.states = {
             local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
 
             if surrogate_capability then
+                ngx.log(ngx.DEBUG, "s/c")
                 local capability_parser, capability_version = split_esi_token(
                     h_util.get_header_token(surrogate_capability, ngx_var.host)
                 )
 
+                ngx.log(ngx.DEBUG, ngx_var.host)
                 if capability_parser and capability_version then
                     local control_parser, control_version = split_esi_token(token)
 
@@ -1561,6 +1584,19 @@ _M.states = {
                 end
             end
             return self:e "esi_process_enabled"
+        end
+    end,
+
+    checking_range_request = function(self)
+        local res = self:get_response()
+        local res, partial_response = self:handle_range_request(res)
+        self:set_response(res)
+        if partial_response then
+            self:e "range_accepted"
+        elseif partial_response == false then
+            self:e "range_not_accepted"
+        else
+            self:e "range_not_requested"
         end
     end,
 
@@ -1979,26 +2015,28 @@ function _M.read_from_cache(self)
         end
     end
 
-    -- Modify the response with request range if needed.
-    local res = self:check_range_request(res)
-
     self:emit("cache_accessed", res)
 
     return res
 end
 
 
-function _M.check_range_request(self, res)
+-- Modifies the response based on range request headers.
+-- Returns the response and a flag, which if true indicates a partial response 
+-- should be expected, if false indicates the range could not be applied, and if
+-- nil indicates no range was requested.
+function _M.handle_range_request(self, res)
     local range_request = self:request_byte_range()
 
-    if range_request and type(range_request) == "table" then
+    ngx.log(ngx.DEBUG, res.size)
+    if range_request and type(range_request) == "table" and res.size then
         local ranges = {}
 
         -- If response is gzip encoded and the client can't handle gzip then we need to abort
         if res.header["Content-Encoding"] == "gzip"
             and not h_util.header_has_directive(ngx.var.http_accept_encoding, "gzip")
             then
-                return res
+                return res, false
         end
 
         for i,range in ipairs(range_request) do
@@ -2010,11 +2048,7 @@ function _M.check_range_request(self, res)
 
             -- A missing "to" means to the "end".
             if not range.to then
-                if res.has_esi then
-                    range_satisfiable = false
-                else
-                    range.to = res.size - 1
-                end
+                range.to = res.size - 1
             end
 
             -- A missing "from" means "to" is an offset from the end.
@@ -2043,7 +2077,7 @@ function _M.check_range_request(self, res)
                 res.body_reader = nil
                 res.header.content_range = "bytes */" .. res.size
 
-                return res
+                return res, false
             else
                 -- We'll need the content range header value for multipart boundaries
                 range.header = "bytes " .. range.from .. "-" .. range.to .. "/" .. res.size
@@ -2081,17 +2115,12 @@ function _M.check_range_request(self, res)
             local range = ranges[1]
 
             local size = res.size
-            if res.has_esi then
-                -- If we have ESI to do then advertise an unknown length since
-                -- we cannot know this in advance.
-                size = "*"
-            end
 
             res.status = ngx_PARTIAL_CONTENT
             ngx.header["Accept-Ranges"] = "bytes"
             res.header["Content-Range"] = "bytes " .. range.from .. "-" .. range.to .. "/" .. size
 
-            return res
+            return res, true
         else
             -- Generate boundary and store it in ctx
             local boundary_string = random_hex(32)
@@ -2112,14 +2141,12 @@ function _M.check_range_request(self, res)
             ngx.header["Accept-Ranges"] = "bytes"
             res.header["Content-Type"] = "multipart/byteranges; boundary=" .. boundary_string
 
-            return res
+            return res, true
         end
     end
 
-    return res
+    return res, nil
 end
-
-
 
 
 -- Fetches a resource from the origin server.
@@ -2796,11 +2823,6 @@ function _M.body_server(self, reader)
         if esi_parser and esi_parser.parser then
             reader = self:filter_body_reader("esi_process_filter", esi_parser.parser.get_process_filter(reader))
         end
-    end
-
-    -- Filter response by requested range if required
-    if request_range then
-        reader = self:filter_body_reader("range_request_filter", self:get_range_request_filter(reader))
     end
 
     repeat
