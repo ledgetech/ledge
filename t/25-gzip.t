@@ -90,7 +90,7 @@ Accept-Encoding: gzip
 --- response_body_unlike: OK
 
 
-=== TEST 4: Client does support gzip, but sends a range, gets plain response
+=== TEST 4: Client does support gzip, but sends a range, gets plain full response
 --- http_config eval: $::HttpConfig
 --- config
 	location /gzip_prx {
@@ -104,7 +104,8 @@ GET /gzip_prx
 --- more_headers
 Accept-Encoding: gzip
 --- more_headers
-Range: bytes=0-1
+Range: bytes=0-0
+--- error_code: 200
 --- response_body
 OK
 
