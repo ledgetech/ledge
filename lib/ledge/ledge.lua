@@ -948,20 +948,20 @@ _M.events = {
 
     -- We've determined we need to scan the body for ESI.
     esi_scan_enabled = {
-        { begin = "considering_gzip_inflate" },
+        { begin = "considering_gzip_inflate", but_first = "set_esi_scan_enabled" },
     },
 
     gzip_inflate_enabled = {
         { after = "updating_cache", begin = "preparing_response", but_first = "install_gzip_decoder" },
         { in_case = "esi_scan_enabled", begin = "updating_cache",
-            but_first = { "install_gzip_decoder", "set_esi_scan_enabled" } },
+            but_first = { "install_gzip_decoder", "install_esi_scan_filter" } },
         { begin = "preparing_response", but_first = "install_gzip_decoder" },
     },
 
     gzip_inflate_disabled = {
         { after = "updating_cache", begin = "preparing_response" },
         { after = "considering_esi_scan", in_case = "esi_scan_enabled", begin = "updating_cache",
-            but_first = { "set_esi_scan_enabled" } },
+            but_first = { "install_esi_scan_filter" } },
         { in_case = "esi_process_disabled", begin = "checking_range_request" },
         { begin = "preparing_response" },
     },
@@ -1240,14 +1240,19 @@ _M.actions = {
     set_esi_scan_enabled = function(self)
         local res = self:get_response()
         local ctx = self:ctx()
+        ctx.esi_scan_enabled = true
+        res.esi_scanned = true
+    end,
+
+    install_esi_scan_filter = function(self)
+        local res = self:get_response()
+        local ctx = self:ctx()
         local esi_parser = ctx.esi_parser
         if esi_parser and esi_parser.parser then
             res.body_reader = self:filter_body_reader(
                 "esi_scan_filter",
                 esi_parser.parser.get_scan_filter(res.body_reader)
             )
-            ctx.esi_scan_enabled = true
-            res.esi_scanned = true
         end
     end,
 
@@ -1496,12 +1501,14 @@ _M.states = {
         local accept_encoding = ngx_req_get_headers()["Accept-Encoding"] or ""
 
         -- If the response is gzip encoded and the client doesn't support it, then inflate
-        if res.header["Content-Encoding"] == "gzip" and 
-            h_util.header_has_directive(accept_encoding, "gzip") == false then
-            return self:e "gzip_inflate_enabled"
-        else
-            return self:e "gzip_inflate_disabled"
+        if res.header["Content-Encoding"] == "gzip" then
+            if self:ctx().esi_scan_enabled or
+                h_util.header_has_directive(accept_encoding, "gzip") == false then
+                return self:e "gzip_inflate_enabled"
+            end
         end
+
+        return self:e "gzip_inflate_disabled"
     end,
 
     considering_esi_scan = function(self)
