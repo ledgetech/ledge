@@ -44,6 +44,7 @@ coupled with the flexibility to script configuration dynamically.
     * [esi_enabled](#esi_enabled)
     * [esi_content_types](#esi_content_types)
     * [esi_surrogate_delegation](#esi_surrogate_delegation)
+    * [gunzip_enabled](#gunzip_enabled)
 * [Workers](#workers)
     * [run_workers](#run_workers)
 * [Events](#events)
@@ -82,6 +83,7 @@ feel free to raise issues / request features at
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
 * PURGE requests to expire resources by URI (also supports wildcard patterns).
 * ESI 1.0 support. See [documentation](#esi_enabled) for exceptions.
+* Store gzipped responses and dynamically gunzip when Accept-Encoding: gzip is not present.
 
 
 ## Installation
@@ -574,6 +576,18 @@ any downstream offering this will disable ESI processing in Ledge, delegating it
 When set to a Lua table of IP address strings, delegation will only be allowed to this specific
 hosts. This may be important if ESI instructions contain sensitive data which must be removed.
 
+
+### gunzip_enabled
+
+syntax: `ledge:config_set("gunzip_enabled", false)`
+
+default: true
+
+With this enabled, gzipped responses will be uncompressed on the fly for clients that do not set
+`Accept-Encoding: gzip`. Note that if we receive a gzipped response for a resource containing ESI instructions,
+we gunzip whilst saving and store uncompressed, since we need to read the ESI instructions.
+
+Also note that `Range` requests for gzipped content must be ignored - the full response will be returned.
 
 
 ## Workers
