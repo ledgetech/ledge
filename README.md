@@ -95,7 +95,7 @@ Download and install:
 
 Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to
 run Lua code in Nginx. If you are new to OpenResty, it's important to take the time to do this
-properly, as the environment is quite specific.
+properly, as the environment is quite specific. Note that LuaJIT must be enabled (which is the default).
 
 Clone this repo, and the following dependencies into a path defined by
 [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path):
@@ -104,6 +104,7 @@ Clone this repo, and the following dependencies into a path defined by
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) >= 0.02
 * [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.04
 * [lua-resty-cookie](https://github.com/cloudflare/lua-resty-cookie)
+* [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib) >= 0.01
 
 Enable the
 [lua_check_client_abort](https://github.com/openresty/lua-nginx-module#lua_check_client_abort)
