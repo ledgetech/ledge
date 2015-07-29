@@ -750,6 +750,10 @@ local function get_gzip_decoder(reader)
         if not ok then
             ngx_log(ngx_ERR, err)
         end
+
+        -- zlib decides it is done when the stream is complete. Call reader() one more time
+        -- to resume the next coroutine in the chain.
+        reader()
     end)
 end
 
@@ -760,6 +764,10 @@ local function get_gzip_encoder(reader)
         if not ok then
             ngx_log(ngx_ERR, err)
         end
+
+        -- zlib decides it is done when the stream is complete. Call reader() one more time
+        -- to resume the next coroutine in the chain.
+        reader()
     end)
 end
 
@@ -947,7 +955,7 @@ _M.events = {
         { after = "updating_cache", begin = "preparing_response", but_first = "install_gzip_decoder" },
         { in_case = "esi_scan_enabled", begin = "updating_cache",
             but_first = { "install_gzip_decoder", "set_esi_scan_enabled" } },
-        { begin = "preparing_response" },
+        { begin = "preparing_response", but_first = "install_gzip_decoder" },
     },
 
     gzip_inflate_disabled = {
