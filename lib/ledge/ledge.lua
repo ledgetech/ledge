@@ -2171,7 +2171,7 @@ function _M.fetch_from_origin(self)
 
     -- Advertise ESI surrogate capabilities
     if self:config_get("esi_enabled") then
-        local capability_entry = ngx_var.host .. '="' .. esi_capabilities() .. '"'
+        local capability_entry = ngx_var.hostname .. '="' .. esi_capabilities() .. '"'
         local sc = headers.surrogate_capability
 
         if not sc then
