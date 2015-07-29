@@ -100,7 +100,7 @@ properly, as the environment is quite specific.
 Clone this repo, and the following dependencies into a path defined by
 [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path):
 
-* [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.05
+* [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.06
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) >= 0.02
 * [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.04
 * [lua-resty-cookie](https://github.com/cloudflare/lua-resty-cookie)
