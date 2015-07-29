@@ -1220,7 +1220,7 @@ location /esi_20 {
 --- request
 GET /esi_20_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body: localhost="ESI/1.0"
+--- response_body_like: ^(.*)="ESI/1.0"$
 
 
 === TEST 21: Test Surrogate-Capability is appended when needed
@@ -1246,7 +1246,7 @@ GET /esi_21_prx
 --- more_headers
 Surrogate-Capability: abc="ESI/0.8"
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body: abc="ESI/0.8", localhost="ESI/1.0"
+--- response_body_like: ^abc="ESI/0.8", (.*)="ESI/1.0"$
 
 
 === TEST 22: Test comments are removed.
