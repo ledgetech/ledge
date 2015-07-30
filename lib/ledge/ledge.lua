@@ -756,7 +756,7 @@ local function get_gzip_decoder(reader)
 
         -- zlib decides it is done when the stream is complete. Call reader() one more time
         -- to resume the next coroutine in the chain.
-        reader()
+        reader(buffer_size)
     end)
 end
 
@@ -770,7 +770,7 @@ local function get_gzip_encoder(reader)
 
         -- zlib decides it is done when the stream is complete. Call reader() one more time
         -- to resume the next coroutine in the chain.
-        reader()
+        reader(buffer_size)
     end)
 end
 
