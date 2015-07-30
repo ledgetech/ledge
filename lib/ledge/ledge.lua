@@ -159,7 +159,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.05',
+    _VERSION = '1.06',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
