@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2);
+plan tests => repeat_each() * (blocks() * 3);
 
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
@@ -57,6 +57,8 @@ GET /gzip_prx
 --- more_headers
 Accept-Encoding: gzip
 --- response_body_unlike: OK
+--- no_error_log
+[error]
 
 
 === TEST 2: Client doesn't support gzip, gets plain response
@@ -72,6 +74,8 @@ Accept-Encoding: gzip
 GET /gzip_prx
 --- response_body
 OK
+--- no_error_log
+[error]
 
 
 === TEST 2: Client doesn't support gzip, gunzip is disabled, gets zipped response
@@ -87,6 +91,8 @@ OK
 --- request
 GET /gzip_prx
 --- response_body_unlike: OK
+--- no_error_log
+[error]
 
 
 === TEST 3: Client does support gzip, gets zipped response
@@ -103,6 +109,8 @@ GET /gzip_prx
 --- more_headers
 Accept-Encoding: gzip
 --- response_body_unlike: OK
+--- no_error_log
+[error]
 
 
 === TEST 4: Client does support gzip, but sends a range, gets plain full response
@@ -123,6 +131,8 @@ Range: bytes=0-0
 --- error_code: 200
 --- response_body
 OK
+--- no_error_log
+[error]
 
 
 === TEST 5: Prime gzipped response with ESI, auto unzips.
@@ -152,6 +162,8 @@ GET /gzip_5_prx
 Accept-Encoding: gzip
 --- response_body
 OK
+--- no_error_log
+[error]
 
 
 === TEST 6: Client does support gzip, but content had to be unzipped on save
@@ -169,3 +181,35 @@ GET /gzip_5_prx
 Accept-Encoding: gzip
 --- response_body
 OK
+--- no_error_log
+[error]
+
+
+=== TEST 7: HEAD request for gzipped response with ESI, auto unzips.
+--- http_config eval: $::HttpConfig
+--- config
+	location /gzip_7_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:config_set("esi_enabled", true)
+            ledge:run()
+        ';
+    }
+    location /gzip_7 {
+        gzip on;
+        gzip_proxied any;
+        gzip_min_length 1;
+        gzip_http_version 1.0;
+        default_type text/html;
+        more_set_headers "Cache-Control: public, max-age=600";
+        more_set_headers "Content-Type: text/html";
+        more_set_headers 'Surrogate-Control: content="ESI/1.0"';
+        echo "OK";
+    }
+--- request
+HEAD /gzip_7_prx
+--- more_headers
+Accept-Encoding: gzip
+--- response_body
+--- no_error_log
+[error]

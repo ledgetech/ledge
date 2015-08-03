@@ -1519,6 +1519,10 @@ _M.states = {
     considering_esi_scan = function(self)
         if self:config_get("esi_enabled") == true then
             local res = self:get_response()
+            if not res.has_body then
+                return self:e "esi_scan_disabled"
+            end
+
             local res_surrogate_control = res.header["Surrogate-Control"]
 
             if res_surrogate_control then
