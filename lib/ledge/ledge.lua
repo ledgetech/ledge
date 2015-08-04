@@ -2573,9 +2573,7 @@ end
 
 function _M.serve(self)
     if not ngx.headers_sent then
-        local res = self:get_response() -- or self:get_response("fetched")
-        assert(res.status, "Response has no status.") -- FIXME: This will bail hard on error.
-
+        local res = self:get_response()
         local visible_hostname = self:visible_hostname()
 
         -- Via header
