@@ -119,6 +119,11 @@ local function str_split(str, delim)
 end
 
 
+local function _no_body_reader()
+    return nil
+end
+
+
 local esi_parsers = {
     ["ESI"] = {
         ["1.0"] = require "ledge.esi",
@@ -1018,7 +1023,11 @@ _M.events = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
         { after = "revalidating_in_background", begin = "exiting" },
-        { begin = "serving", but_first = "set_http_status_from_response" },
+        { begin = "serving",
+            but_first = {
+                "install_no_body_reader", "set_http_status_from_response"
+            },
+        },
     },
 
     -- We were the collapser, so digressed into being a surrogate. We're done now and have published
@@ -1221,6 +1230,11 @@ _M.actions = {
     read_cache = function(self)
         local res = self:read_from_cache()
         self:set_response(res)
+    end,
+
+    install_no_body_reader = function(self)
+        local res = self:get_response()
+        res.body_reader = _no_body_reader
     end,
 
     install_gzip_decoder = function(self)
@@ -1564,7 +1578,8 @@ _M.states = {
     considering_esi_process = function(self)
         local res = self:get_response()
 
-        if res.esi_scanned == false then
+        -- If we know there's no esi or it hasn't been scanned, don't process
+        if not res.has_esi and res.esi_scanned == false then
             self:e "esi_process_disabled"
         end
 
@@ -2621,7 +2636,7 @@ function _M.serve(self)
             end
         end
 
-        if res.body_reader then
+        if res.body_reader and ngx_req_get_method() ~= "HEAD" then
             -- Go!
             self:body_server(res.body_reader)
         end
