@@ -22,7 +22,7 @@ local co_yield = coroutine.yield
 local co_create = coroutine.create
 local co_status = coroutine.status
 local co_resume = coroutine.resume
-local co_wrap = function(func) 
+local co_wrap = function(func)
     local co = co_create(func)
     if not co then
         return nil, "could not create coroutine"
@@ -56,7 +56,7 @@ local esi_choose_pattern = [[(?:<esi:choose>\n?)(.+)(?:</esi:choose>\n?)]]
 -- $2: the contents of the branch
 local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>\n?)(.*?)(?:</esi:when>\n?)]]
 
--- $1: the contents of the otherwise branch 
+-- $1: the contents of the otherwise branch
 local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*)(?:</esi:otherwise>\n?)]]
 
 -- Matches any lua reserved word
@@ -64,11 +64,11 @@ local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|e
                             "local|nil|not|or|return|then|until|else|elseif"
 
 -- $1: Any lua reserved words not found within quotation marks
-local esi_non_quoted_lua_words =    [[(?!\'{1}|\"{1})(?:.*)(\b]] .. lua_reserved_words .. 
+local esi_non_quoted_lua_words =    [[(?!\'{1}|\"{1})(?:.*)(\b]] .. lua_reserved_words ..
                                     [[\b)(?!\'{1}|\"{1})]]
 
 
--- Evaluates a given ESI variable. 
+-- Evaluates a given ESI variable.
 local function esi_eval_var(var)
     -- Extract variables from capture results table
     local var_name = var[1] or ""
@@ -167,10 +167,10 @@ end
 
 
 local function _esi_evaluate_condition(condition)
-    -- Remove lua reserved words (if / then / repeat / function etc) 
+    -- Remove lua reserved words (if / then / repeat / function etc)
     -- which are not quoted as strings
     condition = ngx_re_gsub(condition, esi_non_quoted_lua_words, "", "oj")
-    
+
     -- Replace ESI operand syntax with Lua equivalents.
     local op_replacements = {
         ["!="] = "~=",
@@ -180,7 +180,7 @@ local function _esi_evaluate_condition(condition)
         ["&&"] = " and ",
         ["!"] = " not ",
     }
-    
+
     condition = ngx_re_gsub(condition, [[(\!=|!|\|{1,2}|&{1,2})]], function(m)
         return op_replacements[m[1]] or ""
     end, "soj")
@@ -237,9 +237,9 @@ end
 local function esi_replace_vars(chunk)
     -- First replace any variables in esi:when test="" tags, as these may need to be
     -- quoted for expression evaluation
-    chunk = ngx_re_gsub(chunk, 
-        [[(<esi:when\s*test=\")(.+?)(\"\s*>(?:.*?)</esi:when>)]], 
-        _esi_gsub_in_when_test_tags, 
+    chunk = ngx_re_gsub(chunk,
+        [[(<esi:when\s*test=\")(.+?)(\"\s*>(?:.*?)</esi:when>)]],
+        _esi_gsub_in_when_test_tags,
         "soj"
     )
 
@@ -392,11 +392,11 @@ function _M.get_scan_filter(reader)
         repeat
             local chunk, err = reader(buffer_size)
             local has_esi = false
-                
+
             -- If we have a tag hint (partial opening ESI tag) from the previous chunk
             -- then prepend it here.
-            if tag_hint then 
-                chunk = tag_hint .. (chunk or "") 
+            if tag_hint then
+                chunk = tag_hint .. (chunk or "")
                 tag_hint = nil
             end
 
@@ -413,13 +413,13 @@ function _M.get_scan_filter(reader)
 
                     -- 1) look for an opening esi tag
                     local start_from, start_to, err = ngx_re_find(
-                        str_sub(chunk, pos), 
+                        str_sub(chunk, pos),
                         "<[!--]*esi", "soj"
                     )
 
                     if not start_from then
-                        -- No complete opening tag found. 
-                        -- Check the end of the chunk for the beginning of an opening tag (a hint), 
+                        -- No complete opening tag found.
+                        -- Check the end of the chunk for the beginning of an opening tag (a hint),
                         -- incase it spans to the next buffer.
 
                         local hint_match, err = ngx_re_match(
@@ -453,7 +453,7 @@ function _M.get_scan_filter(reader)
                             )
                         else
                             e_from, e_to, err = ngx_re_find(
-                                str_sub(chunk, start_to + 1), 
+                                str_sub(chunk, start_to + 1),
                                 "[^>]?/>|</esi:[^>]+>", "soj"
                             )
                         end
@@ -466,11 +466,11 @@ function _M.get_scan_filter(reader)
                         else
                             -- we found the end of this instruction. stop buffering until we find
                             -- another unclosed instruction.
-                            prev_chunk = "" 
+                            prev_chunk = ""
                             buffering = false
 
                             e_from = e_from + start_to
-                            e_to = e_to + start_to 
+                            e_to = e_to + start_to
 
                             -- update pos for the next loop
                             pos = e_to + 1
@@ -516,9 +516,9 @@ function _M.get_process_filter(reader)
                     local yield_from = 1
                     repeat
                         local from, to, err = ngx_re_find(
-                            chunk, 
-                            "<esi:include src=\".+\".*/>", 
-                            "oj", 
+                            chunk,
+                            "<esi:include src=\".+\".*/>",
+                            "oj",
                             ctx
                         )
 
