@@ -153,3 +153,23 @@ GET /sanity_4_prx
 [error]
 --- response_body
 OK
+
+
+=== TEST 4: Request with encoded spaces, without errors.
+--- http_config eval: $::HttpConfig
+--- config
+    location "/sanity _4_prx" {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location "/sanity _4" {
+        echo "OK";
+    }
+--- request
+GET /sanity%20_4_prx
+--- no_error_log
+[error]
+--- response_body
+OK
