@@ -39,7 +39,7 @@ end
 
 
 local _M = {
-    _VERSION = '0.02',
+    _VERSION = '0.03',
 }
 
 
@@ -287,7 +287,7 @@ local function esi_unescape_comments(chunk, escaped)
 end
 
 
-local function esi_fetch_include(include_tag, buffer_size)
+local function esi_fetch_include(include_tag, buffer_size, pre_include_callback)
     local src, err = ngx_re_match(
         include_tag,
         "src=\"(.+)\".*/>",
@@ -340,20 +340,27 @@ local function esi_fetch_include(include_tag, buffer_size)
 
             local parent_headers = ngx_req_get_headers()
 
-            local headers = {
-                ["Host"] = host,
-                ["Cookie"] = parent_headers["Cookie"],
-                ["Cache-Control"] = parent_headers["Cache-Control"],
-                ["Authorization"] = parent_headers["Authorization"],
-                ["X-ESI-Parent-URI"] = ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri,
-                ["User-Agent"] = httpc._USER_AGENT .. " ledge_esi/" .. _M._VERSION
+            local req_params = {
+                method = "GET",
+                path = ngx_re_gsub(path, "\\s", "%20", "jo"),
+                headers = {
+                    ["Host"] = host,
+                    ["Cookie"] = parent_headers["Cookie"],
+                    ["Cache-Control"] = parent_headers["Cache-Control"],
+                    ["Authorization"] = parent_headers["Authorization"],
+                    ["X-ESI-Parent-URI"] = ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri,
+                    ["User-Agent"] = httpc._USER_AGENT .. " ledge_esi/" .. _M._VERSION
+                },
             }
 
-            local res, err = httpc:request{
-                method = "GET",
-                path = path,
-                headers = headers,
-            }
+            if pre_include_callback and type(pre_include_callback) == "function" then
+                local ok, err = pcall(pre_include_callback, req_params)
+                if not ok then
+                    ngx_log(ngx_ERR, "Error running esi_pre_include_callback: ", err)
+                end
+            end
+
+            local res, err = httpc:request(req_params)
 
             if not res then
                 ngx_log(ngx_ERR, err)
@@ -488,7 +495,7 @@ function _M.get_scan_filter(reader)
 end
 
 
-function _M.get_process_filter(reader)
+function _M.get_process_filter(reader, pre_include_callback)
     return co_wrap(function(buffer_size)
         repeat
             local chunk, err, has_esi = reader(buffer_size)
@@ -528,7 +535,7 @@ function _M.get_process_filter(reader)
                             yield_from = to + 1
 
                             -- Fetches and yields the streamed response
-                            esi_fetch_include(str_sub(chunk, from, to))
+                            esi_fetch_include(str_sub(chunk, from, to), buffer_size, pre_include_callback)
                         else
                             if yield_from == 1 then
                                 -- No includes found, yield everything

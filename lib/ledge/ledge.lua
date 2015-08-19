@@ -254,6 +254,12 @@ function _M.new(self)
                                                 -- a table of IP addresses to limit to. e.g.
                                                 -- { "1.2.3.4", "5.6.7.8" }
 
+        esi_pre_include_callback = nil, -- A function to modify the outbound HTTP request parameters
+                                        -- for an ESI include.
+                                        -- e.g. ledge:config_set("esi_pre_include_callback", function(req_params)
+                                        --          req_params.headers["X-My-Header"] = "foo"
+                                        --      end)
+
         enable_collapsed_forwarding = false,
         collapsed_forwarding_window = 60 * 1000, -- Window for collapsed requests (ms)
 
@@ -1284,8 +1290,11 @@ _M.actions = {
         local esi_parser = self:ctx().esi_parser
         if esi_parser and esi_parser.parser then
             res.body_reader = self:filter_body_reader(
-                "esi_process_filter", 
-                esi_parser.parser.get_process_filter(res.body_reader)
+                "esi_process_filter",
+                esi_parser.parser.get_process_filter(
+                    res.body_reader,
+                    self:config_get("esi_pre_include_callback")
+                )
             )
         end
     end,

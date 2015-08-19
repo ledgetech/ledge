@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 3) + 5; 
+plan tests =>  repeat_each() * (blocks() * 3) + 3;
 
 my $pwd = cwd();
 
@@ -893,6 +893,75 @@ GET /esi_11_prx
 1
 FRAGMENT
 2
+
+
+=== TEST 11c: Include fragment with " H" in URI (bad req in Nginx unless encoded).
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_11c_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location "/frag Hment" {
+    content_by_lua '
+        ngx.say("FRAGMENT")
+    ';
+}
+location /esi_11c {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("1")
+        ngx.print("<esi:include src=\\"/frag Hment\\" />")
+        ngx.say("2")
+    ';
+}
+--- request
+GET /esi_11c_prx
+--- response_body
+1
+FRAGMENT
+2
+--- error_code: 200
+--- no_error_log
+
+
+=== TEST 11d: Use callback feature to modify fragment request params
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_11d_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_pre_include_callback", function(req_params)
+            req_params.headers["X-Foo"] = "bar"
+        end)
+        run()
+    ';
+}
+location "/fragment" {
+    content_by_lua '
+        ngx.say(ngx.req.get_headers()["X-Foo"])
+        ngx.say("FRAGMENT")
+    ';
+}
+location /esi_11d {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("1")
+        ngx.print("<esi:include src=\\"/fragment\\" />")
+        ngx.say("2")
+    ';
+}
+--- request
+GET /esi_11d_prx
+--- response_body
+1
+bar
+FRAGMENT
+2
+--- error_code: 200
+--- no_error_log
 
 
 === TEST 12: ESI processed over buffer larger than buffer_size.
