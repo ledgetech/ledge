@@ -44,6 +44,7 @@ coupled with the flexibility to script configuration dynamically.
     * [esi_enabled](#esi_enabled)
     * [esi_content_types](#esi_content_types)
     * [esi_surrogate_delegation](#esi_surrogate_delegation)
+    * [esi_pre_include_callback](#esi_pre_include_callback)
     * [gunzip_enabled](#gunzip_enabled)
 * [Workers](#workers)
     * [run_workers](#run_workers)
@@ -576,6 +577,17 @@ any downstream offering this will disable ESI processing in Ledge, delegating it
 
 When set to a Lua table of IP address strings, delegation will only be allowed to this specific
 hosts. This may be important if ESI instructions contain sensitive data which must be removed.
+
+
+### esi_pre_include_callback
+
+syntax: `ledge:config_set("esi_pre_include_callback", function(req_params) ... end)`
+
+default: nil
+
+A function provided here will be called each time the ESI parser goes to make an outbound HTTP request
+for a fragment. The request parameters are passed through and can be manipulated here, for example
+to modify request headers.
 
 
 ### gunzip_enabled
