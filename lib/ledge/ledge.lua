@@ -330,7 +330,10 @@ function _M.emit(self, event, res)
     local events = self:ctx().events
     for _, handler in ipairs(events[event] or {}) do
         if type(handler) == "function" then
-            handler(res)
+            local ok, err = pcall(handler, res)
+            if not ok then
+                ngx_log(ngx_ERR, "Error in user callback for '", event, "': ", err)
+            end
         end
     end
 end

@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2); 
+plan tests => repeat_each() * (blocks() * 2) + 1;
 
 my $pwd = cwd();
 
@@ -50,8 +50,11 @@ location /events_1 {
 }
 --- request
 GET /events_1_prx
+--- error_code: 200
 --- response_headers
 X-Modified: Modified
+--- no_error_log
+
 
 === TEST 2: Customise params prior to request
 --- http_config eval: $::HttpConfig
@@ -69,6 +72,31 @@ location /modified {
 }
 --- request
 GET /events_2
+--- error_code: 200
 --- response_body
 ORIGIN
+--- no_error_log
+
+
+=== TEST 3: Trap bad code in user callback
+--- http_config eval: $::HttpConfig
+--- config
+location /events_3 {
+    content_by_lua '
+        ledge:bind("before_request", function(params)
+            params.path = "/modified"
+            foo.foo = "bar"
+        end)
+        ledge:run()
+    ';
+}
+location /modified {
+    echo "ORIGIN";
+}
+--- request
+GET /events_3
+--- error_code: 200
+--- response_body
+ORIGIN
+--- error_log: Error in user callback for 'before_request'
 
