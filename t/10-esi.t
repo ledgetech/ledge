@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 3) + 3;
+plan tests =>  repeat_each() * (blocks() * 3) + 5;
 
 my $pwd = cwd();
 
@@ -262,8 +262,9 @@ method: GET
 host: localhost
 cookie: foo
 x-esi-parent-uri: http://localhost/esi_5b_prx
-user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+
 cache-control: no-cache
+x-esi-recursion-level: 1
+user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+
 authorization: bar
 
 
@@ -1415,3 +1416,98 @@ location /esi_23_prx {
 GET /esi_23_prx?a=1
 --- response_body: NO ESI
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+
+
+=== TEST 24a: Fragment recursion limit
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_24_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /fragment_24_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /fragment_24 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<esi:include src=\\"/esi_24_prx\\" />")
+        ngx.say("CHILD")
+    ';
+}
+location /esi_24 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<esi:include src=\\"/fragment_24_prx\\" />")
+        ngx.say("PARENT")
+    ';
+}
+--- request
+GET /esi_24_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+CHILD
+PARENT
+CHILD
+PARENT
+CHILD
+PARENT
+CHILD
+PARENT
+CHILD
+PARENT
+CHILD
+PARENT
+--- error_log
+ESI recursion limit (10) exceeded
+
+
+=== TEST 24b: Lower fragment recursion limit
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_24_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_recursion_limit", 5)
+        run()
+    ';
+}
+location /fragment_24_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_recursion_limit", 5)
+        run()
+    ';
+}
+location /fragment_24 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<esi:include src=\\"/esi_24_prx\\" />")
+        ngx.say("CHILD")
+    ';
+}
+location /esi_24 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<esi:include src=\\"/fragment_24_prx\\" />")
+        ngx.say("PARENT")
+    ';
+}
+--- request
+GET /esi_24_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+PARENT
+CHILD
+PARENT
+CHILD
+PARENT
+CHILD
+PARENT
+--- error_log
+ESI recursion limit (5) exceeded
