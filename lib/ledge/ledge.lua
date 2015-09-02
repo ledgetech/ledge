@@ -253,7 +253,8 @@ function _M.new(self)
                                                 -- that sets the Surrogate-Capability header, or to
                                                 -- a table of IP addresses to limit to. e.g.
                                                 -- { "1.2.3.4", "5.6.7.8" }
-
+        esi_recursion_limit = 20,   -- ESI fragment nesting beyond this limit of recursion is considered
+                                    -- to be an accidental loop.
         esi_pre_include_callback = nil, -- A function to modify the outbound HTTP request parameters
                                         -- for an ESI include.
                                         -- e.g. ledge:config_set("esi_pre_include_callback", function(req_params)
