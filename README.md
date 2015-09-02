@@ -44,6 +44,7 @@ coupled with the flexibility to script configuration dynamically.
     * [esi_enabled](#esi_enabled)
     * [esi_content_types](#esi_content_types)
     * [esi_surrogate_delegation](#esi_surrogate_delegation)
+    * [esi_recursion_limit](#esi_recursion_limit)
     * [esi_pre_include_callback](#esi_pre_include_callback)
     * [gunzip_enabled](#gunzip_enabled)
 * [Workers](#workers)
@@ -577,6 +578,15 @@ any downstream offering this will disable ESI processing in Ledge, delegating it
 
 When set to a Lua table of IP address strings, delegation will only be allowed to this specific
 hosts. This may be important if ESI instructions contain sensitive data which must be removed.
+
+
+### esi_recursion_limit
+
+syntax: `ledge:config_set("esi_recursion_limit", 5)`
+
+default: 10
+
+Limits fragment inlusion nesting, to avoid accidental infinite recursion.
 
 
 ### esi_pre_include_callback
