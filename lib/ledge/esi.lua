@@ -43,6 +43,8 @@ local _M = {
 }
 
 
+local default_recursion_limit = 10
+
 -- $1: variable name (e.g. QUERY_STRING)
 -- $2: substructure key
 -- $3: default value
@@ -287,7 +289,14 @@ local function esi_unescape_comments(chunk, escaped)
 end
 
 
-local function esi_fetch_include(include_tag, buffer_size, pre_include_callback)
+local function esi_fetch_include(include_tag, buffer_size, pre_include_callback, recursion_limit)
+    -- We track incude recursion, and bail past the limit
+    local recursion_count = tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
+    if recursion_count > recursion_limit then
+        ngx_log(ngx_ERR, "ESI recursion limit (", recursion_limit, ") exceeded")
+        return nil
+    end
+
     local src, err = ngx_re_match(
         include_tag,
         "src=\"(.+)\".*/>",
@@ -348,7 +357,6 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback)
                     ["Cookie"] = parent_headers["Cookie"],
                     ["Cache-Control"] = parent_headers["Cache-Control"],
                     ["Authorization"] = parent_headers["Authorization"],
-                    ["X-ESI-Parent-URI"] = ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri,
                     ["User-Agent"] = httpc._USER_AGENT .. " ledge_esi/" .. _M._VERSION
                 },
             }
@@ -359,6 +367,10 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback)
                     ngx_log(ngx_ERR, "Error running esi_pre_include_callback: ", err)
                 end
             end
+
+            -- Add these after the pre_include_callback so that they cannot be accidentally overriden
+            req_params.headers["X-ESI-Parent-URI"] = ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri
+            req_params.headers["X-ESI-Recursion-Level"] = recursion_count + 1
 
             local res, err = httpc:request(req_params)
 
@@ -495,7 +507,7 @@ function _M.get_scan_filter(reader)
 end
 
 
-function _M.get_process_filter(reader, pre_include_callback)
+function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
     return co_wrap(function(buffer_size)
         repeat
             local chunk, err, has_esi = reader(buffer_size)
@@ -535,7 +547,12 @@ function _M.get_process_filter(reader, pre_include_callback)
                             yield_from = to + 1
 
                             -- Fetches and yields the streamed response
-                            esi_fetch_include(str_sub(chunk, from, to), buffer_size, pre_include_callback)
+                            esi_fetch_include(
+                                str_sub(chunk, from, to),
+                                buffer_size,
+                                pre_include_callback,
+                                recursion_limit
+                            )
                         else
                             if yield_from == 1 then
                                 -- No includes found, yield everything
