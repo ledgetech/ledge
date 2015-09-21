@@ -164,7 +164,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.10',
+    _VERSION = '1.11',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -1259,7 +1259,7 @@ _M.actions = {
     install_range_filter = function(self)
         local res = self:get_response()
         res.body_reader = self:filter_body_reader(
-            "range_request_filter", 
+            "range_request_filter",
             self:get_range_request_filter(res.body_reader)
         )
     end,
