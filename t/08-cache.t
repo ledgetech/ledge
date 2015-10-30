@@ -535,3 +535,59 @@ GET /qless
 TEST 12
 --- no_error_log
 [error]
+
+
+=== TEST 14: Prime with HEAD into cache (no body); no-cache set in request
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_14_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:config_set("cache_allow_disable", false)
+            ledge:run()
+        ';
+    }
+    location /cache_14 {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+        ';
+    }
+--- more_headers
+Cache-Control: no-cache
+--- request
+HEAD /cache_14_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+--- error_code: 200
+--- no_error_log
+[error]
+
+
+=== TEST 14b: Check HEAD request did not cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_14_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:config_set("cache_allow_disable", false)
+            ledge:run()
+        ';
+    }
+    location /cache_14 {
+        content_by_lua '
+            ngx.header["Cache-Control"] = "max-age=3600"
+        ';
+    }
+--- more_headers
+Cache-Control: no-cache
+--- request
+HEAD /cache_14_prx
+--- response_headers_like
+X-Cache: HIT from .*
+--- response_body
+--- error_code: 200
+--- no_error_log
+[error]
+
+
