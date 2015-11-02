@@ -613,6 +613,16 @@ we gunzip whilst saving and store uncompressed, since we need to read the ESI in
 Also note that `Range` requests for gzipped content must be ignored - the full response will be returned.
 
 
+### keyspace_scan_count
+
+syntax: `ledge:config_set("keyspace_scan_count", 10000)`
+
+defautl: 1000
+
+Tunes the behaviour of keyspace scans, which occur when sending a PURGE request with wildcard syntax. A higher number may be better if latency to Redis is high and the keyspace is large.
+
+
+
 ## Workers
 
 Ledge uses [qless](https://github.com/seomoz/qless-core) and the
