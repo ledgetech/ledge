@@ -47,6 +47,7 @@ coupled with the flexibility to script configuration dynamically.
     * [esi_recursion_limit](#esi_recursion_limit)
     * [esi_pre_include_callback](#esi_pre_include_callback)
     * [gunzip_enabled](#gunzip_enabled)
+    * [keyspace_scan_count](#keyspace_scan_count)
 * [Workers](#workers)
     * [run_workers](#run_workers)
 * [Events](#events)
