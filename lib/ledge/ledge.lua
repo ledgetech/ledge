@@ -266,6 +266,10 @@ function _M.new(self)
 
         gunzip_enabled = true,  -- Auto gunzip compressed responses for requests
                                 -- which do not support gzip encoding.
+
+        keyspace_scan_count = 1000, -- Limits the size of results returned from each keyspace scan command.
+                                    -- A wildcard PURGE request will result in keyspace_size / keyspace_scan_count
+                                    -- redis commands over the wire.
     }
 
     return setmetatable({ config = config }, mt)
@@ -2496,7 +2500,11 @@ function _M.scan_keys(self, cursor, key_chain, expired)
     if not expired then expired = false end
 
     local redis = self:ctx().redis
-    local res, err = redis:scan(cursor, "MATCH", key_chain.key, "COUNT", 100)
+    local res, err = redis:scan(
+        cursor,
+        "MATCH", key_chain.key,
+        "COUNT", self:config_get("keyspace_scan_count")
+    )
 
     if not res or res == ngx_null then
         ngx_log(ngx_ERR, err)
