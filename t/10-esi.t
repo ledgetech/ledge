@@ -1511,3 +1511,36 @@ CHILD
 PARENT
 --- error_log
 ESI recursion limit (5) exceeded
+
+
+=== TEST 25: Lower fragment recursion limit
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_25_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /fragment_25a {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("25a")
+    ';
+}
+location /fragment_25b {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("25b")
+    ';
+}
+location /esi_25 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("<esi:include src=\\"/fragment_25a\\" /> <esi:include src=\\"/fragment_25b\\" />")
+    ';
+}
+--- request
+GET /esi_25_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: 25a 25b

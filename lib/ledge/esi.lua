@@ -536,7 +536,7 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                     repeat
                         local from, to, err = ngx_re_find(
                             chunk,
-                            "<esi:include src=\".+\".*/>",
+                            "<esi:include src=\"[^\"]+\"\\s*/>",
                             "oj",
                             ctx
                         )
