@@ -1513,7 +1513,7 @@ PARENT
 ESI recursion limit (5) exceeded
 
 
-=== TEST 25: Lower fragment recursion limit
+=== TEST 25: Multiple esi includes on a single line
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_25_prx {
