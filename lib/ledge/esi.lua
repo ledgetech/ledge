@@ -52,14 +52,14 @@ local default_recursion_limit = 10
 local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+)|'([^\')]+)')?\)]]
 
 -- $1: everything inside the esi:choose tags
-local esi_choose_pattern = [[(?:<esi:choose>\n?)(.+)(?:</esi:choose>\n?)]]
+local esi_choose_pattern = [[(?:<esi:choose>\n?)(.+?)(?:</esi:choose>\n?)]]
 
 -- $1: the condition inside test=""
 -- $2: the contents of the branch
 local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>\n?)(.*?)(?:</esi:when>\n?)]]
 
 -- $1: the contents of the otherwise branch
-local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*)(?:</esi:otherwise>\n?)]]
+local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*?)(?:</esi:otherwise>\n?)]]
 
 -- Matches any lua reserved word
 local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|end|if|in|" ..

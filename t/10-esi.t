@@ -1207,6 +1207,52 @@ Hello
 Otherwise
 Goodbye
 
+=== TEST 16b: multiple choose - when - otherwise
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_16b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'run()';
+}
+location /esi_16b {
+    default_type text/html;
+    content_by_lua '
+local content = [[Hello
+<esi:choose>
+<esi:when test="$(QUERY_STRING{a}) == 1">
+1
+</esi:when>
+<esi:when test="$(QUERY_STRING{a}) == 2">
+2
+</esi:when>
+<esi:otherwise>
+Otherwise
+</esi:otherwise>
+</esi:choose>
+<esi:choose>
+<esi:when test="$(QUERY_STRING{a}) == 3">
+3
+</esi:when>
+<esi:when test="$(QUERY_STRING{a}) == 4">
+4
+</esi:when>
+<esi:otherwise>
+Otherwise
+</esi:otherwise>
+</esi:choose>
+Goodbye]]
+        ngx.say(content)
+    ';
+}
+--- request
+GET /esi_16b_prx?a=3
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+Hello
+Otherwise
+3
+Goodbye
+
 
 === TEST 17: choose - when - test, conditional syntax
 --- http_config eval: $::HttpConfig
