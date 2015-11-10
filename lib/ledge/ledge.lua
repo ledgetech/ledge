@@ -761,6 +761,43 @@ function _M.put_background_job(self, queue, klass, data, options)
 end
 
 
+-- Attempts to set a lock key in redis. The lock will expire after
+-- the expiry value if it is not cleared (i.e. in case of errors).
+-- Returns true if the lock was acquired, false if the lock already
+-- exists, and nil, err in case of failure.
+function _M.acquire_lock(self, lock_key, timeout)
+    ngx.log(ngx.DEBUG, "acquiring ", lock_key)
+    local redis = self:ctx().redis
+
+    -- We use a Lua script to emulate SETNEX (set if not exists with expiry).
+    -- This avoids a race window between the GET / SETEX.
+    -- Params: key, expiry
+    -- Return: OK or BUSY
+    local SETNEX = [[
+    local lock = redis.call("GET", KEYS[1])
+    if not lock then
+        return redis.call("PSETEX", KEYS[1], ARGV[1], "locked")
+    else
+        return "BUSY"
+    end
+    ]]
+
+    local res, err = redis:eval(SETNEX, 1, lock_key, timeout)
+    ngx.log(ngx.DEBUG, res)
+
+    local res2, err2 = redis:get(lock_key)
+    ngx.log(ngx.DEBUG, res2)
+
+    if not res then -- Lua script failed
+        return nil, err
+    elseif res == "OK" then -- We have the lock
+        return true
+    elseif res == "BUSY" then -- Lock is busy
+        return false
+    end
+end
+
+
 local zlib_output = function(data)
     co_yield(data)
 end
@@ -792,6 +829,8 @@ local function get_gzip_encoder(reader)
         reader(buffer_size)
     end)
 end
+
+
 
 
 ---------------------------------------------------------------------------------------------------
@@ -1708,29 +1747,16 @@ _M.states = {
         -- on this connection could fail.
         redis:watch(lock_key)
 
-        -- We use a Lua script to emulate SETNEX (set if not exists with expiry).
-        -- This avoids a race window between the GET / SETEX.
-        -- Params: key, expiry
-        -- Return: OK or BUSY
-        local SETNEX = [[
-            local lock = redis.call("GET", KEYS[1])
-            if not lock then
-                return redis.call("PSETEX", KEYS[1], ARGV[1], "locked")
-            else
-                return "BUSY"
-            end
-        ]]
+        local res, err = self:acquire_lock(lock_key, timeout)
 
-        local res, err = redis:eval(SETNEX, 1, lock_key, timeout)
-
-        if not res then -- Lua script failed
+        if res == nil then -- Lua script failed
             redis:unwatch()
             ngx_log(ngx_ERR, err)
             return self:e "collapsed_forwarding_failed"
-        elseif res == "OK" then -- We have the lock
+        elseif res then -- We have the lock
             redis:unwatch()
             return self:e "obtained_collapsed_forwarding_lock"
-        elseif res == "BUSY" then -- Lock is busy
+        else -- Lock is busy
             redis:multi()
             redis:subscribe(key_chain.root)
             if redis:exec() ~= ngx_null then -- We subscribed before the lock was freed
@@ -2514,10 +2540,15 @@ function _M.scan_keys(self, cursor, key_chain, expired)
             if entity then
                 -- Remove the ::key part to give the cache_key without a suffix
                 local cache_key = str_sub(key, 1, -(str_len("::key") + 1))
-                expired = self:expire_keys(
+                local res = self:expire_keys(
                     self:key_chain(cache_key), -- a keychain for this key
                     self:entity_keys(cache_key .. "::" .. entity) -- the entity keys for the live entity
                 )
+
+                if expired == false then
+                    -- Only update the expired flag from negative to positive
+                    expired = res
+                end
             end
         end
 
@@ -2538,9 +2569,30 @@ end
 function _M.expire(self)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
+
+    -- Do we have asterisks?
     if ngx_re_find(key_chain.root, "\\*", "soj") then
-        return self:scan_keys(0, key_chain)
+
+        -- We use a lock to ensure scanning for the same pattern
+        -- cannot happen concurrently. The lock will auto expire after
+        -- two minutes in the case of failure.
+        local lock_key = "scan_lock:" .. key_chain.root
+        local res, err = self:acquire_lock(lock_key, 120 * 1000)
+
+        if res == nil then
+            -- Some kind of real error acquiring the lock
+            if err then ngx_log(ngx_ERR, err) end
+            return false
+        elseif res == false then
+            -- We're already busy doing this same purge.
+            return false, "BUSY"
+        else
+            local res = self:scan_keys(0, key_chain)
+            redis:del(lock_key) -- Clear the lock
+            return res
+        end
     else
+        -- Standard non-wildcard purge.
         local entity_keys = self:cache_entity_keys()
         if not entity_keys then
             -- nothing to expire
