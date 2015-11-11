@@ -766,7 +766,6 @@ end
 -- Returns true if the lock was acquired, false if the lock already
 -- exists, and nil, err in case of failure.
 function _M.acquire_lock(self, lock_key, timeout)
-    ngx.log(ngx.DEBUG, "acquiring ", lock_key)
     local redis = self:ctx().redis
 
     -- We use a Lua script to emulate SETNEX (set if not exists with expiry).
@@ -783,10 +782,6 @@ function _M.acquire_lock(self, lock_key, timeout)
     ]]
 
     local res, err = redis:eval(SETNEX, 1, lock_key, timeout)
-    ngx.log(ngx.DEBUG, res)
-
-    local res2, err2 = redis:get(lock_key)
-    ngx.log(ngx.DEBUG, res2)
 
     if not res then -- Lua script failed
         return nil, err
@@ -1213,6 +1208,15 @@ _M.events = {
         { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
 
+    http_too_many_requests = {
+        { in_case = "served", begin = "exiting" },
+        { begin = "exiting", but_first = "set_http_too_many_requests" },
+    },
+
+    http_internal_server_error = {
+        { in_case = "served", begin = "exiting" },
+        { begin = "exiting", but_first = "set_http_internal_server_error" },
+    },
 }
 
 
@@ -1461,6 +1465,14 @@ _M.actions = {
 
     set_http_connection_timed_out = function(self)
         ngx.status = 524
+    end,
+
+    set_http_too_many_requests = function(self)
+        ngx.status = 429
+    end,
+
+    set_http_internal_server_error = function(self)
+        ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
     end,
 
     set_http_status_from_response = function(self)
@@ -1836,8 +1848,13 @@ _M.states = {
     end,
 
     purging = function(self)
-        if self:expire() then
+        local res, reason = self:expire()
+        if res then
             return self:e "purged"
+        elseif reason == "BUSY" then
+            return self:e "http_too_many_requests"
+        elseif reason == "ERROR" then
+            return self:e "http_internal_server_error"
         else
             return self:e "nothing_to_purge"
         end
@@ -2521,11 +2538,15 @@ end
 -- Scans the keyspace based on a pattern (asterisk) present in the main key,
 -- including the ::key suffix to denote the main key entry.
 -- (i.e. one per entry)
-function _M.scan_keys(self, cursor, key_chain, expired)
-    -- We return 200 if something is expired, 404 if not a single key matches.
-    if not expired then expired = false end
-
+-- args:
+--  cursor: the scan cursor, updated for each iteration
+--  key_chain: key chain containing the patterned key to scan for
+--  expired: flag to show if at least one thing has expired, controls ret value.
+--  lock_key: lock key which should be already set, updated when we recurse.
+--  locl_expiry: how long to extend the lock ttl for each scan
+function _M.expire_pattern(self, cursor, key_chain, expired, lock_key, lock_expiry)
     local redis = self:ctx().redis
+
     local res, err = redis:scan(
         cursor,
         "MATCH", key_chain.key,
@@ -2554,8 +2575,12 @@ function _M.scan_keys(self, cursor, key_chain, expired)
 
         local cursor = tonumber(res[1])
         if cursor > 1 then
-            -- If we have a valid cursor, recurse to move on.
-            return self:scan_keys(cursor, key_chain, expired)
+            -- If we have a valid cursor, extend the lock and recurse to move on.
+            local res, err = redis:pexpire(lock_key, lock_expiry)
+            if not res then
+                ngx_log(ngx_ERR, "Error extending lock: ", err)
+            end
+            return self:expire_pattern(cursor, key_chain, expired)
         end
     end
 
@@ -2577,18 +2602,25 @@ function _M.expire(self)
         -- cannot happen concurrently. The lock will auto expire after
         -- two minutes in the case of failure.
         local lock_key = "scan_lock:" .. key_chain.root
-        local res, err = self:acquire_lock(lock_key, 120 * 1000)
+        local lock_expiry = 60 * 1000
+        local res, err = self:acquire_lock(lock_key, lock_expiry)
 
         if res == nil then
             -- Some kind of real error acquiring the lock
             if err then ngx_log(ngx_ERR, err) end
-            return false
+            return false, "ERROR"
         elseif res == false then
-            -- We're already busy doing this same purge.
+            -- We're already busy doing this same purge. This will
+            -- return 429 Too Many Requests to the client.
             return false, "BUSY"
         else
-            local res = self:scan_keys(0, key_chain)
-            redis:del(lock_key) -- Clear the lock
+            local res = self:expire_pattern(0, key_chain, false, lock_key, lock_expiry)
+
+            local del_res, err = redis:del(lock_key) -- Clear the lock
+            if not del_res then
+                ngx_log(ngx_ERR, "Error clearing lock: ", err)
+            end
+
             return res
         end
     else
