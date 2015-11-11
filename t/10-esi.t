@@ -55,16 +55,19 @@ location /esi_1_prx {
 location /esi_1 {
     default_type text/html;
     content_by_lua '
-        ngx.print("<!--esiCOMMENTED-->")
+        ngx.say("<!--esiCOMMENTED-->")
+        ngx.say("<!--esiCOMMENTED-->")
     ';
 }
 --- request
 GET /esi_1_prx
---- response_body: COMMENTED
+--- response_body
+COMMENTED
+COMMENTED
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
-=== TEST 1b: Single line comments removed, esi instructions remain
+=== TEST 1b: Single line comments removed, esi instructions processed
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_1b_prx {
@@ -81,7 +84,7 @@ location /esi_1b {
 }
 --- request
 GET /esi_1b_prx?a=1b
---- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
+--- response_body: a=1b
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
@@ -116,7 +119,7 @@ GET /esi_2_prx
 3
 
 
-=== TEST 2b: Multi line comments removed, ESI instructions still intact
+=== TEST 2b: Multi line comments removed, ESI instructions processed
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_2_prx {
@@ -137,14 +140,19 @@ location /esi_2 {
         ngx.print("-->")
     ';
 }
+location /test {
+    content_by_lua '
+        ngx.print("OK")
+    ';
+}
 --- request
 GET /esi_2_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
-1234 <esi:include src="/test" />
+1234 OK
 2345
 
-<esi:vars>$(QUERY_STRING)</esi:vars>
+a=1
 
 
 === TEST 3: Single line <esi:remove> removed.
@@ -159,13 +167,20 @@ location /esi_3_prx {
 location /esi_3 {
     default_type text/html;
     content_by_lua '
-        ngx.print("<esi:remove>REMOVED</esi:remove>")
+        ngx.say("START")
+        ngx.say("<esi:remove>REMOVED</esi:remove>")
+        ngx.say("<esi:remove>REMOVED</esi:remove>")
+        ngx.say("END")
     ';
 }
 --- request
 GET /esi_3_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
+START
+
+
+END
 
 
 === TEST 4: Multi line <esi:remove> removed.
@@ -185,6 +200,11 @@ location /esi_4 {
         ngx.say("2")
         ngx.say("</esi:remove>")
         ngx.say("3")
+        ngx.say("4")
+        ngx.say("<esi:remove>")
+        ngx.say("5")
+        ngx.say("</esi:remove>")
+        ngx.say("6")
     ';
 }
 --- request
@@ -194,6 +214,9 @@ GET /esi_4_prx
 1
 
 3
+4
+
+6
 
 
 === TEST 5: Include fragment
@@ -214,6 +237,9 @@ location /esi_5 {
         ngx.say("1")
         ngx.print("<esi:include src=\\"/fragment_1\\" />")
         ngx.say("2")
+        ngx.print("<esi:include src=\\"/fragment_1\\" />")
+        ngx.print("3")
+        ngx.print("<esi:include src=\\"/fragment_1\\" />")
     ';
 }
 --- request
@@ -223,6 +249,8 @@ GET /esi_5_prx
 1
 FRAGMENT
 2
+FRAGMENT
+3FRAGMENT
 
 
 === TEST 5b: Test fragment always issues GET and only inherits correct req headers
@@ -487,7 +515,7 @@ location /esi_8 {
 }
 --- request
 GET /esi_8_prx
---- response_headers_like 
+--- response_headers_like
 Cache-Control: private, must-revalidate
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
@@ -507,7 +535,8 @@ location /esi_9 {
         ngx.say("<esi:vars>");
         ngx.say("HTTP_COOKIE: $(HTTP_COOKIE)");
         ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: $(HTTP_COOKIE{SQ_SYSTEM_SESSION})");
-        ngx.print("</esi:vars>");
+        ngx.say("</esi:vars>");
+        ngx.say("<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>OK<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>")
     ';
 }
 --- more_headers
@@ -521,6 +550,8 @@ HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
 HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
 HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
+
+helloOKhello
 
 
 === TEST 9b: Multiple Variable evaluation
@@ -813,7 +844,7 @@ location /esi_10_prx {
             ngx.var.scheme,
             ngx.var.host,
             ngx.var.uri,
-        }) 
+        })
         run()
     ';
 }
@@ -1206,6 +1237,73 @@ GET /esi_16_prx?a=3
 Hello
 Otherwise
 Goodbye
+
+
+=== TEST 16b: multiple choose - when - otherwise
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_16b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'run()';
+}
+location /esi_16b {
+    default_type text/html;
+    content_by_lua '
+local content = [[Hello
+<esi:choose>
+<esi:when test="$(QUERY_STRING{a}) == 1">
+1
+</esi:when>
+<esi:when test="$(QUERY_STRING{a}) == 2">
+2
+</esi:when>
+<esi:otherwise>
+Otherwise
+</esi:otherwise>
+</esi:choose>
+<esi:choose>
+<esi:when test="$(QUERY_STRING{a}) == 3">
+3
+</esi:when>
+<esi:when test="$(QUERY_STRING{a}) == 4">
+4
+</esi:when>
+<esi:otherwise>
+Otherwise
+</esi:otherwise>
+</esi:choose>
+Goodbye]]
+        ngx.say(content)
+    ';
+}
+--- request
+GET /esi_16b_prx?a=3
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+Hello
+Otherwise
+3
+Goodbye
+
+
+=== TEST 16c: multiple single line choose - when - otherwise
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_16c_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'run()';
+}
+location /esi_16c {
+    default_type text/html;
+    content_by_lua '
+        local content = [[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">1</esi:when><esi:otherwise>Otherwise</esi:otherwise></esi:choose>: <esi:choose><esi:when test="$(QUERY_STRING{a}) == 3">3</esi:when><esi:otherwise>NOPE</esi:otherwise></esi:choose>]]
+        ngx.print(content)
+    ';
+}
+--- request
+GET /esi_16c_prx?a=3
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: Otherwise: 3
 
 
 === TEST 17: choose - when - test, conditional syntax
