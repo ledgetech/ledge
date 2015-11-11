@@ -139,10 +139,10 @@ check_ports:
 	@$(foreach port,$(REDIS_PORTS),! lsof -i :$(port) &&) true 2>&1 > /dev/null
 
 test_ledge: flush_db
+	util/lua-releng
 	$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
 	-@echo "Qless errors:"
 	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) llen ql:f:job-error
-	util/lua-releng
 
 test_sentinel: flush_db
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/01-master_up.t
