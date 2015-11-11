@@ -67,7 +67,7 @@ COMMENTED
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
-=== TEST 1b: Single line comments removed, esi instructions remain
+=== TEST 1b: Single line comments removed, esi instructions processed
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_1b_prx {
@@ -84,7 +84,7 @@ location /esi_1b {
 }
 --- request
 GET /esi_1b_prx?a=1b
---- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
+--- response_body: a=1b
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 
 
@@ -119,7 +119,7 @@ GET /esi_2_prx
 3
 
 
-=== TEST 2b: Multi line comments removed, ESI instructions still intact
+=== TEST 2b: Multi line comments removed, ESI instructions processed
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_2_prx {
@@ -140,14 +140,19 @@ location /esi_2 {
         ngx.print("-->")
     ';
 }
+location /test {
+    content_by_lua '
+        ngx.print("OK")
+    ';
+}
 --- request
 GET /esi_2_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
-1234 <esi:include src="/test" />
+1234 OK
 2345
 
-<esi:vars>$(QUERY_STRING)</esi:vars>
+a=1
 
 
 === TEST 3: Single line <esi:remove> removed.
