@@ -39,6 +39,7 @@ coupled with the flexibility to script configuration dynamically.
     * [max_stale](#max_stale)
     * [stale_if_error](#stale_if_error)
     * [cache_key_spec](#cache_key_spec)
+    * [cache_allow_disable](#cache_allow_disable)
     * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
     * [collapsed_forwarding_window](#collapsed_forwarding_window)
     * [esi_enabled](#esi_enabled)
@@ -499,6 +500,16 @@ ledge:cache_obj:http:example.com:/about:p=2&q=foo
 If you're doing SSL termination at Nginx and your origin pages look the same for HTTPS and HTTP
 traffic, you could  provide a cache key spec omitting `ngx.var.scheme`, to avoid splitting the cache
 when the content is identical.
+
+
+### cache_allow_disable
+
+`syntax: ledge:config_set("cache_allow_disable", false)`
+
+`default: true`
+
+Specifies whether a requester can ask for a response to not be cached. When an origin has a high
+resource cost, it may be undesirable for a requester to ask for the cache to not be used.
 
 
 ### enable_collapsed_forwarding

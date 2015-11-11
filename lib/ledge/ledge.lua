@@ -484,12 +484,14 @@ end
 
 function _M.request_accepts_cache(self)
     -- Check for no-cache
-    local h = ngx_req_get_headers()
-    if h_util.header_has_directive(h["Pragma"], "no-cache")
-       or h_util.header_has_directive(h["Cache-Control"], "no-cache")
-       or h_util.header_has_directive(h["Cache-Control"], "no-store") then
-        return false
-    end
+    if not self:config_get("cache_allow_disable") then
+      local h = ngx_req_get_headers()
+      if h_util.header_has_directive(h["Pragma"], "no-cache")
+         or h_util.header_has_directive(h["Cache-Control"], "no-cache")
+         or h_util.header_has_directive(h["Cache-Control"], "no-store") then
+          return false
+      end
+    end 
 
     return true
 end
