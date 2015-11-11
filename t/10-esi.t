@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 3) + 5;
+plan tests =>  repeat_each() * (blocks() * 3) + 6;
 
 my $pwd = cwd();
 
@@ -536,7 +536,7 @@ location /esi_9 {
         ngx.say("HTTP_COOKIE: $(HTTP_COOKIE)");
         ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: $(HTTP_COOKIE{SQ_SYSTEM_SESSION})");
         ngx.say("</esi:vars>");
-        ngx.say("<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>OK<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>")
+        ngx.say("<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>$(HTTP_COOKIE)<esi:vars>$(QUERY_STRING)</esi:vars>")
     ';
 }
 --- more_headers
@@ -551,7 +551,7 @@ HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
 HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
-helloOKhello
+hello$(HTTP_COOKIE)t=1
 
 
 === TEST 9b: Multiple Variable evaluation
@@ -564,7 +564,7 @@ location /esi_9b_prx {
 location /esi_9b {
     default_type text/html;
     content_by_lua '
-        ngx.say("<esi:include src=\\"/fragment1b?$(QUERY_STRING)&test=$(HTTP_X_ESI_TEST)\\" />")
+        ngx.say("<esi:include src=\\"/fragment1b?$(QUERY_STRING)&test=$(HTTP_X_ESI_TEST)\\" /> <a href=\\"$(QUERY_STRING)\\" />")
     ';
 }
 location /fragment1b {
@@ -578,7 +578,7 @@ GET /esi_9b_prx?t=1
 X-ESI-Test: foobar
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
-FRAGMENT:t=1&test=foobar
+FRAGMENT:t=1&test=foobar <a href="$(QUERY_STRING)" />
 
 
 
@@ -1140,7 +1140,7 @@ location /esi_14_prx {
 }
 location /esi_14 {
     default_type text/html;
-    content_by_lua '
+content_by_lua '
 local content = [[Hello
 <esi:choose>
 <esi:when test="$(QUERY_STRING{a}) == 1">
@@ -1154,8 +1154,8 @@ Will never happen
 </esi:otherwise>
 </esi:choose>
 Goodbye]]
-        ngx.say(content)
-    ';
+    ngx.say(content)
+';
 }
 --- request
 GET /esi_14_prx?a=1
@@ -1328,13 +1328,14 @@ location /esi_17 {
             "\\\'hello\\\' == \\\'hello\\\'",
             "\\\'hello\\\' != \\\'goodbye\\\'",
             "\\\'repeat\\\' != \\\'function\\\'", -- use of lua words in strings
+            "\\\'repeat\\\' != function", -- use of lua words unquoted
             "\\\' repeat sentence with function in it \\\' == \\\' repeat sentence with function in it \\\'", -- use of lua words in strings
             [["this string has \\\"quotes\\\"" == "this string has \\\"quotes\\\""]],
             "$(QUERY_STRING{msg}) == \\\'hello\\\'",
         }
 
         for _,c in ipairs(conditions) do
-            ngx.say([[<esi:choose><esi:when test="]], c, [[">]], c, 
+            ngx.say([[<esi:choose><esi:when test="]], c, [[">]], c,
                     [[</esi:when><esi:otherwise>Failed</esi:otherwise></esi:choose>]])
             ngx.say("")
         end
@@ -1355,9 +1356,42 @@ GET /esi_17_prx?msg=hello
 'hello' == 'hello'
 'hello' != 'goodbye'
 'repeat' != 'function'
+Failed
 ' repeat sentence with function in it ' == ' repeat sentence with function in it '
 "this string has \"quotes\"" == "this string has \"quotes\""
 hello == 'hello'
+
+
+=== TEST 17b: Unquoted Lua reserved words in conditions removed
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_17b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'run()';
+}
+location /esi_17b {
+    default_type text/html;
+    content_by_lua '
+        local content = [[
+<esi:choose>
+<esi:when test="function function == function function">
+OK
+</esi:when>
+<esi:otherwise>
+Otherwise
+</esi:otherwise>
+</esi:choose>
+]]
+        ngx.print(content)
+    ';
+}
+--- request
+GET /esi_17b_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+Otherwise
+--- error_log
+Removed 4 unquoted Lua reserved words
 
 
 === TEST 18: Surrogate-Control with lower version number still works.
@@ -1470,13 +1504,13 @@ location /esi_22_prx {
 location /esi_22 {
     default_type text/html;
     content_by_lua '
-        ngx.print([[1234<esi:comment text="comment text" />]])
+        ngx.print([[1234<esi:comment text="comment text" /> 5678<esi:comment text="comment text 2" />]])
     ';
 }
 --- request
 GET /esi_22_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body: 1234
+--- response_body: 1234 5678
 
 
 === TEST 23a: Surrogate-Control removed when ESI enabled but no work needed (slow path)

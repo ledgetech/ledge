@@ -17,6 +17,7 @@ local ngx_crc32_long = ngx.crc32_long
 local ngx_var = ngx.var
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
+local ngx_INFO = ngx.INFO
 local tbl_concat = table.concat
 local co_yield = coroutine.yield
 local co_create = coroutine.create
@@ -66,7 +67,7 @@ local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|e
                             "local|nil|not|or|return|then|until|else|elseif"
 
 -- $1: Any lua reserved words not found within quotation marks
-local esi_non_quoted_lua_words =    [[(?!\'{1}|\"{1})(?:.*)(\b]] .. lua_reserved_words ..
+local esi_non_quoted_lua_words =    [[(?!\'{1}|\"{1})(?:.*?)(\b]] .. lua_reserved_words ..
                                     [[\b)(?!\'{1}|\"{1})]]
 
 
@@ -140,7 +141,7 @@ end
 
 -- Used in esi_replace_vars. Declared locally to avoid runtime closure definition.
 local function _esi_gsub_in_vars_tags(m)
-    return ngx_re_gsub(m[1], esi_var_pattern, esi_eval_var, "soj")
+    return m[1] .. ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "soj") .. m[3]
 end
 
 
@@ -171,7 +172,11 @@ end
 local function _esi_evaluate_condition(condition)
     -- Remove lua reserved words (if / then / repeat / function etc)
     -- which are not quoted as strings
-    condition = ngx_re_gsub(condition, esi_non_quoted_lua_words, "", "oj")
+    local reps
+    condition, reps = ngx_re_gsub(condition, esi_non_quoted_lua_words, "", "oj")
+    if reps > 0 then
+        ngx_log(ngx_INFO, "Removed " .. reps .. " unquoted Lua reserved words")
+    end
 
     -- Replace ESI operand syntax with Lua equivalents.
     local op_replacements = {
@@ -246,13 +251,13 @@ local function esi_replace_vars(chunk)
     )
 
     -- For every esi:vars block, substitute any number of variables found.
-    chunk = ngx_re_gsub(chunk, "<esi:vars>(.*)</esi:vars>", _esi_gsub_in_vars_tags, "soj")
+    chunk = ngx_re_gsub(chunk, "(<esi:[^>]+>)(.+?)(</esi:[^>]+>)", _esi_gsub_in_vars_tags, "soj")
 
     -- Remove vars tags that are left over
     chunk = ngx_re_gsub(chunk, "(<esi:vars>|</esi:vars>)", "", "soj")
 
     -- Replace vars inline in any other esi: tags, retaining the surrounding tags.
-    chunk = ngx_re_gsub(chunk, "(<esi:)(.+)(.*>)", _esi_gsub_vars_in_other_tags, "oj")
+    chunk = ngx_re_gsub(chunk, [[(<esi:)([^>]+)([/\s]*>)]], _esi_gsub_vars_in_other_tags, "oj")
 
     return chunk
 end
@@ -268,7 +273,7 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback,
 
     local src, err = ngx_re_match(
         include_tag,
-        "src=\"(.+)\".*/>",
+        "src=\"(.+)\"[^>*]/>",
         "oj"
     )
 
@@ -483,11 +488,11 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
             local escaped = 0
             if chunk then
                 if has_esi then
-                    -- Remove <!--esi--> 
+                    -- Remove <!--esi-->
                     chunk, escaped = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
 
                     -- Remove comments.
-                    chunk = ngx_re_gsub(chunk, "<esi:comment (?:.*)/>", "", "soj")
+                    chunk = ngx_re_gsub(chunk, "<esi:comment (?:.*?)/>", "", "soj")
 
                     -- Remove 'remove' blocks
                     chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
