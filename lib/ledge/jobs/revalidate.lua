@@ -18,13 +18,19 @@ function _M.perform(job)
     local request_line = str_match(job.data.raw_header, "[^\r\n]+")
     local uri = str_match(request_line, "[^%s]+%s([^%s]+)")
 
+    local headers = {
+        ["Host"] = job.data.host,
+        ["Cache-Control"] = "max-stale=0, stale-if-error=0",
+    }
+
+    for k, v in pairs(headers) do
+        job.data.headers[k] = v
+    end
+
     local res, err = httpc:request{
         method = "GET",
         path = uri,
-        headers = {
-            ["Host"] = job.data.host,
-            ["Cache-Control"] = "max-stale=0, stale-if-error=0",
-        },
+        headers = job.data.headers
     }
 
     if not res then

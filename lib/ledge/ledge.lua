@@ -1422,11 +1422,15 @@ _M.actions = {
     end,
 
     revalidate_in_background = function(self)
+        local revalidation_headers = {}
+        self:emit("set_revalidation_headers", revalidation_headers)
+
         self:put_background_job("ledge", "ledge.jobs.revalidate", {
             raw_header = ngx_req_raw_header(),
             host = ngx_var.host,
             server_addr = ngx_var.server_addr,
             server_port = ngx_var.server_port,
+            headers = revalidation_headers
         })
     end,
 
