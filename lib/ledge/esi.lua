@@ -273,7 +273,7 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback,
 
     local src, err = ngx_re_match(
         include_tag,
-        "src=\"(.+)\"[^>*]/>",
+        [[src="([^"]+)"]],
         "oj"
     )
 
@@ -509,7 +509,7 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                     repeat
                         local from, to, err = ngx_re_find(
                             chunk,
-                            "<esi:include src=\"[^\"]+\"\\s*/>",
+                            [[<esi:include\s*src="[^"]+"\s*/>]],
                             "oj",
                             ctx
                         )

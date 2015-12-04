@@ -1676,3 +1676,33 @@ location /esi_25 {
 GET /esi_25_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: 25a 25b
+
+=== TEST 26: Include tag whitespace
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_26_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /fragment_1 {
+    echo "FRAGMENT";
+}
+location /esi_26 {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("1")
+        ngx.print("<esi:include src=\\"/fragment_1\\"/>")
+        ngx.say("2")
+        ngx.print("<esi:include    	   src=\\"/fragment_1\\"   	  />")
+    ';
+}
+--- request
+GET /esi_26_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+1
+FRAGMENT
+2
+FRAGMENT
