@@ -381,6 +381,7 @@ function _M.run_workers(self, options)
     worker.middleware = function(job)
         self:e "init_worker"
         job.redis = self:ctx().redis
+        job.redis_params = self:ctx().redis_params
 
         co_yield() -- Perform the job
 
@@ -1524,6 +1525,7 @@ _M.states = {
             return self:e "redis_connection_failed"
         else
             self:ctx().redis = redis
+            self:ctx().redis_params = redis_params
             return self:e "redis_connected"
         end
     end,
