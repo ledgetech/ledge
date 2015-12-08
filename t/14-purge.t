@@ -52,6 +52,7 @@ location /purge_cached {
 GET /purge_cached_prx
 --- timeout: 6
 --- no_error_log
+[error]
 --- response_body
 TEST 1
 
@@ -68,6 +69,7 @@ location /purge_cached {
 --- request
 PURGE /purge_cached
 --- no_error_log
+[error]
 --- error_code: 200
 
 
@@ -89,6 +91,7 @@ location /purge_cached {
 --- request
 GET /purge_cached_prx
 --- no_error_log
+[error]
 --- response_body
 TEST 3
 
@@ -126,6 +129,7 @@ location /purge_cached {
 --- request
 GET /purge_cached_prx?t=1
 --- no_error_log
+[error]
 --- response_body
 TEST 5
 
@@ -141,6 +145,7 @@ location /purge_cached {
 --- request
 PURGE /purge_cached*
 --- no_error_log
+[error]
 --- error_code: 200
 
 
@@ -162,6 +167,7 @@ location /purge_cached {
 --- request
 GET /purge_cached_prx?t=1
 --- no_error_log
+[error]
 --- response_body
 TEST 5c
 
@@ -184,6 +190,7 @@ location /purge_cached {
 --- request
 GET /purge_cached_prx
 --- no_error_log
+[error]
 --- response_body
 TEST 5d
 
@@ -200,6 +207,7 @@ location /purge_c {
 PURGE /purge_c*
 --- error_code: 200
 --- no_error_log
+[error]
 
 
 === TEST 6: Cache keys have been collected by Redis
@@ -223,6 +231,7 @@ location /purge_cached {
 GET /purge_cached
 --- timeout: 6
 --- no_error_log
+[error]
 --- response_body
 keys: 0
 
@@ -245,6 +254,7 @@ location /purge_cached {
 --- request
 GET /purge_cached_prx?t=1
 --- no_error_log
+[error]
 --- response_body
 TEST 5
 
@@ -260,6 +270,7 @@ location /purge_c {
 --- request
 PURGE /purge_ca*ed
 --- no_error_log
+[error]
 --- error_code: 404
 
 
@@ -282,6 +293,7 @@ location /purge_cached_8 {
 --- request
 GET /purge_cached_8_prx
 --- no_error_log
+[error]
 --- response_body
 TEST 8
 
@@ -291,12 +303,14 @@ TEST 8
 --- config
 location /purge_cached_8 {
     content_by_lua '
+        ledge:config_set("keyspace_scan_count", 1)
         ledge:run()
     ';
 }
 --- request
 PURGE /purge_cached_8*
 --- no_error_log
+[error]
 --- error_code: 200
 
 
@@ -311,6 +325,7 @@ location /purge_cached_8 {
 --- request
 PURGE /purge_cached_8*
 --- no_error_log
+[error]
 --- error_code: 404
 
 
@@ -332,6 +347,7 @@ location /purge_cached_8 {
 --- request
 GET /purge_cached_8_prx
 --- no_error_log
+[error]
 --- response_body
 TEST 8c
 
