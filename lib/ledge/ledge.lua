@@ -2576,13 +2576,13 @@ function _M.expire_pattern(self, cursor, key_chain, expired, lock_key, lock_expi
         end
 
         local cursor = tonumber(res[1])
-        if cursor > 1 then
+        if cursor > 0 then
             -- If we have a valid cursor, extend the lock and recurse to move on.
             local res, err = redis:pexpire(lock_key, lock_expiry)
             if not res then
                 ngx_log(ngx_ERR, "Error extending lock: ", err)
             end
-            return self:expire_pattern(cursor, key_chain, expired)
+            return self:expire_pattern(cursor, key_chain, expired, lock_key, lock_expiry)
         end
     end
 
