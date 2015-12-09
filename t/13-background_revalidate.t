@@ -42,14 +42,14 @@ location /stale_prx {
     content_by_lua '
         ledge:bind("before_save", function(res)
             -- immediately expire cache entries
-            res.header["Cache-Control"] = "max-age=0"
+            res.header["Cache-Control"] = "max-age=0, s-maxage=0"
         end)
         ledge:run()
     ';
 }
 location /stale {
     content_by_lua '
-        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60"
         ngx.say("TEST 1")
     ';
 }
@@ -91,7 +91,7 @@ TEST 1
 location /stale_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-ngx.sleep(3)
+        ngx.sleep(3)
         ledge:run()
     ';
 }

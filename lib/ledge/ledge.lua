@@ -453,18 +453,18 @@ end
 
 
 function _M.accepts_stale(self, res)
-    -- Check response for headers that prevent serving stale
-    local res_cc = res.header["Cache-Control"]
-    if h_util.header_has_directive(res_cc, 'revalidate') or
-        h_util.header_has_directive(res_cc, 's-maxage') then
-        return nil
-    end
-
     -- Check for max-stale request header
     local req_cc = ngx_req_get_headers()['Cache-Control']
     local req_max_stale = h_util.get_numeric_header_token(req_cc, 'max-stale')
     if req_max_stale then
-        return req_max_stale
+        -- Check response for headers that prevent serving stale
+        local res_cc = res.header["Cache-Control"]
+        if h_util.header_has_directive(res_cc, 'revalidate') or
+            h_util.header_has_directive(res_cc, 's-maxage') then
+            return nil
+        else
+            return req_max_stale
+        end
     end
 
     -- Fall back to max_stale config
