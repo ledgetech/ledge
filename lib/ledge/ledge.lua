@@ -268,9 +268,9 @@ function _M.new(self)
         gunzip_enabled = true,  -- Auto gunzip compressed responses for requests
                                 -- which do not support gzip encoding.
 
-        keyspace_scan_count = 1000, -- Limits the size of results returned from each keyspace scan command.
+        keyspace_scan_count = 10,   -- Limits the size of results returned from each keyspace scan command.
                                     -- A wildcard PURGE request will result in keyspace_size / keyspace_scan_count
-                                    -- redis commands over the wire.
+                                    -- redis commands over the wire, but larger numbers block redis for longer.
     }
 
     return setmetatable({ config = config }, mt)
