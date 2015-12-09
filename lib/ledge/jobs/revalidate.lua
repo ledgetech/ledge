@@ -18,6 +18,13 @@ function _M.perform(job)
     local request_line = str_match(job.data.raw_header, "[^\r\n]+")
     local uri = str_match(request_line, "[^%s]+%s([^%s]+)")
 
+    if job.data.scheme == "https" then
+        local ok, err = httpc:ssl_handshake(false, job.data.host, false)
+        if not ok then
+            return nil, "job-error", "ssl handshake failed: " .. err
+        end
+    end
+
     local res, err = httpc:request{
         method = "GET",
         path = uri,

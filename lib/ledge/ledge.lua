@@ -1435,6 +1435,7 @@ _M.actions = {
             host = ngx_var.host,
             server_addr = ngx_var.server_addr,
             server_port = ngx_var.server_port,
+            scheme = ngx_var.scheme,
         }, {
             tags = { "revalidate" },
             priority = 5,
