@@ -4,6 +4,7 @@ local pairs, unpack = pairs, unpack
 local tbl_insert = table.insert
 local str_len = string.len
 local str_sub = string.sub
+local ngx_null = ngx.null
 
 
 local _M = {
@@ -18,7 +19,7 @@ function _M.perform(job)
         return nil, "job-error", "no redis connection provided"
     end
 
-    local res = _M.expire_pattern(
+    local res, err = _M.expire_pattern(
         redis,
         0,
         job.data.key_chain,
@@ -26,7 +27,7 @@ function _M.perform(job)
         false
     )
 
-    if res then
+    if res ~= nil then
         return true, nil
     else
         return nil, "redis-error", err
@@ -40,8 +41,8 @@ end
 -- args:
 --  cursor: the scan cursor, updated for each iteration
 --  key_chain: key chain containing the patterned key to scan for
---  expired: flag to show if at least one thing has expired, controls ret value.
-function _M.expire_pattern(redis, cursor, key_chain, count, expired)
+--  count: the scan count size
+function _M.expire_pattern(redis, cursor, key_chain, count)
     local res, err = redis:scan(
         cursor,
         "MATCH", key_chain.key,
@@ -49,7 +50,7 @@ function _M.expire_pattern(redis, cursor, key_chain, count, expired)
     )
 
     if not res or res == ngx_null then
-        ngx_log(ngx_ERR, err)
+        return nil, err
     else
         for _,key in ipairs(res[2]) do
             local entity = redis:get(key)
@@ -61,11 +62,6 @@ function _M.expire_pattern(redis, cursor, key_chain, count, expired)
                     ledge.key_chain(nil, cache_key), -- a keychain for this key
                     ledge.entity_keys(nil, cache_key .. "::" .. entity) -- the entity keys for the live entity
                 )
-
-                if expired == false then
-                    -- Only update the expired flag from negative to positive
-                    expired = res
-                end
             end
         end
 
@@ -74,9 +70,9 @@ function _M.expire_pattern(redis, cursor, key_chain, count, expired)
             -- If we have a valid cursor, recurse to move on.
             return _M.expire_pattern(redis, cursor, key_chain, count, expired)
         end
-    end
 
-    return expired
+        return true
+    end
 end
 
 
