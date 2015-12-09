@@ -38,6 +38,7 @@ local ngx_re_find = ngx.re.find
 local ngx_var = ngx.var
 local ngx_timer_at = ngx.timer.at
 local ngx_sleep = ngx.sleep
+local ngx_md5 = ngx.md5
 local ngx_PARTIAL_CONTENT = 206
 local ngx_RANGE_NOT_SATISFIABLE = 416
 local tbl_insert = table.insert
@@ -2560,6 +2561,7 @@ function _M.expire(self)
             key_chain = key_chain,
             keyspace_scan_count = self:config_get("keyspace_scan_count"),
         }, {
+            jid = ngx_md5(key_chain.root),
             tags = { "purge" },
         })
         return true
