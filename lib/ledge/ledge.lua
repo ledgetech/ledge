@@ -2537,59 +2537,6 @@ function _M.delete_from_cache(self)
 end
 
 
--- Scans the keyspace based on a pattern (asterisk) present in the main key,
--- including the ::key suffix to denote the main key entry.
--- (i.e. one per entry)
--- args:
---  cursor: the scan cursor, updated for each iteration
---  key_chain: key chain containing the patterned key to scan for
---  expired: flag to show if at least one thing has expired, controls ret value.
---  lock_key: lock key which should be already set, updated when we recurse.
---  locl_expiry: how long to extend the lock ttl for each scan
-function _M.expire_pattern(self, cursor, key_chain, expired, lock_key, lock_expiry)
-    local redis = self:ctx().redis
-
-    local res, err = redis:scan(
-        cursor,
-        "MATCH", key_chain.key,
-        "COUNT", self:config_get("keyspace_scan_count")
-    )
-
-    if not res or res == ngx_null then
-        ngx_log(ngx_ERR, err)
-    else
-        for _,key in ipairs(res[2]) do
-            local entity = redis:get(key)
-            if entity then
-                -- Remove the ::key part to give the cache_key without a suffix
-                local cache_key = str_sub(key, 1, -(str_len("::key") + 1))
-                local res = self:expire_keys(
-                    self:key_chain(cache_key), -- a keychain for this key
-                    self:entity_keys(cache_key .. "::" .. entity) -- the entity keys for the live entity
-                )
-
-                if expired == false then
-                    -- Only update the expired flag from negative to positive
-                    expired = res
-                end
-            end
-        end
-
-        local cursor = tonumber(res[1])
-        if cursor > 0 then
-            -- If we have a valid cursor, extend the lock and recurse to move on.
-            local res, err = redis:pexpire(lock_key, lock_expiry)
-            if not res then
-                ngx_log(ngx_ERR, "Error extending lock: ", err)
-            end
-            return self:expire_pattern(cursor, key_chain, expired, lock_key, lock_expiry)
-        end
-    end
-
-    return expired
-end
-
-
 -- Marks the current live entity as expired. If the cache key contains
 -- asterisks then we scan the keyspace for matching keys and expire
 -- the live entity for each key found.
@@ -2599,32 +2546,11 @@ function _M.expire(self)
 
     -- Do we have asterisks?
     if ngx_re_find(key_chain.root, "\\*", "soj") then
-
-        -- We use a lock to ensure scanning for the same pattern
-        -- cannot happen concurrently. The lock will auto expire after
-        -- two minutes in the case of failure.
-        local lock_key = "scan_lock:" .. key_chain.root
-        local lock_expiry = 60 * 1000
-        local res, err = self:acquire_lock(lock_key, lock_expiry)
-
-        if res == nil then
-            -- Some kind of real error acquiring the lock
-            if err then ngx_log(ngx_ERR, err) end
-            return false, "ERROR"
-        elseif res == false then
-            -- We're already busy doing this same purge. This will
-            -- return 429 Too Many Requests to the client.
-            return false, "BUSY"
-        else
-            local res = self:expire_pattern(0, key_chain, false, lock_key, lock_expiry)
-
-            local del_res, err = redis:del(lock_key) -- Clear the lock
-            if not del_res then
-                ngx_log(ngx_ERR, "Error clearing lock: ", err)
-            end
-
-            return res
-        end
+        self:put_background_job("ledge", "ledge.jobs.purge", {
+            key_chain = key_chain,
+            keyspace_scan_count = self:config_get("keyspace_scan_count"),
+        })
+        return true
     else
         -- Standard non-wildcard purge.
         local entity_keys = self:cache_entity_keys()
@@ -2632,16 +2558,14 @@ function _M.expire(self)
             -- nothing to expire
             return false
         else
-            return self:expire_keys(key_chain, entity_keys)
+            return self:expire_keys(redis, key_chain, entity_keys)
         end
     end
 end
 
 
 -- Expires the keys in key_chain and the entity provided by entity_keys
-function _M.expire_keys(self, key_chain, entity_keys)
-    local redis = self:ctx().redis
-
+function _M.expire_keys(self, redis, key_chain, entity_keys)
     if redis:exists(entity_keys.main) == 1 then
         local time = ngx_time()
         local expires, err = redis:hget(entity_keys.main, "expires")
