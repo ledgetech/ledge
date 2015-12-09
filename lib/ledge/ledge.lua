@@ -703,6 +703,8 @@ function _M.cache_entity_keys(self)
                 cache_key_chain = key_chain,
                 entity_keys = keys,
                 size = size,
+            }, {
+                tags = { "collect_entity" }
             })
             return nil
         end
@@ -1428,6 +1430,8 @@ _M.actions = {
             host = ngx_var.host,
             server_addr = ngx_var.server_addr,
             server_port = ngx_var.server_port,
+        }, {
+            tags = { "revalidate" }
         })
     end,
 
@@ -2468,7 +2472,10 @@ function _M.save_to_cache(self, res)
             cache_key_chain = key_chain,
             size = previous_entity_size,
             entity_keys = previous_entity_keys,
-        }, { delay = self:gc_wait(previous_entity_size) })
+        }, {
+            delay = self:gc_wait(previous_entity_size),
+            tags = { "collect_entity" },
+        })
     end
 
     redis:hmset(entity_keys.main,
@@ -2525,7 +2532,10 @@ function _M.delete_from_cache(self)
             cache_key_chain = key_chain,
             entity_keys = entity_keys,
             size = size,
-        }, { delay = self:gc_wait(size) })
+        }, {
+            delay = self:gc_wait(size),
+            tags = { "collect_entity" },
+        })
     end
 
     -- Delete the main cache keys straight away
@@ -2549,6 +2559,8 @@ function _M.expire(self)
         self:put_background_job("ledge", "ledge.jobs.purge", {
             key_chain = key_chain,
             keyspace_scan_count = self:config_get("keyspace_scan_count"),
+        }, {
+            tags = { "purge" },
         })
         return true
     else
