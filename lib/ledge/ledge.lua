@@ -382,7 +382,10 @@ function _M.run_workers(self, options)
     worker.middleware = function(job)
         self:e "init_worker"
         job.redis = self:ctx().redis
+        -- Pass though connection params in case jobs need to
+        -- connect to a slave or anything of that nature.
         job.redis_params = self:ctx().redis_params
+        job.redis_connection_options = connection_options
 
         co_yield() -- Perform the job
 
@@ -1523,8 +1526,11 @@ _M.states = {
         end
 
         local rc = redis_connector.new()
-        rc:set_connect_timeout(self:config_get("redis_connect_timeout"))
-        rc:set_read_timeout(self:config_get("redis_read_timeout"))
+        local connect_timeout = self:config_get("redis_connect_timeout")
+        local read_timeout = self:config_get("redis_read_timeout")
+
+        rc:set_connect_timeout(connect_timeout)
+        rc:set_read_timeout(read_timeout)
 
         local redis, err = rc:connect(redis_params)
         if not redis then

@@ -1,3 +1,4 @@
+local redis_connector = require "resty.redis.connector"
 local ledge = require "ledge.ledge"
 
 local ipairs, tonumber = ipairs, tonumber
@@ -5,25 +6,42 @@ local str_len = string.len
 local str_sub = string.sub
 local ngx_null = ngx.null
 
-
 local _M = {
     _VERSION = '0.01',
 }
 
 
--- Cleans up expired items and keeps track of memory usage.
+-- Scans the keyspace for keys which match, and expires them. We do this against
+-- the slave Redis instance if available.
 function _M.perform(job)
     local redis = job.redis
+    local redis_params = job.redis_params
+    local redis_connection_options = job.redis_connection_options
+
+    -- Try to connect to a slave for SCAN commands.
+    local rc = redis_connector.new()
+    rc:set_connect_timeout(redis_connection_options.connect_timeout)
+    rc:set_read_timeout(redis_connection_options.read_timeout)
+    redis_params.role = "slave"
+
+    local redis_slave, err = rc:connect(redis_params)
+    if not redis_slave then
+        -- Use the existing connection
+        redis_slave = redis
+    end
+
     if not redis then
         return nil, "job-error", "no redis connection provided"
     end
 
+    -- This runs recursively using the SCAN cursor, until the entire keyspace
+    -- has been scanned.
     local res, err = _M.expire_pattern(
         redis,
+        redis_slave,
         0,
         job.data.key_chain,
-        job.data.keyspace_scan_count,
-        false
+        job.data.keyspace_scan_count
     )
 
     if res ~= nil then
@@ -38,11 +56,13 @@ end
 -- including the ::key suffix to denote the main key entry.
 -- (i.e. one per entry)
 -- args:
+--  redis: master redis connection
+--  redis_slave: slave (may actually be master) for running expensive scan commands
 --  cursor: the scan cursor, updated for each iteration
 --  key_chain: key chain containing the patterned key to scan for
 --  count: the scan count size
-function _M.expire_pattern(redis, cursor, key_chain, count)
-    local res, err = redis:scan(
+function _M.expire_pattern(redis, redis_slave, cursor, key_chain, count)
+    local res, err = redis_slave:scan(
         cursor,
         "MATCH", key_chain.key,
         "COUNT", count
@@ -67,7 +87,7 @@ function _M.expire_pattern(redis, cursor, key_chain, count)
         local cursor = tonumber(res[1])
         if cursor > 0 then
             -- If we have a valid cursor, recurse to move on.
-            return _M.expire_pattern(redis, cursor, key_chain, count)
+            return _M.expire_pattern(redis, redis_slave, cursor, key_chain, count)
         end
 
         return true
