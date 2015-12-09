@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 8;
+plan tests => repeat_each() * (blocks() * 3) - 7;
 
 my $pwd = cwd();
 
@@ -155,6 +155,7 @@ PURGE /purge_cached*
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ngx.sleep(1) -- Wait for qless to do the work
         ledge:run()
     ';
 }
@@ -271,7 +272,25 @@ location /purge_c {
 PURGE /purge_ca*ed
 --- no_error_log
 [error]
---- error_code: 404
+--- error_code: 200
+
+
+=== TEST 7c: Confirm purge did nothing
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ngx.sleep(1) -- Wait for qless work
+        ledge:run()
+    ';
+}
+--- request
+GET /purge_cached_prx?t=1
+--- no_error_log
+[error]
+--- response_body
+TEST 5
 
 
 === TEST 8a: Prime another key - with keep_cache_for set
@@ -314,27 +333,13 @@ PURGE /purge_cached_8*
 --- error_code: 200
 
 
-=== TEST 8c: Wildcard Purge again (404)
---- http_config eval: $::HttpConfig
---- config
-location /purge_cached_8 {
-    content_by_lua '
-        ledge:run()
-    ';
-}
---- request
-PURGE /purge_cached_8*
---- no_error_log
-[error]
---- error_code: 404
-
-
 === TEST 8d: Cache has been purged with args
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_8_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ngx.sleep(1) -- Wait for qless
         ledge:run()
     ';
 }
@@ -350,4 +355,5 @@ GET /purge_cached_8_prx
 [error]
 --- response_body
 TEST 8c
+--- error_code: 200
 

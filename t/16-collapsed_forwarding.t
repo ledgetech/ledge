@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2);
+plan tests => repeat_each() * (blocks() * 2) + 1;
 my $pwd = cwd();
 
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
@@ -342,3 +342,21 @@ GET /concurrent_collapsed
 --- response_body
 OK 1
 OK 1
+
+
+=== TEST 9: Allow pending qless jobs to run
+--- http_config eval: $::HttpConfig
+--- config
+location /qless {
+    content_by_lua '
+        ngx.sleep(5)
+        ngx.say("QLESS")
+    ';
+}
+--- request
+GET /qless
+--- timeout: 6
+--- response_body
+QLESS
+--- no_error_log
+[error]

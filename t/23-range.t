@@ -63,7 +63,7 @@ Range: bytes=0-1
 --- request
 GET /range_entry
 --- response_body: 01
---- timeout: 6
+--- timeout: 7
 
 
 === TEST 2: Cache HIT, get the first byte only

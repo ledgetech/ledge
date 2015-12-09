@@ -428,3 +428,21 @@ GET /validation10_prx
 TEST 10
 --- response_headers_like
 X-Cache: HIT from .*
+
+
+=== TEST 12: Allow pending qless jobs to run
+--- http_config eval: $::HttpConfig
+--- config
+location /qless {
+    content_by_lua '
+        ngx.sleep(5)
+        ngx.say("QLESS")
+    ';
+}
+--- request
+GET /qless
+--- timeout: 6
+--- response_body
+QLESS
+--- no_error_log
+[error]

@@ -138,9 +138,15 @@ TEST 4a
 === TEST 4b: Return stale when in offline mode
 --- http_config eval: $::HttpConfig
 --- config
+location /stale_entry {
+    echo_location /stale_4_prx;
+    echo_flush;
+    echo_sleep 3;
+}
 location /stale_4_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ngx.sleep(1)
         ledge:config_set("origin_mode", ledge.ORIGIN_MODE_BYPASS)
         ledge:run()
     ';
@@ -152,8 +158,27 @@ location /stale_4 {
     ';
 }
 --- request
-GET /stale_4_prx
+GET /stale_entry
+--- timeout: 5
 --- response_body
 TEST 4a
+--- no_error_log
+[error]
+
+
+=== TEST 8: Allow pending qless jobs to run
+--- http_config eval: $::HttpConfig
+--- config
+location /qless {
+    content_by_lua '
+        ngx.sleep(5)
+        ngx.say("QLESS")
+    ';
+}
+--- request
+GET /qless
+--- timeout: 6
+--- response_body
+QLESS
 --- no_error_log
 [error]
