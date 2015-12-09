@@ -1,7 +1,6 @@
 local ledge = require "ledge.ledge"
 
-local pairs, unpack = pairs, unpack
-local tbl_insert = table.insert
+local ipairs, tonumber = ipairs, tonumber
 local str_len = string.len
 local str_sub = string.sub
 local ngx_null = ngx.null
@@ -68,7 +67,7 @@ function _M.expire_pattern(redis, cursor, key_chain, count)
         local cursor = tonumber(res[1])
         if cursor > 0 then
             -- If we have a valid cursor, recurse to move on.
-            return _M.expire_pattern(redis, cursor, key_chain, count, expired)
+            return _M.expire_pattern(redis, cursor, key_chain, count)
         end
 
         return true

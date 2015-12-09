@@ -705,7 +705,8 @@ function _M.cache_entity_keys(self)
                 entity_keys = keys,
                 size = size,
             }, {
-                tags = { "collect_entity" }
+                tags = { "collect_entity" },
+                priority = 10,
             })
             return nil
         end
@@ -1432,7 +1433,8 @@ _M.actions = {
             server_addr = ngx_var.server_addr,
             server_port = ngx_var.server_port,
         }, {
-            tags = { "revalidate" }
+            tags = { "revalidate" },
+            priority = 5,
         })
     end,
 
@@ -2476,6 +2478,7 @@ function _M.save_to_cache(self, res)
         }, {
             delay = self:gc_wait(previous_entity_size),
             tags = { "collect_entity" },
+            priority = 10,
         })
     end
 
@@ -2536,6 +2539,7 @@ function _M.delete_from_cache(self)
         }, {
             delay = self:gc_wait(size),
             tags = { "collect_entity" },
+            priority = 10,
         })
     end
 
@@ -2563,6 +2567,7 @@ function _M.expire(self)
         }, {
             jid = ngx_md5(key_chain.root),
             tags = { "purge" },
+            priority = 1,
         })
         return true
     else
