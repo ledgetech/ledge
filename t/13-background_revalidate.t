@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 3;
+plan tests => repeat_each() * (blocks() * 3) - 5;
 
 my $pwd = cwd();
 
@@ -74,10 +74,16 @@ location /stale {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 2")
+        local hdr = ngx.req.get_headers()
+        ngx.say("Authorization: ",hdr["Authorization"])
+        ngx.say("Cookie: ",hdr["Cookie"])
     ';
 }
 --- request
 GET /stale_prx
+--- more_headers
+Authorization: foobar
+Cookie: baz=qux
 --- response_body
 TEST 1
 --- wait: 4
@@ -106,7 +112,8 @@ GET /stale_prx
 --- timeout: 6
 --- response_body
 TEST 2
-
+Authorization: foobar
+Cookie: baz=qux
 
 === TEST 4a: Re-prime and expire
 --- http_config eval: $::HttpConfig
@@ -164,6 +171,94 @@ GET /stale_entry
 TEST 4a
 --- no_error_log
 [error]
+
+
+=== TEST 5a: Prime cache for subsequent tests
+--- http_config eval: $::HttpConfig
+--- config
+location /stale5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("before_save", function(res)
+            -- immediately expire cache entries
+            res.header["Cache-Control"] = "max-age=0, s-maxage=0"
+        end)
+        ledge:run()
+    ';
+}
+location /stale5 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60"
+        ngx.say("TEST 5")
+    ';
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale5_prx
+--- response_body
+TEST 5
+
+
+=== TEST 5b: Return stale
+--- http_config eval: $::HttpConfig
+--- config
+location /stale5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("revalidate_parent_headers", {"x-test", "x-test2"})
+        ledge:bind("set_revalidation_headers", function(hdrs)
+            hdrs["x-test2"] = "bazqux"
+        end)
+        ledge:run()
+    ';
+}
+location /stale5 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 5b")
+        local hdr = ngx.req.get_headers()
+        ngx.say("X-Test: ",hdr["X-Test"])
+        ngx.say("X-Test2: ",hdr["X-Test2"])
+        ngx.say("Cookie: ",hdr["Cookie"])
+    ';
+}
+--- request
+GET /stale5_prx
+--- more_headers
+X-Test: foobar
+Cookie: baz=qux
+--- response_body
+TEST 5
+--- wait: 4
+--- no_error_log
+[error]
+
+
+=== TEST 5c: Cache has been revalidated, custom headers
+--- http_config eval: $::HttpConfig
+--- config
+location /stale5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ngx.sleep(3)
+        ledge:run()
+    ';
+}
+location /stale5_main {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 5c")
+    ';
+}
+--- request
+GET /stale5_prx
+--- timeout: 6
+--- response_body
+TEST 5b
+X-Test: foobar
+X-Test2: bazqux
+Cookie: nil
 
 
 === TEST 8: Allow pending qless jobs to run
