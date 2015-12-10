@@ -48,6 +48,7 @@ coupled with the flexibility to script configuration dynamically.
     * [esi_pre_include_callback](#esi_pre_include_callback)
     * [gunzip_enabled](#gunzip_enabled)
     * [keyspace_scan_count](#keyspace_scan_count)
+    * [revalidate_parent_headers](#revalidate_parent_headers)
 * [Workers](#workers)
     * [run_workers](#run_workers)
 * [Events](#events)
@@ -59,6 +60,7 @@ coupled with the flexibility to script configuration dynamically.
     * [origin_fetched](#origin_fetched)
     * [before_save](#before_save)
     * [response_ready](#response_ready)
+    * [set_revalidation_headers](#set_revalidation_headers)
 * [Protecting purge requests](#protecting-purge-requests)
 * [Logging](#logging)
 * [Licence](#licence)
@@ -618,11 +620,18 @@ Also note that `Range` requests for gzipped content must be ignored - the full r
 
 syntax: `ledge:config_set("keyspace_scan_count", 10000)`
 
-defautl: 1000
+default: 1000
 
 Tunes the behaviour of keyspace scans, which occur when sending a PURGE request with wildcard syntax. A higher number may be better if latency to Redis is high and the keyspace is large.
 
+### revalidate_parent_headers
 
+syntax: `ledge:config_set("revalidate_parent_headers", {"x-real-ip", "authorization"})`
+
+default: {"authorization", "cookie"}
+
+Defines which headers from the parent request are passed through to a background revalidation.
+Useful when upstreams require authentication.
 
 ## Workers
 
@@ -758,6 +767,16 @@ limit_except GET POST PUT DELETE {
     deny    all;
 }
 ```
+
+
+## set_revalidation_headers
+
+syntax: `ledge:bind("set_revalidation_headers", function(headers) -- end)`
+
+params: `headers`. Table of request headers.
+
+Fires when a background revalidation is triggered.
+Allows inserting and modifying the headers which are inherited by the background revalidation
 
 
 

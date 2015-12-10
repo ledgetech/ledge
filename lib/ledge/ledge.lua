@@ -271,6 +271,8 @@ function _M.new(self)
         keyspace_scan_count = 10,   -- Limits the size of results returned from each keyspace scan command.
                                     -- A wildcard PURGE request will result in keyspace_size / keyspace_scan_count
                                     -- redis commands over the wire, but larger numbers block redis for longer.
+
+        revalidate_parent_headers = {"authorization", "cookie"} -- Parent headers to pass through on background revalidate
     }
 
     return setmetatable({ config = config }, mt)
@@ -1430,12 +1432,16 @@ _M.actions = {
     end,
 
     revalidate_in_background = function(self)
+        local headers = ngx.req.get_headers()
+        self:emit("set_revalidation_headers", headers)
+
         self:put_background_job("ledge", "ledge.jobs.revalidate", {
-            raw_header = ngx_req_raw_header(),
-            host = ngx_var.host,
+            uri = ngx_var.request_uri,
+            headers = headers,
             server_addr = ngx_var.server_addr,
             server_port = ngx_var.server_port,
             scheme = ngx_var.scheme,
+            parent_headers = self:config_get("revalidate_parent_headers"),
         }, {
             tags = { "revalidate" },
             priority = 5,
