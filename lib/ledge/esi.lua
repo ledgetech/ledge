@@ -14,6 +14,7 @@ local ngx_req_get_headers = ngx.req.get_headers
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_uri_args = ngx.req.get_uri_args
 local ngx_crc32_long = ngx.crc32_long
+local ngx_flush = ngx.flush
 local ngx_var = ngx.var
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
@@ -517,6 +518,7 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                         if from then
                             -- Yield up to the start of the include tag
                             co_yield(str_sub(chunk, yield_from, from - 1))
+                            ngx_flush()
                             yield_from = to + 1
 
                             -- Fetches and yields the streamed response
