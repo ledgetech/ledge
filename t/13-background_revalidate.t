@@ -74,10 +74,16 @@ location /stale {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 2")
+        local hdr = ngx.req.get_headers()
+        ngx.say("Authorization: ",hdr["Authorization"])
+        ngx.say("Cookie: ",hdr["Cookie"])
     ';
 }
 --- request
 GET /stale_prx
+--- more_headers
+Authorization: foobar
+Cookie: baz=qux
 --- response_body
 TEST 1
 --- wait: 4
@@ -106,7 +112,8 @@ GET /stale_prx
 --- timeout: 6
 --- response_body
 TEST 2
-
+Authorization: foobar
+Cookie: baz=qux
 
 === TEST 4a: Re-prime and expire
 --- http_config eval: $::HttpConfig
