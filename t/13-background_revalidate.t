@@ -206,7 +206,10 @@ TEST 5
 location /stale5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("revalidate_parent_headers", {"x-test"})
+        ledge:config_set("revalidate_parent_headers", {"x-test", "x-test2"})
+        ledge:bind("set_revalidation_headers", function(hdrs)
+            hdrs["x-test2"] = "bazqux"
+        end)
         ledge:run()
     ';
 }
@@ -216,6 +219,7 @@ location /stale5 {
         ngx.say("TEST 5b")
         local hdr = ngx.req.get_headers()
         ngx.say("X-Test: ",hdr["X-Test"])
+        ngx.say("X-Test2: ",hdr["X-Test2"])
         ngx.say("Cookie: ",hdr["Cookie"])
     ';
 }
@@ -253,6 +257,7 @@ GET /stale5_prx
 --- response_body
 TEST 5b
 X-Test: foobar
+X-Test2: bazqux
 Cookie: nil
 
 
