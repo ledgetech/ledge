@@ -41,7 +41,8 @@ function _M.perform(job)
         redis_slave,
         0,
         job.data.key_chain,
-        job.data.keyspace_scan_count
+        job.data.keyspace_scan_count,
+        job
     )
 
     if res ~= nil then
@@ -61,12 +62,18 @@ end
 --  cursor: the scan cursor, updated for each iteration
 --  key_chain: key chain containing the patterned key to scan for
 --  count: the scan count size
-function _M.expire_pattern(redis, redis_slave, cursor, key_chain, count)
+function _M.expire_pattern(redis, redis_slave, cursor, key_chain, count, job)
     local res, err = redis_slave:scan(
         cursor,
         "MATCH", key_chain.key,
         "COUNT", count
     )
+
+    if job:ttl() < 10 then
+        if not job:heartbeat() then
+            return false, "Failed to heartbeat job"
+        end
+    end
 
     if not res or res == ngx_null then
         return nil, err
@@ -87,7 +94,7 @@ function _M.expire_pattern(redis, redis_slave, cursor, key_chain, count)
         local cursor = tonumber(res[1])
         if cursor > 0 then
             -- If we have a valid cursor, recurse to move on.
-            return _M.expire_pattern(redis, redis_slave, cursor, key_chain, count)
+            return _M.expire_pattern(redis, redis_slave, cursor, key_chain, count, job)
         end
 
         return true
