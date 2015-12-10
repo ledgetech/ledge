@@ -15,9 +15,6 @@ function _M.perform(job)
         return nil, "job-error", "could not connect to server: " .. err
     end
 
-    local request_line = str_match(job.data.raw_header, "[^\r\n]+")
-    local uri = str_match(request_line, "[^%s]+%s([^%s]+)")
-
     if job.data.scheme == "https" then
         local ok, err = httpc:ssl_handshake(false, job.data.host, false)
         if not ok then
@@ -25,13 +22,18 @@ function _M.perform(job)
         end
     end
 
+    local headers = {
+        ["Host"]          = job.data.headers["host"],
+        ["Authorization"] = job.data.headers["authorization"],
+        ["Cookie"]        = job.data.headers["cookie"],
+        ["Cache-Control"] = "max-stale=0, stale-if-error=0",
+        ["User-Agent"]    = httpc._USER_AGENT .. " ledge_revalidate/" .. _M._VERSION
+    }
+
     local res, err = httpc:request{
         method = "GET",
-        path = uri,
-        headers = {
-            ["Host"] = job.data.host,
-            ["Cache-Control"] = "max-stale=0, stale-if-error=0",
-        },
+        path = job.data.uri,
+        headers = headers,
     }
 
     if not res then

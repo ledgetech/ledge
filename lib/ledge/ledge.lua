@@ -1431,8 +1431,8 @@ _M.actions = {
 
     revalidate_in_background = function(self)
         self:put_background_job("ledge", "ledge.jobs.revalidate", {
-            raw_header = ngx_req_raw_header(),
-            host = ngx_var.host,
+            uri = ngx_var.request_uri,
+            headers = ngx.req.get_headers(),
             server_addr = ngx_var.server_addr,
             server_port = ngx_var.server_port,
             scheme = ngx_var.scheme,
