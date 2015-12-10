@@ -272,7 +272,8 @@ function _M.new(self)
                                     -- A wildcard PURGE request will result in keyspace_size / keyspace_scan_count
                                     -- redis commands over the wire, but larger numbers block redis for longer.
 
-        revalidate_parent_headers = {"authorization", "cookie"} -- Parent headers to pass through on background revalidate
+        revalidate_parent_headers = { "authorization", "cookie" } -- Parent headers to pass through on
+                                                                -- background revalidate.
     }
 
     return setmetatable({ config = config }, mt)
