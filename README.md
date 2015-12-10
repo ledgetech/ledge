@@ -60,6 +60,7 @@ coupled with the flexibility to script configuration dynamically.
     * [origin_fetched](#origin_fetched)
     * [before_save](#before_save)
     * [response_ready](#response_ready)
+    * [set_revalidation_headers](#set_revalidation_headers)
 * [Protecting purge requests](#protecting-purge-requests)
 * [Logging](#logging)
 * [Licence](#licence)
@@ -766,6 +767,16 @@ limit_except GET POST PUT DELETE {
     deny    all;
 }
 ```
+
+
+## set_revalidation_headers
+
+syntax: `ledge:bind("set_revalidation_headers", function(headers) -- end)`
+
+params: `headers`. Table of request headers.
+
+Fires when a background revalidation is triggered.
+Allows inserting and modifying the headers which are inherited by the background revalidation
 
 
 
