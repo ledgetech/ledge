@@ -23,12 +23,17 @@ function _M.perform(job)
     end
 
     local headers = {
-        ["Host"]          = job.data.headers["host"],
-        ["Authorization"] = job.data.headers["authorization"],
-        ["Cookie"]        = job.data.headers["cookie"],
+        ["Host"]          = job.data.headers["host"], -- Always set host from parent
         ["Cache-Control"] = "max-stale=0, stale-if-error=0",
         ["User-Agent"]    = httpc._USER_AGENT .. " ledge_revalidate/" .. _M._VERSION
     }
+
+    -- Add additional headers from parent
+    if job.data.parent_headers then
+        for _,hdr in ipairs(job.data.parent_headers) do
+            headers[hdr] = job.data.headers[hdr]
+        end
+    end
 
     local res, err = httpc:request{
         method = "GET",

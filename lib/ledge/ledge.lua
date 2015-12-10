@@ -271,6 +271,8 @@ function _M.new(self)
         keyspace_scan_count = 10,   -- Limits the size of results returned from each keyspace scan command.
                                     -- A wildcard PURGE request will result in keyspace_size / keyspace_scan_count
                                     -- redis commands over the wire, but larger numbers block redis for longer.
+
+        revalidate_parent_headers = {"authorization", "cookie"} -- Parent headers to pass through on background revalidate
     }
 
     return setmetatable({ config = config }, mt)
@@ -1436,6 +1438,7 @@ _M.actions = {
             server_addr = ngx_var.server_addr,
             server_port = ngx_var.server_port,
             scheme = ngx_var.scheme,
+            parent_headers = self:config_get("revalidate_parent_headers"),
         }, {
             tags = { "revalidate" },
             priority = 5,
