@@ -2543,7 +2543,7 @@ function _M.delete_from_cache(self)
         if not size or size == ngx_null then
             size = 60
             ngx_log(ngx_ERR,    "could not determine entity size for scheduling GC, "
-                                .. "will collect in 60 seconds")
+                                .. "will collect in 60 seconds: " .. err)
         end
 
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
