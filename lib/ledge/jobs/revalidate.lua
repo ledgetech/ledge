@@ -1,4 +1,5 @@
 local http = require "resty.http"
+local http_headers = require "resty.http_headers"
 
 local str_match = string.match
 
@@ -22,11 +23,10 @@ function _M.perform(job)
         end
     end
 
-    local headers = {
-        ["Host"]          = job.data.headers["host"], -- Always set host from parent
-        ["Cache-Control"] = "max-stale=0, stale-if-error=0",
-        ["User-Agent"]    = httpc._USER_AGENT .. " ledge_revalidate/" .. _M._VERSION
-    }
+    local headers = http_headers.new()
+    headers["Host"] = job.data.headers["host"] -- Always set host from parent
+    headers["Cache-Control"] = "max-stale=0, stale-if-error=0"
+    headers["User-Agent"] = httpc._USER_AGENT .. " ledge_revalidate/" .. _M._VERSION
 
     -- Add additional headers from parent
     if job.data.parent_headers then
