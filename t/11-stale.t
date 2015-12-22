@@ -220,6 +220,7 @@ location /stale_prx {
 }
 location /stale {
     content_by_lua '
+        ngx.status = 404
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 1")
     ';
@@ -232,9 +233,10 @@ GET /stale_prx
 TEST 1
 --- no_error_log
 [error]
+--- error_code: 404
 
 
-=== TEST 5: Stale responses should set Warning header
+=== TEST 5: Stale responses should set Warning header and send correct status
 --- http_config eval: $::StaleHttpConfig
 --- config
 location /stale_prx {
@@ -254,6 +256,7 @@ GET /stale_prx
 Warning: 110 .*
 --- no_error_log
 [error]
+--- error_code: 404
 
 
 === TEST 5: Reset cache for subsequent tests

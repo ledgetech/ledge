@@ -1260,6 +1260,9 @@ _M.pre_transitions = {
         "restore_error_response",
         "set_http_status_from_response"
     },
+    serving_stale = {
+        "set_http_status_from_response",
+    },
 }
 
 
