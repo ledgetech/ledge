@@ -266,13 +266,13 @@ Cookie: nil
 --- config
 location /qless {
     content_by_lua '
-        ngx.sleep(5)
+        ngx.sleep(10)
         ngx.say("QLESS")
     ';
 }
 --- request
 GET /qless
---- timeout: 6
+--- timeout: 11
 --- response_body
 QLESS
 --- no_error_log

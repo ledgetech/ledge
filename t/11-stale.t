@@ -447,7 +447,7 @@ TEST 11
 --- config
 location /stale_qless {
     content_by_lua '
-        ngx.sleep(5)
+        ngx.sleep(3)
         ngx.say("TEST 12")
     ';
 }
@@ -458,7 +458,7 @@ location /stale_prx {
 }
 --- request
 GET /stale_qless
---- timeout: 6
+--- timeout: 5
 --- response_body
 TEST 12
 --- no_error_log
