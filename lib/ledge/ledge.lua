@@ -1455,6 +1455,11 @@ _M.actions = {
             scheme = ngx_var.scheme,
             parent_headers = self:config_get("revalidate_parent_headers"),
         }, {
+            jid = ngx_md5(
+                ngx_var.scheme ..
+                ":" .. headers.host or "" ..
+                ":" .. ngx_var.request_uri
+            ),
             tags = { "revalidate" },
             priority = 5,
         })
