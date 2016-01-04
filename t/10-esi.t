@@ -1677,6 +1677,7 @@ GET /esi_25_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: 25a 25b
 
+
 === TEST 26: Include tag whitespace
 --- http_config eval: $::HttpConfig
 --- config
@@ -1706,3 +1707,73 @@ GET /esi_26_prx
 FRAGMENT
 2
 FRAGMENT
+
+
+=== TEST 27a: Prime cache, immediately expired
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_27_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("before_save", function(res)
+            -- immediately expire cache entries
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        run()
+    ';
+}
+location /esi_27 {
+    default_type text/html;
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.say("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    ';
+}
+--- request
+GET /esi_27_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+a=1
+--- no_error_log
+[error]
+
+
+=== TEST 27b: ESI still works when serving stale
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_27_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("max_stale", 60)
+        run()
+    ';
+}
+--- request
+GET /esi_27_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+a=1
+--- no_error_log
+[error]
+
+
+=== TEST 27c: ESI still works when serving stale-if-error
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_27_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("stale_if_error", 60)
+        run()
+    ';
+}
+location /esi_27 {
+    return 500;
+}
+--- request
+GET /esi_27_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+a=1
+--- no_error_log
+[error]

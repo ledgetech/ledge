@@ -1129,6 +1129,14 @@ _M.events = {
     },
 
     esi_process_enabled = {
+        { in_case = "serve_stale", begin = "serving_stale",
+            but_first = {
+                "install_esi_process_filter",
+                "set_esi_process_enabled",
+                "zero_downstream_lifetime",
+                "remove_surrogate_control_header"
+            }
+        },
         { begin = "preparing_response",
             but_first = {
                 "install_esi_process_filter",
@@ -1169,8 +1177,8 @@ _M.events = {
     -- response headers.
     -- TODO: "serve_stale" isn't really an event?
     serve_stale = {
-        { after = "considering_stale_error", begin = "serving_stale", but_first = "add_stale_warning" },
-        { begin = "serving_stale", but_first = { "add_stale_warning", "revalidate_in_background" } },
+        { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
+        { begin = "considering_esi_process", but_first = { "add_stale_warning", "revalidate_in_background" } },
     },
 
     -- We have sent the response. If it was stale, we go back around the fetching path
