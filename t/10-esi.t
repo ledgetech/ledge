@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 3) + 6;
+plan tests =>  repeat_each() * (blocks() * 4) - 2;
 
 my $pwd = cwd();
 
@@ -65,6 +65,8 @@ GET /esi_1_prx
 COMMENTED
 COMMENTED
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 1b: Single line comments removed, esi instructions processed
@@ -86,6 +88,8 @@ location /esi_1b {
 GET /esi_1b_prx?a=1b
 --- response_body: a=1b
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 2: Multi line comments removed
@@ -117,6 +121,8 @@ GET /esi_2_prx
 2
 
 3
+--- no_error_log
+[error]
 
 
 === TEST 2b: Multi line comments removed, ESI instructions processed
@@ -153,6 +159,8 @@ GET /esi_2_prx?a=1
 2345
 
 a=1
+--- no_error_log
+[error]
 
 
 === TEST 3: Single line <esi:remove> removed.
@@ -181,6 +189,8 @@ START
 
 
 END
+--- no_error_log
+[error]
 
 
 === TEST 4: Multi line <esi:remove> removed.
@@ -217,6 +227,8 @@ GET /esi_4_prx
 4
 
 6
+--- no_error_log
+[error]
 
 
 === TEST 5: Include fragment
@@ -251,6 +263,8 @@ FRAGMENT
 2
 FRAGMENT
 3FRAGMENT
+--- no_error_log
+[error]
 
 
 === TEST 5b: Test fragment always issues GET and only inherits correct req headers
@@ -294,6 +308,8 @@ cache-control: no-cache
 x-esi-recursion-level: 1
 user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+
 authorization: bar
+--- no_error_log
+[error]
 
 
 === TEST 6: Include multiple fragments, in correct order.
@@ -335,6 +351,8 @@ GET /esi_6_prx
 FRAGMENT_3
 MID LINE FRAGMENT_1
 FRAGMENT_2
+--- no_error_log
+[error]
 
 
 === TEST 7: Leave instructions intact if ESI is not enabled.
@@ -356,6 +374,8 @@ location /esi_7 {
 --- request
 GET /esi_7_prx?a=1
 --- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
+--- no_error_log
+[error]
 
 
 === TEST 7b: Leave instructions intact if ESI delegation is enabled - slow path.
@@ -382,6 +402,8 @@ Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 --- response_headers
 Surrogate-Control: content="ESI/1.0"
+--- no_error_log
+[error]
 
 
 === TEST 7c: Leave instructions intact if ESI delegation is enabled - fast path.
@@ -427,6 +449,8 @@ Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 --- response_headers
 Surrogate-Control: content="ESI/1.0"
+--- no_error_log
+[error]
 
 
 === TEST 7e: Leave instructions intact if ESI delegation is enabled by IP, fast path.
@@ -446,6 +470,8 @@ Surrogate-Capability: localhost="ESI/1.0"
 --- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 --- response_headers
 Surrogate-Control: content="ESI/1.0"
+--- no_error_log
+[error]
 
 
 === TEST 7f: Leave instructions intact if allowed types does not match (slow path)
@@ -470,6 +496,8 @@ GET /esi_7f_prx?a=1
 --- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
 --- response_headers
 Surrogate-Control: content="ESI/1.0"
+--- no_error_log
+[error]
 
 
 === TEST 7g: Leave instructions intact if allowed types does not match (fast path)
@@ -518,6 +546,8 @@ GET /esi_8_prx
 --- response_headers_like
 Cache-Control: private, must-revalidate
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 9: Variable evaluation
@@ -552,6 +582,8 @@ HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
 HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
 hello$(HTTP_COOKIE)t=1
+--- no_error_log
+[error]
 
 
 === TEST 9b: Multiple Variable evaluation
@@ -579,6 +611,8 @@ X-ESI-Test: foobar
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT:t=1&test=foobar <a href="$(QUERY_STRING)" />
+--- no_error_log
+[error]
 
 
 
@@ -607,6 +641,8 @@ Cookie: foo=bar
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT:1&test=bar
+--- no_error_log
+[error]
 
 
 === TEST 9d: List variable syntax (accept-language)
@@ -634,6 +670,8 @@ Accept-Language: da, en-gb, fr
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT:1&en-gb=true&de=false
+--- no_error_log
+[error]
 
 
 === TEST 9e: Default variable values
@@ -662,6 +700,8 @@ GET /esi_9e_prx?a=1
 novalue
 quoted values can have spaces
 $(QUERY_STRING{d}|unquoted values must not have spaces)
+--- no_error_log
+[error]
 
 
 === TEST 9f: Custom variable injection
@@ -699,6 +739,8 @@ novalue
 2
 foo
 novalue
+--- no_error_log
+[error]
 
 
 === TEST 10: Prime ESI in cache.
@@ -733,6 +775,8 @@ t=1
 --- response_headers_like
 X-Cache: MISS from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 10b: ESI still runs on cache HIT.
@@ -757,6 +801,8 @@ t=2
 --- response_headers_like
 X-Cache: HIT from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 10c: ESI still runs on cache revalidation, upstream 200.
@@ -794,6 +840,8 @@ t=3
 --- response_headers_like
 X-Cache: MISS from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 10d: ESI still runs on cache revalidation, upstream 200, locally valid.
@@ -831,6 +879,8 @@ t=4
 --- response_headers_like
 X-Cache: MISS from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 10e: ESI still runs on cache revalidation, upstream 304, locally valid.
@@ -864,6 +914,8 @@ t=5
 --- response_headers_like
 X-Cache: MISS from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 11a: Prime fragment
@@ -888,6 +940,8 @@ GET /fragment_prx
 FRAGMENT
 --- error_code: 200
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 11b: Include fragment with client validators.
@@ -925,6 +979,8 @@ GET /esi_11_prx
 1
 FRAGMENT
 2
+--- no_error_log
+[error]
 
 
 === TEST 11c: Include fragment with " H" in URI (bad req in Nginx unless encoded).
@@ -957,6 +1013,7 @@ FRAGMENT
 2
 --- error_code: 200
 --- no_error_log
+[error]
 
 
 === TEST 11d: Use callback feature to modify fragment request params
@@ -994,6 +1051,7 @@ FRAGMENT
 2
 --- error_code: 200
 --- no_error_log
+[error]
 
 
 === TEST 12: ESI processed over buffer larger than buffer_size.
@@ -1024,6 +1082,8 @@ GET /esi_12_prx?a=1
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 a=1
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+--- no_error_log
+[error]
 
 
 === TEST 12b: Incomplete ESI tag opening at the end of buffer (lookahead)
@@ -1048,6 +1108,8 @@ location /esi_12b {
 GET /esi_12b_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: ---a=1
+--- no_error_log
+[error]
 
 
 === TEST 12c: Incomplete ESI tag opening at the end of buffer (lookahead)
@@ -1072,6 +1134,8 @@ location /esi_12c {
 GET /esi_12c_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: ---a=1
+--- no_error_log
+[error]
 
 
 === TEST 12d: Incomplete ESI tag opening at the end of buffer (lookahead)
@@ -1096,6 +1160,8 @@ location /esi_12d {
 GET /esi_12d_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: ---a=1
+--- no_error_log
+[error]
 
 
 === TEST 13: ESI processed over buffer larger than max_memory.
@@ -1164,6 +1230,8 @@ GET /esi_14_prx?a=1
 Hello
 True
 Goodbye
+--- no_error_log
+[error]
 
 
 === TEST 15: choose - when - otherwise, second when matched
@@ -1202,6 +1270,8 @@ GET /esi_15_prx?a=2
 Hello
 2
 Goodbye
+--- no_error_log
+[error]
 
 
 === TEST 16: choose - when - otherwise, otherwise catchall
@@ -1237,6 +1307,8 @@ GET /esi_16_prx?a=3
 Hello
 Otherwise
 Goodbye
+--- no_error_log
+[error]
 
 
 === TEST 16b: multiple choose - when - otherwise
@@ -1284,6 +1356,8 @@ Hello
 Otherwise
 3
 Goodbye
+--- no_error_log
+[error]
 
 
 === TEST 16c: multiple single line choose - when - otherwise
@@ -1304,6 +1378,8 @@ location /esi_16c {
 GET /esi_16c_prx?a=3
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: Otherwise: 3
+--- no_error_log
+[error]
 
 
 === TEST 17: choose - when - test, conditional syntax
@@ -1416,6 +1492,8 @@ location /esi_18 {
 GET /esi_18_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: a=1
+--- no_error_log
+[error]
 
 
 === TEST 19: Surrogate-Control with higher version fails
@@ -1440,6 +1518,8 @@ location /esi_19 {
 GET /esi_19_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
+--- no_error_log
+[error]
 
 
 === TEST 20: Test we advertise Surrogate-Capability
@@ -1464,6 +1544,8 @@ location /esi_20 {
 GET /esi_20_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body_like: ^(.*)="ESI/1.0"$
+--- no_error_log
+[error]
 
 
 === TEST 21: Test Surrogate-Capability is appended when needed
@@ -1490,6 +1572,8 @@ GET /esi_21_prx
 Surrogate-Capability: abc="ESI/0.8"
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body_like: ^abc="ESI/0.8", (.*)="ESI/1.0"$
+--- no_error_log
+[error]
 
 
 === TEST 22: Test comments are removed.
@@ -1511,6 +1595,8 @@ location /esi_22 {
 GET /esi_22_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: 1234 5678
+--- no_error_log
+[error]
 
 
 === TEST 23a: Surrogate-Control removed when ESI enabled but no work needed (slow path)
@@ -1533,6 +1619,8 @@ location /esi_23 {
 GET /esi_23_prx?a=1
 --- response_body: NO ESI
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 23b: Surrogate-Control removed when ESI enabled but no work needed (fast path)
@@ -1548,6 +1636,8 @@ location /esi_23_prx {
 GET /esi_23_prx?a=1
 --- response_body: NO ESI
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
 
 
 === TEST 24a: Fragment recursion limit
@@ -1676,6 +1766,8 @@ location /esi_25 {
 GET /esi_25_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body: 25a 25b
+--- no_error_log
+[error]
 
 
 === TEST 26: Include tag whitespace
@@ -1707,6 +1799,8 @@ GET /esi_26_prx
 FRAGMENT
 2
 FRAGMENT
+--- no_error_log
+[error]
 
 
 === TEST 27a: Prime cache, immediately expired
@@ -1775,5 +1869,28 @@ GET /esi_27_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 a=1
+--- no_error_log
+[error]
+
+
+=== TEST 28: Allow pending qless jobs to run
+--- http_config eval: $::HttpConfig
+--- config
+location /qless {
+    content_by_lua '
+        ngx.sleep(3)
+        ngx.say("TEST 28")
+    ';
+}
+location /esi_27_prx {
+    content_by_lua '
+        ngx.say("QLESS")
+    ';
+}
+--- request
+GET /qless
+--- timeout: 5
+--- response_body
+TEST 28
 --- no_error_log
 [error]
