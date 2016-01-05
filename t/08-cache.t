@@ -231,7 +231,7 @@ TEST 6
 [error]
 
 
-=== TEST 6b: Revalidate - now the response is non-cacheable.
+=== TEST 6b: Revalidate - now the response is a non-cacheable 404.
 --- http_config eval: $::HttpConfig
 --- config
     location /cache_6_prx {
@@ -243,6 +243,7 @@ TEST 6
 
     location /cache_6 {
         content_by_lua '
+            ngx.status = 404
             ngx.header["Cache-Control"] = "no-cache"
             ngx.say("TEST 6b")
         ';
@@ -255,6 +256,7 @@ GET /cache_6_prx
 X-Cache:
 --- response_body
 TEST 6b
+--- error_code: 404
 --- no_error_log
 [error]
 
@@ -270,7 +272,7 @@ TEST 6b
             redis:connect("127.0.0.1", 6379)
             redis:select(ledge:config_get("redis_database"))
             local key_chain = ledge:cache_key_chain()
-            
+
             local res, err = redis:keys(key_chain.root .. "*")
             if res then
                 ngx.say("Numkeys: ", #res)
