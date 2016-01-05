@@ -2704,11 +2704,6 @@ function _M.serve(self)
             end
         end
 
-        -- We know the body has esi markup, so zero downstream lifetime.
-        if self:config_get("esi_enabled") and res.has_esi or res.downstream_lifetme == 0 then
-            res.header["Cache-Control"] = "private, must-revalidate"
-        end
-
         self:emit("response_ready", res)
 
         if res.header then
