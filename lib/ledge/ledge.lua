@@ -2553,24 +2553,28 @@ function _M.delete_from_cache(self)
     local key_chain = self:cache_key_chain()
 
     local entity_keys = self:cache_entity_keys()
-    if entity_keys and key_chain.entities then
-        -- Set a gc job for the current entity, delayed for current reads
-        local size, err = redis:zscore(key_chain.entities, entity_keys.main)
-        if not size or size == ngx_null then
-            size = 60
-            ngx_log(ngx_ERR,    "could not determine entity size for scheduling GC, "
-                                .. "will collect in 60 seconds: " .. (err or ""))
-        end
+    if entity_keys then
+        -- Check we haven't already been deleted by another request
+        local res = redis:exists(key_chain.entities)
+        if res then
+            -- Set a gc job for the current entity, delayed for current reads
+            local size, err = redis:zscore(key_chain.entities, entity_keys.main)
+            if not size or size == ngx_null then
+                size = 60
+                ngx_log(ngx_ERR,    "could not determine entity size for scheduling GC, "
+                .. "will collect in 60 seconds: " .. (err or ""))
+            end
 
-        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-            cache_key_chain = key_chain,
-            entity_keys = entity_keys,
-            size = size,
-        }, {
-            delay = self:gc_wait(size),
-            tags = { "collect_entity" },
-            priority = 10,
-        })
+            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+                cache_key_chain = key_chain,
+                entity_keys = entity_keys,
+                size = size,
+            }, {
+                delay = self:gc_wait(size),
+                tags = { "collect_entity" },
+                priority = 10,
+            })
+        end
     end
 
     -- Delete the main cache keys straight away
