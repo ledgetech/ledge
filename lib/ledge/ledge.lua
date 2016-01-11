@@ -1887,7 +1887,7 @@ _M.states = {
     end,
 
     purging = function(self)
-        local res, reason = self:expire()
+        local res, reason = self:purge()
         if res then
             return self:e "purged"
         elseif reason == "BUSY" then
@@ -2586,18 +2586,26 @@ function _M.delete_from_cache(self)
 end
 
 
--- Marks the current live entity as expired. If the cache key contains
--- asterisks then we scan the keyspace for matching keys and expire
--- the live entity for each key found.
-function _M.expire(self)
+-- Purges the cache item according to X-Purge instructions, which defaults
+-- to "invalidate".
+-- If there's nothing to do we return false which results in a 404, unless
+-- the cache key contains asterisks, in which case we background the purge
+-- job and return 200 blind.
+function _M.purge(self)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
+
+    -- Check if we need to do anything other then "invalidate"
+    local revalidate = h_util.header_has_directive("X-Purge", "revalidate")
+    local delete = h_util.header_has_directive("X-Purge", "delete")
 
     -- Do we have asterisks?
     if ngx_re_find(key_chain.root, "\\*", "soj") then
         self:put_background_job("ledge", "ledge.jobs.purge", {
             key_chain = key_chain,
             keyspace_scan_count = self:config_get("keyspace_scan_count"),
+            revalidate = revalidate,
+            delete = delete,
         }, {
             jid = ngx_md5(key_chain.root),
             tags = { "purge" },
