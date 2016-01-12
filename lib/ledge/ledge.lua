@@ -1887,13 +1887,8 @@ _M.states = {
     end,
 
     purging = function(self)
-        local res, reason = self:purge()
-        if res then
+        if self:purge() then
             return self:e "purged"
-        elseif reason == "BUSY" then
-            return self:e "http_too_many_requests"
-        elseif reason == "ERROR" then
-            return self:e "http_internal_server_error"
         else
             return self:e "nothing_to_purge"
         end
