@@ -505,14 +505,14 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                     chunk = ngx_re_gsub(chunk, esi_choose_pattern, _esi_gsub_choose, "soj")
 
                     -- Find and loop over esi:include tags
-                    local ctx = { pos = 1 }
+                    local re_ctx = { pos = 1 }
                     local yield_from = 1
                     repeat
                         local from, to, err = ngx_re_find(
                             chunk,
                             [[<esi:include\s*src="[^"]+"\s*/>]],
                             "oj",
-                            ctx
+                            re_ctx
                         )
 
                         if from then
@@ -534,7 +534,7 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                                 co_yield(chunk)
                             else
                                 -- No *more* includes, yield what's left
-                                co_yield(str_sub(chunk, ctx.pos, #chunk))
+                                co_yield(str_sub(chunk, re_ctx.pos, -1))
                             end
                         end
 
