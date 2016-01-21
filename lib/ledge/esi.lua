@@ -312,8 +312,8 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback,
 
         local res, err = httpc:connect(upstream, port)
         if not res then
-            ngx_log(ngx_ERR, err)
-            co_yield()
+            ngx_log(ngx_ERR, err, " connecting to ", upstream,":", port)
+            return nil
         else
             if scheme == "https" then
                 local ok, err = httpc:ssl_handshake(false, host, false)
@@ -350,11 +350,11 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback,
             local res, err = httpc:request(req_params)
 
             if not res then
-                ngx_log(ngx_ERR, err)
-                co_yield()
+                ngx_log(ngx_ERR, err, " from ", (src[1] or ''))
+                return nil
             elseif res.status >= 500 then
-                ngx_log(ngx_ERR, res.status)
-                co_yield()
+                ngx_log(ngx_ERR, res.status, " from ", (src[1] or ''))
+                return nil
             else
                 if res then
                     -- Stream the include fragment, yielding as we go
@@ -505,14 +505,14 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                     chunk = ngx_re_gsub(chunk, esi_choose_pattern, _esi_gsub_choose, "soj")
 
                     -- Find and loop over esi:include tags
-                    local ctx = { pos = 1 }
+                    local re_ctx = { pos = 1 }
                     local yield_from = 1
                     repeat
                         local from, to, err = ngx_re_find(
                             chunk,
                             [[<esi:include\s*src="[^"]+"\s*/>]],
                             "oj",
-                            ctx
+                            re_ctx
                         )
 
                         if from then
@@ -534,7 +534,7 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                                 co_yield(chunk)
                             else
                                 -- No *more* includes, yield what's left
-                                co_yield(str_sub(chunk, ctx.pos, #chunk))
+                                co_yield(str_sub(chunk, re_ctx.pos, -1))
                             end
                         end
 
