@@ -1872,14 +1872,82 @@ a=1
 --- no_error_log
 [error]
 
+=== TEST 28: Remaining parent response returned on fragment error
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_28_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
 
-=== TEST 28: Allow pending qless jobs to run
+        run()
+    ';
+}
+location /fragment_1 {
+    return 500;
+    echo "FRAGMENT";
+}
+location /esi_28 {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("1")
+        ngx.print("<esi:include src=\\"/fragment_1\\"/>")
+        ngx.say("2")
+    ';
+}
+--- request
+GET /esi_28_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+1
+2
+--- error_log
+500 from /fragment_1
+
+=== TEST 29: Remaining parent response chunks returned on fragment error
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_29_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 16)
+        run()
+    ';
+}
+location /fragment_1 {
+    return 500;
+    echo "FRAGMENT";
+}
+location /esi_29 {
+    default_type text/html;
+    content_by_lua '
+        local junk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        ngx.say(junk)
+        ngx.say("1")
+        ngx.print("<esi:include src=\\"/fragment_1\\"/>")
+        ngx.say(junk)
+        ngx.say("2")
+    ';
+}
+--- request
+GET /esi_29_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+1
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+2
+--- error_log
+500 from /fragment_1
+
+
+
+=== TEST 30: Allow pending qless jobs to run
 --- http_config eval: $::HttpConfig
 --- config
 location /qless {
     content_by_lua '
         ngx.sleep(3)
-        ngx.say("TEST 28")
+        ngx.say("TEST 30")
     ';
 }
 location /esi_27_prx {
@@ -1891,6 +1959,6 @@ location /esi_27_prx {
 GET /qless
 --- timeout: 5
 --- response_body
-TEST 28
+TEST 30
 --- no_error_log
 [error]
