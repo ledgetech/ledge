@@ -83,7 +83,7 @@ function _M.expire_pattern(redis, redis_slave, cursor, key_chain, count, job)
             if entity then
                 -- Remove the ::key part to give the cache_key without a suffix
                 local cache_key = str_sub(key, 1, -(str_len("::key") + 1))
-                local res = ledge.expire_keys(nil,
+                local res = ledge.expire_keys(
                     redis,
                     ledge.key_chain(nil, cache_key), -- a keychain for this key
                     ledge.entity_keys(nil, cache_key .. "::" .. entity) -- the entity keys for the live entity

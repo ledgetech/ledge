@@ -2543,11 +2543,21 @@ function _M.save_to_cache(self, res)
 end
 
 
+function _M.delete(redis, key_chain)
+    -- Delete the main cache keys straight away
+    local keys = {}
+    for k, v in pairs(key_chain) do
+        tbl_insert(keys, v)
+    end
+    return redis:del(unpack(keys))
+end
+
+
 function _M.delete_from_cache(self)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
-
     local entity_keys = self:cache_entity_keys()
+
     if entity_keys then
         -- Check we haven't already been deleted by another request
         local res = redis:exists(key_chain.entities)
@@ -2572,12 +2582,7 @@ function _M.delete_from_cache(self)
         end
     end
 
-    -- Delete the main cache keys straight away
-    local keys = {}
-    for k, v in pairs(key_chain) do
-        tbl_insert(keys, v)
-    end
-    return redis:del(unpack(keys))
+    return _M.delete(redis, key_chain)
 end
 
 
@@ -2614,14 +2619,14 @@ function _M.purge(self)
             -- nothing to expire
             return false
         else
-            return self:expire_keys(redis, key_chain, entity_keys)
+            return _M.expire_keys(redis, key_chain, entity_keys)
         end
     end
 end
 
 
 -- Expires the keys in key_chain and the entity provided by entity_keys
-function _M.expire_keys(self, redis, key_chain, entity_keys)
+function _M.expire_keys(redis, key_chain, entity_keys)
     if redis:exists(entity_keys.main) == 1 then
         local time = ngx_time()
         local expires, err = redis:hget(entity_keys.main, "expires")
