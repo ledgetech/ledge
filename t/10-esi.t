@@ -1658,33 +1658,33 @@ location /fragment_24_prx {
 location /fragment_24 {
     default_type text/html;
     content_by_lua '
+        ngx.say("c: ", ngx.req.get_headers()["X-ESI-Recursion-Level"] or "0")
         ngx.print("<esi:include src=\\"/esi_24_prx\\" />")
-        ngx.say("CHILD")
+        ngx.print("<esi:include src=\\"/esi_24_prx\\" />")
     ';
 }
 location /esi_24 {
     default_type text/html;
     content_by_lua '
+        ngx.say("p: ", ngx.req.get_headers()["X-ESI-Recursion-Level"] or "0")
         ngx.print("<esi:include src=\\"/fragment_24_prx\\" />")
-        ngx.say("PARENT")
     ';
 }
 --- request
 GET /esi_24_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
-CHILD
-PARENT
-CHILD
-PARENT
-CHILD
-PARENT
-CHILD
-PARENT
-CHILD
-PARENT
-CHILD
-PARENT
+p: 0
+c: 1
+p: 2
+c: 3
+p: 4
+c: 5
+p: 6
+c: 7
+p: 8
+c: 9
+p: 10
 --- error_log
 ESI recursion limit (10) exceeded
 
@@ -1709,28 +1709,28 @@ location /fragment_24_prx {
 location /fragment_24 {
     default_type text/html;
     content_by_lua '
+        ngx.say("c: ", ngx.req.get_headers()["X-ESI-Recursion-Level"] or "0")
         ngx.print("<esi:include src=\\"/esi_24_prx\\" />")
-        ngx.say("CHILD")
+        ngx.print("<esi:include src=\\"/esi_24_prx\\" />")
     ';
 }
 location /esi_24 {
     default_type text/html;
     content_by_lua '
+        ngx.say("p: ", ngx.req.get_headers()["X-ESI-Recursion-Level"] or "0")
         ngx.print("<esi:include src=\\"/fragment_24_prx\\" />")
-        ngx.say("PARENT")
     ';
 }
 --- request
 GET /esi_24_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
-PARENT
-CHILD
-PARENT
-CHILD
-PARENT
-CHILD
-PARENT
+p: 0
+c: 1
+p: 2
+c: 3
+p: 4
+c: 5
 --- error_log
 ESI recursion limit (5) exceeded
 

@@ -5,6 +5,7 @@ local   tostring, ipairs, pairs, type, tonumber, next, unpack, pcall =
         tostring, ipairs, pairs, type, tonumber, next, unpack, pcall
 
 local str_sub = string.sub
+local str_find = string.find
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub
 local ngx_re_match = ngx.re.match
@@ -265,10 +266,12 @@ end
 
 
 local function esi_fetch_include(include_tag, buffer_size, pre_include_callback, recursion_limit)
-    -- We track incude recursion, and bail past the limit
+    -- We track include recursion, and bail past the limit, yielding a special "esi:abort_includes"
+    -- instruction which the outer process filter checks for.
     local recursion_count = tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
-    if recursion_count > recursion_limit then
+    if recursion_count >= recursion_limit then
         ngx_log(ngx_ERR, "ESI recursion limit (", recursion_limit, ") exceeded")
+        co_yield("<esi:abort_includes />")
         return nil
     end
 
@@ -483,65 +486,98 @@ end
 
 
 function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
+    local recursion_count = tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
+
+    -- We use an outer coroutine to filter the processed output in case we have to
+    -- abort recursive includes.
     return co_wrap(function(buffer_size)
-        repeat
-            local chunk, err, has_esi = reader(buffer_size)
-            local escaped = 0
-            if chunk then
-                if has_esi then
-                    -- Remove <!--esi-->
-                    chunk, escaped = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
+        local esi_abort_flag = false
 
-                    -- Remove comments.
-                    chunk = ngx_re_gsub(chunk, "<esi:comment (?:.*?)/>", "", "soj")
+        -- This is the actual process filter coroutine
+        local inner_reader = co_wrap(function(buffer_size)
+            repeat
+                local chunk, err, has_esi = reader(buffer_size)
+                local escaped = 0
+                if chunk then
+                    if has_esi then
+                        -- Remove <!--esi-->
+                        chunk, escaped = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
 
-                    -- Remove 'remove' blocks
-                    chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
+                        -- Remove comments.
+                        chunk = ngx_re_gsub(chunk, "<esi:comment (?:.*?)/>", "", "soj")
 
-                    -- Evaluate and replace all esi vars
-                    chunk = esi_replace_vars(chunk, buffer_size)
+                        -- Remove 'remove' blocks
+                        chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
 
-                    -- Evaluate choose / when / otherwise conditions...
-                    chunk = ngx_re_gsub(chunk, esi_choose_pattern, _esi_gsub_choose, "soj")
+                        -- Evaluate and replace all esi vars
+                        chunk = esi_replace_vars(chunk, buffer_size)
 
-                    -- Find and loop over esi:include tags
-                    local re_ctx = { pos = 1 }
-                    local yield_from = 1
-                    repeat
-                        local from, to, err = ngx_re_find(
-                            chunk,
-                            [[<esi:include\s*src="[^"]+"\s*/>]],
-                            "oj",
-                            re_ctx
-                        )
+                        -- Evaluate choose / when / otherwise conditions...
+                        chunk = ngx_re_gsub(chunk, esi_choose_pattern, _esi_gsub_choose, "soj")
 
-                        if from then
-                            -- Yield up to the start of the include tag
-                            co_yield(str_sub(chunk, yield_from, from - 1))
-                            ngx_flush()
-                            yield_from = to + 1
-
-                            -- Fetches and yields the streamed response
-                            esi_fetch_include(
-                                str_sub(chunk, from, to),
-                                buffer_size,
-                                pre_include_callback,
-                                recursion_limit
+                        -- Find and loop over esi:include tags
+                        local re_ctx = { pos = 1 }
+                        local yield_from = 1
+                        repeat
+                            local from, to, err = ngx_re_find(
+                                chunk,
+                                [[<esi:include\s*src="[^"]+"\s*/>]],
+                                "oj",
+                                re_ctx
                             )
-                        else
-                            if yield_from == 1 then
-                                -- No includes found, yield everything
-                                co_yield(chunk)
-                            else
-                                -- No *more* includes, yield what's left
-                                co_yield(str_sub(chunk, re_ctx.pos, -1))
-                            end
-                        end
 
-                    until not from
-                else
-                    co_yield(chunk)
+                            if from then
+                                -- Yield up to the start of the include tag
+                                co_yield(str_sub(chunk, yield_from, from - 1))
+                                ngx_flush()
+                                yield_from = to + 1
+
+                                -- This will be true if an include has previously yielded
+                                -- the "esi:abort_includes instruction.
+                                if esi_abort_flag == false then
+                                    -- Fetches and yields the streamed response
+                                    esi_fetch_include(
+                                        str_sub(chunk, from, to),
+                                        buffer_size,
+                                        pre_include_callback,
+                                        recursion_limit
+                                    )
+                                end
+                            else
+                                if yield_from == 1 then
+                                    -- No includes found, yield everything
+                                    co_yield(chunk)
+                                else
+                                    -- No *more* includes, yield what's left
+                                    co_yield(str_sub(chunk, re_ctx.pos, -1))
+                                end
+                            end
+
+                        until not from
+                    else
+                        co_yield(chunk)
+                    end
                 end
+            until not chunk
+        end)
+
+        -- Outer filter, which checks for an esi:abort_includes instruction, so that
+        -- we can handle accidental recursion.
+        repeat
+            local chunk, err = inner_reader(buffer_size)
+            if chunk then
+                -- If we see an abort instruction, we set a flag to stop further esi:includes.
+                if str_find(chunk, "<esi:abort_includes", 1, true) then
+                    esi_abort_flag = true
+                end
+
+                -- We don't wish to see abort instructions in the final output, so the the top most
+                -- request (recursion_count 0) is responsible for removing them.
+                if recursion_count == 0 then
+                    chunk = ngx_re_gsub(chunk, "<esi:abort_includes />", "", "soj")
+                end
+
+                co_yield(chunk)
             end
         until not chunk
     end)
