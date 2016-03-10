@@ -31,14 +31,9 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
 run_tests();
 
 __DATA__
-=== TEST 1: Cache MISS, pass range upstream. Whole entitiy will be revalidated in the background.
+=== TEST 1: Prime cache for subsequent tests.
 --- http_config eval: $::HttpConfig
 --- config
-    location /range_entry {
-        echo_location /range_prx;
-        echo_flush;
-        echo_sleep 2;
-    }
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
@@ -49,21 +44,12 @@ __DATA__
     location /range {
         content_by_lua '
             ngx.header["Cache-Control"] = "public, max-age=3600";
-            if ngx.req.get_headers()["Range"] then
-                ngx.status = 206
-                ngx.print("01")
-            else
-                ngx.status = 200
-                ngx.print("0123456789");
-            end
+            ngx.print("0123456789");
         ';
     }
---- more_headers
-Range: bytes=0-1
 --- request
-GET /range_entry
---- response_body: 01
---- timeout: 7
+GET /range_prx
+--- response_body: 0123456789
 
 
 === TEST 2: Cache HIT, get the first byte only
