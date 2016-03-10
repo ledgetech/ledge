@@ -293,7 +293,7 @@ TEST 6b
 GET /cache_6
 --- timeout: 6
 --- response_body
-Numkeys: 4
+Numkeys: 6
 Numkeys: 0
 --- no_error_log
 [error]

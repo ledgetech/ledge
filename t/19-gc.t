@@ -235,4 +235,4 @@ GET /gc_5
 --- no_error_log
 [error]
 --- response_body
-7
+9
