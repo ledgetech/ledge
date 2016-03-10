@@ -1471,19 +1471,12 @@ _M.actions = {
         -- Delete and update reval request headers
         redis:multi()
 
-        local res, err = redis:del(entity_keys.reval_params)
-        if not res then ngx_log(ngx_ERR, err) end
+        redis:del(entity_keys.reval_params)
+        redis:hmset(entity_keys.reval_params, reval_params)
+        redis:del(entity_keys.reval_req_headers)
+        redis:hmset(entity_keys.reval_req_headers, reval_headers)
 
-        res, err = redis:hmset(entity_keys.reval_params, reval_params)
-        if not res then ngx_log(ngx_ERR, err) end
-
-        res, err = redis:del(entity_keys.reval_req_headers)
-        if not res then ngx_log(ngx_ERR, err) end
-
-        res, err = redis:hmset(entity_keys.reval_req_headers, reval_headers)
-        if not res then ngx_log(ngx_ERR, err) end
-
-        res, err = redis:exec()
+        local res, err = redis:exec()
         if not res then
             ngx_log(ngx_ERR, "Could not update revlaidation params: ", err)
         end
@@ -2477,6 +2470,8 @@ function _M.revalidation_data(self)
 end
 
 
+
+
 function _M.save_to_cache(self, res)
     local reval_params, reval_headers = self:revalidation_data()
     self:emit("before_save", res)
@@ -2591,10 +2586,16 @@ function _M.save_to_cache(self, res)
 
     redis:hmset(entity_keys.headers, unpack(h))
 
+    -- Set revalidation parameters from this request
+    redis:hmset(entity_keys.reval_params, reval_params)
+    redis:hmset(entity_keys.reval_req_headers, reval_headers)
+
     -- Mark the keys as eventually volatile (the body is set by the body writer)
     local keep_cache_for = ttl + tonumber(self:config_get("keep_cache_for"))
     redis:expire(entity_keys.main, keep_cache_for)
     redis:expire(entity_keys.headers, keep_cache_for)
+    redis:expire(entity_keys.reval_params, keep_cache_for)
+    redis:expire(entity_keys.reval_req_headers, keep_cache_for)
 
     -- Update main cache key pointer
     redis:set(key_chain.key, entity)
