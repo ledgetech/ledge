@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 5;
+plan tests => repeat_each() * (blocks() * 3);
 
 my $pwd = cwd();
 
@@ -59,6 +59,8 @@ Cache-Control: no-cache
 GET /stale_prx
 --- response_body
 TEST 1
+--- no_error_log
+[error]
 
 
 === TEST 2: Return stale
@@ -114,6 +116,9 @@ GET /stale_prx
 TEST 2
 Authorization: foobar
 Cookie: baz=qux
+--- no_error_log
+[error]
+
 
 === TEST 4a: Re-prime and expire
 --- http_config eval: $::HttpConfig
@@ -140,6 +145,8 @@ Cache-Control: no-cache
 GET /stale_4_prx
 --- response_body
 TEST 4a
+--- no_error_log
+[error]
 
 
 === TEST 4b: Return stale when in offline mode
@@ -153,7 +160,6 @@ location /stale_entry {
 location /stale_4_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ngx.sleep(1)
         ledge:config_set("origin_mode", ledge.ORIGIN_MODE_BYPASS)
         ledge:run()
     ';
@@ -166,7 +172,7 @@ location /stale_4 {
 }
 --- request
 GET /stale_entry
---- timeout: 5
+--- wait: 1
 --- response_body
 TEST 4a
 --- no_error_log
@@ -176,7 +182,7 @@ TEST 4a
 === TEST 5a: Prime cache for subsequent tests
 --- http_config eval: $::HttpConfig
 --- config
-location /stale5_prx {
+location /stale_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:bind("before_save", function(res)
@@ -186,7 +192,7 @@ location /stale5_prx {
         ledge:run()
     ';
 }
-location /stale5 {
+location /stale_5 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60"
         ngx.say("TEST 5")
@@ -195,42 +201,43 @@ location /stale5 {
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /stale5_prx
+GET /stale_5_prx
 --- response_body
 TEST 5
+--- no_error_log
+[error]
 
 
 === TEST 5b: Return stale
 --- http_config eval: $::HttpConfig
 --- config
-location /stale5_prx {
+location /stale_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("revalidate_parent_headers", {"x-test", "x-test2"})
-        ledge:bind("set_revalidation_headers", function(hdrs)
-            hdrs["x-test2"] = "bazqux"
+        ledge:bind("before_save_revalidation_data", function(reval_params, reval_headers)
+            reval_headers["X-Test"] = ngx.req.get_headers()["X-Test"]
+            reval_headers["Cookie"] = ngx.req.get_headers()["Cookie"]
         end)
         ledge:run()
     ';
 }
-location /stale5 {
+location /stale_5 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5b")
         local hdr = ngx.req.get_headers()
         ngx.say("X-Test: ",hdr["X-Test"])
-        ngx.say("X-Test2: ",hdr["X-Test2"])
         ngx.say("Cookie: ",hdr["Cookie"])
     ';
 }
 --- request
-GET /stale5_prx
+GET /stale_5_prx
 --- more_headers
 X-Test: foobar
 Cookie: baz=qux
 --- response_body
 TEST 5
---- wait: 4
+--- wait: 1
 --- no_error_log
 [error]
 
@@ -238,42 +245,17 @@ TEST 5
 === TEST 5c: Cache has been revalidated, custom headers
 --- http_config eval: $::HttpConfig
 --- config
-location /stale5_prx {
+location /stale_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ngx.sleep(3)
         ledge:run()
     ';
 }
-location /stale5_main {
-    content_by_lua '
-        ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.say("TEST 5c")
-    ';
-}
 --- request
-GET /stale5_prx
---- timeout: 6
+GET /stale_5_prx
 --- response_body
 TEST 5b
 X-Test: foobar
-X-Test2: bazqux
-Cookie: nil
-
-
-=== TEST 8: Allow pending qless jobs to run
---- http_config eval: $::HttpConfig
---- config
-location /qless {
-    content_by_lua '
-        ngx.sleep(10)
-        ngx.say("QLESS")
-    ';
-}
---- request
-GET /qless
---- timeout: 11
---- response_body
-QLESS
+Cookie: baz=qux
 --- no_error_log
 [error]
