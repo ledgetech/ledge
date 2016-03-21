@@ -1463,47 +1463,7 @@ _M.actions = {
     -- Updates the realidation_params key with data from the current request,
     -- and schedules a background revalidation job
     revalidate_in_background = function(self)
-        local redis = self:ctx().redis
-        local entity_keys = self:cache_entity_keys()
-
-        local reval_params, reval_headers = self:revalidation_data()
-
-        local ttl, err = redis:ttl(entity_keys.reval_params)
-        if not ttl or ttl == ngx_null then
-            ngx_log(ngx_ERR, "Could not determine expiry for revalidation params: ", err)
-            ttl = 3600 -- Arbritratily expire these revalidation parameters in an hour.
-        end
-
-        -- Delete and update reval request headers
-        redis:multi()
-
-        redis:del(entity_keys.reval_params)
-        redis:hmset(entity_keys.reval_params, reval_params)
-        redis:expire(entity_keys.reval_params, ttl)
-
-        redis:del(entity_keys.reval_req_headers)
-        redis:hmset(entity_keys.reval_req_headers, reval_headers)
-        redis:expire(entity_keys.reval_req_headers, ttl)
-
-        local res, err = redis:exec()
-        if not res then
-            ngx_log(ngx_ERR, "Could not update revlaidation params: ", err)
-        end
-
-        -- Schedule the background job (immediately). jid is a function of the
-        -- URI for automatic de-duping.
-        self:put_background_job("ledge", "ledge.jobs.revalidate", {
-            uri = ngx_var.request_uri,
-            entity_keys = entity_keys,
-        }, {
-            jid = ngx_md5(
-                ngx_var.scheme ..
-                ":" .. reval_headers.host or "" ..
-                ":" .. ngx_var.request_uri
-            ),
-            tags = { "revalidate" },
-            priority = 5,
-        })
+        return self:revalidate_in_background()
     end,
 
     save_to_cache = function(self)
@@ -2479,6 +2439,49 @@ function _M.revalidation_data(self)
 end
 
 
+function _M.revalidate_in_background(self)
+    local redis = self:ctx().redis
+    local entity_keys = self:cache_entity_keys()
+
+    local reval_params, reval_headers = self:revalidation_data()
+
+    local ttl, err = redis:ttl(entity_keys.reval_params)
+    if not ttl or ttl == ngx_null then
+        ngx_log(ngx_ERR, "Could not determine expiry for revalidation params: ", err)
+        ttl = 3600 -- Arbritratily expire these revalidation parameters in an hour.
+    end
+
+    -- Delete and update reval request headers
+    redis:multi()
+
+    redis:del(entity_keys.reval_params)
+    redis:hmset(entity_keys.reval_params, reval_params)
+    redis:expire(entity_keys.reval_params, ttl)
+
+    redis:del(entity_keys.reval_req_headers)
+    redis:hmset(entity_keys.reval_req_headers, reval_headers)
+    redis:expire(entity_keys.reval_req_headers, ttl)
+
+    local res, err = redis:exec()
+    if not res then
+        ngx_log(ngx_ERR, "Could not update revlaidation params: ", err)
+    end
+
+    -- Schedule the background job (immediately). jid is a function of the
+    -- URI for automatic de-duping.
+    self:put_background_job("ledge", "ledge.jobs.revalidate", {
+        uri = ngx_var.request_uri,
+        entity_keys = entity_keys,
+    }, {
+        jid = ngx_md5(
+            ngx_var.scheme ..
+            ":" .. reval_headers.host or "" ..
+            ":" .. ngx_var.request_uri
+        ),
+        tags = { "revalidate" },
+        priority = 5,
+    })
+end
 
 
 function _M.save_to_cache(self, res)
@@ -2679,8 +2682,10 @@ function _M.purge(self)
     local key_chain = self:cache_key_chain()
 
     -- Check if we need to do anything other then "invalidate"
-    local revalidate = h_util.header_has_directive("X-Purge", "revalidate")
-    local delete = h_util.header_has_directive("X-Purge", "delete")
+    local x_purge = ngx_req_get_headers()["X-Purge"]
+    local revalidate = h_util.header_has_directive(x_purge, "revalidate")
+    local delete = h_util.header_has_directive(x_purge, "delete")
+                    ngx_log(ngx.DEBUG, revalidate)
 
     -- Do we have asterisks?
     if ngx_re_find(key_chain.root, "\\*", "soj") then
@@ -2707,7 +2712,7 @@ function _M.purge(self)
                 -- Hard delete entity
             else
                 if revalidate then
-                    -- put this uri onto the "torevalidate" set
+                    self:revalidate_in_background()
                 end
                 return _M.expire_keys(redis, key_chain, entity_keys)
             end
