@@ -1468,13 +1468,22 @@ _M.actions = {
 
         local reval_params, reval_headers = self:revalidation_data()
 
+        local ttl, err = redis:ttl(entity_keys.reval_params)
+        if not ttl or ttl == ngx_null then
+            ngx_log(ngx_ERR, "Could not determine expiry for revalidation params: ", err)
+            ttl = 3600 -- Arbritratily expire these revalidation parameters in an hour.
+        end
+
         -- Delete and update reval request headers
         redis:multi()
 
         redis:del(entity_keys.reval_params)
         redis:hmset(entity_keys.reval_params, reval_params)
+        redis:expire(entity_keys.reval_params, ttl)
+
         redis:del(entity_keys.reval_req_headers)
         redis:hmset(entity_keys.reval_req_headers, reval_headers)
+        redis:expire(entity_keys.reval_req_headers, ttl)
 
         local res, err = redis:exec()
         if not res then
