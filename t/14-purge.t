@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 8;
+plan tests => repeat_each() * (blocks() * 3) + 3;
 
 my $pwd = cwd();
 
@@ -281,7 +281,6 @@ PURGE /purge_ca*ed
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ngx.sleep(1) -- Wait for qless work
         ledge:run()
     ';
 }
@@ -291,6 +290,7 @@ GET /purge_cached_prx?t=1
 [error]
 --- response_body
 TEST 5
+--- wait: 1
 
 
 === TEST 8a: Prime another key - with keep_cache_for set
@@ -299,7 +299,7 @@ TEST 5
 location /purge_cached_8_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
+        --ledge:config_set("keep_cache_for", 3600)
         ledge:run()
     ';
 }
@@ -322,7 +322,6 @@ TEST 8
 --- config
 location /purge_cached_8 {
     content_by_lua '
-        ledge:config_set("keyspace_scan_count", 1)
         ledge:run()
     ';
 }
@@ -331,6 +330,7 @@ PURGE /purge_cached_8*
 --- no_error_log
 [error]
 --- error_code: 200
+--- wait: 1
 
 
 === TEST 8d: Cache has been purged with args
@@ -339,7 +339,6 @@ PURGE /purge_cached_8*
 location /purge_cached_8_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ngx.sleep(1) -- Wait for qless
         ledge:run()
     ';
 }
@@ -423,3 +422,72 @@ GET /purge_cached_9_prx
 [error]
 --- response_body
 TEST 9 Revalidated
+
+=== TEST 10a: Prime two keys
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_10_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /purge_cached_10 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 10")
+    ';
+}
+--- request eval
+[ "GET /purge_cached_10_prx?a=1", "GET /purge_cached_10_prx?a=2" ]
+--- no_error_log
+[error]
+--- response_body eval
+[ "TEST 10", "TEST 10" ]
+
+
+=== TEST 10b: Wildcard purge with X-Cache: revalidate
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_10_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /purge_cached_10 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 10 Revalidated")
+    ';
+}
+--- more_headers
+X-Purge: revalidate
+--- request
+PURGE /purge_cached_10_prx?*
+--- wait: 1
+--- no_error_log
+[error]
+--- error_code: 200
+
+
+=== TEST 10c: Confirm cache was revalidated
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_10_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /purge_cached_10 {
+    content_by_lua '
+        ngx.say("MISS")
+    ';
+}
+--- request eval
+[ "GET /purge_cached_10_prx", "GET /purge_cached_10_prx?args=true" ]
+--- no_error_log
+[error]
+--- response_body eval
+[ "TEST 10 Revalidated", "TEST 10 Revalidated" ]
