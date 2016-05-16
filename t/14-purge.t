@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 5;
+plan tests => repeat_each() * (blocks() * 3);
 
 my $pwd = cwd();
 
@@ -544,3 +544,72 @@ GET /purge_cached_11_prx
 --- no_error_log
 [error]
 --- error_code: 200
+
+
+=== TEST 12a: Prime two keys
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_12_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("keep_cache_for", 3600)
+        ledge:run()
+    ';
+}
+location /purge_cached_12 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 12: ", ngx.req.get_uri_args()["a"])
+    ';
+}
+--- request eval
+[ "GET /purge_cached_12_prx?a=1", "GET /purge_cached_12_prx?a=2" ]
+--- no_error_log
+[error]
+--- response_body eval
+[ "TEST 12: 1", "TEST 12: 2" ]
+
+
+=== TEST 12b: Wildcard purge with X-Cache: delete
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_12_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("keep_cache_for", 3600)
+        ledge:run()
+    ';
+}
+--- more_headers
+X-Purge: delete
+--- request
+PURGE /purge_cached_12_prx?*
+--- wait: 2
+--- no_error_log
+[error]
+--- error_code: 200
+
+
+=== TEST 12c: Max-stale request fails as items are properly deleted
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_12_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("keep_cache_for", 3600)
+        ledge:run()
+    ';
+}
+location /purge_cached_12 {
+    content_by_lua '
+        ngx.print("ORIGIN: ", ngx.req.get_uri_args()["a"])
+    ';
+}
+--- more_headers
+Cache-Control: max-stale=1000
+--- request eval
+[ "GET /purge_cached_12_prx?a=1", "GET /purge_cached_12_prx?a=2" ]
+--- no_error_log
+[error]
+--- response_body eval
+[ "ORIGIN: 1", "ORIGIN: 2" ]
