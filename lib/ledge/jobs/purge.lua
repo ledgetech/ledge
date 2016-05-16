@@ -87,7 +87,7 @@ function _M.expire_pattern(cursor, job)
                         }, {
                             jid = ngx_md5("revalidate:" .. uri),
                             tags = { "revalidate" },
-                            priority = 5,
+                            priority = 3,
                         }
                     )
                 end

@@ -2481,7 +2481,7 @@ function _M.revalidate_in_background(self)
             ":" .. ngx_var.request_uri
         ),
         tags = { "revalidate" },
-        priority = 5,
+        priority = 4,
     })
 end
 
@@ -2698,7 +2698,7 @@ function _M.purge(self)
         }, {
             jid = ngx_md5("purge:" .. key_chain.root),
             tags = { "purge" },
-            priority = 1,
+            priority = 5,
         })
         return true
     else
