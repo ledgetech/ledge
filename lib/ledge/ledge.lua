@@ -696,7 +696,7 @@ function _M.cache_entity_keys(self)
         return nil
     end
 
-    local keys = entity_keys(key_chain.root .. "::" .. entity)
+    local keys = _M.entity_keys(key_chain.root .. "::" .. entity)
 
     for k, v in pairs(keys) do
         if str_sub(k, 1, 6) ~= "reval_" then
