@@ -67,7 +67,7 @@ function _M.expire_pattern(cursor, job)
                 -- Remove the ::key part to give the cache_key without a suffix
                 local cache_key = str_sub(key, 1, -(str_len("::key") + 1))
                 -- the entity keys for the live entity
-                local entity_keys = ledge.entity_keys(nil, cache_key .. "::" .. entity)
+                local entity_keys = ledge.entity_keys(cache_key .. "::" .. entity)
 
                 if job.data.revalidate then
                     local uri, err = job.redis:hget(entity_keys.main, "uri")

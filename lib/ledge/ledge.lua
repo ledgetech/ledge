@@ -696,7 +696,7 @@ function _M.cache_entity_keys(self)
         return nil
     end
 
-    local keys = self:entity_keys(key_chain.root .. "::" .. entity)
+    local keys = entity_keys(key_chain.root .. "::" .. entity)
 
     for k, v in pairs(keys) do
         if str_sub(k, 1, 6) ~= "reval_" then
@@ -723,7 +723,7 @@ function _M.cache_entity_keys(self)
 end
 
 
-function _M.entity_keys(self, entity_key)
+function _M.entity_keys(entity_key)
     return  {
         main = entity_key, -- hash
         headers = entity_key .. ":headers", -- hash
@@ -2556,7 +2556,7 @@ function _M.save_to_cache(self, res)
 
     -- Create new entity keys
     local entity = random_hex(8)
-    local entity_keys = self:entity_keys(key_chain.root .. "::" .. entity)
+    local entity_keys = _M.entity_keys(key_chain.root .. "::" .. entity)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
     -- be in progress. We need to know the previous entity keys and the size.
