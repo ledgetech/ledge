@@ -69,7 +69,13 @@ function _M.expire_pattern(cursor, job)
                 -- the entity keys for the live entity
                 local entity_keys = ledge.entity_keys(cache_key .. "::" .. entity)
 
-                if job.data.revalidate then
+                if job.data.delete then
+                    local k_chain = ledge.key_chain(nil, cache_key)
+                    -- hard delete, not just expire
+                    ledge.delete(job.redis, k_chain)
+                    ledge.delete(job.redis, entity_keys)
+
+                elseif job.data.revalidate then
                     local uri, err = job.redis:hget(entity_keys.main, "uri")
                     if not uri or uri == ngx_null then
                         return nil, err

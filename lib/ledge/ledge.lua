@@ -2710,6 +2710,7 @@ function _M.purge(self)
         else
             if delete then
                 -- Hard delete entity
+                _M.delete(redis, entity_keys)
                 _M.delete(redis, key_chain)
                 return true
             else
