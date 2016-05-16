@@ -1,5 +1,6 @@
 local http = require "resty.http"
 local http_headers = require "resty.http_headers"
+local ngx_null = ngx.null
 
 local str_match = string.match
 
@@ -31,13 +32,15 @@ function _M.perform(job)
     local entity_keys = job.data.entity_keys
 
     local reval_params, err = hgetall(redis, entity_keys.reval_params)
-    if not reval_params then
-        return nil, "job-error", err
+    if not reval_params or reval_params == ngx_null or not reval_params.server_addr then
+        return nil, "job-error",    "Revalidation parameters are missing, presumed evicted. " ..
+                                    "This can happen if keep_cache_for is set to 0."
     end
 
     local reval_headers, err = hgetall(redis, entity_keys.reval_req_headers)
-    if not reval_headers then
-        return nil, "job-error", err
+    if not reval_headers or reval_headers == ngx_null then
+        return nil, "job-error",    "Revalidation headers are missing, presumed evicted. " ..
+                                    "This can happen if keep_cache_for is set to 0."
     end
 
     -- Make outbound http request to revalidate
