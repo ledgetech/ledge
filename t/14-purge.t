@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) + 3;
+plan tests => repeat_each() * (blocks() * 3) - 4;
 
 my $pwd = cwd();
 
@@ -22,7 +22,6 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
-        ledge:config_set('keep_cache_for', 0)
     ";
     init_worker_by_lua "
         ledge:run_workers()
@@ -39,6 +38,7 @@ __DATA__
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("keep_cache_for", 0)
         ledge:run()
     ';
 }
@@ -50,7 +50,6 @@ location /purge_cached {
 }
 --- request
 GET /purge_cached_prx
---- timeout: 6
 --- no_error_log
 [error]
 --- response_body
@@ -79,6 +78,7 @@ PURGE /purge_cached
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("keep_cache_for", 0)
         ledge:run()
     ';
 }
@@ -117,6 +117,7 @@ PURGE /foobar
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("keep_cache_for", 0)
         ledge:run()
     ';
 }
@@ -144,6 +145,7 @@ location /purge_cached {
 }
 --- request
 PURGE /purge_cached*
+--- wait: 1
 --- no_error_log
 [error]
 --- error_code: 200
@@ -155,7 +157,7 @@ PURGE /purge_cached*
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ngx.sleep(1) -- Wait for qless to do the work
+        ledge:config_set("keep_cache_for", 0)
         ledge:run()
     ';
 }
@@ -179,6 +181,7 @@ TEST 5c
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("keep_cache_for", 0)
         ledge:run()
     ';
 }
@@ -206,6 +209,7 @@ location /purge_c {
 }
 --- request
 PURGE /purge_c*
+--- wait: 3
 --- error_code: 200
 --- no_error_log
 [error]
@@ -222,7 +226,6 @@ location /purge_cached {
         redis:select(ledge:config_get("redis_database"))
         local key_chain = ledge:cache_key_chain()
 
-        ngx.sleep(3)
         local res, err = redis:keys(key_chain.root .. "*")
 
         ngx.say("keys: ", table.getn(res))
@@ -230,7 +233,6 @@ location /purge_cached {
 }
 --- request
 GET /purge_cached
---- timeout: 6
 --- no_error_log
 [error]
 --- response_body
@@ -270,6 +272,7 @@ location /purge_c {
 }
 --- request
 PURGE /purge_ca*ed
+--- wait: 1
 --- no_error_log
 [error]
 --- error_code: 200
@@ -281,6 +284,7 @@ PURGE /purge_ca*ed
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ngx.sleep(1) -- Wait for qless work
         ledge:run()
     ';
 }
@@ -290,7 +294,6 @@ GET /purge_cached_prx?t=1
 [error]
 --- response_body
 TEST 5
---- wait: 1
 
 
 === TEST 8a: Prime another key - with keep_cache_for set
@@ -299,7 +302,7 @@ TEST 5
 location /purge_cached_8_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        --ledge:config_set("keep_cache_for", 3600)
+        ledge:config_set("keep_cache_for", 3600)
         ledge:run()
     ';
 }
@@ -322,15 +325,16 @@ TEST 8
 --- config
 location /purge_cached_8 {
     content_by_lua '
+        ledge:config_set("keyspace_scan_count", 1)
         ledge:run()
     ';
 }
 --- request
 PURGE /purge_cached_8*
+--- wait: 1
 --- no_error_log
 [error]
 --- error_code: 200
---- wait: 1
 
 
 === TEST 8d: Cache has been purged with args
@@ -401,7 +405,7 @@ location /purge_cached_9 {
 X-Purge: revalidate
 --- request
 PURGE /purge_cached_9_prx
---- wait: 4
+--- wait: 2
 --- no_error_log
 [error]
 --- error_code: 200
@@ -423,6 +427,7 @@ GET /purge_cached_9_prx
 --- response_body
 TEST 9 Revalidated
 
+
 === TEST 10a: Prime two keys
 --- http_config eval: $::HttpConfig
 --- config
@@ -434,8 +439,9 @@ location /purge_cached_10_prx {
 }
 location /purge_cached_10 {
     content_by_lua '
+        ngx.log(ngx.DEBUG, "running old body")
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.print("TEST 10")
+        ngx.print("TEST 10: ", ngx.req.get_uri_args()["a"])
     ';
 }
 --- request eval
@@ -443,7 +449,7 @@ location /purge_cached_10 {
 --- no_error_log
 [error]
 --- response_body eval
-[ "TEST 10", "TEST 10" ]
+[ "TEST 10: 1", "TEST 10: 2" ]
 
 
 === TEST 10b: Wildcard purge with X-Cache: revalidate
@@ -456,38 +462,24 @@ location /purge_cached_10_prx {
     ';
 }
 location /purge_cached_10 {
+    rewrite ^(.*)$ $1_origin break;
     content_by_lua '
-        ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.say("TEST 10 Revalidated")
+        ledge:run()
+    ';
+}
+location /purge_cached_10_origin {
+    content_by_lua '
+        local a = ngx.req.get_uri_args()["a"]
+        ngx.log(ngx.DEBUG, "TEST 10 Revalidated: ", a)
     ';
 }
 --- more_headers
 X-Purge: revalidate
 --- request
 PURGE /purge_cached_10_prx?*
---- wait: 1
+--- wait: 3
 --- no_error_log
 [error]
+--- error_log eval
+["TEST 10 Revalidated: 1", "TEST 10 Revalidated: 2"]
 --- error_code: 200
-
-
-=== TEST 10c: Confirm cache was revalidated
---- http_config eval: $::HttpConfig
---- config
-location /purge_cached_10_prx {
-    rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
-}
-location /purge_cached_10 {
-    content_by_lua '
-        ngx.say("MISS")
-    ';
-}
---- request eval
-[ "GET /purge_cached_10_prx", "GET /purge_cached_10_prx?args=true" ]
---- no_error_log
-[error]
---- response_body eval
-[ "TEST 10 Revalidated", "TEST 10 Revalidated" ]
