@@ -387,6 +387,7 @@ function _M.run_workers(self, options)
         -- connect to a slave or anything of that nature.
         job.redis_params = self:ctx().redis_params
         job.redis_connection_options = connection_options
+        job.redis_qless_database = redis_params.db
 
         co_yield() -- Perform the job
 
@@ -2448,7 +2449,7 @@ function _M.revalidate_in_background(self)
     local ttl, err = redis:ttl(entity_keys.reval_params)
     if not ttl or ttl == ngx_null then
         ngx_log(ngx_ERR, "Could not determine expiry for revalidation params: ", err)
-        ttl = 3600 -- Arbritratily expire these revalidation parameters in an hour.
+        ttl = 3600 -- Arbitrarily expire these revalidation parameters in an hour.
     end
 
     -- Delete and update reval request headers
@@ -2474,6 +2475,7 @@ function _M.revalidate_in_background(self)
         entity_keys = entity_keys,
     }, {
         jid = ngx_md5(
+            "revalidate:" ..
             ngx_var.scheme ..
             ":" .. reval_headers.host or "" ..
             ":" .. ngx_var.request_uri
@@ -2685,7 +2687,6 @@ function _M.purge(self)
     local x_purge = ngx_req_get_headers()["X-Purge"]
     local revalidate = h_util.header_has_directive(x_purge, "revalidate")
     local delete = h_util.header_has_directive(x_purge, "delete")
-                    ngx_log(ngx.DEBUG, revalidate)
 
     -- Do we have asterisks?
     if ngx_re_find(key_chain.root, "\\*", "soj") then
@@ -2695,7 +2696,7 @@ function _M.purge(self)
             revalidate = revalidate,
             delete = delete,
         }, {
-            jid = ngx_md5(key_chain.root),
+            jid = ngx_md5("purge:" .. key_chain.root),
             tags = { "purge" },
             priority = 1,
         })
