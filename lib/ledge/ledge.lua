@@ -2709,8 +2709,9 @@ function _M.purge(self)
             return false
         else
             if delete then
-                local res = _M.delete(redis, key_chain)
                 -- Hard delete entity
+                _M.delete(redis, key_chain)
+                return true
             else
                 if revalidate then
                     self:revalidate_in_background()

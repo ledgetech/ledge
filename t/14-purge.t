@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 4;
+plan tests => repeat_each() * (blocks() * 3) - 5;
 
 my $pwd = cwd();
 
@@ -439,7 +439,6 @@ location /purge_cached_10_prx {
 }
 location /purge_cached_10 {
     content_by_lua '
-        ngx.log(ngx.DEBUG, "running old body")
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.print("TEST 10: ", ngx.req.get_uri_args()["a"])
     ';
@@ -464,11 +463,6 @@ location /purge_cached_10_prx {
 location /purge_cached_10 {
     rewrite ^(.*)$ $1_origin break;
     content_by_lua '
-        ledge:run()
-    ';
-}
-location /purge_cached_10_origin {
-    content_by_lua '
         local a = ngx.req.get_uri_args()["a"]
         ngx.log(ngx.DEBUG, "TEST 10 Revalidated: ", a)
     ';
@@ -477,9 +471,76 @@ location /purge_cached_10_origin {
 X-Purge: revalidate
 --- request
 PURGE /purge_cached_10_prx?*
---- wait: 3
+--- wait: 2
 --- no_error_log
 [error]
 --- error_log eval
 ["TEST 10 Revalidated: 1", "TEST 10 Revalidated: 2"]
+--- error_code: 200
+
+
+=== TEST 11a: Prime a key
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_11_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("keep_cache_for", 3600)
+        ledge:run()
+    ';
+}
+location /purge_cached_11 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 11")
+    ';
+}
+--- request
+GET /purge_cached_11_prx
+--- no_error_log
+[error]
+--- response_body: TEST 11
+
+
+=== TEST 11b: Purge with X-Cache: delete
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_11_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("keep_cache_for", 3600)
+        ledge:run()
+    ';
+}
+--- more_headers
+X-Purge: delete
+--- request
+PURGE /purge_cached_11_prx
+--- no_error_log
+[error]
+--- error_code: 200
+
+
+=== TEST 11c: Max-stale request fails as items are properly deleted
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_11_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("keep_cache_for", 3600)
+        ledge:run()
+    ';
+}
+location /purge_cached_11 {
+    content_by_lua '
+        ngx.print("ORIGIN")
+    ';
+}
+--- more_headers
+Cache-Control: max-stale=1000
+--- request
+GET /purge_cached_11_prx
+--- response_body: ORIGIN
+--- no_error_log
+[error]
 --- error_code: 200
