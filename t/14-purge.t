@@ -374,15 +374,17 @@ location /purge_cached_9_prx {
 location /purge_cached_9 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.say("TEST 9")
+        ngx.say("TEST 9: ", ngx.req.get_headers()["Cookie"])
     ';
 }
+--- more_headers
+Cookie: primed
 --- request
 GET /purge_cached_9_prx
 --- no_error_log
 [error]
 --- response_body
-TEST 9
+TEST 9: primed
 
 
 === TEST 9b: Purge with x-cache: revalidate
@@ -398,7 +400,7 @@ location /purge_cached_9_prx {
 location /purge_cached_9 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.say("TEST 9 Revalidated")
+        ngx.say("TEST 9 Revalidated: ", ngx.req.get_headers()["Cookie"])
     ';
 }
 --- more_headers
@@ -425,7 +427,7 @@ GET /purge_cached_9_prx
 --- no_error_log
 [error]
 --- response_body
-TEST 9 Revalidated
+TEST 9 Revalidated: primed
 
 
 === TEST 10a: Prime two keys
@@ -440,15 +442,17 @@ location /purge_cached_10_prx {
 location /purge_cached_10 {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.print("TEST 10: ", ngx.req.get_uri_args()["a"])
+        ngx.print("TEST 10: ", ngx.req.get_uri_args()["a"], " ", ngx.req.get_headers()["Cookie"])
     ';
 }
+--- more_headers
+Cookie: primed
 --- request eval
 [ "GET /purge_cached_10_prx?a=1", "GET /purge_cached_10_prx?a=2" ]
 --- no_error_log
 [error]
 --- response_body eval
-[ "TEST 10: 1", "TEST 10: 2" ]
+[ "TEST 10: 1 primed", "TEST 10: 2 primed" ]
 
 
 === TEST 10b: Wildcard purge with X-Cache: revalidate
@@ -464,7 +468,7 @@ location /purge_cached_10 {
     rewrite ^(.*)$ $1_origin break;
     content_by_lua '
         local a = ngx.req.get_uri_args()["a"]
-        ngx.log(ngx.DEBUG, "TEST 10 Revalidated: ", a)
+        ngx.log(ngx.DEBUG, "TEST 10 Revalidated: ", a, " ", ngx.req.get_headers()["Cookie"])
     ';
 }
 --- more_headers
@@ -475,7 +479,7 @@ PURGE /purge_cached_10_prx?*
 --- no_error_log
 [error]
 --- error_log eval
-["TEST 10 Revalidated: 1", "TEST 10 Revalidated: 2"]
+["TEST 10 Revalidated: 1 primed", "TEST 10 Revalidated: 2 primed"]
 --- error_code: 200
 
 
