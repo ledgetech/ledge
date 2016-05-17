@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3);
+plan tests => repeat_each() * (blocks() * 4) - 1;
 
 my $pwd = cwd();
 
@@ -257,5 +257,169 @@ GET /stale_5_prx
 TEST 5b
 X-Test: foobar
 Cookie: baz=qux
+--- no_error_log
+[error]
+
+
+=== TEST 6: Reset cache, manually remove revalidation data
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_reval_params_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("before_save", function(res)
+            -- immediately expire cache entries
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        ledge:run()
+    ';
+}
+location /stale_reval_params {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 6")
+    ';
+}
+location /stale_reval_params_remove {
+    rewrite ^(.*)_remove$ $1 break;
+    content_by_lua '
+        local redis_mod = require "resty.redis"
+        local redis = redis_mod.new()
+        redis:connect("127.0.0.1", 6379)
+        redis:select(ledge:config_get("redis_database"))
+        local key_chain = ledge:cache_key_chain()
+        local entity = redis:get(key_chain.key)
+        local entity_keys = ledge.entity_keys(key_chain.root .. "::" .. entity)
+
+        redis:del(entity_keys.reval_req_headers)
+        redis:del(entity_keys.reval_params)
+
+        redis:set_keepalive()
+        ngx.print("REMOVED")
+    ';
+}
+--- more_headers
+Cache-Control: no-cache
+--- request eval
+["GET /stale_reval_params_prx", "GET /stale_reval_params_remove"]
+--- response_body eval
+["TEST 6", "REMOVED"]
+--- no_error_log
+[error]
+
+
+=== TEST 6b: Stale revalidation doesn't choke on missing previous revalidation data.
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_reval_params_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /stale_reval_params {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 6: ", ngx.req.get_headers()["Cookie"])
+    ';
+}
+--- more_headers
+Cookie: mycookie
+--- request
+GET /stale_reval_params_prx
+--- response_headers_like
+Warning: 110 .*
+--- error_log
+Could not determine expiry for revalidation params. Will fallback to 3600 seconds.
+--- response_body: TEST 6
+--- wait: 1
+--- error_code: 200
+
+
+=== TEST 6c: Confirm revalidation
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_reval_params_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request
+GET /stale_reval_params_prx
+--- no_error_log
+[error]
+--- response_body: TEST 6: mycookie
+--- error_code: 200
+
+
+=== TEST 7: Prime and immediately expire two keys
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_reval_params_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:bind("before_save", function(res)
+            -- immediately expire cache entries
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        ledge:run()
+    ';
+}
+location /stale_reval_params {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3700"
+        ngx.print("TEST 7: ", ngx.req.get_uri_args()["a"])
+    ';
+}
+--- more_headers
+Cache-Control: no-cache
+--- request eval
+["GET /stale_reval_params_prx?a=1", "GET /stale_reval_params_prx?a=2"]
+--- response_body eval
+["TEST 7: 1", "TEST 7: 2"]
+--- no_error_log
+[error]
+
+
+=== TEST 7b: Concurrent stale revalidation
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_reval_params_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /stale_reval_params {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 7 Revalidated: ", ngx.req.get_uri_args()["a"])
+    ';
+}
+--- request eval
+["GET /stale_reval_params_prx?a=1", "GET /stale_reval_params_prx?a=2"]
+--- no_error_log
+[error]
+--- response_body eval
+["TEST 7: 1", "TEST 7: 2"]
+--- wait: 1
+
+
+=== TEST 7c: Confirm revalidation
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_reval_params_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request eval
+["GET /stale_reval_params_prx?a=1", "GET /stale_reval_params_prx?a=2"]
+--- no_error_log
+[error]
+--- response_body eval
+["TEST 7 Revalidated: 1", "TEST 7 Revalidated: 2"]
 --- no_error_log
 [error]
