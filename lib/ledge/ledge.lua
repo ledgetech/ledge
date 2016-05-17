@@ -699,6 +699,9 @@ function _M.cache_entity_keys(self)
     local keys = _M.entity_keys(key_chain.root .. "::" .. entity)
 
     for k, v in pairs(keys) do
+        -- TODO: We filter out checking for revalidation parameters to
+        -- avoid breaking cache when upgrading. This could be removed in a
+        -- subsequent version once working data has reval parameters.
         if str_sub(k, 1, 6) ~= "reval_" then
             local res = redis:exists(v)
             if not res or res == ngx_null or res == 0 then
@@ -2465,7 +2468,7 @@ function _M.revalidate_in_background(self)
 
     local res, err = redis:exec()
     if not res then
-        ngx_log(ngx_ERR, "Could not update revlaidation params: ", err)
+        ngx_log(ngx_ERR, "Could not update revalidation params: ", err)
     end
 
     -- Schedule the background job (immediately). jid is a function of the
