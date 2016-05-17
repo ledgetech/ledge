@@ -2418,7 +2418,7 @@ function _M.revalidation_data(self)
         connect_timeout = self:config_get("upstream_connect_timeout"),
         read_timeout = self:config_get("upstream_read_timeout"),
         ssl_server_name = self:config_get("upstream_ssl_server_nane"),
-        ssl_verify = self:config_get("upstrean_ssl_verif"),
+        ssl_verify = self:config_get("upstream_ssl_verify"),
     }
 
     local h = ngx_req_get_headers()
