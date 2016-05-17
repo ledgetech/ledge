@@ -1467,7 +1467,7 @@ _M.actions = {
     -- Updates the realidation_params key with data from the current request,
     -- and schedules a background revalidation job
     revalidate_in_background = function(self)
-        return self:revalidate_in_background()
+        return self:revalidate_in_background(true)
     end,
 
     save_to_cache = function(self)
@@ -2443,7 +2443,7 @@ function _M.revalidation_data(self)
 end
 
 
-function _M.revalidate_in_background(self)
+function _M.revalidate_in_background(self, update_revalidation_data)
     local redis = self:ctx().redis
     local entity_keys = self:cache_entity_keys()
 
@@ -2455,20 +2455,23 @@ function _M.revalidate_in_background(self)
         ttl = 3600 -- Arbitrarily expire these revalidation parameters in an hour.
     end
 
-    -- Delete and update reval request headers
-    redis:multi()
+    -- Revalidation data is updated if this is a proper request, but not if it's a purge request.
+    if update_revalidation_data then
+        -- Delete and update reval request headers
+        redis:multi()
 
-    redis:del(entity_keys.reval_params)
-    redis:hmset(entity_keys.reval_params, reval_params)
-    redis:expire(entity_keys.reval_params, ttl)
+        redis:del(entity_keys.reval_params)
+        redis:hmset(entity_keys.reval_params, reval_params)
+        redis:expire(entity_keys.reval_params, ttl)
 
-    redis:del(entity_keys.reval_req_headers)
-    redis:hmset(entity_keys.reval_req_headers, reval_headers)
-    redis:expire(entity_keys.reval_req_headers, ttl)
+        redis:del(entity_keys.reval_req_headers)
+        redis:hmset(entity_keys.reval_req_headers, reval_headers)
+        redis:expire(entity_keys.reval_req_headers, ttl)
 
-    local res, err = redis:exec()
-    if not res then
-        ngx_log(ngx_ERR, "Could not update revalidation params: ", err)
+        local res, err = redis:exec()
+        if not res then
+            ngx_log(ngx_ERR, "Could not update revalidation params: ", err)
+        end
     end
 
     -- Schedule the background job (immediately). jid is a function of the
@@ -2718,7 +2721,7 @@ function _M.purge(self)
                 return true
             else
                 if revalidate then
-                    self:revalidate_in_background()
+                    self:revalidate_in_background(false)
                 end
                 return _M.expire_keys(redis, key_chain, entity_keys)
             end
