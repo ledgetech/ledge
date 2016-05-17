@@ -56,7 +56,7 @@ function _M.perform(job)
         local ok, err = httpc:ssl_handshake(
             false,
             reval_params.ssl_server_name,
-            reval_params.ssl_verify
+            (reval_params.ssl_verify == "true") -- coerce to boolean
         )
         if not ok then
             return nil, "job-error", "ssl handshake failed: " .. err
