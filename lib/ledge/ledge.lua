@@ -2447,8 +2447,8 @@ function _M.revalidate_in_background(self)
     local reval_params, reval_headers = self:revalidation_data()
 
     local ttl, err = redis:ttl(entity_keys.reval_params)
-    if not ttl or ttl == ngx_null then
-        ngx_log(ngx_ERR, "Could not determine expiry for revalidation params: ", err)
+    if not ttl or ttl == ngx_null or ttl < 0 then
+        ngx_log(ngx_ERR, "Could not determine expiry for revalidation params. Will fallback to 3600 seconds.")
         ttl = 3600 -- Arbitrarily expire these revalidation parameters in an hour.
     end
 
@@ -2477,7 +2477,7 @@ function _M.revalidate_in_background(self)
         jid = ngx_md5(
             "revalidate:" ..
             ngx_var.scheme ..
-            ":" .. reval_headers.host or "" ..
+            ":" .. (reval_headers.host or "") ..
             ":" .. ngx_var.request_uri
         ),
         tags = { "revalidate" },
