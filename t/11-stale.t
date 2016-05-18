@@ -257,6 +257,7 @@ Warning: 110 .*
 --- no_error_log
 [error]
 --- error_code: 404
+--- wait: 1
 
 
 === TEST 5: Reset cache for subsequent tests
