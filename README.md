@@ -787,6 +787,7 @@ your Nginx log file in the normal way.
 
 An example using the default combined format plus the available headers:
 
+```
     log_format ledge '$remote_addr - $remote_user [$time_local] '
                     '"$request" $status $body_bytes_sent '
                     '"$http_referer" "$http_user_agent" '
@@ -794,6 +795,12 @@ An example using the default combined format plus the available headers:
                     ;
 
     access_log /var/log/nginx/access_log ledge;
+```
+
+Result:
+```
+   192.168.59.3 - - [23/May/2016:22:22:18 +0000] "GET /x/y/z HTTP/1.1" 200 57840 "-" "curl/7.37.1""Cache:HIT from 159e8241f519:8080"  "Age:724"
+```
 
 
 ### X-Cache
