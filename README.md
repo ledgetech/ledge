@@ -83,10 +83,13 @@ feel free to raise issues / request features at
 * Offline modes (bypass, avoid).
 * Stale-if-error (serves stale content on upstream error).
 * Serve stale content for an additional stale period.
-* Background revalidation (triggered by stale responses and upstream partial responses).
+* Stale-while-revalidate (revalidates content in the background after having served as stale).
 * Collapsed forwarding (concurrent similar requests collapsed into a single upstream request).
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
-* PURGE requests to expire resources by URI (also supports wildcard patterns).
+* PURGE requests to expire resources by URI.
+* Wildcard PURGE requests (performed in the background).
+* Revalidate-on-purge by sending X-Purge: revalidate in a PURGE request. Works for wildcards too.
+* Delete-on-purge by sending X-Purge: delete in a PURGE request (instead of a soft "expire").
 * ESI 1.0 support. See [documentation](#esi_enabled) for exceptions.
 * Store gzipped responses and dynamically gunzip when Accept-Encoding: gzip is not present.
 
