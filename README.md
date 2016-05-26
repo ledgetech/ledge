@@ -785,6 +785,23 @@ Allows inserting and modifying the headers which are inherited by the background
 For cacheable responses, Ledge will add headers indicating the cache status.  These can be added to
 your Nginx log file in the normal way.
 
+An example using the default combined format plus the available headers:
+
+```
+    log_format ledge '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent" '
+                    '"Cache:$sent_http_x_cache"  "Age:$sent_http_age" "Via:$sent_http_via"'
+                    ;
+
+    access_log /var/log/nginx/access_log ledge;
+```
+
+Result:
+```
+   192.168.59.3 - - [23/May/2016:22:22:18 +0000] "GET /x/y/z HTTP/1.1" 200 57840 "-" "curl/7.37.1""Cache:HIT from 159e8241f519:8080"  "Age:724"
+```
+
 
 ### X-Cache
 
