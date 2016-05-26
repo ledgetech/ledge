@@ -257,6 +257,7 @@ Warning: 110 .*
 --- no_error_log
 [error]
 --- error_code: 404
+--- wait: 1
 
 
 === TEST 5: Reset cache for subsequent tests
@@ -438,28 +439,5 @@ Cache-Control: max-stale=1000
 GET /stale_subzero_prx
 --- response_body
 TEST 11
---- no_error_log
-[error]
-
-
-=== TEST 12: Allow pending qless jobs to run
---- http_config eval: $::HttpConfig
---- config
-location /stale_qless {
-    content_by_lua '
-        ngx.sleep(3)
-        ngx.say("TEST 12")
-    ';
-}
-location /stale_prx {
-    content_by_lua '
-        ngx.say("QLESS")
-    ';
-}
---- request
-GET /stale_qless
---- timeout: 5
---- response_body
-TEST 12
 --- no_error_log
 [error]
