@@ -98,7 +98,7 @@ feel free to raise issues / request features at
 
 Download and install:
 
-* [OpenResty](http://openresty.org/) >= 1.7.x
+* [OpenResty](http://openresty.org/) >= 1.9.x
 * [Redis](http://redis.io/download) >= 2.8.x
 
 Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to
@@ -108,9 +108,9 @@ properly, as the environment is quite specific. Note that LuaJIT must be enabled
 Clone this repo, and the following dependencies into a path defined by
 [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path):
 
-* [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.06
+* [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.08
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) >= 0.03
-* [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.05
+* [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.06
 * [lua-resty-cookie](https://github.com/cloudflare/lua-resty-cookie)
 * [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib) >= 0.01
 
