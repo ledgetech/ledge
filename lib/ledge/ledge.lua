@@ -400,6 +400,20 @@ function _M.run_workers(self, options)
         reserver = "ordered",
         queues = { "ledge" },
     })
+
+    worker:start({
+        interval = options.interval or 1,
+        concurrency = options.concurrency or 1,
+        reserver = "ordered",
+        queues = { "ledge_purge" },
+    })
+
+    worker:start({
+        interval = options.interval or 1,
+        concurrency = options.concurrency or 1,
+        reserver = "ordered",
+        queues = { "ledge_revalidate" },
+    })
 end
 
 
@@ -2476,7 +2490,7 @@ function _M.revalidate_in_background(self, update_revalidation_data)
 
     -- Schedule the background job (immediately). jid is a function of the
     -- URI for automatic de-duping.
-    self:put_background_job("ledge", "ledge.jobs.revalidate", {
+    self:put_background_job("ledge_revalidate", "ledge.jobs.revalidate", {
         uri = ngx_var.request_uri,
         entity_keys = entity_keys,
     }, {
@@ -2696,7 +2710,7 @@ function _M.purge(self)
 
     -- Do we have asterisks?
     if ngx_re_find(key_chain.root, "\\*", "soj") then
-        self:put_background_job("ledge", "ledge.jobs.purge", {
+        self:put_background_job("ledge_purge", "ledge.jobs.purge", {
             key_chain = key_chain,
             keyspace_scan_count = self:config_get("keyspace_scan_count"),
             revalidate = revalidate,

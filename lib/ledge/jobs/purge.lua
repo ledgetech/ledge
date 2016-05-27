@@ -86,7 +86,7 @@ function _M.expire_pattern(cursor, job)
                     _M.put_background_job(
                         job.redis_params,
                         job.redis_qless_database,
-                        "ledge",
+                        "ledge_revalidate",
                         "ledge.jobs.revalidate", {
                             uri = uri,
                             entity_keys = entity_keys,
