@@ -418,7 +418,9 @@ end
 
 
 function _M.relative_uri(self)
-    return ngx_re_gsub(ngx_var.uri, "\\s", "%20", "jo") .. ngx_var.is_args .. (ngx_var.query_string or "")
+    local uri = ngx_re_gsub(ngx_var.uri, "\\s", "%20", "jo")
+    uri = ngx_re_gsub(uri, "%0D%0A", "%250a%250d", "ijo")
+    return uri
 end
 
 
