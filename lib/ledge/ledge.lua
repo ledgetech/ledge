@@ -418,7 +418,13 @@ end
 
 
 function _M.relative_uri(self)
-    return ngx_re_gsub(ngx_var.uri, "\\s", "%20", "jo") .. ngx_var.is_args .. (ngx_var.query_string or "")
+    local uri = ngx_re_gsub(ngx_var.uri, "\\s", "%20", "jo") -- encode spaces
+
+    -- encode percentages if an encoded CRLF is in the URI
+    -- see: http://resources.infosecinstitute.com/http-response-splitting-attack/
+    uri = ngx_re_gsub(uri, "%0D%0A", "%250D%250A", "jo")
+
+    return uri .. ngx_var.is_args .. (ngx_var.query_string or "")
 end
 
 
