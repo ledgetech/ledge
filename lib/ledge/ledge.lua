@@ -422,7 +422,7 @@ function _M.relative_uri(self)
 
     -- encode percentages if an encoded CRLF is in the URI
     -- see: http://resources.infosecinstitute.com/http-response-splitting-attack/
-    uri = ngx_re_gsub(uri, "%0D%0A", "%250D%250A", "jo")
+    uri = ngx_re_gsub(uri, "%0D%0A", "%250D%250A", "ijo")
 
     return uri .. ngx_var.is_args .. (ngx_var.query_string or "")
 end

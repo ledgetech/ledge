@@ -75,7 +75,7 @@ GET /uri_encoding_1_entry
             local httpc = http.new()
             local res, err = httpc:connect("127.0.0.1", 1984)
             res, err = httpc:request({
-                path = "/prx_uri_encoding_2_%250D%250A",
+                path = "/prx_uri_encoding_2_%250d%250A",
             })
             ngx.print(res:read_body())
         }
