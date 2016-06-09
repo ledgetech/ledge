@@ -1889,7 +1889,7 @@ _M.states = {
         if not res then
             return self:e "http_gateway_timeout"
         else
-            redis:set_timeout(self:config_get("redis_timeout"))
+            redis:set_timeout(self:config_get("redis_read_timeout"))
             redis:unsubscribe()
 
             -- Returns either "collapsed_response_ready" or "collapsed_forwarding_failed"
