@@ -710,10 +710,10 @@ end
 function _M.cache_entity_keys(self)
     local key_chain = self:cache_key_chain()
     local redis = self:ctx().redis
-    local entity = redis:get(key_chain.key)
 
-    if not entity or entity == ngx_null then -- MISS
-        return nil
+    local entity, err = redis:get(key_chain.key)
+    if not entity or entity == ngx_null then
+        return nil, err
     end
 
     local keys = _M.entity_keys(key_chain.root .. "::" .. entity)
@@ -723,8 +723,10 @@ function _M.cache_entity_keys(self)
         -- avoid breaking cache when upgrading. This could be removed in a
         -- subsequent version once working data has reval parameters.
         if str_sub(k, 1, 6) ~= "reval_" then
-            local res = redis:exists(v)
-            if not res or res == ngx_null or res == 0 then
+            local res, err = redis:exists(v)
+            if not res and err then
+                return nil, err
+            elseif res == ngx_null or res == 0 then
                 ngx_log(ngx_NOTICE, "entity key ", v, " is missing. Will clean up.")
 
                 -- Partial entities wont get used, and thus wont get replaced.
@@ -2100,11 +2102,13 @@ function _M.read_from_cache(self)
     local redis = self:ctx().redis
     local res = response.new()
 
-    local entity_keys = self:cache_entity_keys()
-
-    if not entity_keys  then
-        -- MISS
-        return nil
+    local entity_keys, err = self:cache_entity_keys()
+    if not entity_keys then
+        if err then
+            return self:e "http_internal_server_error"
+        else
+            return nil -- MISS
+        end
     end
 
     -- Get our body reader coroutine for later
@@ -2112,12 +2116,16 @@ function _M.read_from_cache(self)
         "cache_body_reader",
         self:get_cache_body_reader(entity_keys)
     )
+    redis:close()
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(entity_keys.main)
     if not cache_parts then
-        ngx_log(ngx_ERR, err)
-        return nil
+        if err then
+            return self:e "http_internal_server_error"
+        else
+            return nil
+        end
     end
 
     -- No cache entry for this key
