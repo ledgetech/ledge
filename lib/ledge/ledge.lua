@@ -2509,9 +2509,7 @@ function _M.revalidate_in_background(self, update_revalidation_data)
     }, {
         jid = ngx_md5(
             "revalidate:" ..
-            ngx_var.scheme ..
-            ":" .. (reval_headers.host or "") ..
-            ":" .. ngx_var.request_uri
+            self:full_uri()
         ),
         tags = { "revalidate" },
         priority = 4,
