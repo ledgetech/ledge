@@ -2116,7 +2116,6 @@ function _M.read_from_cache(self)
         "cache_body_reader",
         self:get_cache_body_reader(entity_keys)
     )
-    redis:close()
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(entity_keys.main)
