@@ -387,7 +387,7 @@ GET /purge_cached_9_prx
 TEST 9: primed
 
 
-=== TEST 9b: Purge with x-cache: revalidate
+=== TEST 9b: Purge with X-Purge: revalidate
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_9_prx {
@@ -455,7 +455,7 @@ Cookie: primed
 [ "TEST 10: 1 primed", "TEST 10: 2 primed" ]
 
 
-=== TEST 10b: Wildcard purge with X-Cache: revalidate
+=== TEST 10b: Wildcard purge with X-Purge: revalidate
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_10_prx {
@@ -506,7 +506,7 @@ GET /purge_cached_11_prx
 --- response_body: TEST 11
 
 
-=== TEST 11b: Purge with X-Cache: delete
+=== TEST 11b: Purge with X-Purge: delete
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_11_prx {
@@ -574,7 +574,7 @@ location /purge_cached_12 {
 [ "TEST 12: 1", "TEST 12: 2" ]
 
 
-=== TEST 12b: Wildcard purge with X-Cache: delete
+=== TEST 12b: Wildcard purge with X-Purge: delete
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_12_prx {
