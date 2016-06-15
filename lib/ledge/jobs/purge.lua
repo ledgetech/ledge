@@ -59,7 +59,7 @@ function _M.expire_pattern(cursor, job)
     end
 
     if not res or res == ngx_null then
-        return nil, err
+        return nil, "SCAN error: "..tostring(err)
     else
         for _,key in ipairs(res[2]) do
             local entity = job.redis:get(key)
@@ -78,24 +78,31 @@ function _M.expire_pattern(cursor, job)
                 elseif job.data.revalidate then
                     local uri, err = job.redis:hget(entity_keys.main, "uri")
                     if not uri or uri == ngx_null then
-                        return nil, err
+                        -- If main key is missing or (somehow) the uri field is missing
+                        -- Log error but continue processing keys
+                        -- TODO: schedule gc cleanup here?
+                        if not err then
+                            ngx.log(ngx.ERR, "Entity broken: ", cache_key, "::", entity)
+                        else
+                            ngx.log(ngx.ERR, "Redis Error: ", err)
+                        end
+                    else
+                        -- Schedule the background job (immediately). jid is a function of the
+                        -- URI for automatic de-duping.
+                        _M.put_background_job(
+                            job.redis_params,
+                            job.redis_qless_database,
+                            "ledge_revalidate",
+                            "ledge.jobs.revalidate", {
+                                uri = uri,
+                                entity_keys = entity_keys,
+                            }, {
+                                jid = ngx_md5("revalidate:" .. uri),
+                                tags = { "revalidate" },
+                                priority = 3,
+                            }
+                        )
                     end
-
-                    -- Schedule the background job (immediately). jid is a function of the
-                    -- URI for automatic de-duping.
-                    _M.put_background_job(
-                        job.redis_params,
-                        job.redis_qless_database,
-                        "ledge_revalidate",
-                        "ledge.jobs.revalidate", {
-                            uri = uri,
-                            entity_keys = entity_keys,
-                        }, {
-                            jid = ngx_md5("revalidate:" .. uri),
-                            tags = { "revalidate" },
-                            priority = 3,
-                        }
-                    )
                 end
 
                 local res = ledge.expire_keys(
@@ -103,8 +110,8 @@ function _M.expire_pattern(cursor, job)
                     ledge.key_chain(nil, cache_key), -- a keychain for this key
                     entity_keys
                 )
-            end
-        end
+            end -- if not entity
+        end -- loop
 
         local cursor = tonumber(res[1])
         if cursor > 0 then
