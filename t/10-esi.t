@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) - 2;
+plan tests =>  repeat_each() * (blocks() * 4) + 3;
 
 my $pwd = cwd();
 
@@ -1866,11 +1866,13 @@ location /esi_27 {
 }
 --- request
 GET /esi_27_prx?a=1
+--- wait: 1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 a=1
 --- no_error_log
 [error]
+
 
 === TEST 28: Remaining parent response returned on fragment error
 --- http_config eval: $::HttpConfig
@@ -1902,6 +1904,7 @@ GET /esi_28_prx
 2
 --- error_log
 500 from /fragment_1
+
 
 === TEST 29: Remaining parent response chunks returned on fragment error
 --- http_config eval: $::HttpConfig
@@ -1940,25 +1943,49 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 500 from /fragment_1
 
 
-
-=== TEST 30: Allow pending qless jobs to run
+=== TEST 30: Prime with ESI args
 --- http_config eval: $::HttpConfig
 --- config
-location /qless {
-    content_by_lua '
-        ngx.sleep(3)
-        ngx.say("TEST 30")
-    ';
+location /esi_30_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("enable_esi", true)
+        run()
+    }
 }
-location /esi_27_prx {
-    content_by_lua '
-        ngx.say("QLESS")
-    ';
+location /esi_30 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>")
+    }
 }
 --- request
-GET /qless
---- timeout: 5
---- response_body
-TEST 30
+GET /esi_30_prx
+--- response_body: noarg
+--- error_code: 200
+--- response_headers_like
+X-Cache: MISS from .*
+--- no_error_log
+[error]
+
+
+=== TEST 30b: ESI args vary, but cache is a HIT
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_30 {
+    content_by_lua_block {
+        ledge:config_set("enable_esi", true)
+        run()
+    }
+}
+--- request eval
+["GET /esi_30?esi_a=2", "GET /esi_30?esi_a=3"]
+--- response_body eval
+["2", "3"]
+--- error_code eval
+["200", "200"]
+--- response_headers_like eval
+["X-Cache: HIT from .*", "X-Cache: HIT from .*"]
 --- no_error_log
 [error]
