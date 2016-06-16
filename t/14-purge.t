@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3);
+plan tests => repeat_each() * (blocks() * 3)+6;
 
 my $pwd = cwd();
 
@@ -387,7 +387,7 @@ GET /purge_cached_9_prx
 TEST 9: primed
 
 
-=== TEST 9b: Purge with x-cache: revalidate
+=== TEST 9b: Purge with X-Purge: revalidate
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_9_prx {
@@ -455,7 +455,7 @@ Cookie: primed
 [ "TEST 10: 1 primed", "TEST 10: 2 primed" ]
 
 
-=== TEST 10b: Wildcard purge with X-Cache: revalidate
+=== TEST 10b: Wildcard purge with X-Purge: revalidate
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_10_prx {
@@ -506,7 +506,7 @@ GET /purge_cached_11_prx
 --- response_body: TEST 11
 
 
-=== TEST 11b: Purge with X-Cache: delete
+=== TEST 11b: Purge with X-Purge: delete
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_11_prx {
@@ -574,7 +574,7 @@ location /purge_cached_12 {
 [ "TEST 12: 1", "TEST 12: 2" ]
 
 
-=== TEST 12b: Wildcard purge with X-Cache: delete
+=== TEST 12b: Wildcard purge with X-Purge: delete
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_12_prx {
@@ -617,3 +617,72 @@ Cache-Control: max-stale=1000
 [error]
 --- response_body eval
 [ "ORIGIN: 1", "ORIGIN: 2" ]
+
+=== TEST 13a: Prime two keys
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_13_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        if ngx.req.get_uri_args()["sabotage"] then
+            -- Set query string to match original request
+            ngx.req.set_uri_args({a=1})
+
+            -- Connect to redis
+            local redis = require("resty.redis"):new()
+            redis:connect("127.0.0.1", 6379)
+            redis:select(ledge:config_get('redis_database'))
+
+            -- Get the subkeys
+            local key = ledge.cache_key(ledge)
+            local entity = redis:get(key.."::key")
+            local cache_keys = ledge.entity_keys( key .. "::" .. entity)
+
+            -- Bust the entity
+            redis:del(cache_keys.main)
+            ngx.print("Sabotaged: ", key)
+        else
+            ledge:run()
+        end
+    }
+}
+location /purge_cached_13 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 13: ", ngx.req.get_uri_args()["a"], " ", ngx.req.get_headers()["Cookie"])
+    }
+}
+--- more_headers
+Cookie: primed
+--- request eval
+[ "GET /purge_cached_13_prx?a=1", "GET /purge_cached_13_prx?a=2", "GET /purge_cached_13_prx?a=1&sabotage=true" ]
+--- no_error_log
+[error]
+--- response_body eval
+[ "TEST 13: 1 primed", "TEST 13: 2 primed", "Sabotaged: ledge:cache:http:localhost:/purge_cached_13:a=1" ]
+
+
+=== TEST 13b: Wildcard purge broken entry with X-Purge: revalidate
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_13_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:run()
+    }
+}
+location /purge_cached_13 {
+    rewrite ^(.*)$ $1_origin break;
+    content_by_lua_block {
+        local a = ngx.req.get_uri_args()["a"]
+        ngx.log(ngx.DEBUG, "TEST 13 Revalidated: ", a, " ", ngx.req.get_headers()["Cookie"])
+    }
+}
+--- more_headers
+X-Purge: revalidate
+--- request
+PURGE /purge_cached_13_prx?*
+--- wait: 2
+--- error_log eval
+["Entity broken: ledge:cache:http:localhost:/purge_cached_13:a=1", "TEST 13 Revalidated: 2 primed"]
+--- error_code: 200
