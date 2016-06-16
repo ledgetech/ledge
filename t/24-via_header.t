@@ -48,7 +48,7 @@ location /events_1 {
 --- request
 GET /events_1_prx
 --- response_headers_like
-Via: \d+\.\d+ .+ \(ledge/\d+\.\d+\)
+Via: \d+\.\d+ .+ \(ledge/\d+\.\d+(\.\d)*\)
 --- no_error_log
 [error]
 
@@ -68,22 +68,6 @@ location /events_1 {
 }
 --- request
 GET /events_1_prx
---- raw_response_headers_unlike: Via: \d+\.\d+ .+ \(ledge/\d+\.\d+\)
---- no_error_log
-[error]
-
-
-=== TEST 3: Allow pending qless jobs to run (make sure this runs in the last test file)
---- http_config eval: $::HttpConfig
---- config
-location /qless {
-    content_by_lua '
-        ngx.sleep(10)
-    ';
-}
---- request
-GET /qless
---- timeout: 11
---- response_body
+--- raw_response_headers_unlike: Via: \d+\.\d+ .+ \(ledge/\d+\.\d+(\.\d)*\)
 --- no_error_log
 [error]
