@@ -403,14 +403,14 @@ function _M.run_workers(self, options)
 
     worker:start({
         interval = options.interval or 1,
-        concurrency = options.concurrency or 1,
+        concurrency = options.purge_concurrency or 1,
         reserver = "ordered",
         queues = { "ledge_purge" },
     })
 
     worker:start({
         interval = options.interval or 1,
-        concurrency = options.concurrency or 1,
+        concurrency = options.revalidate_concurrency or 1,
         reserver = "ordered",
         queues = { "ledge_revalidate" },
     })
