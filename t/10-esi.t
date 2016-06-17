@@ -1943,7 +1943,7 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 500 from /fragment_1
 
 
-=== TEST 30: Prime with ESI args
+=== TEST 30: Prime with ESI args - which shouldn't enter cache key or reach the origin
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_30_prx {
@@ -1957,12 +1957,13 @@ location /esi_30 {
     default_type text/html;
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>")
+        ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>: ")
+        ngx.print(ngx.req.get_uri_args()["esi_a"])
     }
 }
 --- request
-GET /esi_30_prx
---- response_body: noarg
+GET /esi_30_prx?esi_a=1
+--- response_body: 1: nil
 --- error_code: 200
 --- response_headers_like
 X-Cache: MISS from .*
@@ -1982,7 +1983,7 @@ location /esi_30 {
 --- request eval
 ["GET /esi_30?esi_a=2", "GET /esi_30?esi_a=3"]
 --- response_body eval
-["2", "3"]
+["2: nil", "3: nil"]
 --- error_code eval
 ["200", "200"]
 --- response_headers_like eval
