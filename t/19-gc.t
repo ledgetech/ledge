@@ -192,7 +192,7 @@ OK
             local entity = redis:get(key_chain.key)
             local entity_keys = ledge.entity_keys(key_chain.root .. "::" .. entity)
 
-            redis:del(entity_keys.body_esi)
+            redis:del(entity_keys.body)
             redis:set_keepalive()
 
             ledge:run()
