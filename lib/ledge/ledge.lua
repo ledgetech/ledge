@@ -707,7 +707,7 @@ function _M.key_chain(self, cache_key)
 end
 
 
-function _M.cache_entity_keys(self)
+function _M.cache_entity_keys(self, verify)
     local key_chain = self:cache_key_chain()
     local redis = self:ctx().redis
 
@@ -717,44 +717,49 @@ function _M.cache_entity_keys(self)
     end
 
     local keys = _M.entity_keys(key_chain.root .. "::" .. entity)
-    local cleanup = false
 
-    -- Check the main, headers and body keys exist
-    for _, k in ipairs({ "main", "headers", "body" }) do
-        local res, err = redis:exists(keys[k])
-        if not res and err then
-            return nil, err
-        elseif res == ngx_null or res == 0 then
-            ngx_log(ngx_NOTICE, "entity key ", k, " is missing. Will clean up.")
-            cleanup = true
+    if verify then
+        local cleanup = false
+
+        -- Check the main, headers and body keys exist
+        for _, k in ipairs({ "main", "headers", "body" }) do
+            local res, err = redis:exists(keys[k])
+            if not res and err then
+                return nil, err
+            elseif res == ngx_null or res == 0 then
+                ngx_log(ngx_NOTICE, "entity key ", k, " is missing. Will clean up.")
+                cleanup = true
+            end
         end
-    end
 
-    -- If we have esi, check body_esi exists
-    local has_esi, err = redis:hget(keys.main, "has_esi")
-    if has_esi then
-        local res, err = redis:exists(keys.body_esi)
-        if not res and err then
-            return nil, err
-        elseif res == ngx_null or res == 0 then
-            ngx_log(ngx_NOTICE, "body_esi is missing and required. Will clean up.")
-            cleanup = true
+        -- If we have esi, check body_esi exists
+        local has_esi, err = redis:hget(keys.main, "has_esi")
+        if has_esi and has_esi ~= ngx_null then
+            local res, err = redis:exists(keys.body_esi)
+            if not res and err then
+                return nil, err
+            elseif res == ngx_null or res == 0 then
+                ngx_log(ngx_NOTICE, "body_esi is missing and required. Will clean up.")
+                cleanup = true
+            end
         end
-    end
 
-    -- If anything required is missing, schedule collection of the remaining bits and trigger
-    -- return nil (cache MISS due to incomplete data).
-    if cleanup then
-        local size = redis:zscore(key_chain.entities, keys.main)
-        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-            cache_key_chain = key_chain,
-            entity_keys = keys,
-            size = size,
-        }, {
-            tags = { "collect_entity" },
-            priority = 10,
-        })
-        return nil
+
+        -- If anything required is missing, schedule collection of the remaining bits and trigger
+        -- return nil (cache MISS due to incomplete data).
+        if cleanup then
+            local size = redis:zscore(key_chain.entities, keys.main)
+            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+                cache_key_chain = key_chain,
+                entity_keys = keys,
+                size = size,
+            }, {
+                delay = self:gc_wait(size),
+                tags = { "collect_entity" },
+                priority = 10,
+            })
+            return nil
+        end
     end
 
     return keys
@@ -2115,7 +2120,7 @@ function _M.read_from_cache(self)
     local redis = self:ctx().redis
     local res = response.new()
 
-    local entity_keys, err = self:cache_entity_keys()
+    local entity_keys, err = self:cache_entity_keys(true)
     if not entity_keys then
         if err then
             return self:e "http_internal_server_error"
