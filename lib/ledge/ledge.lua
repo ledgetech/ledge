@@ -749,6 +749,11 @@ function _M.cache_entity_keys(self, verify)
         -- return nil (cache MISS due to incomplete data).
         if cleanup then
             local size = redis:zscore(key_chain.entities, keys.main)
+            if not size or size == ngx_null then
+                -- Entities set evicted too most likely. Collect immediately.
+                size = 0
+            end
+
             self:put_background_job("ledge", "ledge.jobs.collect_entity", {
                 cache_key_chain = key_chain,
                 entity_keys = keys,
