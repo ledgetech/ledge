@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) - 2;
+plan tests =>  repeat_each() * (blocks() * 4);
 
 my $pwd = cwd();
 
@@ -1164,6 +1164,60 @@ GET /esi_12d_prx?a=1
 [error]
 
 
+=== TEST 12e: Incomplete ESI choose/when tag set.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_12e_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 6)
+        run()
+    ';
+}
+location /esi_12e {
+    default_type text/html;
+    content_by_lua '
+        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">]])
+        ngx.print("OK")
+        ngx.print("</esi:when></esi:choose>")
+    ';
+}
+--- request
+GET /esi_12e_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: OK
+--- no_error_log
+[error]
+
+
+=== TEST 12f: Incomplete nested ESI choose/when tag set.
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_12f_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 6)
+        run()
+    ';
+}
+location /esi_12f {
+    default_type text/html;
+    content_by_lua '
+        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">]])
+        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{b}) == 2">]])
+        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{c}) == 3">]])
+        ngx.print("OK")
+        ngx.print("</esi:when></esi:choose>")
+        ngx.print("</esi:when></esi:choose>")
+        ngx.print("</esi:when></esi:choose>")
+    ';
+}
+--- request
+GET /esi_12f_prx?a=1&b=2&c=3
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: OK
+--- no_error_log
+[error]
 === TEST 13: ESI processed over buffer larger than max_memory.
 --- http_config eval: $::HttpConfig
 --- config
@@ -1962,3 +2016,5 @@ GET /qless
 TEST 30
 --- no_error_log
 [error]
+
+
