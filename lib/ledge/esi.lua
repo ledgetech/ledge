@@ -6,6 +6,7 @@ local   tostring, ipairs, pairs, type, tonumber, next, unpack, pcall =
 
 local str_sub = string.sub
 local str_find = string.find
+local str_len = string.len
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub
 local ngx_re_match = ngx.re.match
@@ -442,13 +443,49 @@ function _M.get_scan_filter(reader)
                         local e_from, e_to, err
 
                         -- 2) try and find the end of the tag (could be inline or block)
-                        --    and comments must be treated as special cases.
+                        --    and comments and choose / when must be treated as special cases.
                         if str_sub(chunk, start_from, 7) == "<!--esi" then
                             e_from, e_to, err = ngx_re_find(
                                 str_sub(chunk, start_to + 1),
                                 "-->", "soj"
                             )
+                        elseif str_sub(chunk, start_from, 12) == "<esi:choose>" then
+                            -- This is a choose tag, and so we may have nested tags to deal with
+
+                            -- We start after the first opening choose tag. Keep track of total depth and
+                            -- current level to see if we can find enough closing tags to match our opening ones
+                            local choose_depth = 1
+                            local choose_level = 1
+
+                            local f, t
+                            local last_choose_from, last_choose_to
+                            local search_from = start_from + 13 -- Start searching from the first opening choose
+
+                            repeat
+                                -- keep looking for opening or closing tags, track the depth / level
+                                f, t = ngx_re_find(str_sub(chunk, search_from), "<([/]*)esi:choose>", "soj")
+                                if f and t then
+                                    last_choose_from = f
+                                    last_choose_to = t
+                                    local tag = str_sub(chunk, (search_from - 1) + f, (search_from - 1) + t)
+
+                                    if tag == "<esi:choose>" then
+                                        choose_depth = choose_depth + 1
+                                        choose_level = choose_level + 1
+                                    elseif tag == "</esi:choose>" then
+                                        choose_level = choose_level - 1
+                                    end
+                                    search_from = search_from + t
+                                end
+                            until not f
+
+                            -- if we're back to 0, we want to know where this closing tag is, so that we can yield
+                            if choose_level == 0 then
+                                e_from = last_choose_from
+                                e_to = last_choose_to
+                            end
                         else
+                            -- Just look for a standard tag ending
                             e_from, e_to, err = ngx_re_find(
                                 str_sub(chunk, start_to + 1),
                                 "[^>]?/>|</esi:[^>]+>", "soj"
