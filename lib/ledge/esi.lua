@@ -390,14 +390,14 @@ function _M.get_scan_filter(reader)
             local chunk, err = reader(buffer_size)
             local has_esi = false
 
-            -- If we have a tag hint (partial opening ESI tag) from the previous chunk
-            -- then prepend it here.
-            if tag_hint then
-                chunk = tag_hint .. (chunk or "")
-                tag_hint = nil
-            end
-
             if chunk then
+                -- If we have a tag hint (partial opening ESI tag) from the previous chunk
+                -- then prepend it here.
+                if tag_hint then
+                    chunk = tag_hint .. chunk
+                    tag_hint = nil
+                end
+
                 -- prev_chunk will contain the last buffer if we have an ESI instruction spanning
                 -- buffers.
                 chunk = prev_chunk .. chunk
