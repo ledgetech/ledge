@@ -479,6 +479,8 @@ function _M.get_scan_filter(reader)
                     -- we've got a chunk we can yield with.
                     co_yield(chunk, nil, has_esi)
                 end
+            elseif tag_hint then
+                co_yield(tag_hint)
             end
         until not chunk
     end)
