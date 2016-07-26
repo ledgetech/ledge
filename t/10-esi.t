@@ -1164,6 +1164,32 @@ GET /esi_12d_prx?a=1
 [error]
 
 
+=== TEST 12e: Incomplete ESI tag opening at the end of response (regression)
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_12e_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 9)
+        run()
+    ';
+}
+location /esi_12e {
+    default_type text/html;
+    content_by_lua '
+        ngx.print("---<esi:vars>")
+        ngx.print("$(QUERY_STRING)")
+        ngx.print("</esi:vars><es")
+    ';
+}
+--- request
+GET /esi_12e_prx?a=1
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: ---a=1<es
+--- no_error_log
+[error]
+
+
 === TEST 13: ESI processed over buffer larger than max_memory.
 --- http_config eval: $::HttpConfig
 --- config

@@ -166,7 +166,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.25.3',
+    _VERSION = '1.25.8',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -743,7 +743,7 @@ function _M.key_chain(self, cache_key)
 end
 
 
-function _M.cache_entity_keys(self)
+function _M.cache_entity_keys(self, verify)
     local key_chain = self:cache_key_chain()
     local redis = self:ctx().redis
 
@@ -754,29 +754,52 @@ function _M.cache_entity_keys(self)
 
     local keys = _M.entity_keys(key_chain.root .. "::" .. entity)
 
-    for k, v in pairs(keys) do
-        -- TODO: We filter out checking for revalidation parameters to
-        -- avoid breaking cache when upgrading. This could be removed in a
-        -- subsequent version once working data has reval parameters.
-        if str_sub(k, 1, 6) ~= "reval_" then
-            local res, err = redis:exists(v)
+    if verify then
+        local cleanup = false
+
+        -- Check the main, headers and body keys exist
+        for _, k in ipairs({ "main", "headers", "body" }) do
+            local res, err = redis:exists(keys[k])
             if not res and err then
                 return nil, err
             elseif res == ngx_null or res == 0 then
-                ngx_log(ngx_NOTICE, "entity key ", v, " is missing. Will clean up.")
-
-                -- Partial entities wont get used, and thus wont get replaced.
-                local size = redis:zscore(key_chain.entities, keys.main)
-                self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-                    cache_key_chain = key_chain,
-                    entity_keys = keys,
-                    size = size,
-                }, {
-                    tags = { "collect_entity" },
-                    priority = 10,
-                })
-                return nil
+                ngx_log(ngx_NOTICE, "entity key ", k, " is missing. Will clean up.")
+                cleanup = true
             end
+        end
+
+        -- If we have esi, check body_esi exists
+        local has_esi, err = redis:hget(keys.main, "has_esi")
+        if has_esi and has_esi ~= ngx_null then
+            local res, err = redis:exists(keys.body_esi)
+            if not res and err then
+                return nil, err
+            elseif res == ngx_null or res == 0 then
+                ngx_log(ngx_NOTICE, "body_esi is missing and required. Will clean up.")
+                cleanup = true
+            end
+        end
+
+
+        -- If anything required is missing, schedule collection of the remaining bits and trigger
+        -- return nil (cache MISS due to incomplete data).
+        if cleanup then
+            local size = redis:zscore(key_chain.entities, keys.main)
+            if not size or size == ngx_null then
+                -- Entities set evicted too most likely. Collect immediately.
+                size = 0
+            end
+
+            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+                cache_key_chain = key_chain,
+                entity_keys = keys,
+                size = size,
+            }, {
+                delay = self:gc_wait(size),
+                tags = { "collect_entity" },
+                priority = 10,
+            })
+            return nil
         end
     end
 
@@ -2138,7 +2161,7 @@ function _M.read_from_cache(self)
     local redis = self:ctx().redis
     local res = response.new()
 
-    local entity_keys, err = self:cache_entity_keys()
+    local entity_keys, err = self:cache_entity_keys(true)
     if not entity_keys then
         if err then
             return self:e "http_internal_server_error"
@@ -2237,7 +2260,7 @@ end
 
 
 -- Modifies the response based on range request headers.
--- Returns the response and a flag, which if true indicates a partial response 
+-- Returns the response and a flag, which if true indicates a partial response
 -- should be expected, if false indicates the range could not be applied, and if
 -- nil indicates no range was requested.
 function _M.handle_range_request(self, res)
