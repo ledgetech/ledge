@@ -143,6 +143,8 @@ nginx {
         local ledge_m = require "ledge.ledge"
         ledge = ledge_m.new()
         ledge:config_set("upstream_host", "HOST.EXAMPLE.COM")
+        -- redis configuration should be specified at init time and no where else, for example
+        -- ledge:config_set("redis_host", { host = "127.0.0.1"})
     ';
 
     init_worker_by_lua 'ledge:run_workers()';
@@ -160,6 +162,8 @@ nginx {
 
 Options can be specified globally during `init_by_lua`, or for a specific server/location during
 `content_by_lua`, before calling `ledge:run()`.
+
+Redis configurations should only be specified globally during `init_by_lua`, and should not be specified in server/location.
 
 Config set during `content_by_lua` will only affect that specific location, and runs in the context
 of the current running request. That is, you can write request-specific conditions which dynamically
