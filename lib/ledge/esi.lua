@@ -56,14 +56,8 @@ local default_recursion_limit = 10
 -- $4: default value if quoted
 local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+)|'([^\')]+)')?\)]]
 
--- $1: everything inside the esi:choose tags
-local esi_choose_pattern = [[(?:<esi:choose>\n?)(.+?)(?:</esi:choose>\n?)]]
-
 -- $1: the condition inside test=""
 local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>)]]
-
--- $1: the contents of the otherwise branch
-local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*?)(?:</esi:otherwise>\n?)]]
 
 -- Matches any lua reserved word
 local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|end|if|in|" ..
@@ -211,35 +205,6 @@ local function _esi_evaluate_condition(condition)
         ngx_log(ngx_ERR, err)
         return false
     end
-end
-
-
-local function _esi_gsub_choose(m_choose)
-    local matched = false
-
-    ngx.log(ngx.DEBUG, m_choose[1])
-    local res = ngx_re_gsub(m_choose[1], esi_when_pattern, function(m_when)
-        -- We only show the first matching branch, others must be removed
-        -- even if they also match.
-        if matched then return "" end
-
-        local condition = m_when[1]
-        local branch_contents = m_when[2]
-        if _esi_evaluate_condition(condition) then
-            matched = true
-            return branch_contents
-        end
-        return ""
-    end, "soj")
-
-    -- Finally we replace the <esi:otherwise> block, either by removing
-    -- it or rendering its contents
-    local otherwise_replacement = ""
-    if not matched then
-        otherwise_replacement = "$1"
-    end
-
-    return ngx_re_sub(res, esi_otherwise_pattern, otherwise_replacement, "soj")
 end
 
 
@@ -713,8 +678,6 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
 
                         -- Evaluate and replace all esi vars
                         chunk = esi_replace_vars(chunk)
-
-                        --chunk = ngx_re_gsub(chunk, esi_choose_pattern, _esi_gsub_choose, "soj")
 
                         -- Evaluate choose / when / otherwise conditions...
                         chunk = evaluate_conditionals(chunk)
