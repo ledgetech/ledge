@@ -27,6 +27,7 @@ local ngx_req_set_header = ngx.req.set_header
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_raw_header = ngx.req.raw_header
 local ngx_req_get_uri_args = ngx.req.get_uri_args
+local ngx_req_set_uri_args = ngx.req.set_uri_args
 local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
@@ -165,7 +166,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.25.7',
+    _VERSION = '1.25.9',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -261,6 +262,9 @@ function _M.new(self)
                                         -- e.g. ledge:config_set("esi_pre_include_callback", function(req_params)
                                         --          req_params.headers["X-My-Header"] = "foo"
                                         --      end)
+        esi_args_prefix = "esi_",   -- URI args prefix for parameters to be ignored from the cache key (and not
+                                    -- proxied upstream), for use exclusively with ESI rendering logic. Set
+                                    -- to nil to disable the feature.
 
         enable_collapsed_forwarding = false,
         collapsed_forwarding_window = 60 * 1000, -- Window for collapsed requests (ms)
@@ -655,6 +659,38 @@ end
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
     if not self:ctx().cache_key then
+
+        -- If ESI is enabled and we have an esi_args prefix, weed uri args
+        -- beginning with the prefix out of the URI (and thus cache key)
+        -- and stash them in the custom ESI variables table.
+        if self:config_get("esi_enabled") then
+            local esi_args_prefix = self:config_get("esi_args_prefix")
+            if esi_args_prefix then
+                local args = ngx_req_get_uri_args()
+                local esi_args = {}
+                local has_esi_args = false
+                local non_esi_args = {}
+
+                for k,v in pairs(args) do
+                    local _, suffix_pos = str_find(k, esi_args_prefix, 1, true)
+                    if suffix_pos then
+                        has_esi_args = true
+                        local suffix = str_sub(k, suffix_pos + 1)
+                        esi_args[suffix] = v
+                    else
+                        non_esi_args[k] = v
+                    end
+                end
+
+                if has_esi_args then
+                    local custom_variables = ngx.ctx.ledge_esi_custom_variables
+                    if not custom_variables then custom_variables = {} end
+                    custom_variables["ESI_ARGS"] = esi_args
+                    ngx.ctx.ledge_esi_custom_variables = custom_variables
+                    ngx_req_set_uri_args(non_esi_args)
+                end
+            end
+        end
 
         -- If there is is a wildcard PURGE request with an asterisk placed
         -- at the end of the path, and we have no args, use * as the args.

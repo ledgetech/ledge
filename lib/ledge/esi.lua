@@ -324,7 +324,6 @@ ngx.log(ngx.DEBUG, "pos: ", pos)
             -- yield everything up to the choose tag
             if choose.opening.from > 1 then
                 ngx.log(ngx.DEBUG, "inserting head: '", str_sub(chunk, pos, (pos - 1) + choose.opening.from - 1), "'")
-                ngx.log(ngx.DEBUG, "head + 20 is: '", str_sub(chunk, pos, (pos - 1) + choose.opening.from - 1 + 20), "'")
                 tbl_insert(res, str_sub(chunk, pos, (pos - 1) + choose.opening.from - 1))
             end
 
@@ -680,6 +679,8 @@ function _M.get_scan_filter(reader)
                     -- we've got a chunk we can yield with.
                     co_yield(chunk, nil, has_esi)
                 end
+            elseif tag_hint then
+                co_yield(tag_hint)
             end
         until not chunk
     end)

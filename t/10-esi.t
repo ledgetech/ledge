@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) - 1;
+plan tests =>  repeat_each() * (blocks() * 4) + 2;
 
 my $pwd = cwd();
 
@@ -14,10 +14,10 @@ our $HttpConfig = qq{
     if_modified_since off;
 lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
-  --      local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
---        if use_resty_core then
+        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
+        if use_resty_core then
             require 'resty.core'
-    --    end
+        end
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
@@ -1164,59 +1164,28 @@ GET /esi_12d_prx?a=1
 [error]
 
 
-=== TEST 12e: Incomplete ESI choose/when tag set.
+=== TEST 12e: Incomplete ESI tag opening at the end of response (regression)
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_12e_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("buffer_size", 6)
+        ledge:config_set("buffer_size", 9)
         run()
     ';
 }
 location /esi_12e {
     default_type text/html;
     content_by_lua '
-        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">]])
-        ngx.print("OK")
-        ngx.print("</esi:when></esi:choose>")
+        ngx.print("---<esi:vars>")
+        ngx.print("$(QUERY_STRING)")
+        ngx.print("</esi:vars><es")
     ';
 }
 --- request
 GET /esi_12e_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body: OK
---- no_error_log
-[error]
-
-
-=== TEST 12f: Incomplete nested ESI choose/when tag set.
---- http_config eval: $::HttpConfig
---- config
-location /esi_12f_prx {
-    rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("buffer_size", 6)
-        run()
-    ';
-}
-location /esi_12f {
-    default_type text/html;
-    content_by_lua '
-        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">]])
-        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{b}) == 2">]])
-        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{c}) == 3">]])
-        ngx.say("OK")
-        ngx.print("</esi:when></esi:choose>")
-        ngx.print("</esi:when></esi:choose>")
-        ngx.print("</esi:when></esi:choose><es")
-    ';
-}
---- request
-GET /esi_12f_prx?a=1&b=2&c=3
---- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body
-OK
+--- response_body: ---a=1<es
 --- no_error_log
 [error]
 
@@ -1929,6 +1898,7 @@ location /esi_27 {
 }
 --- request
 GET /esi_27_prx?a=1
+--- wait: 1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 a=1
@@ -1968,6 +1938,7 @@ GET /esi_28_prx
 --- error_log
 500 from /fragment_1
 
+
 === TEST 29: Remaining parent response chunks returned on fragment error
 --- http_config eval: $::HttpConfig
 --- config
@@ -2005,7 +1976,56 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 500 from /fragment_1
 
 
-=== TEST 30a: Nested conditional
+=== TEST 30: Prime with ESI args - which shouldn't enter cache key or reach the origin
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_30_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("enable_esi", true)
+        run()
+    }
+}
+location /esi_30 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>: ")
+        ngx.print(ngx.req.get_uri_args()["esi_a"])
+    }
+}
+--- request
+GET /esi_30_prx?esi_a=1
+--- response_body: 1: nil
+--- error_code: 200
+--- response_headers_like
+X-Cache: MISS from .*
+--- no_error_log
+[error]
+
+
+=== TEST 30b: ESI args vary, but cache is a HIT
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_30 {
+    content_by_lua_block {
+        ledge:config_set("enable_esi", true)
+        run()
+    }
+}
+--- request eval
+["GET /esi_30?esi_a=2", "GET /esi_30?esi_a=3"]
+--- response_body eval
+["2: nil", "3: nil"]
+--- error_code eval
+["200", "200"]
+--- response_headers_like eval
+["X-Cache: HIT from .*", "X-Cache: HIT from .*"]
+--- no_error_log
+[error]
+
+
+=== TEST 31a: Nested conditional
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_12f_prx {
@@ -2040,4 +2060,3 @@ OK
 STANDALONE AFTER
 AFTER CONTENT
 --- no_error_log
-[error]
