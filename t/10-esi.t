@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4);
+plan tests =>  repeat_each() * (blocks() * 4) - 1;
 
 my $pwd = cwd();
 
@@ -14,10 +14,10 @@ our $HttpConfig = qq{
     if_modified_since off;
 lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
+  --      local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
+--        if use_resty_core then
             require 'resty.core'
-        end
+    --    end
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
@@ -1206,18 +1206,21 @@ location /esi_12f {
         ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">]])
         ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{b}) == 2">]])
         ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{c}) == 3">]])
-        ngx.print("OK")
+        ngx.say("OK")
         ngx.print("</esi:when></esi:choose>")
         ngx.print("</esi:when></esi:choose>")
-        ngx.print("</esi:when></esi:choose>")
+        ngx.print("</esi:when></esi:choose><es")
     ';
 }
 --- request
 GET /esi_12f_prx?a=1&b=2&c=3
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body: OK
+--- response_body
+OK
 --- no_error_log
 [error]
+
+
 === TEST 13: ESI processed over buffer larger than max_memory.
 --- http_config eval: $::HttpConfig
 --- config
@@ -1282,7 +1285,9 @@ GET /esi_14_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
+
 True
+
 Goodbye
 --- no_error_log
 [error]
@@ -1322,7 +1327,9 @@ GET /esi_15_prx?a=2
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
+
 2
+
 Goodbye
 --- no_error_log
 [error]
@@ -1359,7 +1366,9 @@ GET /esi_16_prx?a=3
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
+
 Otherwise
+
 Goodbye
 --- no_error_log
 [error]
@@ -1386,8 +1395,7 @@ local content = [[Hello
 <esi:otherwise>
 Otherwise
 </esi:otherwise>
-</esi:choose>
-<esi:choose>
+</esi:choose><esi:choose>
 <esi:when test="$(QUERY_STRING{a}) == 3">
 3
 </esi:when>
@@ -1407,8 +1415,11 @@ GET /esi_16b_prx?a=3
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
+
 Otherwise
+
 3
+
 Goodbye
 --- no_error_log
 [error]
@@ -1467,7 +1478,8 @@ location /esi_17 {
         for _,c in ipairs(conditions) do
             ngx.say([[<esi:choose><esi:when test="]], c, [[">]], c,
                     [[</esi:when><esi:otherwise>Failed</esi:otherwise></esi:choose>]])
-            ngx.say("")
+            ngx.log(ngx.DEBUG, [[<esi:choose><esi:when test="]], c, [[">]], c,
+                    [[</esi:when><esi:otherwise>Failed</esi:otherwise></esi:choose>]])
         end
     ';
 }
@@ -1502,14 +1514,11 @@ location /esi_17b_prx {
 location /esi_17b {
     default_type text/html;
     content_by_lua '
-        local content = [[
-<esi:choose>
+        local content = [[<esi:choose>
 <esi:when test="function function == function function">
 OK
 </esi:when>
-<esi:otherwise>
-Otherwise
-</esi:otherwise>
+<esi:otherwise>Otherwise</esi:otherwise>
 </esi:choose>
 ]]
         ngx.print(content)
@@ -1923,8 +1932,10 @@ GET /esi_27_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 a=1
+--- wait: 2
 --- no_error_log
 [error]
+
 
 === TEST 28: Remaining parent response returned on fragment error
 --- http_config eval: $::HttpConfig
@@ -1994,27 +2005,39 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 500 from /fragment_1
 
 
-
-=== TEST 30: Allow pending qless jobs to run
+=== TEST 30a: Nested conditional
 --- http_config eval: $::HttpConfig
 --- config
-location /qless {
+location /esi_12f_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ngx.sleep(3)
-        ngx.say("TEST 30")
+        run()
     ';
 }
-location /esi_27_prx {
+location /esi_12f {
+    default_type text/html;
     content_by_lua '
-        ngx.say("QLESS")
+        ngx.say("BEFORE CONTENT")
+        ngx.say([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">STANDALONE</esi:when></esi:choose>]])
+        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">]])
+        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{b}) == 2">]])
+        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{c}) == 3">]])
+        ngx.say("OK")
+        ngx.print("</esi:when></esi:choose>")
+        ngx.print("</esi:when></esi:choose>")
+        ngx.print("</esi:when></esi:choose>")
+        ngx.say([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">STANDALONE AFTER</esi:when></esi:choose>]])
+        ngx.say("AFTER CONTENT")
     ';
 }
 --- request
-GET /qless
---- timeout: 5
+GET /esi_12f_prx?a=1&b=2&c=3
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
-TEST 30
+BEFORE CONTENT
+STANDALONE
+OK
+STANDALONE AFTER
+AFTER CONTENT
 --- no_error_log
 [error]
-
-

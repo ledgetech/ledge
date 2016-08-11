@@ -22,6 +22,7 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_INFO = ngx.INFO
 local tbl_concat = table.concat
+local tbl_insert = table.insert
 local co_yield = coroutine.yield
 local co_create = coroutine.create
 local co_status = coroutine.status
@@ -59,8 +60,7 @@ local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+
 local esi_choose_pattern = [[(?:<esi:choose>\n?)(.+?)(?:</esi:choose>\n?)]]
 
 -- $1: the condition inside test=""
--- $2: the contents of the branch
-local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>\n?)(.*?)(?:</esi:when>\n?)]]
+local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>)]]
 
 -- $1: the contents of the otherwise branch
 local esi_otherwise_pattern = [[(?:<esi:otherwise>\n?)(.*?)(?:</esi:otherwise>\n?)]]
@@ -217,6 +217,7 @@ end
 local function _esi_gsub_choose(m_choose)
     local matched = false
 
+    ngx.log(ngx.DEBUG, m_choose[1])
     local res = ngx_re_gsub(m_choose[1], esi_when_pattern, function(m_when)
         -- We only show the first matching branch, others must be removed
         -- even if they also match.
@@ -239,6 +240,169 @@ local function _esi_gsub_choose(m_choose)
     end
 
     return ngx_re_sub(res, esi_otherwise_pattern, otherwise_replacement, "soj")
+end
+
+
+local function find_whole_tag(markup, tag)
+    local open = "<" .. tag .. "(\\s?([a-z]+=\".+?\"))?[^>]*>"
+    local close = "</" .. tag .. ">"
+    local either = "<[\\/]*" .. tag .. "(\\s?([a-z]+=\".+?\"))?[^>]*>"
+
+    -- Find the first opening tag
+    local opening_f, opening_t = ngx_re_find(markup, open, "soj")
+    if not opening_f then
+        return nil, nil
+    end
+
+    local search = opening_t -- We search from after the opening tag
+
+    local f, t, closing_f, closing_t
+    local depth = 1
+    local level = 1
+
+    repeat
+        -- keep looking for opening or closing tags
+        f, t = ngx_re_find(str_sub(markup, search + 1), either, "soj")
+        if f and t then
+            -- Move closing markers along
+            closing_f = f
+            closing_t = t
+
+            -- Track current level and total depth
+            local tag = str_sub(markup, search + f, search + t)
+            if ngx_re_find(tag, open) then
+                depth = depth + 1
+                level = level + 1
+            elseif ngx_re_find(tag, close) then
+                level = level - 1
+            end
+            -- Move search pos along
+            search = search + t
+        end
+    until level == 0 or not f
+
+    if closing_t then
+        -- Make closing tag absolute
+        closing_t = closing_t + search - t
+        closing_f = closing_f + search - t
+
+        local ret = {
+            opening = {
+                from = opening_f,
+                to = opening_t,
+                tag = str_sub(markup, opening_f, opening_t),
+            },
+            closing = {
+                from = closing_f,
+                to = closing_t,
+                tag = str_sub(markup, closing_f, closing_t),
+            },
+            contents = str_sub(markup, opening_t + 1, closing_f - 1),
+            whole = str_sub(markup, opening_f, closing_t)
+        }
+        return ret
+    else
+        return nil
+    end
+end
+
+
+local function evaluate_conditionals(chunk, res, recursion)
+ngx.log(ngx.DEBUG, chunk)
+    if not recursion then recursion = 0 end
+ngx.log(ngx.DEBUG, "recursion: ", recursion)
+    if not res then res = {} end
+
+    -- loop over top level choose tags
+    local pos = 1
+    local tail
+    repeat
+ngx.log(ngx.DEBUG, "pos: ", pos)
+        local choose = find_whole_tag(str_sub(chunk, pos), "esi:choose")
+        if choose then
+            tail = pos + choose.closing.to
+            -- yield everything up to the choose tag
+            if choose.opening.from > 1 then
+                ngx.log(ngx.DEBUG, "inserting head: '", str_sub(chunk, pos, (pos - 1) + choose.opening.from - 1), "'")
+                ngx.log(ngx.DEBUG, "head + 20 is: '", str_sub(chunk, pos, (pos - 1) + choose.opening.from - 1 + 20), "'")
+                tbl_insert(res, str_sub(chunk, pos, (pos - 1) + choose.opening.from - 1))
+            end
+
+            -- Start after the opening choose
+            local when_pos = pos + choose.opening.to
+ngx.log(ngx.DEBUG, "when_pos: ", when_pos)
+            local when_end_pos = pos + choose.closing.from
+ngx.log(ngx.DEBUG, "when_end_pos: ", when_end_pos)
+
+            local matched = false
+            repeat
+                local when = find_whole_tag(str_sub(chunk, when_pos, when_end_pos - 1), "esi:when")
+                if when then
+ngx.log(ngx.DEBUG, "repeating on when tag: '", when.opening.tag, "'")
+
+
+                    local when_res = ngx_re_sub(when.whole, esi_when_pattern, function(m_when)
+                        -- We only show the first matching branch, others must be removed
+                        -- even if they also match.
+                        if matched then return "" end
+
+                        local condition = m_when[1]
+
+                        if _esi_evaluate_condition(condition) then
+                            matched = true
+ngx.log(ngx.DEBUG, "when: ", when.whole)
+
+                            if ngx_re_find(when.contents, "<esi:choose>") then
+                                -- recurse
+                                ngx.log(ngx.DEBUG, "recursing as when branch has a choose in it")
+                                evaluate_conditionals(when.contents, res, recursion + 1)
+
+                                -- Remove the innner chunk since the recursion processed this
+                                chunk = str_sub(chunk, choose.opening.to + 1, when.opening.from - 1) ..
+                                        str_sub(chunk, when.closing.to + 1, choose.closing.to)
+                            else
+ngx.log(ngx.DEBUG, "no recursion")
+                                ngx.log(ngx.DEBUG, "inserting: '", when.contents, "'")
+                                tbl_insert(res, when.contents)
+                            end
+                        end
+                        return ""
+                    end, "soj")
+
+
+                    when_pos = when_pos + when.closing.to
+
+                    -- Break after the first winning expression
+                    if matched == true then
+                        break
+                    end
+                end
+            until not when
+
+            pos = pos + choose.closing.to
+
+            if not matched then
+                local otherwise = find_whole_tag(
+                    str_sub(chunk, choose.opening.to + 1, choose.closing.from - 1),
+                    "esi:otherwise"
+                )
+
+                if otherwise then
+                    -- TODO: We also need to recurse!
+                    tbl_insert(res, otherwise.contents)
+                end
+            end
+        end
+    until not choose
+
+    if not tail then
+        return chunk
+    else
+        -- Anything after the last close
+        ngx.log(ngx.DEBUG, "inserting tail: '", str_sub(chunk, tail), "'")
+        tbl_insert(res, str_sub(chunk, tail))
+        return tbl_concat(res)
+    end
 end
 
 
@@ -547,10 +711,12 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                         chunk = ngx_re_gsub(chunk, "(<esi:remove>.*?</esi:remove>)", "", "soj")
 
                         -- Evaluate and replace all esi vars
-                        chunk = esi_replace_vars(chunk, buffer_size)
+                        chunk = esi_replace_vars(chunk)
+
+                        --chunk = ngx_re_gsub(chunk, esi_choose_pattern, _esi_gsub_choose, "soj")
 
                         -- Evaluate choose / when / otherwise conditions...
-                        chunk = ngx_re_gsub(chunk, esi_choose_pattern, _esi_gsub_choose, "soj")
+                        chunk = evaluate_conditionals(chunk)
 
                         -- Find and loop over esi:include tags
                         local re_ctx = { pos = 1 }
