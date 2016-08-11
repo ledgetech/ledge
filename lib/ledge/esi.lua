@@ -149,8 +149,10 @@ local function _esi_gsub_in_when_test_tags(m)
         -- Quote unless we can be considered a number
         local number = tonumber(res)
         if number then
+ngx.log(ngx.DEBUG, "var res is number: ", res)
             return number
         else
+ngx.log(ngx.DEBUG, "var res is not number: ", res)
             return "\'" .. res .. "\'"
         end
     end, "soj")
@@ -160,6 +162,7 @@ end
 
 
 -- Used in esi_replace_vars. Declared locally to avoid runtime closure definition.
+
 local function _esi_gsub_vars_in_other_tags(m)
     local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "oj")
     return m[1] .. vars .. m[3]
@@ -314,25 +317,20 @@ ngx.log(ngx.DEBUG, "repeating on when tag: '", when.opening.tag, "'")
 
                         if _esi_evaluate_condition(condition) then
                             matched = true
-ngx.log(ngx.DEBUG, "when: ", when.whole)
+                            ngx.log(ngx.DEBUG, "when: ", when.whole)
 
                             if ngx_re_find(when.contents, "<esi:choose>") then
                                 -- recurse
                                 ngx.log(ngx.DEBUG, "recursing as when branch has a choose in it")
                                 evaluate_conditionals(when.contents, res, recursion + 1)
-
-                                -- Remove the innner chunk since the recursion processed this
-                                chunk = str_sub(chunk, choose.opening.to + 1, when.opening.from - 1) ..
-                                        str_sub(chunk, when.closing.to + 1, choose.closing.to)
                             else
-ngx.log(ngx.DEBUG, "no recursion")
+                                ngx.log(ngx.DEBUG, "no recursion")
                                 ngx.log(ngx.DEBUG, "inserting: '", when.contents, "'")
                                 tbl_insert(res, when.contents)
                             end
                         end
                         return ""
                     end, "soj")
-
 
                     when_pos = when_pos + when.closing.to
 
@@ -360,6 +358,7 @@ ngx.log(ngx.DEBUG, "no recursion")
     until not choose
 
     if not tail then
+        ngx.log(ngx.DEBUG, "notail")
         return chunk
     else
         -- Anything after the last close
@@ -376,7 +375,7 @@ local function esi_replace_vars(chunk)
     -- First replace any variables in esi:when test="" tags, as these may need to be
     -- quoted for expression evaluation
     chunk = ngx_re_gsub(chunk,
-        [[(<esi:when\s*test=\")(.+?)(\"\s*>(?:.*?)</esi:when>)]],
+        [[(<esi:when\s*test=\")(.+?)(\"\s*>(?:.*?))]],
         _esi_gsub_in_when_test_tags,
         "soj"
     )

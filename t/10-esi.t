@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) + 2;
+plan tests =>  repeat_each() * (blocks() * 4) + 9;
 
 my $pwd = cwd();
 
@@ -2025,38 +2025,86 @@ location /esi_30 {
 [error]
 
 
-=== TEST 31a: Nested conditional
+
+
+
+
+
+
+
+
+=== TEST 31a: Multiple sibling and child conditionals, winning expressions at various depths
 --- http_config eval: $::HttpConfig
 --- config
-location /esi_12f_prx {
+location /esi_31a_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         run()
     ';
 }
-location /esi_12f {
+location /esi_31a {
     default_type text/html;
-    content_by_lua '
-        ngx.say("BEFORE CONTENT")
-        ngx.say([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">STANDALONE</esi:when></esi:choose>]])
-        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">]])
-        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{b}) == 2">]])
-        ngx.print([[<esi:choose><esi:when test="$(QUERY_STRING{c}) == 3">]])
-        ngx.say("OK")
-        ngx.print("</esi:when></esi:choose>")
-        ngx.print("</esi:when></esi:choose>")
-        ngx.print("</esi:when></esi:choose>")
-        ngx.say([[<esi:choose><esi:when test="$(QUERY_STRING{a}) == 1">STANDALONE AFTER</esi:when></esi:choose>]])
-        ngx.say("AFTER CONTENT")
-    ';
-}
---- request
-GET /esi_12f_prx?a=1&b=2&c=3
---- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body
+    content_by_lua_block {
+        local content = [[
 BEFORE CONTENT
-STANDALONE
-OK
-STANDALONE AFTER
-AFTER CONTENT
+<esi:choose>
+    <esi:when test="$(QUERY_STRING{a}) == 'a'">a</esi:when>
+</esi:choose>
+<esi:choose>
+    <esi:when test="$(QUERY_STRING{b}) == 'b'">b</esi:when>
+    RANDOM ILLEGAL CONTENT
+    <esi:when test="$(QUERY_STRING{c}) == 'c'">c
+        <esi:choose>
+            <esi:when test="$(QUERY_STRING{l1d}) == 'l1d'">l1d</esi:when>
+            <esi:when test="$(QUERY_STRING{l1e}) == 'l1e'">l1e
+                <esi:choose>
+                    <esi:when test="$(QUERY_STRING{l2f}) == 'l2f'">l1f</esi:when>
+                    <esi:otherwise>l2 OTHERWISE</otherwise>
+                </esi:choose>
+            </esi:when>
+        </esi:choose>
+    </esi:when>
+</esi:choose>
+AFTER CONTENT]]
+
+        ngx.print(content)
+    }
+}
+--- request eval
+[
+"GET /esi_31a_prx?a=a",
+"GET /esi_31a_prx?b=b",
+"GET /esi_31a_prx?a=a&b=b",
+"GET /esi_31a_prx?l1d=l1d",
+"GET /esi_31a_prx?c=c&l1d=l1d",
+]
+--- response_body eval
+[
+"BEFORE CONTENT
+a
+
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+b
+AFTER CONTENT",
+
+"BEFORE CONTENT
+a
+b
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1d
+    
+AFTER CONTENT",
+]
 --- no_error_log
