@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) + 9;
+plan tests =>  repeat_each() * (blocks() * 4) + 17;
 
 my $pwd = cwd();
 
@@ -2025,14 +2025,6 @@ location /esi_30 {
 [error]
 
 
-
-
-
-
-
-
-
-
 === TEST 31a: Multiple sibling and child conditionals, winning expressions at various depths
 --- http_config eval: $::HttpConfig
 --- config
@@ -2058,10 +2050,15 @@ BEFORE CONTENT
             <esi:when test="$(QUERY_STRING{l1d}) == 'l1d'">l1d</esi:when>
             <esi:when test="$(QUERY_STRING{l1e}) == 'l1e'">l1e
                 <esi:choose>
-                    <esi:when test="$(QUERY_STRING{l2f}) == 'l2f'">l1f</esi:when>
-                    <esi:otherwise>l2 OTHERWISE</otherwise>
+                    <esi:when test="$(QUERY_STRING{l2f}) == 'l2f'">l2f</esi:when>
+                    <esi:otherwise>l2 OTHERWISE</esi:otherwise>
                 </esi:choose>
             </esi:when>
+            <esi:otherwise>l1 OTHERWISE
+                <esi:choose>
+                    <esi:when test="$(QUERY_STRING{l2g}) == 'l2g'">l2g</esi:when>
+                </esi:choose>
+            </esi:otherwise>
         </esi:choose>
     </esi:when>
 </esi:choose>
@@ -2077,6 +2074,10 @@ AFTER CONTENT]]
 "GET /esi_31a_prx?a=a&b=b",
 "GET /esi_31a_prx?l1d=l1d",
 "GET /esi_31a_prx?c=c&l1d=l1d",
+"GET /esi_31a_prx?c=c&l1e=l1e&l2f=l2f",
+"GET /esi_31a_prx?c=c&l1e=l1e",
+"GET /esi_31a_prx?c=c",
+"GET /esi_31a_prx?c=c&l2g=l2g",
 ]
 --- response_body eval
 [
@@ -2104,6 +2105,42 @@ AFTER CONTENT",
 
 c
         l1d
+    
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1e
+                l2f
+            
+    
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1e
+                l2 OTHERWISE
+            
+    
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1 OTHERWISE
+                
+            
+    
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1 OTHERWISE
+                l2g
+            
     
 AFTER CONTENT",
 ]
