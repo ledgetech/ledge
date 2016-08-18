@@ -209,9 +209,37 @@ local function _esi_evaluate_condition(condition)
 end
 
 
-local function find_whole_tag(markup, tag)
-    local open = "<" .. tag .. "(\\s?([a-z]+=\".+?\"))?[^>]*>"
-    local close = "</" .. tag .. ">"
+-- esi_parser, allows us to walk when / choose / otherwise statements
+-- ==================================================================
+
+local esi_parser = {}
+local _esi_parser_mt = { __index = esi_parser }
+
+
+function esi_parser.new(content)
+    return setmetatable({ content = content, pos = 0 }, _esi_parser_mt)
+end
+
+
+function esi_parser.next(self, tagname)
+    if not tagname then tagname = "(?:[a-z]+)" end
+    local tag = self:find_whole_tag(tagname)
+    local before, after
+    if tag then
+        before = str_sub(self.content, self.pos + 1, tag.opening.from - 1)
+        after = str_sub(self.content, tag.closing.to + 1)
+        self.pos = tag.closing.to
+    end
+
+    return tag, before, after
+end
+
+
+function esi_parser.find_whole_tag(self, tag)
+    local markup = str_sub(self.content, self.pos + 1)
+
+    local open = "<(" .. tag .. ")(\\s?([a-z]+=\".+?\"))?[^>]*>"
+    local close = "</(" .. tag .. ")>"
     local either = "<[\\/]*(" .. tag .. ")(\\s?([a-z]+=\".+?\"))?[^>]*>"
 
     -- Find the first opening tag
@@ -220,7 +248,7 @@ local function find_whole_tag(markup, tag)
         return nil, nil
     end
 
-    local tagname_m = ngx_re_match(str_sub(markup, opening_f, opening_t), either, "soj")
+    local tagname_m = ngx_re_match(str_sub(markup, opening_f, opening_t), open, "soj")
     local tagname = tagname_m[1]
 
     local search = opening_t -- We search from after the opening tag
@@ -257,13 +285,13 @@ local function find_whole_tag(markup, tag)
 
         local ret = {
             opening = {
-                from = opening_f,
-                to = opening_t,
+                from = opening_f + self.pos,
+                to = opening_t + self.pos,
                 tag = str_sub(markup, opening_f, opening_t),
             },
             closing = {
-                from = closing_f,
-                to = closing_t,
+                from = closing_f + self.pos,
+                to = closing_t + self.pos,
                 tag = str_sub(markup, closing_f, closing_t),
             },
             contents = str_sub(markup, opening_t + 1, closing_f - 1),
@@ -277,128 +305,85 @@ local function find_whole_tag(markup, tag)
 end
 
 
-local esi_parser = {}
-local _esi_parser_mt = {}
-
-function esi_parser.new(content)
-    return setmetatable({ content = content, pos = 1 }, _esi_parser_mt)
-end
-
-
-function esi_parser.next(self, tagname)
-    if not tagname then tagname = "[a-z]+" end
-    local tag = find_whole_tag(str_sub(self.content, self.pos + 1), tagname)
-    if tag then
-        pos = pos + tag.closing.to
-    end
-
-    return tag
-end
-
-
-function esi_parser.next_child(self, parent, tagname)
-    if not tagname then tagname = "[a-z]+" end
-end
-
-
 local function evaluate_conditionals(chunk, res, recursion)
-ngx.log(ngx.DEBUG, chunk)
     if not recursion then recursion = 0 end
-ngx.log(ngx.DEBUG, "recursion: ", recursion)
     if not res then res = {} end
 
-    -- loop over top level choose tags
-    local pos = 1
-    local tail
+    local parser = esi_parser.new(chunk)
+
+    local after -- Will contain anything after the last closing choose tag
+    local chunk_has_conditionals = false
     repeat
-ngx.log(ngx.DEBUG, "pos: ", pos)
-        local choose = find_whole_tag(str_sub(chunk, pos), "esi:(?:[a-z]+)")
+        local choose, ch_before, ch_after = parser:next("esi:choose")
         if choose then
-            if choose.tagname == "esi:choose" then
-                ngx.log(ngx.DEBUG, "found choose tag: ", choose.tagname)
-                tail = pos + choose.closing.to
-                -- yield everything up to the choose tag
-                if choose.opening.from > 1 then
-                    ngx.log(ngx.DEBUG, "inserting head: '", str_sub(chunk, pos, (pos - 1) + choose.opening.from - 1), "'")
-                    tbl_insert(res, str_sub(chunk, pos, (pos - 1) + choose.opening.from - 1))
-                end
+            chunk_has_conditionals = true
 
-                -- Start after the opening choose
-                local when_pos = pos + choose.opening.to
-                local when_end_pos = pos + choose.closing.from
-
-                local when_found = false
-                local when_matched = false
-                local otherwise
-                repeat
-                    local when = find_whole_tag(str_sub(chunk, when_pos, when_end_pos - 1), "esi:(?:[a-z]+)")
-                    if when then
-                        if when.tagname == "esi:when" then
-                            when_found = true
-
-                            ngx.log(ngx.DEBUG, "repeating on when tag: '", when.opening.tag, "'")
-
-                            local when_res = ngx_re_sub(when.whole, esi_when_pattern, function(m_when)
-                                -- We only show the first matching branch, others must be removed
-                                -- even if they also match.
-                                if when_matched then return "" end
-
-                                local condition = m_when[1]
-
-                                if _esi_evaluate_condition(condition) then
-                                    when_matched = true
-                                    ngx.log(ngx.DEBUG, "winning when: ", when.whole)
-
-                                    if ngx_re_find(when.contents, "<esi:choose>") then
-                                        -- recurse
-                                        ngx.log(ngx.DEBUG, "recursing as when branch has a choose in it")
-                                        evaluate_conditionals(when.contents, res, recursion + 1)
-                                    else
-                                        ngx.log(ngx.DEBUG, "no recursion")
-                                        ngx.log(ngx.DEBUG, "inserting: '", when.contents, "'")
-                                        tbl_insert(res, when.contents)
-                                    end
-                                end
-                                return ""
-                            end, "soj")
-
-
-                            -- Break after the first winning expression
-                            if when_matched == true then
-                                break
-                            end
-                        elseif when.tagname == "esi:otherwise" then
-                            otherwise = when.contents
-                        end
-                        when_pos = when_pos + when.closing.to
-                    end
-                until not when
-
-
-                if not when_matched and otherwise then
-                    if ngx_re_find(otherwise, "<esi:choose>") then
-                        -- recurse
-                        ngx.log(ngx.DEBUG, "recursing as otherwise branch has a choose in it")
-                        evaluate_conditionals(otherwise, res, recursion + 1)
-                    else
-                        ngx.log(ngx.DEBUG, "no otherwise recursion")
-                        ngx.log(ngx.DEBUG, "inserting: '", otherwise, "'")
-                        tbl_insert(res, otherwise)
-                    end
-                end
+            -- Anything before this choose should just be output
+            if ch_before then
+                tbl_insert(res, ch_before)
             end
 
-            pos = pos + choose.closing.to
+            -- If this ends up being the last choose tag, content after this should be output
+            if ch_after then
+                after = ch_after
+            end
+
+            local inner_parser = esi_parser.new(choose.contents)
+
+            local when_found = false
+            local when_matched = false
+            local otherwise
+            repeat
+                local tag = inner_parser:next("esi:when|esi:otherwise")
+                if tag then
+                    if tag.tagname == "esi:when" and when_matched == false then
+                        when_found = true
+
+                        local when_res = ngx_re_sub(tag.whole, esi_when_pattern, function(m_when)
+                            -- We only show the first matching branch, others must be removed
+                            -- even if they also match.
+                            if when_matched then return "" end
+
+                            local condition = m_when[1]
+                            if _esi_evaluate_condition(condition) then
+                                when_matched = true
+
+                                if ngx_re_find(tag.contents, "<esi:choose>") then
+                                    -- recurse
+                                    evaluate_conditionals(tag.contents, res, recursion + 1)
+                                else
+                                    tbl_insert(res, tag.contents)
+                                end
+                            end
+                            return ""
+                        end, "soj")
+
+                        -- Break after the first winning expression
+                    elseif tag.tagname == "esi:otherwise" then
+                        otherwise = tag.contents
+                    end
+                end
+            until not tag
+
+            if not when_matched and otherwise then
+                if ngx_re_find(otherwise, "<esi:choose>") then
+                    -- recurse
+                    evaluate_conditionals(otherwise, res, recursion + 1)
+                else
+                    tbl_insert(res, otherwise)
+                end
+            end
         end
+
     until not choose
 
-    if not tail then
-        ngx.log(ngx.DEBUG, "notail")
+    if after then
+        tbl_insert(res, after)
+    end
+
+    if not chunk_has_conditionals then
         return chunk
     else
-        -- Anything after the last close
-        ngx.log(ngx.DEBUG, "inserting tail: '", str_sub(chunk, tail), "'")
-        tbl_insert(res, str_sub(chunk, tail))
         return tbl_concat(res)
     end
 end
@@ -612,39 +597,13 @@ function _M.get_scan_filter(reader)
                                 "-->", "soj"
                             )
                         elseif str_sub(chunk, start_from, 12) == "<esi:choose>" then
-                            -- This is a choose tag, and so we may have nested tags to deal with
-
-                            -- We start after the first opening choose tag. Keep track of total depth and
-                            -- current level to see if we can find enough closing tags to match our opening ones
-                            local choose_depth = 1
-                            local choose_level = 1
-
-                            local f, t
-                            local last_choose_from, last_choose_to
-                            local search_from = start_from + 13 -- Start searching from the first opening choose
-
-                            repeat
-                                -- keep looking for opening or closing tags, track the depth / level
-                                f, t = ngx_re_find(str_sub(chunk, search_from), "<([/]*)esi:choose>", "soj")
-                                if f and t then
-                                    last_choose_from = f
-                                    last_choose_to = t
-                                    local tag = str_sub(chunk, (search_from - 1) + f, (search_from - 1) + t)
-
-                                    if tag == "<esi:choose>" then
-                                        choose_depth = choose_depth + 1
-                                        choose_level = choose_level + 1
-                                    elseif tag == "</esi:choose>" then
-                                        choose_level = choose_level - 1
-                                    end
-                                    search_from = search_from + t
-                                end
-                            until not f
-
-                            -- if we're back to 0, we want to know where this closing tag is, so that we can yield
-                            if choose_level == 0 then
-                                e_from = last_choose_from
-                                e_to = last_choose_to
+                            -- This is a choose tag, so use the parser to try and find the end of it
+                            -- (accounting for nesting).
+                            local parser = esi_parser.new(chunk)
+                            local choose = parser:next("esi:choose")
+                            if choose then
+                                e_from = choose.closing.from
+                                e_to = choose.closing.to
                             end
                         else
                             -- Just look for a standard tag ending
