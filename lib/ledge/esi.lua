@@ -216,19 +216,23 @@ local esi_parser = {}
 local _esi_parser_mt = { __index = esi_parser }
 
 
-function esi_parser.new(content)
-    return setmetatable({ content = content, pos = 0 }, _esi_parser_mt)
+function esi_parser.new(content, offset)
+    return setmetatable({ content = content, pos = (offset or 0) }, _esi_parser_mt)
 end
 
 
 function esi_parser.next(self, tagname)
-    if not tagname then tagname = "(?:[a-z]+)" end
     local tag = self:find_whole_tag(tagname)
     local before, after
     if tag then
         before = str_sub(self.content, self.pos + 1, tag.opening.from - 1)
-        after = str_sub(self.content, tag.closing.to + 1)
-        self.pos = tag.closing.to
+        if tag.closing then
+            after = str_sub(self.content, tag.closing.to + 1)
+            self.pos = tag.closing.to
+        else
+            after = str_sub(self.content, tag.opening.to + 1)
+            self.pos = tag.opening.to
+        end
     end
 
     return tag, before, after
@@ -238,15 +242,72 @@ end
 function esi_parser.find_whole_tag(self, tag)
     local markup = str_sub(self.content, self.pos + 1)
 
-    local open = "<(" .. tag .. ")(\\s?([a-z]+=\".+?\"))?[^>]*>"
+    if not tag then
+        tag = "(?:!--esi)|(?:esi:[a-z]+)"
+    end
+
+
+    local open = "<(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(\\s*\\/>|>)?"
     local close = "</(" .. tag .. ")>"
-    local either = "<[\\/]*(" .. tag .. ")(\\s?([a-z]+=\".+?\"))?[^>]*>"
+    local either = "<[\\/]?(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(\\s*\\/>|>)?"
 
     -- Find the first opening tag
-    local opening_f, opening_t = ngx_re_find(markup, open, "soj")
+    local opening_f, opening_t, err = ngx_re_find(markup, open, "soj")
     if not opening_f then
-        return nil, nil
+        return nil
     end
+
+    -- We found an opening tag and has its position, but need to understand it better
+    local opening_m, err = ngx_re_match(str_sub(markup, opening_f, opening_t), open, "soj")
+    if opening_m then
+        if opening_m[1] == "!--esi" then
+            ngx.log(ngx.DEBUG, "this is a comment - look for the end")
+
+            local closing_comment_f, closing_comment_t = ngx_re_find(str_sub(markup, opening_f), "-->", "soj")
+            if closing_comment_f then
+                ngx.log(ngx.DEBUG, "found close: '", str_sub(markup, closing_comment_f, closing_comment_t), "'")
+                return {
+                    opening = {
+                        from = opening_f + self.pos,
+                        to = opening_t + self.pos,
+                        tag = "<!--esi",
+                    },
+                    closing = {
+                        from = closing_comment_f + self.pos,
+                        to = closing_comment_t + self.pos,
+                        tag = "-->",
+                    },
+                    contents = str_sub(markup, opening_f + 7, closing_comment_t - 1),
+                    whole = str_sub(markup, opening_f, closing_comment_t),
+                    tagname = "!--esi",
+                }
+            else
+                ngx.log(ngx.DEBUG, "no closing comment")
+                return {
+                    opening = {
+                        from = opening_f + self.pos,
+                        to = opening_t + self.pos,
+                        tag = "<!--esi",
+                    },
+                    tagname = "!--esi",
+                }
+            end
+        elseif type(opening_m[2]) == "string" and str_sub(opening_m[2], -2) == "/>" then
+            ngx.log(ngx.DEBUG, "inline tag, not block")
+            return {
+                opening = {
+                    from = opening_f + self.pos,
+                    to = opening_t + self.pos,
+                    tag = str_sub(markup, opening_f, opening_t),
+                },
+                whole = str_sub(markup, opening_f, opening_t),
+                tagname = opening_m[1],
+            }
+        end
+    end
+
+
+    -- Block level, potentially nesting
 
     local tagname_m = ngx_re_match(str_sub(markup, opening_f, opening_t), open, "soj")
     local tagname = tagname_m[1]
@@ -283,7 +344,7 @@ function esi_parser.find_whole_tag(self, tag)
         closing_t = closing_t + search - t
         closing_f = closing_f + search - t
 
-        local ret = {
+        return {
             opening = {
                 from = opening_f + self.pos,
                 to = opening_t + self.pos,
@@ -298,9 +359,15 @@ function esi_parser.find_whole_tag(self, tag)
             whole = str_sub(markup, opening_f, closing_t),
             tagname = tagname,
         }
-        return ret
     else
-        return nil
+        return {
+            opening = {
+                from = opening_f + self.pos,
+                to = opening_t + self.pos,
+                tag = str_sub(markup, opening_f, opening_t),
+            },
+            tagname = tagname,
+        }
     end
 end
 
@@ -315,7 +382,7 @@ local function evaluate_conditionals(chunk, res, recursion)
     local chunk_has_conditionals = false
     repeat
         local choose, ch_before, ch_after = parser:next("esi:choose")
-        if choose then
+        if choose and choose.closing then
             chunk_has_conditionals = true
 
             -- Anything before this choose should just be output
@@ -335,7 +402,7 @@ local function evaluate_conditionals(chunk, res, recursion)
             local otherwise
             repeat
                 local tag = inner_parser:next("esi:when|esi:otherwise")
-                if tag then
+                if tag and tag.closing then
                     if tag.tagname == "esi:when" and when_matched == false then
                         when_found = true
 
@@ -382,6 +449,8 @@ local function evaluate_conditionals(chunk, res, recursion)
     end
 
     if not chunk_has_conditionals then
+        ngx.log(ngx.DEBUG, "chunk does not have valid conditionals")
+        ngx.log(ngx.DEBUG, "'", chunk, "'")
         return chunk
     else
         return tbl_concat(res)
@@ -531,7 +600,6 @@ end
 function _M.get_scan_filter(reader)
     return co_wrap(function(buffer_size)
         local prev_chunk = ""
-        local buffering = false
         local tag_hint
 
         repeat
@@ -546,27 +614,51 @@ function _M.get_scan_filter(reader)
                     tag_hint = nil
                 end
 
-                -- prev_chunk will contain the last buffer if we have an ESI instruction spanning
-                -- buffers.
+                -- prev_chunk will contain the last buffer if we have
+                -- an ESI instruction spanning buffers.
                 chunk = prev_chunk .. chunk
-                local chunk_len = #chunk
+                --ngx.log(ngx.DEBUG, "chunk: '", chunk, "'")
 
-                local pos = 1
+                local parser = esi_parser.new(chunk)
 
                 repeat
-                    local is_comment = false
+                    local tag, before, after = parser:next()
 
-                    -- 1) look for an opening esi tag
-                    local start_from, start_to, err = ngx_re_find(
-                        str_sub(chunk, pos),
-                        "<[!--]*esi", "soj"
-                    )
+                    if tag and tag.whole then
+                        -- We have a whole instruction
+                        ngx.log(ngx.DEBUG, "scan found: '", tag.whole, '"')
 
-                    if not start_from then
+                        -- Yield anything before this tag
+                        if before ~= "" then
+                            co_yield(before, nil, false)
+                        end
+
+                        -- Yield the entire tag with has_esi=true
+                        co_yield(tag.whole, nil, true)
+
+                        -- Trim chunk to what's left
+                        chunk = after
+                        prev_chunk = ""
+                    elseif tag and not tag.whole then
+                        -- Incompete, so buffer and try again
+                        ngx.log(ngx.DEBUG, "buffering")
+                        prev_chunk = chunk
+                        break
+                    else
+                        -- look for something resembling the beginning of an ESI tagan opening esi tag
+                        local start_from, start_to, err = ngx_re_find(
+                            chunk,
+                            "<[!--]*esi", "soj"
+                        )
+                        if start_from then
+                            ngx.log(ngx.DEBUG, "something resembling... buffering")
+                            prev_chunk = chunk
+                            break
+                        end
+
                         -- No complete opening tag found.
                         -- Check the end of the chunk for the beginning of an opening tag (a hint),
                         -- incase it spans to the next buffer.
-
                         local hint_match, err = ngx_re_match(
                             str_sub(chunk, -6, -1),
                             "(?:<!--es|<!--e|<!--|<es|<!-|<e|<!|<)$", "soj"
@@ -574,70 +666,19 @@ function _M.get_scan_filter(reader)
 
                         if hint_match then
                             tag_hint = hint_match[0]
+                            ngx.log(ngx.DEBUG, "found tag hint: '", tag_hint, "'")
                             -- Remove the hint from this chunk, it'll be prepending to the next one.
                             chunk = str_sub(chunk, 1, - (#tag_hint + 1))
                         end
 
+
+                        -- Nothing found, yield the whole chunk
+                        co_yield(chunk, nil, false)
                         break
-                    else
-                        -- we definitely have something.
-                        has_esi = true
-
-                        -- give our start tag positions absolute chunk positions.
-                        start_from = start_from + (pos - 1)
-                        start_to = start_to + (pos - 1)
-
-                        local e_from, e_to, err
-
-                        -- 2) try and find the end of the tag (could be inline or block)
-                        --    and comments and choose / when must be treated as special cases.
-                        if str_sub(chunk, start_from, 7) == "<!--esi" then
-                            e_from, e_to, err = ngx_re_find(
-                                str_sub(chunk, start_to + 1),
-                                "-->", "soj"
-                            )
-                        elseif str_sub(chunk, start_from, 12) == "<esi:choose>" then
-                            -- This is a choose tag, so use the parser to try and find the end of it
-                            -- (accounting for nesting).
-                            local parser = esi_parser.new(chunk)
-                            local choose = parser:next("esi:choose")
-                            if choose then
-                                e_from = choose.closing.from
-                                e_to = choose.closing.to
-                            end
-                        else
-                            -- Just look for a standard tag ending
-                            e_from, e_to, err = ngx_re_find(
-                                str_sub(chunk, start_to + 1),
-                                "[^>]?/>|</esi:[^>]+>", "soj"
-                            )
-                        end
-
-                        if not e_from then
-                            -- the end isn't in this chunk, so we must buffer.
-                            prev_chunk = chunk
-                            buffering = true
-                            break
-                        else
-                            -- we found the end of this instruction. stop buffering until we find
-                            -- another unclosed instruction.
-                            prev_chunk = ""
-                            buffering = false
-
-                            e_from = e_from + start_to
-                            e_to = e_to + start_to
-
-                            -- update pos for the next loop
-                            pos = e_to + 1
-                        end
                     end
-                until pos >= chunk_len
-
-                if not buffering then
-                    -- we've got a chunk we can yield with.
-                    co_yield(chunk, nil, has_esi)
-                end
+                until not tag
             elseif tag_hint then
+                -- We had what looked like a tag_hint but there are no more chunks
                 co_yield(tag_hint)
             end
         until not chunk
@@ -673,6 +714,7 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                         chunk = esi_replace_vars(chunk)
 
                         -- Evaluate choose / when / otherwise conditions...
+                        ngx.log(ngx.DEBUG, "will eval: '", chunk, "'")
                         chunk = evaluate_conditionals(chunk)
 
                         -- Find and loop over esi:include tags

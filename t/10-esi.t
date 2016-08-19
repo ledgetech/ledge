@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) + 17;
+plan tests =>  repeat_each() * (blocks() * 4) + 31;
 
 my $pwd = cwd();
 
@@ -49,6 +49,7 @@ __DATA__
 location /esi_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+ledge:config_set("buffer_size", 10)
         run()
     ';
 }
@@ -1425,7 +1426,7 @@ location /esi_17_prx {
 }
 location /esi_17 {
     default_type text/html;
-    content_by_lua '
+    content_by_lua_block {
         local conditions = {
             "1 == 1",
             "1==1",
@@ -1435,13 +1436,12 @@ location /esi_17 {
             "(1 > 2) | (3 > 2 & 2 > 1)",
             "(1>2)||(3>2&&2>1)",
             "! (2 > 1) | (3 > 2 & 2 > 1)",
-            "\\\'hello\\\' == \\\'hello\\\'",
-            "\\\'hello\\\' != \\\'goodbye\\\'",
-            "\\\'repeat\\\' != \\\'function\\\'", -- use of lua words in strings
-            "\\\'repeat\\\' != function", -- use of lua words unquoted
-            "\\\' repeat sentence with function in it \\\' == \\\' repeat sentence with function in it \\\'", -- use of lua words in strings
-            [["this string has \\\"quotes\\\"" == "this string has \\\"quotes\\\""]],
-            "$(QUERY_STRING{msg}) == \\\'hello\\\'",
+            "'hello' == 'hello'",
+            "'hello' != 'goodbye'",
+            "'repeat' != 'function'", -- use of lua words in strings
+            "'repeat' != function", -- use of lua words unquoted
+            "' repeat sentence with function in it ' == ' repeat sentence with function in it '", -- use of lua words in strings
+            "$(QUERY_STRING{msg}) == 'hello'",
         }
 
         for _,c in ipairs(conditions) do
@@ -1450,7 +1450,7 @@ location /esi_17 {
             ngx.log(ngx.DEBUG, [[<esi:choose><esi:when test="]], c, [[">]], c,
                     [[</esi:when><esi:otherwise>Failed</esi:otherwise></esi:choose>]])
         end
-    ';
+    }
 }
 --- request
 GET /esi_17_prx?msg=hello
@@ -1469,7 +1469,6 @@ GET /esi_17_prx?msg=hello
 'repeat' != 'function'
 Failed
 ' repeat sentence with function in it ' == ' repeat sentence with function in it '
-"this string has \"quotes\"" == "this string has \"quotes\""
 hello == 'hello'
 
 
@@ -1500,6 +1499,7 @@ GET /esi_17b_prx
 Otherwise
 --- error_log
 Removed 4 unquoted Lua reserved words
+
 
 
 === TEST 18: Surrogate-Control with lower version number still works.
@@ -2003,7 +2003,6 @@ X-Cache: MISS from .*
 --- no_error_log
 [error]
 
-
 === TEST 30b: ESI args vary, but cache is a HIT
 --- http_config eval: $::HttpConfig
 --- config
@@ -2144,4 +2143,47 @@ c
     
 AFTER CONTENT",
 ]
+--- no_error_log
+
+
+=== TEST 31b: As above, no whitespace
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_31b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 200)
+        run()
+    ';
+}
+location /esi_31b {
+    default_type text/html;
+    content_by_lua_block {
+        local content = [[BEFORE CONTENT<esi:choose><esi:when test="$(QUERY_STRING{a}) == 'a'">a</esi:when></esi:choose><esi:choose><esi:when test="$(QUERY_STRING{b}) == 'b'">b</esi:when>RANDOM ILLEGAL CONTENT<esi:when test="$(QUERY_STRING{c}) == 'c'">c<esi:choose><esi:when test="$(QUERY_STRING{l1d}) == 'l1d'">l1d</esi:when><esi:when test="$(QUERY_STRING{l1e}) == 'l1e'">l1e<esi:choose><esi:when test="$(QUERY_STRING{l2f}) == 'l2f'">l2f</esi:when><esi:otherwise>l2 OTHERWISE</esi:otherwise></esi:choose></esi:when><esi:otherwise>l1 OTHERWISE<esi:choose><esi:when test="$(QUERY_STRING{l2g}) == 'l2g'">l2g</esi:when></esi:choose></esi:otherwise></esi:choose></esi:when></esi:choose>AFTER CONTENT]]
+
+        ngx.print(content)
+    }
+}
+--- request eval
+[
+"GET /esi_31b_prx?a=a",
+"GET /esi_31b_prx?b=b",
+"GET /esi_31b_prx?a=a&b=b",
+"GET /esi_31b_prx?l1d=l1d",
+"GET /esi_31b_prx?c=c&l1d=l1d",
+"GET /esi_31b_prx?c=c&l1e=l1e&l2f=l2f",
+"GET /esi_31b_prx?c=c&l1e=l1e",
+"GET /esi_31b_prx?c=c",
+"GET /esi_31b_prx?c=c&l2g=l2g",
+]
+--- response_body eval
+["BEFORE CONTENTaAFTER CONTENT",
+"BEFORE CONTENTbAFTER CONTENT",
+"BEFORE CONTENTabAFTER CONTENT",
+"BEFORE CONTENTAFTER CONTENT",
+"BEFORE CONTENTcl1dAFTER CONTENT",
+"BEFORE CONTENTcl1el2fAFTER CONTENT",
+"BEFORE CONTENTcl1el2 OTHERWISEAFTER CONTENT",
+"BEFORE CONTENTcl1 OTHERWISEAFTER CONTENT",
+"BEFORE CONTENTcl1 OTHERWISEl2gAFTER CONTENT"]
 --- no_error_log

@@ -3138,6 +3138,7 @@ function _M.body_server(self, reader)
     repeat
         local chunk, err = reader(buffer_size)
         if chunk then
+            ngx.log(ngx.DEBUG, "output (#", #chunk, "):'", chunk, "'")
             ngx_print(chunk)
         end
 
