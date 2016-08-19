@@ -425,7 +425,6 @@ function esi_parser.find_whole_tag(self, tag)
         contents = nil,
     }
 
-
     -- Check if this is a comment tag, or an inline (non-block) tag,
     -- and return with positions in either case.
     if opening_m[1] == "!--esi" then
@@ -435,8 +434,8 @@ function esi_parser.find_whole_tag(self, tag)
 
         -- Look for the closing part and include it if present
         local closing_comment_f, closing_comment_t = ngx_re_find(
-        str_sub(markup, opening_f),
-        "-->", "soj"
+            str_sub(markup, opening_f),
+            "-->", "soj"
         )
         if closing_comment_f then
             ret.closing = {
