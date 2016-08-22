@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) + 31;
+plan tests =>  repeat_each() * (blocks() * 4) + 29;
 
 my $pwd = cwd();
 
@@ -2046,6 +2046,7 @@ BEFORE CONTENT
     RANDOM ILLEGAL CONTENT
     <esi:when test="$(QUERY_STRING{c}) == 'c'">c
         <esi:choose>
+            </esi:vars alt="BAD ILLEGAL NESTING">
             <esi:when test="$(QUERY_STRING{l1d}) == 'l1d'">l1d</esi:when>
             <esi:when test="$(QUERY_STRING{l1e}) == 'l1e'">l1e
                 <esi:choose>
@@ -2056,6 +2057,7 @@ BEFORE CONTENT
             <esi:otherwise>l1 OTHERWISE
                 <esi:choose>
                     <esi:when test="$(QUERY_STRING{l2g}) == 'l2g'">l2g</esi:when>
+                    </esi:when alt="MORE BAD ILLEGAL NESTING">
                 </esi:choose>
             </esi:otherwise>
         </esi:choose>
@@ -2186,4 +2188,54 @@ location /esi_31b {
 "BEFORE CONTENTcl1el2 OTHERWISEAFTER CONTENT",
 "BEFORE CONTENTcl1 OTHERWISEAFTER CONTENT",
 "BEFORE CONTENTcl1 OTHERWISEl2gAFTER CONTENT"]
+--- no_error_log
+
+
+=== TEST 32: Tag parsing boundaries
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_32_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 50)
+        run()
+    ';
+}
+location /esi_32 {
+    default_type text/html;
+    content_by_lua_block {
+        local content = [[
+BEFORE CONTENT
+<esi:choose
+><esi:when           
+                    test="$(QUERY_STRING{a}) == 'a'"
+            >a
+<esi:include 
+
+
+                src="/fragment"         
+
+/></esi:when
+>
+</esi:choose
+
+
+>
+AFTER CONTENT
+]]
+
+        ngx.print(content)
+    }
+}
+location /fragment {
+    echo "OK";
+}
+--- request
+GET /esi_32_prx?a=a
+--- response_body
+BEFORE CONTENT
+a
+OK
+
+AFTER CONTENT
 --- no_error_log
