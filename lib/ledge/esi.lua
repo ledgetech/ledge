@@ -378,6 +378,24 @@ function esi_parser.next(self, tagname)
 end
 
 
+function esi_parser.open_pattern(tag)
+    -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
+    return "<(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(?:\\s*)(\\/>|>)?"
+end
+
+
+function esi_parser.close_pattern(tag)
+    -- $1: the tag name
+    return "</(" .. tag .. ")\\s*>"
+end
+
+
+function esi_parser.either_pattern(tag)
+    -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
+    return "<[\\/]?(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(?:\\s*)(\\s*\\/>|>)?"
+end
+
+
 -- Finds the next esi tag, accounting for nesting to find the correct
 -- matching closing tag etc.
 function esi_parser.find_whole_tag(self, tag)
@@ -389,13 +407,8 @@ function esi_parser.find_whole_tag(self, tag)
         tag = "(?:!--esi)|(?:esi:[a-z]+)"
     end
 
-    -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
-    local open = "<(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(\\s*\\/>|>)?"
-    local close = "</(" .. tag .. ")>"
-    local either = "<[\\/]?(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(\\s*\\/>|>)?"
-
     -- Find the first opening tag
-    local opening_f, opening_t, err = ngx_re_find(markup, open, "soj")
+    local opening_f, opening_t, err = ngx_re_find(markup, self.open_pattern(tag), "soj")
     if not opening_f then
         -- Nothing here
         return nil
@@ -405,7 +418,7 @@ function esi_parser.find_whole_tag(self, tag)
     -- to handle comments and inline tags.
     local opening_m, err  = ngx_re_match(
         str_sub(markup, opening_f, opening_t),
-        open, "soj"
+        self.open_pattern(tag), "soj"
     )
     if not opening_m then
         ngx_log(ngx_ERR, err)
@@ -464,7 +477,7 @@ function esi_parser.find_whole_tag(self, tag)
 
     repeat
         -- keep looking for opening or closing tags
-        f, t = ngx_re_find(str_sub(markup, search + 1), either, "soj")
+        f, t = ngx_re_find(str_sub(markup, search + 1), self.either_pattern(ret.tagname), "soj")
         if f and t then
             -- Move closing markers along
             closing_f = f
@@ -472,10 +485,10 @@ function esi_parser.find_whole_tag(self, tag)
 
             -- Track current level and total depth
             local tag = str_sub(markup, search + f, search + t)
-            if ngx_re_find(tag, open) then
+            if ngx_re_find(tag, self.open_pattern(ret.tagname)) then
                 depth = depth + 1
                 level = level + 1
-            elseif ngx_re_find(tag, close) then
+            elseif ngx_re_find(tag, self.close_pattern(ret.tagname)) then
                 level = level - 1
             end
             -- Move search pos along
