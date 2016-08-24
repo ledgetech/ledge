@@ -8,10 +8,12 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
+$ENV{TEST_LEDGE_CHUNKED} ||= 'on';
 
 our $HttpConfig = qq{
     resolver 8.8.8.8;
     if_modified_since off;
+    chunked_transfer_encoding $ENV{TEST_LEDGE_CHUNKED};
 lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
@@ -25,6 +27,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('esi_enabled', true)
+        ledge:config_set('buffer_size', 5) -- Try to trip scanning up with small buffers
 
         function run()
             ledge:bind('origin_fetched', function(res)
@@ -49,7 +52,7 @@ __DATA__
 location /esi_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-ledge:config_set("buffer_size", 10)
+        --ledge:config_set("buffer_size", 10)
         run()
     ';
 }
@@ -160,6 +163,44 @@ GET /esi_2_prx?a=1
 2345
 
 a=1
+--- no_error_log
+[error]
+
+
+=== TEST 2c: Multi line escaping comments, nested. ESI instructions still processed
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_2c_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /esi_2c {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.say("BEFORE")
+        ngx.print("<!--esi")
+        ngx.say("<esi:vars>$(QUERY_STRING{a})</esi:vars>")
+        ngx.print("<!--esi")
+        ngx.say("<esi:vars>$(QUERY_STRING{b})</esi:vars>")
+        ngx.print("-->")
+        ngx.say("MIDDLE")
+        ngx.say("<esi:vars>$(QUERY_STRING{c})</esi:vars>")
+        ngx.print("-->")
+        ngx.say("AFTER")
+    }
+}
+--- request
+GET /esi_2c_prx?a=1&b=2&c=3
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+BEFORE
+1
+2
+MIDDLE
+3
+AFTER
 --- no_error_log
 [error]
 
@@ -1677,13 +1718,16 @@ GET /esi_23_prx?a=1
 --- config
 location /esi_24_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
+    content_by_lua_block {
+        -- recursion limit fails on tiny buffer sizes because it can't be scanned
+        ledge:config_set("buffer_size", 4096)
         run()
-    ';
+    }
 }
 location /fragment_24_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("buffer_size", 4096)
         run()
     ';
 }
@@ -1727,6 +1771,7 @@ ESI recursion limit (10) exceeded
 location /esi_24_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("buffer_size", 4096)
         ledge:config_set("esi_recursion_limit", 5)
         run()
     ';
@@ -1734,6 +1779,7 @@ location /esi_24_prx {
 location /fragment_24_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("buffer_size", 4096)
         ledge:config_set("esi_recursion_limit", 5)
         run()
     ';

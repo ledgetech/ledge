@@ -353,7 +353,11 @@ local _esi_parser_mt = { __index = esi_parser }
 
 
 function esi_parser.new(content, offset)
-    return setmetatable({ content = content, pos = (offset or 0) }, _esi_parser_mt)
+    return setmetatable({
+        content = content,
+        pos = (offset or 0),
+        open_comments = 0,
+    }, _esi_parser_mt)
 end
 
 
@@ -379,20 +383,32 @@ end
 
 
 function esi_parser.open_pattern(tag)
-    -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
-    return "<(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(?:\\s*)(\\/>|>)?"
+    if tag == "!--esi" then
+        return "<(!--esi)"
+    else
+        -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
+        return "<(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(?:\\s*)(\\/>|>)?"
+    end
 end
 
 
 function esi_parser.close_pattern(tag)
-    -- $1: the tag name
-    return "</(" .. tag .. ")\\s*>"
+    if tag == "!--esi" then
+        return "-->"
+    else
+        -- $1: the tag name
+        return "</(" .. tag .. ")\\s*>"
+    end
 end
 
 
 function esi_parser.either_pattern(tag)
-    -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
-    return "<[\\/]?(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(?:\\s*)(\\s*\\/>|>)?"
+    if tag == "!--esi" then
+        return "(?:<(!--esi)|(-->))"
+    else
+        -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
+        return "<[\\/]?(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(?:\\s*)(\\s*\\/>|>)?"
+    end
 end
 
 
@@ -438,31 +454,8 @@ function esi_parser.find_whole_tag(self, tag)
         contents = nil,
     }
 
-    -- Check if this is a comment tag, or an inline (non-block) tag,
-    -- and return with positions in either case.
-    if opening_m[1] == "!--esi" then
-        -- This is a comment. Hardcode the tag info
-        ret.opening.tag = "<!--esi"
-        ret.tagname = "!--esi"
-
-        -- Look for the closing part and include it if present
-        local closing_comment_f, closing_comment_t = ngx_re_find(
-            str_sub(markup, opening_f),
-            "-->", "soj"
-        )
-        if closing_comment_f then
-            ret.closing = {
-                from = closing_comment_f + self.pos,
-                to = closing_comment_t + self.pos,
-            }
-            ret.contents = str_sub(markup, opening_f + 7, closing_comment_t - 1)
-            ret.whole = str_sub(markup, opening_f, closing_comment_t)
-        end
-
-        return ret
-
-    elseif type(opening_m[2]) == "string" and str_sub(opening_m[2], -2) == "/>" then
-        -- This is a complete (whole) inline tag (no closing tag)
+    -- If this is an inline (non-block) tag, we have everything
+    if type(opening_m[2]) == "string" and str_sub(opening_m[2], -2) == "/>" then
         ret.whole = str_sub(markup, opening_f, opening_t)
         return ret
     end
@@ -516,6 +509,41 @@ function esi_parser.find_whole_tag(self, tag)
         -- We have an opening block tag, but not the closing part. Return
         -- what we can as the filters will buffer until we find the rest.
         return ret
+    end
+end
+
+
+local function process_escaping(chunk, res, recursion)
+    if not recursion then recursion = 0 end
+    if not res then res = {} end
+
+    local parser = esi_parser.new(chunk)
+
+    local chunk_has_escaping = false
+    repeat
+        local tag, before, after = parser:next("!--esi")
+        if tag and tag.closing then
+            chunk_has_escaping = true
+            if before then
+                tbl_insert(res, before)
+            end
+
+            -- If there are more nested, recurse
+            if ngx_re_find(tag.contents, "<!--esi", "soj") then
+                return process_escaping(tag.contents, res, recursion)
+            else
+                tbl_insert(res, tag.contents)
+                tbl_insert(res, after)
+            end
+
+        end
+
+    until not tag
+
+    if chunk_has_escaping then
+        return tbl_concat(res)
+    else
+        return chunk
     end
 end
 
@@ -650,21 +678,29 @@ function _M.get_scan_filter(reader)
                         chunk = after
                         prev_chunk = ""
                     elseif tag and not tag.whole then
-                        -- Incompete, so buffer and try again
-                        prev_chunk = chunk
+                        -- Opening, but incompete. We yield up to this point and buffer from
+                        -- the opening tag onwards, to try again.
+                        -- This is so that we don't buffer the "before" content if there turns
+                        -- out to be no closing tag
+                        if before ~= "" then
+                            co_yield(before, nil, false)
+                        end
+
+                        prev_chunk = tag.opening.tag .. after
                         break
                     else
-                        -- look for something resembling the beginning of an ESI tagan opening esi tag
+                        -- No complete tag found, but look for something resembling
+                        -- the beginning of an incomplete ESI tag
                         local start_from, start_to, err = ngx_re_find(
                             chunk,
-                            "<[!--]*esi", "soj"
+                            "<(?:!--)?esi", "soj"
                         )
                         if start_from then
+                            -- Incomplete opening tag, so buffer and try again
                             prev_chunk = chunk
                             break
                         end
 
-                        -- No complete opening tag found.
                         -- Check the end of the chunk for the beginning of an opening tag (a hint),
                         -- incase it spans to the next buffer.
                         local hint_match, err = ngx_re_match(
@@ -707,9 +743,10 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
                 local chunk, err, has_esi = reader(buffer_size)
                 local escaped = 0
                 if chunk then
+
                     if has_esi then
                         -- Remove <!--esi-->
-                        chunk, escaped = ngx_re_gsub(chunk, "(<!--esi(.*?)-->)", "$2", "soj")
+                        chunk = process_escaping(chunk)
 
                         -- Remove comments.
                         chunk = ngx_re_gsub(chunk, "<esi:comment (?:.*?)/>", "", "soj")
@@ -775,7 +812,7 @@ function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
             local chunk, err = inner_reader(buffer_size)
             if chunk then
                 -- If we see an abort instruction, we set a flag to stop further esi:includes.
-                if str_find(chunk, "<esi:abort_includes", 1, true) then
+                if ngx_re_find(chunk, "<esi:abort_includes", "soj") then
                     esi_abort_flag = true
                 end
 
