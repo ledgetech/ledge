@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 20;
+plan tests => repeat_each() * (blocks() * 3) + 1;
 
 my $pwd = cwd();
 
@@ -50,6 +50,8 @@ __DATA__
 GET /error_prx
 --- response_body
 OK
+--- no_error_log
+[error]
 
 
 === TEST 1a: Serve from cache on error
@@ -70,6 +72,8 @@ Cache-Control: no-cache, stale-if-error=9999
 GET /error_prx
 --- response_body
 OK
+--- no_error_log
+[error]
 
 
 === TEST 1b: Serve from cache on error with collapsed forwarding
@@ -91,6 +95,8 @@ Cache-Control: no-cache, stale-if-error=9999
 GET /error_prx
 --- response_body
 OK
+--- no_error_log
+[error]
 
 
 === Test 2: Prime Cache with expired content
@@ -102,7 +108,7 @@ OK
             ledge:bind("before_save", function(res)
                 -- immediately expire cache entries
                 res.header["Cache-Control"] = "max-age=0"
-            end)        
+            end)
             ledge:run()
         ';
     }
@@ -114,6 +120,8 @@ OK
 GET /error2_prx
 --- response_body
 OK2
+--- no_error_log
+[error]
 
 
 === Test 2a: Serve from cache on error with stale warning
@@ -136,6 +144,8 @@ GET /error2_prx
 Warning: 110 .*
 --- response_body
 OK2
+--- no_error_log
+[error]
 
 
 === Test 2b: Pass through error if outside stale window
@@ -155,6 +165,8 @@ Cache-Control: stale-if-error=0
 --- request
 GET /error2_prx
 --- error_code: 500
+--- no_error_log
+[error]
 
 
 === Test 2c: Serve from cache on error with stale warning with collapsed forwarding
@@ -178,6 +190,8 @@ GET /error2_prx
 Warning: 110 .*
 --- response_body
 OK2
+--- no_error_log
+[error]
 
 
 === Test 2d: Pass through error if outside stale window with collapsed forwarding
@@ -198,6 +212,8 @@ Cache-Control: stale-if-error=0
 --- request
 GET /error2_prx
 --- error_code: 500
+--- no_error_log
+[error]
 
 
 === TEST 3: Prime Cache
@@ -217,6 +233,8 @@ GET /error2_prx
 GET /error3_prx
 --- response_body
 OK
+--- no_error_log
+[error]
 
 
 === TEST 3a: stale_if_error config should override headers
@@ -238,4 +256,62 @@ Cache-Control: no-cache
 GET /error3_prx
 --- response_body
 OK
+--- no_error_log
+[error]
 
+
+=== TEST 4: Prime gzipped response
+--- http_config eval: $::HttpConfig
+--- config
+    location /error_4_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:bind("before_save", function(res)
+                -- immediately expire cache entries
+                --res.header["Cache-Control"] = "max-age=0"
+            end)
+            ledge:run()
+        ';
+    }
+    location /error_4 {
+        gzip on;
+        gzip_proxied any;
+        gzip_min_length 1;
+        gzip_http_version 1.0;
+        default_type text/html;
+        more_set_headers  "Cache-Control: public, max-age=600";
+        more_set_headers  "Content-Type: text/html";
+        echo "OK";
+    }
+--- request
+GET /error_4_prx
+--- more_headers
+Accept-Encoding: gzip
+--- response_body_unlike: OK
+--- no_error_log
+[error]
+--- wait: 1
+
+
+=== Test 4b: Serve uncompressed from cache, with a disconnected warning (as content is not yet stale)
+--- http_config eval: $::HttpConfig
+--- config
+    location /error_4_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location /error_4 {
+        return 500;
+    }
+--- more_headers
+Cache-Control: stale-if-error=9999, max-age=0
+--- request
+GET /error_4_prx
+--- response_headers_like
+Warning: 112 .*
+--- response_body
+OK
+--- no_error_log
+[error]

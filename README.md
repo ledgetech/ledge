@@ -133,23 +133,27 @@ This requires that you have Redis running locally on the default port.
 
 ```nginx
 nginx {
-    if_modified_since Off;
-    lua_check_client_abort On;
-    resolver 8.8.8.8;
+   if_modified_since Off;
+   lua_check_client_abort On;
+   resolver 8.8.8.8;
 
-    lua_package_path '/path/to/lua-resty-http/?.lua;/path/to/lua-resty-redis-connector/?.lua;/path/to/lua-resty-qless/?.lua;/path/to/lua-resty-cookie/?.lua;/path/to/ledge/?.lua;;';
+   lua_package_path '/path/to/lua-resty-http/lib/?.lua;/path/to/lua-resty-redis-connector/lib/?.lua;/path/to/lua-resty-qless/lib/?.lua;/path/to/lua-resty-cookie/lib/?.lua;/path/to/lua-ffi-zlib/lib/?.lua;/path/to/ledge/lib/?.lua;;';
 
-    init_by_lua '
-        local ledge_m = require "ledge.ledge"
-        ledge = ledge_m.new()
-        ledge:config_set("upstream_host", "HOST.EXAMPLE.COM")
-    ';
+   init_by_lua_block {
+      local ledge_m = require "ledge.ledge"
+      ledge = ledge_m.new()
+      ledge:config_set("upstream_host", "HOST.EXAMPLE.COM")
+   }
 
-    init_worker_by_lua 'ledge:run_workers()';
+   init_worker_by_lua_block {
+      ledge:run_workers()
+   }
 
     server {
         location / {
-            'ledge:run()';
+            content_by_lua_block {
+               ledge:run()
+            }
         }
     }
 }
