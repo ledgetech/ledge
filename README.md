@@ -137,7 +137,7 @@ nginx {
    lua_check_client_abort On;
    resolver 8.8.8.8;
 
-   lua_package_path '/path/to/lua-resty-http/?.lua;/path/to/lua-resty-redis-connector/?.lua;/path/to/lua-resty-qless/?.lua;/path/to/lua-resty-cookie/?.lua;/path/to/ledge/?.lua;;';
+   lua_package_path '/path/to/lua-resty-http/lib/?.lua;/path/to/lua-resty-redis-connector/lib/?.lua;/path/to/lua-resty-qless/lib/?.lua;/path/to/lua-resty-cookie/lib/?.lua;/path/to/ledge/lib/?.lua;;';
 
    init_by_lua_block {
       local ledge_m = require "ledge.ledge"
