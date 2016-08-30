@@ -1230,7 +1230,7 @@ _M.events = {
     },
 
     esi_process_enabled = {
-        { in_case = "serve_stale", begin = "serving_stale",
+        { in_case = "can_serve_stale", begin = "serving_stale",
             but_first = {
                 "install_esi_process_filter",
                 "set_esi_process_enabled",
@@ -1258,6 +1258,17 @@ _M.events = {
         },
     },
 
+    can_serve_disconnected = {
+        { begin = "considering_esi_process", but_first = "add_disconnected_warning" },
+    },
+
+    -- We've deduced we can serve a stale version of this URI. Ensure we add a warning to the
+    -- response headers.
+    can_serve_stale = {
+        { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
+        { begin = "considering_esi_process", but_first = { "add_stale_warning", "revalidate_in_background" } },
+    },
+
     -- We have a response we can use. If we've already served (we are doing background work) then
     -- just exit. If it has been prepared and we were not_modified, then set 304 and serve.
     -- If it has been prepared, set status accordingly and serve. If not, prepare it.
@@ -1272,14 +1283,6 @@ _M.events = {
         { when = "preparing_response", begin = "serving",
             but_first = "set_http_status_from_response" },
         { begin = "preparing_response" },
-    },
-
-    -- We've deduced we can serve a stale version of this URI. Ensure we add a warning to the
-    -- response headers.
-    -- TODO: "serve_stale" isn't really an event?
-    serve_stale = {
-        { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
-        { begin = "considering_esi_process", but_first = { "add_stale_warning", "revalidate_in_background" } },
     },
 
     -- We have sent the response. If it was stale, we go back around the fetching path
@@ -1984,9 +1987,9 @@ _M.states = {
         if self:accepts_stale_error() then
             local res = self:get_response()
             if res:stale_ttl() <= 0 then
-                return self:e "serve_stale"
+                return self:e "can_serve_stale"
             else
-                return self:e "response_ready"
+                return self:e "can_serve_disconnected"
             end
         else
             return self:e "can_serve_upstream_error"
@@ -2042,7 +2045,7 @@ _M.states = {
 
     checking_can_serve_stale = function(self)
         if self:calculate_stale_ttl() > 0 then
-            return self:e "serve_stale"
+            return self:e "can_serve_stale"
         else
             return self:e "cache_expired"
         end
