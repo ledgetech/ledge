@@ -59,14 +59,6 @@ local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+
 -- $1: the condition inside test=""
 local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>)]]
 
--- Matches any lua reserved word
-local lua_reserved_words =  "and|break|false|true|function|for|repeat|while|do|end|if|in|" ..
-                            "local|nil|not|or|return|then|until|else|elseif"
-
--- $1: Any lua reserved words not found within quotation marks
-local esi_non_quoted_lua_words =    [[(?!\'{1}|\"{1})(?:.*?)(\b]] .. lua_reserved_words ..
-                                    [[\b)(?!\'{1}|\"{1})]]
-
 
 -- Evaluates a given ESI variable.
 local function esi_eval_var(var)
@@ -166,34 +158,95 @@ local function _esi_gsub_vars_in_other_tags(m)
 end
 
 
-local function _esi_evaluate_condition(condition)
-    -- Remove lua reserved words (if / then / repeat / function etc)
-    -- which are not quoted as strings
-    local reps
-    condition, reps = ngx_re_gsub(condition, esi_non_quoted_lua_words, "", "oj")
-    if reps > 0 then
-        ngx_log(ngx_INFO, "Removed " .. reps .. " unquoted Lua reserved words")
-    end
+local function _esi_condition_lexer(condition)
+    local ctx = {}
 
-    -- Replace ESI operand syntax with Lua equivalents.
+    -- $1: integer
+    -- $2: string
+    -- $3: operator
+    local p = [[(\d+(?:\.\d+)?)|(?:'(.*?)(?<!\\)')|(\!=|!|\|{1,2}|&{1,2}|={2}|=~|\(|\)|<=|>=|>|<)]]
+
+    -- ESI to Lua operators
     local op_replacements = {
-        ["!="] = "~=",
-        ["|"] = " or ",
-        ["&"] = " and ",
-        ["||"] = " or ",
-        ["&&"] = " and ",
-        ["!"] = " not ",
+        ["!="]  = "~=",
+        ["|"]   = " or ",
+        ["&"]   = " and ",
+        ["||"]  = " or ",
+        ["&&"]  = " and ",
+        ["!"]   = " not ",
     }
 
-    condition = ngx_re_gsub(condition, [[(\!=|!|\|{1,2}|&{1,2})]], function(m)
-        return op_replacements[m[1]] or ""
-    end, "soj")
+    local tokens = {}
+    local types = {}
+    local prev_type
+
+    -- Mapping of types to types they are allowed to follow
+    local lexer_rules = {
+        number = {
+            ["nil"] = true,
+            ["operator"] = true,
+        },
+        string = {
+            ["nil"] = true,
+            ["operator"] = true,
+        },
+        operator = {
+            ["nil"] = true,
+            ["number"] = true,
+            ["string"] = true,
+            ["operator"] = true,
+        },
+    }
+
+    repeat
+        local token, err = ngx_re_match(condition, p, "", ctx)
+        if token then
+            local number, string, operator = token[1], token[2], token[3]
+            local token_type
+
+            if number then
+                token_type = "number"
+                tbl_insert(tokens, number)
+            elseif string then
+                token_type = "string"
+                tbl_insert(tokens, "'" .. string .. "'")
+            elseif operator then
+                token_type = "operator"
+                -- Replace operators with Lua equivalents, if needed
+                tbl_insert(tokens, op_replacements[operator] or operator)
+            end
+
+            -- If we break the rules, log a parse error and bail
+            if prev_type then
+                if not lexer_rules[prev_type][token_type] then
+                    ngx_log(ngx_INFO,
+                        "Parse error: found ", token_type, " after ", prev_type,
+                        " in: \"", condition, "\"")
+                    return nil
+                end
+            end
+
+            prev_type = token_type
+            tbl_insert(types, prev_type)
+
+        end
+    until not token
+
+    return true, tbl_concat(tokens or {}, " ")
+end
+
+
+local function _esi_evaluate_condition(condition)
+    local ok, condition = _esi_condition_lexer(condition)
+    if not ok then
+        return false
+    end
 
     -- Try to parse as Lua code, place in an empty sandbox, and pcall to evaluate
     -- the condition.
     local eval, err = loadstring("return " .. condition)
     if eval then
-        setfenv(eval, {})
+        setfenv(eval, { find = ngx.re.find }) -- Empty env except an re.find function
         local ok, res = pcall(eval)
         if ok then
             return res
@@ -387,7 +440,7 @@ function esi_parser.open_pattern(tag)
         return "<(!--esi)"
     else
         -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
-        return "<(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(?:\\s*)(\\/>|>)?"
+        return "<(" .. tag .. [[)(?:\s*(?:[a-z]+=\".+?(?<!\\)\"))?[^>]*?(?:\s*)(\/>|>)?]]
     end
 end
 
@@ -407,7 +460,7 @@ function esi_parser.either_pattern(tag)
         return "(?:<(!--esi)|(-->))"
     else
         -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
-        return "<[\\/]?(" .. tag .. ")(?:\\s*(?:[a-z]+=\".+?\"))?[^>]*?(?:\\s*)(\\s*\\/>|>)?"
+        return [[<[\/]?(]] .. tag .. [[)(?:\s*(?:[a-z]+=\".+?(?<!\\)\"))?[^>]*?(?:\s*)(\s*\\/>|>)?]]
     end
 end
 

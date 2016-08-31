@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) + 29;
+plan tests =>  repeat_each() * (blocks() * 4) + 31;
 
 my $pwd = cwd();
 
@@ -1474,15 +1474,17 @@ location /esi_17 {
             "1 != 2",
             "2 > 1",
             "1 > 2 | 3 > 2",
-            "(1 > 2) | (3 > 2 & 2 > 1)",
+            "(1 > 2) | (3.02 > 2.4124 & 1 <= 1)",
             "(1>2)||(3>2&&2>1)",
-            "! (2 > 1) | (3 > 2 & 2 > 1)",
+            "! (1 < 2) | (3 > 2 & 2 >= 1)",
             "'hello' == 'hello'",
             "'hello' != 'goodbye'",
             "'repeat' != 'function'", -- use of lua words in strings
             "'repeat' != function", -- use of lua words unquoted
             "' repeat sentence with function in it ' == ' repeat sentence with function in it '", -- use of lua words in strings
             "$(QUERY_STRING{msg}) == 'hello'",
+            "'string \\' escaping' == 'string \\' escaping'",
+            [['string \" escaping' == 'string \" escaping']],
         }
 
         for _,c in ipairs(conditions) do
@@ -1502,18 +1504,20 @@ GET /esi_17_prx?msg=hello
 1 != 2
 2 > 1
 1 > 2 | 3 > 2
-(1 > 2) | (3 > 2 & 2 > 1)
+(1 > 2) | (3.02 > 2.4124 & 1 <= 1)
 (1>2)||(3>2&&2>1)
-! (2 > 1) | (3 > 2 & 2 > 1)
+! (1 < 2) | (3 > 2 & 2 >= 1)
 'hello' == 'hello'
 'hello' != 'goodbye'
 'repeat' != 'function'
 Failed
 ' repeat sentence with function in it ' == ' repeat sentence with function in it '
 hello == 'hello'
+'string \' escaping' == 'string \' escaping'
+'string \" escaping' == 'string \" escaping'
 
 
-=== TEST 17b: Unquoted Lua reserved words in conditions removed
+=== TEST 17b: Lexer complains about unparseable conditions
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_17b_prx {
@@ -1522,16 +1526,16 @@ location /esi_17b_prx {
 }
 location /esi_17b {
     default_type text/html;
-    content_by_lua '
+    content_by_lua_block {
         local content = [[<esi:choose>
-<esi:when test="function function == function function">
-OK
-</esi:when>
+<esi:when test="'hello' 'there'">OK</esi:when>
+<esi:when test="3 'hello'">OK</esi:when>
+<esi:when test="'hello' 4">OK</esi:when>
 <esi:otherwise>Otherwise</esi:otherwise>
 </esi:choose>
 ]]
         ngx.print(content)
-    ';
+    }
 }
 --- request
 GET /esi_17b_prx
@@ -1539,8 +1543,9 @@ GET /esi_17b_prx
 --- response_body
 Otherwise
 --- error_log
-Removed 4 unquoted Lua reserved words
-
+Parse error: found string after string in: "'hello' 'there'"
+Parse error: found string after number in: "3 'hello'"
+Parse error: found number after string in: "'hello' 4"
 
 
 === TEST 18: Surrogate-Control with lower version number still works.
