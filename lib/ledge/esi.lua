@@ -193,7 +193,6 @@ local function _esi_condition_lexer(condition)
     local p = [[(\d+(?:\.\d+)?)|(?:'(.*?)(?<!\\)')|(\!=|!|\|{1,2}|&{1,2}|={2}|=~|\(|\)|<=|>=|>|<)]]
     local ctx = {}
     local tokens = {}
-    local types = {}
     local prev_type
     local expecting_pattern = false
 
@@ -266,8 +265,6 @@ local function _esi_condition_lexer(condition)
             end
 
             prev_type = token_type
-            tbl_insert(types, prev_type)
-
         end
     until not token
 
