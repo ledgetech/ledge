@@ -159,13 +159,6 @@ end
 
 
 local function _esi_condition_lexer(condition)
-    local ctx = {}
-
-    -- $1: integer
-    -- $2: string
-    -- $3: operator
-    local p = [[(\d+(?:\.\d+)?)|(?:'(.*?)(?<!\\)')|(\!=|!|\|{1,2}|&{1,2}|={2}|=~|\(|\)|<=|>=|>|<)]]
-
     -- ESI to Lua operators
     local op_replacements = {
         ["!="]  = "~=",
@@ -175,10 +168,6 @@ local function _esi_condition_lexer(condition)
         ["&&"]  = " and ",
         ["!"]   = " not ",
     }
-
-    local tokens = {}
-    local types = {}
-    local prev_type
 
     -- Mapping of types to types they are allowed to follow
     local lexer_rules = {
@@ -198,6 +187,16 @@ local function _esi_condition_lexer(condition)
         },
     }
 
+    -- $1: integer
+    -- $2: string
+    -- $3: operator
+    local p = [[(\d+(?:\.\d+)?)|(?:'(.*?)(?<!\\)')|(\!=|!|\|{1,2}|&{1,2}|={2}|=~|\(|\)|<=|>=|>|<)]]
+    local ctx = {}
+    local tokens = {}
+    local types = {}
+    local prev_type
+    local expecting_pattern = false
+
     repeat
         local token, err = ngx_re_match(condition, p, "", ctx)
         if token then
@@ -209,11 +208,50 @@ local function _esi_condition_lexer(condition)
                 tbl_insert(tokens, number)
             elseif string then
                 token_type = "string"
-                tbl_insert(tokens, "'" .. string .. "'")
+
+                -- Check to see if we're expecing a regex pattern
+                if expecting_pattern then
+                    -- Extract the pattern and options
+                    local re = ngx_re_match(string, [[\/(.*?)(?<!\\)\/([a-z]*)]], "oj")
+                    if not re then
+                        ngx_log(ngx_INFO,
+                            "Parse error: could not parse regular expression in: \"",
+                            condition, "\""
+                        )
+                        return nil
+                    else
+                        local pattern, options = re[1], re[2]
+
+                        -- The last item in tokens is the compare string. Override
+                        -- this with a function call
+                        local cmp_string = tokens[#tokens]
+                        tokens[#tokens] = "find(" .. cmp_string .. ", '" .. pattern .. "', '" .. options .. "oj')"
+                    end
+                    expecting_pattern = false
+                else
+                    -- Plain string literal
+                    tbl_insert(tokens, "'" .. string .. "'")
+                end
             elseif operator then
                 token_type = "operator"
-                -- Replace operators with Lua equivalents, if needed
-                tbl_insert(tokens, op_replacements[operator] or operator)
+
+                -- Look for the regexp op
+                if operator == "=~" then
+                    if prev_type ~= "string" then
+                        ngx_log(ngx_INFO,
+                            "Parse error: regular expression attempting against non-string in: \"",
+                            condition, "\""
+                        )
+                        return nil
+                    else
+                        -- Don't insert this operator, just set this flag and look for the pattern in the
+                        -- next string
+                        expecting_pattern = true
+                    end
+                else
+                    -- Replace operators with Lua equivalents, if needed
+                    tbl_insert(tokens, op_replacements[operator] or operator)
+                end
             end
 
             -- If we break the rules, log a parse error and bail
@@ -221,7 +259,8 @@ local function _esi_condition_lexer(condition)
                 if not lexer_rules[prev_type][token_type] then
                     ngx_log(ngx_INFO,
                         "Parse error: found ", token_type, " after ", prev_type,
-                        " in: \"", condition, "\"")
+                        " in: \"", condition, "\""
+                    )
                     return nil
                 end
             end

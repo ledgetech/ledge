@@ -1485,12 +1485,14 @@ location /esi_17 {
             "$(QUERY_STRING{msg}) == 'hello'",
             "'string \\' escaping' == 'string \\' escaping'",
             [['string \" escaping' == 'string \" escaping']],
+            "'hello' =~ '/llo/'",
+            "'HeLLo' =~ '/hello/i'",
+            [['http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
+            [['htxtp://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
         }
 
         for _,c in ipairs(conditions) do
             ngx.say([[<esi:choose><esi:when test="]], c, [[">]], c,
-                    [[</esi:when><esi:otherwise>Failed</esi:otherwise></esi:choose>]])
-            ngx.log(ngx.DEBUG, [[<esi:choose><esi:when test="]], c, [[">]], c,
                     [[</esi:when><esi:otherwise>Failed</esi:otherwise></esi:choose>]])
         end
     }
@@ -1515,6 +1517,10 @@ Failed
 hello == 'hello'
 'string \' escaping' == 'string \' escaping'
 'string \" escaping' == 'string \" escaping'
+'hello' =~ '/llo/'
+'HeLLo' =~ '/hello/i'
+'http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/'
+Failed
 
 
 === TEST 17b: Lexer complains about unparseable conditions
