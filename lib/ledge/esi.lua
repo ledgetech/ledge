@@ -187,7 +187,7 @@ local function _esi_condition_lexer(condition)
         },
     }
 
-    -- $1: integer
+    -- $1: number
     -- $2: string
     -- $3: operator
     local p = [[(\d+(?:\.\d+)?)|(?:'(.*?)(?<!\\)')|(\!=|!|\|{1,2}|&{1,2}|={2}|=~|\(|\)|<=|>=|>|<)]]
