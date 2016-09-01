@@ -56,9 +56,6 @@ local default_recursion_limit = 10
 -- $4: default value if quoted
 local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+)|'([^\')]+)')?\)]]
 
--- $1: the condition inside test=""
-local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>)]]
-
 
 -- Evaluates a given ESI variable.
 local function esi_eval_var(var)
@@ -645,6 +642,8 @@ local function evaluate_conditionals(chunk, res, recursion)
 
     local parser = esi_parser.new(chunk)
 
+    -- $1: the condition inside test=""
+    local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>)]]
     local after -- Will contain anything after the last closing choose tag
     local chunk_has_conditionals = false
     repeat
