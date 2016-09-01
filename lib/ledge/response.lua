@@ -37,12 +37,10 @@ local NOCACHE_HEADERS = {
 
 
 function _M.new()
-    local body = ""
     local header = http_headers.new()
     local status = nil
 
     return setmetatable({   status = nil,
-                            body = body,
                             header = header,
                             remaining_ttl = 0,
                             has_esi = false,
@@ -81,8 +79,8 @@ function _M.ttl(self)
             cc = tbl_concat(cc, ", ")
         end
         local max_ages = {}
-        for max_age in ngx_re_gmatch(cc, 
-            "(s\\-maxage|max\\-age)=(\\d+)", 
+        for max_age in ngx_re_gmatch(cc,
+            "(s\\-maxage|max\\-age)=(\\d+)",
             "io") do
             max_ages[max_age[1]] = max_age[2]
         end
@@ -96,7 +94,7 @@ function _M.ttl(self)
 
     -- Fall back to Expires.
     local expires = self.header["Expires"]
-    if expires then 
+    if expires then
         local time = ngx_parse_http_time(expires)
         if time then return time - ngx_time() end
     end
