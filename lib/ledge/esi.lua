@@ -233,7 +233,7 @@ local function _esi_condition_lexer(condition)
 
                 -- Look for the regexp op
                 if operator == "=~" then
-                    if prev_type ~= "string" then
+                    if prev_type == "operator" then
                         ngx_log(ngx_INFO,
                             "Parse error: regular expression attempting against non-string in: \"",
                             condition, "\""

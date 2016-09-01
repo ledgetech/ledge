@@ -1490,6 +1490,7 @@ location /esi_17 {
             [['http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
             [['htxtp://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
             "(1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')",
+            "2 =~ '/[0-9]/'",
         }
 
         for _,c in ipairs(conditions) do
@@ -1523,6 +1524,7 @@ hello == 'hello'
 'http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/'
 Failed
 (1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')
+2 =~ '/[0-9]/'
 
 
 === TEST 17b: Lexer complains about unparseable conditions
