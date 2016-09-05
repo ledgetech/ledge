@@ -140,7 +140,9 @@ local function _esi_gsub_in_when_test_tags(m)
         if number then
             return number
         else
-            return "\'" .. res .. "\'"
+            -- Strings must be enclosed in single quotes, so also backslash escape
+            -- single quotes within the value
+            return "\'" .. ngx_re_gsub(res, "'", "\\'", "oj") .. "\'"
         end
     end, "soj")
 
