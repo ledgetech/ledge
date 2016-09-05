@@ -1487,7 +1487,7 @@ location /esi_17 {
             [['string \" escaping' == 'string \" escaping']],
             [[$(QUERY_STRING{msg2}) == 'hel\'lo']],
             "'hello' =~ '/llo/'",
-            "'HeLLo' =~ '/hello/i'",
+            [['HeL\'\'\'Lo' =~ '/hel[\']{1,3}lo/i']],
             [['http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
             [['htxtp://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
             "(1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')",
@@ -1522,7 +1522,7 @@ hello == 'hello'
 'string \" escaping' == 'string \" escaping'
 hel'lo == 'hel\'lo'
 'hello' =~ '/llo/'
-'HeLLo' =~ '/hello/i'
+'HeL\'\'\'Lo' =~ '/hel[\']{1,3}lo/i'
 'http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/'
 Failed
 (1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')
