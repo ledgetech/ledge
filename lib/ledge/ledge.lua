@@ -121,6 +121,7 @@ local function str_split(str, delim)
 end
 
 
+-- Body reader for when the response body is missing
 local function _no_body_reader()
     return nil
 end
@@ -869,7 +870,15 @@ function _M.put_background_job(self, queue, klass, data, options)
     local res, err = q.queues[queue]:put(klass, data, options)
     redis:select(self:config_get("redis_database") or 0)
 
-    return res, err
+    if res then
+        return {
+            jid = res,
+            klass = klass,
+            options = options,
+        }
+    else
+        return res, err
+    end
 end
 
 
@@ -990,17 +999,26 @@ _M.events = {
 
     -- PURGE method detected.
     purge_requested = {
-        { begin = "purging" },
+        { when = "considering_wildcard_purge", begin = "purging", but_first = "set_json_response" },
+        { begin = "considering_wildcard_purge" },
+    },
+
+    wildcard_purge_requested = {
+        { begin = "wildcard_purging", but_first = "set_json_response" },
     },
 
     -- Succesfully purged (expired) a cache entry. Exit 200 OK.
     purged = {
-        { begin = "exiting", but_first = "set_http_ok" },
+        { begin = "serving", but_first = "set_http_ok" },
+    },
+
+    wildcard_purge_scheduled = {
+        { begin = "serving", but_first = "set_http_ok" },
     },
 
     -- URI to purge was not found. Exit 404 Not Found.
     nothing_to_purge = {
-        { begin = "exiting", but_first = "set_http_not_found" },
+        { begin = "serving", but_first = "set_http_not_found" },
     },
 
     -- The request accepts cache. If we've already validated locally, we can think about serving.
@@ -1547,6 +1565,12 @@ _M.actions = {
         return self:serve()
     end,
 
+    set_json_response = function(self)
+        local res = response.new()
+        res.header["Content-Type"] = "application/json"
+        self:set_response(res)
+    end,
+
 
     -- Updates the realidation_params key with data from the current request,
     -- and schedules a background revalidation job
@@ -1674,6 +1698,15 @@ _M.states = {
             return self:e "cache_not_accepted"
         else
             return self:e "cacheable_method"
+        end
+    end,
+
+    considering_wildcard_purge = function(self)
+        local key_chain = self:cache_key_chain()
+        if ngx_re_find(key_chain.root, "\\*", "soj") then
+            return self:e "wildcard_purge_requested"
+        else
+            return self:e "purge_requested"
         end
     end,
 
@@ -1981,6 +2014,11 @@ _M.states = {
         else
             return self:e "nothing_to_purge"
         end
+    end,
+
+    wildcard_purging = function(self)
+        self:purge_in_background()
+        return self:e "wildcard_purge_scheduled"
     end,
 
     considering_stale_error = function(self)
@@ -2565,7 +2603,7 @@ function _M.revalidate_in_background(self, update_revalidation_data)
 
     -- Schedule the background job (immediately). jid is a function of the
     -- URI for automatic de-duping.
-    self:put_background_job("ledge_revalidate", "ledge.jobs.revalidate", {
+    return self:put_background_job("ledge_revalidate", "ledge.jobs.revalidate", {
         uri = ngx_var.request_uri,
         entity_keys = entity_keys,
     }, {
@@ -2747,8 +2785,10 @@ function _M.delete_from_cache(self)
             local size, err = redis:zscore(key_chain.entities, entity_keys.main)
             if not size or size == ngx_null then
                 size = 60
-                ngx_log(ngx_ERR,    "could not determine entity size for scheduling GC, "
-                .. "will collect in 60 seconds: " .. (err or ""))
+                ngx_log(ngx_ERR,
+                    "could not determine entity size for scheduling GC, "
+                    .. "will collect in 60 seconds: " .. (err or "")
+                )
             end
 
             self:put_background_job("ledge", "ledge.jobs.collect_entity", {
@@ -2767,53 +2807,106 @@ function _M.delete_from_cache(self)
 end
 
 
--- Purges the cache item according to X-Purge instructions, which defaults
--- to "invalidate".
--- If there's nothing to do we return false which results in a 404, unless
--- the cache key contains asterisks, in which case we background the purge
--- job and return 200 blind.
+local function _purge_mode()
+    local x_purge = ngx_req_get_headers()["X-Purge"]
+    if h_util.header_has_directive(x_purge, "delete") then
+        return "delete"
+    elseif h_util.header_has_directive(x_purge, "revalidate") then
+        return "revalidate"
+    else
+        return "invalidate"
+    end
+end
+
+
+-- Purges the cache item according to X-Purge instructions, which defaults to "invalidate".
+-- If there's nothing to do we return false which results in a 404.
 function _M.purge(self)
     local redis = self:ctx().redis
+    local entity_keys = self:cache_entity_keys()
     local key_chain = self:cache_key_chain()
 
-    -- Check if we need to do anything other then "invalidate"
-    local x_purge = ngx_req_get_headers()["X-Purge"]
-    local revalidate = h_util.header_has_directive(x_purge, "revalidate")
-    local delete = h_util.header_has_directive(x_purge, "delete")
+    local resp = self:get_response()
+    local purge_mode = _purge_mode()
 
-    -- Do we have asterisks?
-    if ngx_re_find(key_chain.root, "\\*", "soj") then
-        self:put_background_job("ledge_purge", "ledge.jobs.purge", {
-            key_chain = key_chain,
-            keyspace_scan_count = self:config_get("keyspace_scan_count"),
-            revalidate = revalidate,
-            delete = delete,
-        }, {
-            jid = ngx_md5("purge:" .. key_chain.root),
-            tags = { "purge" },
-            priority = 5,
-        })
-        return true
-    else
-        -- Standard non-wildcard purge.
-        local entity_keys = self:cache_entity_keys()
-        if not entity_keys then
-            -- nothing to expire
-            return false
-        else
-            if delete then
-                -- Hard delete entity
-                _M.delete(redis, entity_keys)
-                _M.delete(redis, key_chain)
-                return true
-            else
-                if revalidate then
-                    self:revalidate_in_background(false)
-                end
-                return _M.expire_keys(redis, key_chain, entity_keys)
-            end
-        end
+    -- We 404 if we have nothing
+    if not entity_keys then
+        local json = cjson_encode({ purge_mode = purge_mode, result = "nothing to purge" })
+        resp:set_body(json)
+        self:set_response(resp)
+        return false
     end
+
+    -- Delete mode overrides everything else, since you can't revalidate
+    if purge_mode == "delete" then
+        local result = "deleted"
+        local res, err = self:delete_from_cache()
+        if not res then
+            result = err
+        end
+
+        local json = cjson_encode({ purge_mode = purge_mode, result = result })
+        resp:set_body(json)
+        self:set_response(resp)
+        return true
+    end
+
+    -- If we're revalidating, fire off the background job
+    local job
+    if purge_mode == "revalidate" then
+        job = self:revalidate_in_background(false)
+    end
+
+    -- Invalidate the keys
+    local ok, err = _M.expire_keys(redis, key_chain, entity_keys)
+
+    local result
+    if not ok and err then
+        result = err
+    elseif not ok then
+        result = "already expired"
+    elseif ok then
+        result = "purged"
+    end
+
+    local json = {
+        purge_mode = purge_mode,
+        result = result
+    }
+    if job then json.qless_job = job end
+
+    resp:set_body(cjson_encode(json))
+    self:set_response(resp)
+
+    return ok
+end
+
+
+function _M.purge_in_background(self)
+    local key_chain = self:cache_key_chain()
+    local purge_mode = _purge_mode()
+
+    local job, err = self:put_background_job("ledge_purge", "ledge.jobs.purge", {
+        key_chain = key_chain,
+        keyspace_scan_count = self:config_get("keyspace_scan_count"),
+        purge_mode = purge_mode,
+    }, {
+        jid = ngx_md5("purge:" .. key_chain.root),
+        tags = { "purge" },
+        priority = 5,
+    })
+
+    -- Create a JSON payload for the response
+    local res = self:get_response()
+    local _, json = pcall(cjson_encode, {
+        purge_mode = purge_mode,
+        result = "scheduled",
+        qless_job = job
+    })
+    res:set_body(json)
+    self:set_response(res)
+
+    return true
 end
 
 
@@ -2823,19 +2916,17 @@ function _M.expire_keys(redis, key_chain, entity_keys)
         local time = ngx_time()
         local expires, err = redis:hget(entity_keys.main, "expires")
         if not expires or expires == ngx_null then
-            ngx_log(ngx_ERR, "could not determine existing expiry: ", err)
-            return false
+            return nil, "could not determine existing expiry: " .. err
         end
 
         -- If expires is in the past then this key is stale. Nothing to do here.
         if tonumber(expires) <= time then
-            return false
+            return false, nil
         end
 
         local ttl = redis:ttl(entity_keys.main)
         if not ttl or ttl == ngx_null then
-            ngx_log(ngx_ERR, "count not determine exsiting ttl: ", err)
-            return false
+            return nil, "count not determine exsiting ttl: " .. err
         end
 
         local ttl_reduction = expires - time
@@ -2860,13 +2951,12 @@ function _M.expire_keys(redis, key_chain, entity_keys)
 
         local ok, err = redis:exec()
         if err then
-            ngx_log(ngx_ERR, err)
-            return false
+            return nil, err
         else
-            return true
+            return true, nil
         end
     else
-        return false
+        return false, nil
     end
 end
 
