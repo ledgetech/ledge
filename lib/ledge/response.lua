@@ -16,6 +16,23 @@ local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
+local co_create = coroutine.create
+local co_status = coroutine.status
+local co_resume = coroutine.resume
+local co_wrap = function(func)
+    local co = co_create(func)
+    if not co then
+        return nil, "could not create coroutine"
+    else
+        return function(...)
+            if co_status(co) == "suspended" then
+                return select(2, co_resume(co, ...))
+            else
+                return nil, "can't resume a " .. co_status(co) .. " coroutine"
+            end
+        end
+    end
+end
 
 
 local _M = {
@@ -45,6 +62,14 @@ function _M.new()
                             remaining_ttl = 0,
                             has_esi = false,
     }, mt)
+end
+
+
+-- Setter for a fixed body string (not streamed)
+function _M.set_body(self, body_string)
+    self.body_reader = co_wrap(function()
+        return body_string
+    end)
 end
 
 
