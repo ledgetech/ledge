@@ -1,17 +1,19 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) + 3;
+plan tests =>  repeat_each() * (blocks() * 4) + 31;
 
 my $pwd = cwd();
 
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
+$ENV{TEST_LEDGE_CHUNKED} ||= 'on';
 
 our $HttpConfig = qq{
     resolver 8.8.8.8;
     if_modified_since off;
+    chunked_transfer_encoding $ENV{TEST_LEDGE_CHUNKED};
 lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
     init_by_lua "
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
@@ -25,6 +27,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('esi_enabled', true)
+        ledge:config_set('buffer_size', 5) -- Try to trip scanning up with small buffers
 
         function run()
             ledge:bind('origin_fetched', function(res)
@@ -49,6 +52,7 @@ __DATA__
 location /esi_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        --ledge:config_set("buffer_size", 10)
         run()
     ';
 }
@@ -159,6 +163,44 @@ GET /esi_2_prx?a=1
 2345
 
 a=1
+--- no_error_log
+[error]
+
+
+=== TEST 2c: Multi line escaping comments, nested. ESI instructions still processed
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_2c_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /esi_2c {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.say("BEFORE")
+        ngx.print("<!--esi")
+        ngx.say("<esi:vars>$(QUERY_STRING{a})</esi:vars>")
+        ngx.print("<!--esi")
+        ngx.say("<esi:vars>$(QUERY_STRING{b})</esi:vars>")
+        ngx.print("-->")
+        ngx.say("MIDDLE")
+        ngx.say("<esi:vars>$(QUERY_STRING{c})</esi:vars>")
+        ngx.print("-->")
+        ngx.say("AFTER")
+    }
+}
+--- request
+GET /esi_2c_prx?a=1&b=2&c=3
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+BEFORE
+1
+2
+MIDDLE
+3
+AFTER
 --- no_error_log
 [error]
 
@@ -1254,7 +1296,9 @@ GET /esi_14_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
+
 True
+
 Goodbye
 --- no_error_log
 [error]
@@ -1294,7 +1338,9 @@ GET /esi_15_prx?a=2
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
+
 2
+
 Goodbye
 --- no_error_log
 [error]
@@ -1331,7 +1377,9 @@ GET /esi_16_prx?a=3
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
+
 Otherwise
+
 Goodbye
 --- no_error_log
 [error]
@@ -1358,8 +1406,7 @@ local content = [[Hello
 <esi:otherwise>
 Otherwise
 </esi:otherwise>
-</esi:choose>
-<esi:choose>
+</esi:choose><esi:choose>
 <esi:when test="$(QUERY_STRING{a}) == 3">
 3
 </esi:when>
@@ -1379,8 +1426,11 @@ GET /esi_16b_prx?a=3
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 Hello
+
 Otherwise
+
 3
+
 Goodbye
 --- no_error_log
 [error]
@@ -1417,34 +1467,41 @@ location /esi_17_prx {
 }
 location /esi_17 {
     default_type text/html;
-    content_by_lua '
+    content_by_lua_block {
         local conditions = {
             "1 == 1",
             "1==1",
             "1 != 2",
             "2 > 1",
             "1 > 2 | 3 > 2",
-            "(1 > 2) | (3 > 2 & 2 > 1)",
+            "(1 > 2) | (3.02 > 2.4124 & 1 <= 1)",
             "(1>2)||(3>2&&2>1)",
-            "! (2 > 1) | (3 > 2 & 2 > 1)",
-            "\\\'hello\\\' == \\\'hello\\\'",
-            "\\\'hello\\\' != \\\'goodbye\\\'",
-            "\\\'repeat\\\' != \\\'function\\\'", -- use of lua words in strings
-            "\\\'repeat\\\' != function", -- use of lua words unquoted
-            "\\\' repeat sentence with function in it \\\' == \\\' repeat sentence with function in it \\\'", -- use of lua words in strings
-            [["this string has \\\"quotes\\\"" == "this string has \\\"quotes\\\""]],
-            "$(QUERY_STRING{msg}) == \\\'hello\\\'",
+            "! (1 < 2) | (3 > 2 & 2 >= 1)",
+            "'hello' == 'hello'",
+            "'hello' != 'goodbye'",
+            "'repeat' != 'function'", -- use of lua words in strings
+            "'repeat' != function", -- use of lua words unquoted
+            "' repeat sentence with function in it ' == ' repeat sentence with function in it '", -- use of lua words in strings
+            "$(QUERY_STRING{msg}) == 'hello'",
+            [['string \' escaping' == 'string \' escaping']],
+            [['string \" escaping' == 'string \" escaping']],
+            [[$(QUERY_STRING{msg2}) == 'hel\'lo']],
+            "'hello' =~ '/llo/'",
+            [['HeL\'\'\'Lo' =~ '/hel[\']{1,3}lo/i']],
+            [['http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
+            [['htxtp://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
+            "(1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')",
+            "2 =~ '/[0-9]/'",
         }
 
         for _,c in ipairs(conditions) do
             ngx.say([[<esi:choose><esi:when test="]], c, [[">]], c,
                     [[</esi:when><esi:otherwise>Failed</esi:otherwise></esi:choose>]])
-            ngx.say("")
         end
-    ';
+    }
 }
 --- request
-GET /esi_17_prx?msg=hello
+GET /esi_17_prx?msg=hello&msg2=hel'lo
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1 == 1
@@ -1452,19 +1509,27 @@ GET /esi_17_prx?msg=hello
 1 != 2
 2 > 1
 1 > 2 | 3 > 2
-(1 > 2) | (3 > 2 & 2 > 1)
+(1 > 2) | (3.02 > 2.4124 & 1 <= 1)
 (1>2)||(3>2&&2>1)
-! (2 > 1) | (3 > 2 & 2 > 1)
+! (1 < 2) | (3 > 2 & 2 >= 1)
 'hello' == 'hello'
 'hello' != 'goodbye'
 'repeat' != 'function'
 Failed
 ' repeat sentence with function in it ' == ' repeat sentence with function in it '
-"this string has \"quotes\"" == "this string has \"quotes\""
 hello == 'hello'
+'string \' escaping' == 'string \' escaping'
+'string \" escaping' == 'string \" escaping'
+hel'lo == 'hel\'lo'
+'hello' =~ '/llo/'
+'HeL\'\'\'Lo' =~ '/hel[\']{1,3}lo/i'
+'http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/'
+Failed
+(1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')
+2 =~ '/[0-9]/'
 
 
-=== TEST 17b: Unquoted Lua reserved words in conditions removed
+=== TEST 17b: Lexer complains about unparseable conditions
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_17b_prx {
@@ -1473,19 +1538,16 @@ location /esi_17b_prx {
 }
 location /esi_17b {
     default_type text/html;
-    content_by_lua '
-        local content = [[
-<esi:choose>
-<esi:when test="function function == function function">
-OK
-</esi:when>
-<esi:otherwise>
-Otherwise
-</esi:otherwise>
+    content_by_lua_block {
+        local content = [[<esi:choose>
+<esi:when test="'hello' 'there'">OK</esi:when>
+<esi:when test="3 'hello'">OK</esi:when>
+<esi:when test="'hello' 4">OK</esi:when>
+<esi:otherwise>Otherwise</esi:otherwise>
 </esi:choose>
 ]]
         ngx.print(content)
-    ';
+    }
 }
 --- request
 GET /esi_17b_prx
@@ -1493,7 +1555,9 @@ GET /esi_17b_prx
 --- response_body
 Otherwise
 --- error_log
-Removed 4 unquoted Lua reserved words
+Parse error: found string after string in: "'hello' 'there'"
+Parse error: found string after number in: "3 'hello'"
+Parse error: found number after string in: "'hello' 4"
 
 
 === TEST 18: Surrogate-Control with lower version number still works.
@@ -1671,13 +1735,16 @@ GET /esi_23_prx?a=1
 --- config
 location /esi_24_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
+    content_by_lua_block {
+        -- recursion limit fails on tiny buffer sizes because it can't be scanned
+        ledge:config_set("buffer_size", 4096)
         run()
-    ';
+    }
 }
 location /fragment_24_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("buffer_size", 4096)
         run()
     ';
 }
@@ -1721,6 +1788,7 @@ ESI recursion limit (10) exceeded
 location /esi_24_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("buffer_size", 4096)
         ledge:config_set("esi_recursion_limit", 5)
         run()
     ';
@@ -1728,6 +1796,7 @@ location /esi_24_prx {
 location /fragment_24_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
+        ledge:config_set("buffer_size", 4096)
         ledge:config_set("esi_recursion_limit", 5)
         run()
     ';
@@ -1896,6 +1965,7 @@ GET /esi_27_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 a=1
+--- wait: 2
 --- no_error_log
 [error]
 
@@ -1996,7 +2066,6 @@ X-Cache: MISS from .*
 --- no_error_log
 [error]
 
-
 === TEST 30b: ESI args vary, but cache is a HIT
 --- http_config eval: $::HttpConfig
 --- config
@@ -2016,3 +2085,220 @@ location /esi_30 {
 ["X-Cache: HIT from .*", "X-Cache: HIT from .*"]
 --- no_error_log
 [error]
+
+
+=== TEST 31a: Multiple sibling and child conditionals, winning expressions at various depths
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_31a_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /esi_31a {
+    default_type text/html;
+    content_by_lua_block {
+        local content = [[
+BEFORE CONTENT
+<esi:choose>
+    <esi:when test="$(QUERY_STRING{a}) == 'a'">a</esi:when>
+</esi:choose>
+<esi:choose>
+    <esi:when test="$(QUERY_STRING{b}) == 'b'">b</esi:when>
+    RANDOM ILLEGAL CONTENT
+    <esi:when test="$(QUERY_STRING{c}) == 'c'">c
+        <esi:choose>
+            </esi:vars alt="BAD ILLEGAL NESTING">
+            <esi:when test="$(QUERY_STRING{l1d}) == 'l1d'">l1d</esi:when>
+            <esi:when test="$(QUERY_STRING{l1e}) == 'l1e'">l1e
+                <esi:choose>
+                    <esi:when test="$(QUERY_STRING{l2f}) == 'l2f'">l2f</esi:when>
+                    <esi:otherwise>l2 OTHERWISE</esi:otherwise>
+                </esi:choose>
+            </esi:when>
+            <esi:otherwise>l1 OTHERWISE
+                <esi:choose>
+                    <esi:when test="$(QUERY_STRING{l2g}) == 'l2g'">l2g</esi:when>
+                    </esi:when alt="MORE BAD ILLEGAL NESTING">
+                </esi:choose>
+            </esi:otherwise>
+        </esi:choose>
+    </esi:when>
+</esi:choose>
+AFTER CONTENT]]
+
+        ngx.print(content)
+    }
+}
+--- request eval
+[
+"GET /esi_31a_prx?a=a",
+"GET /esi_31a_prx?b=b",
+"GET /esi_31a_prx?a=a&b=b",
+"GET /esi_31a_prx?l1d=l1d",
+"GET /esi_31a_prx?c=c&l1d=l1d",
+"GET /esi_31a_prx?c=c&l1e=l1e&l2f=l2f",
+"GET /esi_31a_prx?c=c&l1e=l1e",
+"GET /esi_31a_prx?c=c",
+"GET /esi_31a_prx?c=c&l2g=l2g",
+]
+--- response_body eval
+[
+"BEFORE CONTENT
+a
+
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+b
+AFTER CONTENT",
+
+"BEFORE CONTENT
+a
+b
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1d
+    
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1e
+                l2f
+            
+    
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1e
+                l2 OTHERWISE
+            
+    
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1 OTHERWISE
+                
+            
+    
+AFTER CONTENT",
+
+"BEFORE CONTENT
+
+c
+        l1 OTHERWISE
+                l2g
+            
+    
+AFTER CONTENT",
+]
+--- no_error_log
+
+
+=== TEST 31b: As above, no whitespace
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_31b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 200)
+        run()
+    ';
+}
+location /esi_31b {
+    default_type text/html;
+    content_by_lua_block {
+        local content = [[BEFORE CONTENT<esi:choose><esi:when test="$(QUERY_STRING{a}) == 'a'">a</esi:when></esi:choose><esi:choose><esi:when test="$(QUERY_STRING{b}) == 'b'">b</esi:when>RANDOM ILLEGAL CONTENT<esi:when test="$(QUERY_STRING{c}) == 'c'">c<esi:choose><esi:when test="$(QUERY_STRING{l1d}) == 'l1d'">l1d</esi:when><esi:when test="$(QUERY_STRING{l1e}) == 'l1e'">l1e<esi:choose><esi:when test="$(QUERY_STRING{l2f}) == 'l2f'">l2f</esi:when><esi:otherwise>l2 OTHERWISE</esi:otherwise></esi:choose></esi:when><esi:otherwise>l1 OTHERWISE<esi:choose><esi:when test="$(QUERY_STRING{l2g}) == 'l2g'">l2g</esi:when></esi:choose></esi:otherwise></esi:choose></esi:when></esi:choose>AFTER CONTENT]]
+
+        ngx.print(content)
+    }
+}
+--- request eval
+[
+"GET /esi_31b_prx?a=a",
+"GET /esi_31b_prx?b=b",
+"GET /esi_31b_prx?a=a&b=b",
+"GET /esi_31b_prx?l1d=l1d",
+"GET /esi_31b_prx?c=c&l1d=l1d",
+"GET /esi_31b_prx?c=c&l1e=l1e&l2f=l2f",
+"GET /esi_31b_prx?c=c&l1e=l1e",
+"GET /esi_31b_prx?c=c",
+"GET /esi_31b_prx?c=c&l2g=l2g",
+]
+--- response_body eval
+["BEFORE CONTENTaAFTER CONTENT",
+"BEFORE CONTENTbAFTER CONTENT",
+"BEFORE CONTENTabAFTER CONTENT",
+"BEFORE CONTENTAFTER CONTENT",
+"BEFORE CONTENTcl1dAFTER CONTENT",
+"BEFORE CONTENTcl1el2fAFTER CONTENT",
+"BEFORE CONTENTcl1el2 OTHERWISEAFTER CONTENT",
+"BEFORE CONTENTcl1 OTHERWISEAFTER CONTENT",
+"BEFORE CONTENTcl1 OTHERWISEl2gAFTER CONTENT"]
+--- no_error_log
+
+
+=== TEST 32: Tag parsing boundaries
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_32_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("buffer_size", 50)
+        run()
+    ';
+}
+location /esi_32 {
+    default_type text/html;
+    content_by_lua_block {
+        local content = [[
+BEFORE CONTENT
+<esi:choose
+><esi:when           
+                    test="$(QUERY_STRING{a}) == 'a'"
+            >a
+<esi:include 
+
+
+                src="/fragment"         
+
+/></esi:when
+>
+</esi:choose
+
+
+>
+AFTER CONTENT
+]]
+
+        ngx.print(content)
+    }
+}
+location /fragment {
+    echo "OK";
+}
+--- request
+GET /esi_32_prx?a=a
+--- response_body
+BEFORE CONTENT
+a
+OK
+
+AFTER CONTENT
+--- no_error_log
