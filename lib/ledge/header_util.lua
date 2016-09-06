@@ -5,7 +5,7 @@ local tbl_concat = table.concat
 
 
 local _M = {
-    _VERSION = 0.02
+    _VERSION = 1.26
 }
 
 local mt = {

@@ -3,7 +3,7 @@ local tbl_insert = table.insert
 
 
 local _M = {
-    _VERSION = '0.01',
+    _VERSION = '1.26',
 }
 
 
