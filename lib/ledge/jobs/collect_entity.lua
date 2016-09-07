@@ -37,7 +37,7 @@ function _M.perform(job)
     ]]
 
     res, err = redis:eval(POSDECRBYX, 1, job.data.cache_key_chain.memused, job.data.size)
-    res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.entity_keys.main)
+    res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.cache_key_chain.main)
 
     res, err = redis:exec()
 
