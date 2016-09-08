@@ -30,7 +30,6 @@ end
 function _M.perform(job)
     local redis = job.redis
     local key_chain = job.data.key_chain
-    local entity_key_chain = job.data.entity_key_chain
 
     local reval_params, err = hgetall(redis, key_chain.reval_params)
     if not reval_params or reval_params == ngx_null or not reval_params.server_addr then
