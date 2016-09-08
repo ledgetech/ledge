@@ -1,5 +1,7 @@
 local pairs, unpack = pairs, unpack
 local tbl_insert = table.insert
+local ngx_log = ngx.log
+local ngx_ERR = ngx.ERR
 
 
 local _M = {
@@ -17,7 +19,7 @@ function _M.perform(job)
     local ok = redis:multi()
 
     local del_keys = {}
-    for _, key in pairs(job.data.entity_keys) do
+    for _, key in pairs(job.data.entity_key_chain) do
         tbl_insert(del_keys, key)
     end
 
@@ -37,7 +39,10 @@ function _M.perform(job)
     ]]
 
     res, err = redis:eval(POSDECRBYX, 1, job.data.cache_key_chain.memused, job.data.size)
-    res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.cache_key_chain.main)
+    if not res then ngx_log(ngx_ERR, err) end
+
+    res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.entity_id)
+    if not res then ngx_log(ngx_ERR, err) end
 
     res, err = redis:exec()
 
