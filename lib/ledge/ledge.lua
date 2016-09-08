@@ -724,7 +724,6 @@ end
 -- Returns the key chain for all cache keys, except the body entity
 function _M.key_chain(self, cache_key)
     return setmetatable({
-        memused = cache_key .. "::memused", -- string
         entities = cache_key .. "::entities", -- sorted set
         main = cache_key, -- hash
         headers = cache_key .. "::headers", -- hash
@@ -3136,7 +3135,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
             end
 
             local key_chain = self:cache_key_chain()
-            local ok, err = redis:incrby(key_chain.memused, size)
+            local ok, err = redis:hincrby(key_chain.main, "memused", size)
             if not ok then
                 ngx_log(ngx_ERR, "error incrementing memused: ", err)
             end
@@ -3145,7 +3144,6 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                 ngx_log(ngx_ERR, "error adding entity to set: ", err)
             end
 
-            redis:expire(key_chain.memused, ttl)
             redis:expire(key_chain.entities, ttl)
             redis:expire(entity_keys.body, ttl)
             redis:expire(entity_keys.body_esi, ttl)
