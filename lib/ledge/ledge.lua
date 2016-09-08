@@ -721,16 +721,7 @@ function _M.cache_key(self)
     return self:ctx().cache_key
 end
 
-
-function _M.cache_key_chain(self)
-    if not self:ctx().cache_key_chain then
-        local cache_key = self:cache_key()
-        self:ctx().cache_key_chain = self:key_chain(cache_key)
-    end
-    return self:ctx().cache_key_chain
-end
-
-
+-- Returns the key chain for all cache keys, except the body entity
 function _M.key_chain(self, cache_key)
     return setmetatable({
         key = cache_key .. "::key", -- string
@@ -748,6 +739,28 @@ function _M.key_chain(self, cache_key)
 end
 
 
+-- Returns the key chain for a given entity
+function _M.entity_keys(entity_id)
+    local prefix = "ledge:entity:"
+    return setmetatable({
+        body = prefix .. entity_id .. ":body", -- list
+        body_esi = prefix .. entity_id .. ":body_esi", -- list
+    }, { __index = {
+        -- Hide the id from iterators
+        entity_id = entity_id,
+    }})
+end
+
+
+function _M.cache_key_chain(self)
+    if not self:ctx().cache_key_chain then
+        local cache_key = self:cache_key()
+        self:ctx().cache_key_chain = self:key_chain(cache_key)
+    end
+    return self:ctx().cache_key_chain
+end
+
+
 function _M.entity_key_chain(self, verify)
     local key_chain = self:cache_key_chain()
     local redis = self:ctx().redis
@@ -757,7 +770,7 @@ function _M.entity_key_chain(self, verify)
         return nil, err
     end
 
-    local keys = _M.entity_keys(key_chain.root .. "::" .. entity)
+    local keys = _M.entity_keys(entity)
 
     if verify then
         local cleanup = false
@@ -772,7 +785,7 @@ function _M.entity_key_chain(self, verify)
         end
 
         -- If we have esi, check body_esi exists
-        local has_esi, err = redis:hget(keys.main, "has_esi")
+        local has_esi, err = redis:hget(key_chain.main, "has_esi")
         if has_esi and has_esi ~= ngx_null then
             local res, err = redis:exists(keys.body_esi)
             if not res and err then
@@ -786,7 +799,8 @@ function _M.entity_key_chain(self, verify)
         -- If anything required is missing, schedule collection of the remaining bits and trigger
         -- return nil (cache MISS due to incomplete data).
         if cleanup then
-            local size = redis:zscore(key_chain.entities, keys.main)
+            ngx.log(ngx.ERR, "cleanup forced")
+            local size = redis:zscore(key_chain.entities, keys.entity_id)
             if not size or size == ngx_null then
                 -- Entities set evicted too most likely. Collect immediately.
                 size = 0
@@ -794,7 +808,8 @@ function _M.entity_key_chain(self, verify)
 
             self:put_background_job("ledge", "ledge.jobs.collect_entity", {
                 cache_key_chain = key_chain,
-                entity_keys = keys,
+                entity_key_chain = keys,
+                entity_id = keys.entity_id,
                 size = size,
             }, {
                 delay = self:gc_wait(size),
@@ -806,14 +821,6 @@ function _M.entity_key_chain(self, verify)
     end
 
     return keys
-end
-
-
-function _M.entity_keys(entity_key)
-    return  {
-        body = entity_key .. ":body", -- list
-        body_esi = entity_key .. ":body_esi", -- list
-    }
 end
 
 
@@ -2571,11 +2578,10 @@ end
 function _M.revalidate_in_background(self, update_revalidation_data)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
-    local entity_keys = self:entity_key_chain()
 
     local reval_params, reval_headers = self:revalidation_data()
 
-    local ttl, err = redis:ttl(entity_keys.reval_params)
+    local ttl, err = redis:ttl(key_chain.reval_params)
     if not ttl or ttl == ngx_null or ttl < 0 then
         ngx_log(ngx_ERR, "Could not determine expiry for revalidation params. Will fallback to 3600 seconds.")
         ttl = 3600 -- Arbitrarily expire these revalidation parameters in an hour.
@@ -2586,13 +2592,13 @@ function _M.revalidate_in_background(self, update_revalidation_data)
         -- Delete and update reval request headers
         redis:multi()
 
-        redis:del(entity_keys.reval_params)
-        redis:hmset(entity_keys.reval_params, reval_params)
-        redis:expire(entity_keys.reval_params, ttl)
+        redis:del(key_chain.reval_params)
+        redis:hmset(key_chain.reval_params, reval_params)
+        redis:expire(key_chain.reval_params, ttl)
 
-        redis:del(entity_keys.reval_req_headers)
-        redis:hmset(entity_keys.reval_req_headers, reval_headers)
-        redis:expire(entity_keys.reval_req_headers, ttl)
+        redis:del(key_chain.reval_req_headers)
+        redis:hmset(key_chain.reval_req_headers, reval_headers)
+        redis:expire(key_chain.reval_req_headers, ttl)
 
         local res, err = redis:exec()
         if not res then
@@ -2605,7 +2611,6 @@ function _M.revalidate_in_background(self, update_revalidation_data)
     return self:put_background_job("ledge_revalidate", "ledge.jobs.revalidate", {
         uri = ngx_var.request_uri,
         key_chain = key_chain,
-        entity_key_chain = entity_keys,
     }, {
         jid = ngx_md5(
             "revalidate:" ..
@@ -2687,7 +2692,7 @@ function _M.save_to_cache(self, res)
 
     -- Create new entity keys
     local entity = random_hex(8)
-    local entity_key_chain = _M.entity_keys(key_chain.root .. "::" .. entity)
+    local entity_key_chain = _M.entity_keys(entity)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
     -- be in progress. We need to know the previous entity keys and the size.
@@ -2711,7 +2716,8 @@ function _M.save_to_cache(self, res)
         -- Place this job on the queue
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
             cache_key_chain = key_chain,
-            entity_keys = previous_entity_key_chain,
+            entity_key_chain = previous_entity_key_chain,
+            entity_id = previous_entity_key_chain.entity_id,
             size = previous_entity_size,
         }, {
             delay = self:gc_wait(previous_entity_size),
@@ -2763,7 +2769,6 @@ end
 
 
 function _M.delete(redis, key_chain)
-    -- Delete the main cache keys straight away
     local keys = {}
     for k, v in pairs(key_chain) do
         tbl_insert(keys, v)
@@ -2782,7 +2787,7 @@ function _M.delete_from_cache(self)
         local res = redis:exists(key_chain.entities)
         if res then
             -- Set a gc job for the current entity, delayed for current reads
-            local size, err = redis:zscore(key_chain.entities, key_chain.main)
+            local size, err = redis:zscore(key_chain.entities, entity_key_chain.entity_id)
             if not size or size == ngx_null then
                 size = 60
                 ngx_log(ngx_ERR,
@@ -2793,7 +2798,8 @@ function _M.delete_from_cache(self)
 
             self:put_background_job("ledge", "ledge.jobs.collect_entity", {
                 cache_key_chain = key_chain,
-                entity_keys = entity_key_chain,
+                entity_key_chain = entity_key_chain,
+                entity_id = entity_key_chain.entity_id,
                 size = size,
             }, {
                 delay = self:gc_wait(size),
@@ -2803,7 +2809,8 @@ function _M.delete_from_cache(self)
         end
     end
 
-    return true --i_M.delete(redis, key_chain)
+    -- Delete everything else immediately
+    return _M.delete(redis, key_chain)
 end
 
 
@@ -3137,7 +3144,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
             if not ok then
                 ngx_log(ngx_ERR, "error incrementing memused: ", err)
             end
-            local ok, err = redis:zadd(key_chain.entities, size, key_chain.main)
+            local ok, err = redis:zadd(key_chain.entities, size, entity_keys.entity_id)
             if not ok then
                 ngx_log(ngx_ERR, "error adding entity to set: ", err)
             end
