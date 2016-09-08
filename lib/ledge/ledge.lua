@@ -724,13 +724,12 @@ end
 -- Returns the key chain for all cache keys, except the body entity
 function _M.key_chain(self, cache_key)
     return setmetatable({
-        key = cache_key .. "::key", -- string
         memused = cache_key .. "::memused", -- string
         entities = cache_key .. "::entities", -- sorted set
         main = cache_key, -- hash
-        headers = cache_key .. ":headers", -- hash
-        reval_params = cache_key .. ":reval_params", -- hash
-        reval_req_headers = cache_key .. ":reval_req_headers", -- hash
+        headers = cache_key .. "::headers", -- hash
+        reval_params = cache_key .. "::reval_params", -- hash
+        reval_req_headers = cache_key .. "::reval_req_headers", -- hash
     }, { __index = {
         -- Hide "root" and "fetching_lock" from iterators.
         root = cache_key,
@@ -765,7 +764,7 @@ function _M.entity_key_chain(self, verify)
     local key_chain = self:cache_key_chain()
     local redis = self:ctx().redis
 
-    local entity, err = redis:get(key_chain.key)
+    local entity, err = redis:hget(key_chain.main, "entity")
     if not entity or entity == ngx_null then
         return nil, err
     end
@@ -2688,7 +2687,7 @@ function _M.save_to_cache(self, res)
 
     -- Watch the main key pointer. We abort the transaction if another request updates
     -- this key before we finish.
-    redis:watch(key_chain.key)
+    redis:watch(key_chain.main)
 
     -- Create new entity keys
     local entity = random_hex(8)
@@ -2727,6 +2726,7 @@ function _M.save_to_cache(self, res)
     end
 
     redis:hmset(key_chain.main,
+        'entity', entity,
         'status', res.status,
         'uri', uri,
         'expires', expires,
@@ -2747,10 +2747,6 @@ function _M.save_to_cache(self, res)
     redis:expire(key_chain.headers, keep_cache_for)
     redis:expire(key_chain.reval_params, keep_cache_for)
     redis:expire(key_chain.reval_req_headers, keep_cache_for)
-
-    -- Update main cache key pointer
-    redis:set(key_chain.key, entity)
-    redis:expire(key_chain.key, keep_cache_for)
 
     -- Instantiate writer coroutine with the entity key set.
     -- The writer will commit the transaction later.
