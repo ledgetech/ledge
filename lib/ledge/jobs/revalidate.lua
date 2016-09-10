@@ -76,7 +76,7 @@ function _M.perform(job)
 
     local res, err = httpc:request{
         method = "GET",
-        path = job.data.uri,
+        path = reval_params.uri,
         headers = headers,
     }
 
