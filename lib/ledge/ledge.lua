@@ -127,6 +127,18 @@ local function _no_body_reader()
 end
 
 
+local function _purge_mode()
+    local x_purge = ngx_req_get_headers()["X-Purge"]
+    if h_util.header_has_directive(x_purge, "delete") then
+        return "delete"
+    elseif h_util.header_has_directive(x_purge, "revalidate") then
+        return "revalidate"
+    else
+        return "invalidate"
+    end
+end
+
+
 local esi_parsers = {
     ["ESI"] = {
         ["1.0"] = require "ledge.esi",
@@ -724,11 +736,11 @@ end
 -- Returns the key chain for all cache keys, except the body entity
 function _M.key_chain(self, cache_key)
     return setmetatable({
-        entities = cache_key .. "::entities", -- sorted set
-        main = cache_key, -- hash
-        headers = cache_key .. "::headers", -- hash
-        reval_params = cache_key .. "::reval_params", -- hash
-        reval_req_headers = cache_key .. "::reval_req_headers", -- hash
+        main = cache_key .. "::main", -- hash: cache key metadata
+        entities = cache_key .. "::entities", -- sorted set: current entities score with sizes
+        headers = cache_key .. "::headers", -- hash: response headers
+        reval_params = cache_key .. "::reval_params", -- hash: request headers for revalidation
+        reval_req_headers = cache_key .. "::reval_req_headers", -- hash: request params for revalidation
     }, { __index = {
         -- Hide "root" and "fetching_lock" from iterators.
         root = cache_key,
@@ -797,7 +809,6 @@ function _M.entity_key_chain(self, verify)
         -- If anything required is missing, schedule collection of the remaining bits and trigger
         -- return nil (cache MISS due to incomplete data).
         if cleanup then
-            ngx.log(ngx.ERR, "cleanup forced")
             local size = redis:zscore(key_chain.entities, keys.entity_id)
             if not size or size == ngx_null then
                 -- Entities set evicted too most likely. Collect immediately.
@@ -2011,7 +2022,7 @@ _M.states = {
     end,
 
     purging = function(self)
-        if self:purge() then
+        if self:purge(_purge_mode()) then
             return self:e "purged"
         else
             return self:e "nothing_to_purge"
@@ -2548,6 +2559,7 @@ function _M.revalidation_data(self)
         server_addr = ngx_var.server_addr,
         server_port = ngx_var.server_port,
         scheme = ngx_var.scheme,
+        uri = ngx_var.request_uri,
         connect_timeout = self:config_get("upstream_connect_timeout"),
         read_timeout = self:config_get("upstream_read_timeout"),
         ssl_server_name = self:config_get("upstream_ssl_server_nane"),
@@ -2577,16 +2589,16 @@ function _M.revalidate_in_background(self, update_revalidation_data)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
 
-    local reval_params, reval_headers = self:revalidation_data()
-
-    local ttl, err = redis:ttl(key_chain.reval_params)
-    if not ttl or ttl == ngx_null or ttl < 0 then
-        ngx_log(ngx_ERR, "Could not determine expiry for revalidation params. Will fallback to 3600 seconds.")
-        ttl = 3600 -- Arbitrarily expire these revalidation parameters in an hour.
-    end
-
     -- Revalidation data is updated if this is a proper request, but not if it's a purge request.
     if update_revalidation_data then
+        local reval_params, reval_headers = self:revalidation_data()
+
+        local ttl, err = redis:ttl(key_chain.reval_params)
+        if not ttl or ttl == ngx_null or ttl < 0 then
+            ngx_log(ngx_ERR, "Could not determine expiry for revalidation params. Will fallback to 3600 seconds.")
+            ttl = 3600 -- Arbitrarily expire these revalidation parameters in an hour.
+        end
+
         -- Delete and update reval request headers
         redis:multi()
 
@@ -2604,16 +2616,14 @@ function _M.revalidate_in_background(self, update_revalidation_data)
         end
     end
 
+    local uri = redis:hget(key_chain.main, "uri")
+
     -- Schedule the background job (immediately). jid is a function of the
     -- URI for automatic de-duping.
     return self:put_background_job("ledge_revalidate", "ledge.jobs.revalidate", {
-        uri = ngx_var.request_uri,
         key_chain = key_chain,
     }, {
-        jid = ngx_md5(
-            "revalidate:" ..
-            self:full_uri()
-        ),
+        jid = ngx_md5("revalidate:" .. uri),
         tags = { "revalidate" },
         priority = 4,
     })
@@ -2689,7 +2699,7 @@ function _M.save_to_cache(self, res)
     redis:watch(key_chain.main)
 
     -- Create new entity keys
-    local entity = random_hex(8)
+    local entity = random_hex(32)
     local entity_key_chain = _M.entity_keys(entity)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
@@ -2809,27 +2819,14 @@ function _M.delete_from_cache(self)
 end
 
 
-local function _purge_mode()
-    local x_purge = ngx_req_get_headers()["X-Purge"]
-    if h_util.header_has_directive(x_purge, "delete") then
-        return "delete"
-    elseif h_util.header_has_directive(x_purge, "revalidate") then
-        return "revalidate"
-    else
-        return "invalidate"
-    end
-end
-
-
 -- Purges the cache item according to X-Purge instructions, which defaults to "invalidate".
 -- If there's nothing to do we return false which results in a 404.
-function _M.purge(self)
+function _M.purge(self, purge_mode)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
     local entity_key_chain = self:entity_key_chain()
 
     local resp = self:get_response()
-    local purge_mode = _purge_mode()
 
     -- We 404 if we have nothing
     if not entity_key_chain then
@@ -2914,7 +2911,8 @@ end
 
 -- Expires the keys in key_chain and the entity provided by entity_keys
 function _M.expire_keys(redis, key_chain, entity_key_chain)
-    if redis:exists(key_chain.main) == 1 then
+    local exists, err =  redis:exists(key_chain.main)
+    if exists == 1 then
         local time = ngx_time()
         local expires, err = redis:hget(key_chain.main, "expires")
         if not expires or expires == ngx_null then
