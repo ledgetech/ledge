@@ -29,14 +29,6 @@ local function random_hex(len)
     return ffi_string(hex, len * 2)
 end
 
-local redis, err = redis_connector:connect{ url = "redis://127.0.0.1:6379/0" }
-if not redis then
-    ngx.say(err)
-    return
-end
-
-ngx.say("Migrating Ledge data structure from v1.26 to v1.27")
-
 
 function scan(cursor, redis)
     local res, err = redis:scan(
@@ -90,6 +82,29 @@ function scan(cursor, redis)
                 end
             end
 
+            -- Get the entity score
+            local score, err = redis:zscore(
+                cache_key .. "::entities",
+                cache_key .. "::" .. entity
+            )
+            if not score or score == ngx.null then
+                ngx.say("Unable to get entity score: ", err)
+            end
+
+            -- Add the entity to the entities set
+            local res, err = redis:zadd(cache_key .. "::entities", score, new_entity_id)
+            if not res or res == ngx.null then
+                ngx.say("Unable to add to entities set: ", err)
+            end
+
+            local res, err = redis:zrem(
+                cache_key .. "::entities",
+                cache_key .. "::" .. entity
+            )
+            if not res or res == ngx.null then
+                ngx.say("Unable to remove old entity from entities set: ", err)
+            end
+
             --  Add the live entity pointer to the main hash, and delete the old pointer
             local ok, err = redis:hset(cache_key .. "::main", "entity", new_entity_id)
             if not ok or ok == ngx.null then
@@ -131,4 +146,12 @@ function scan(cursor, redis)
     return true
 end
 
+
+local redis, err = redis_connector:connect{ url = "redis://127.0.0.1:6379/0" }
+if not redis then
+    ngx.say(err)
+    return
+end
+
+ngx.say("Migrating Ledge data structure from v1.26 to v1.27")
 scan(0, redis)
