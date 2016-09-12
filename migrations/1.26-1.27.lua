@@ -52,6 +52,23 @@ function scan(cursor, redis)
 
             local memused, err = redis:get(cache_key .. "::memused")
 
+            -- Get the entity score
+            local score, err = redis:zscore(
+                cache_key .. "::entities",
+                cache_key .. "::" .. entity
+            )
+            if not score or score == ngx.null then
+                ngx.say("Unable to get entity score: ", err)
+            end
+
+            local entity_count, err = redis:zcard(cache_key .. "::entities")
+            if not entity_count or entity_count == ngx.null then
+                ngx.say("Could not count entity set: ", err)
+            end
+
+            -- Start transaction
+            redis:multi()
+
             -- Move main entity to main key
             local ok, err = redis:rename(cache_key .. "::" .. entity, cache_key .. "::main")
             if not ok or ok == ngx.null then
@@ -79,15 +96,6 @@ function scan(cursor, redis)
                 if not ok or ok == ngx.null then
                     ngx.say("Renaming ", k, " failed: ", err)
                 end
-            end
-
-            -- Get the entity score
-            local score, err = redis:zscore(
-                cache_key .. "::entities",
-                cache_key .. "::" .. entity
-            )
-            if not score or score == ngx.null then
-                ngx.say("Unable to get entity score: ", err)
             end
 
             -- Add the entity to the entities set
@@ -129,12 +137,6 @@ function scan(cursor, redis)
 
             -- Look for old entities (things about to be GC'd, but which will fail with the new codebase)
             -- and delete them.
-
-            local entity_count, err = redis:zcard(cache_key .. "::entities")
-            if not entity_count or entity_count == ngx.null then
-                ngx.say("Could not count entity set: ", err)
-            end
-
             if entity_count > 1 then
                 -- We have old things to clean up
                 local members, err = redis:zrange(
@@ -174,10 +176,17 @@ function scan(cursor, redis)
                 end
             end
 
+            local res, err = redis:exec()
+            if not res or res == ngx.null then
+                ngx.say("Could not modify cache key ", cache_key, ": ", err)
+                keys_failed = keys_failed + 1
+            else
+                keys_processed = keys_processed + 1
+            end
+
             -- TODO:
             --  - What happens if cache is updated before the script runs?
-
-            keys_processed = keys_processed + 1
+            --  - Report errors
         end
     end
 
@@ -198,10 +207,12 @@ if not redis then
 end
 
 keys_processed = 0
+keys_failed = 0
 
 ngx.say("Migrating Ledge data structure from v1.26 to v1.27")
 
 local res, err = scan(0, redis)
 if res then
     ngx.say(keys_processed .. " cache entries successfully updated")
+    ngx.say(keys_failed .. " failures")
 end
