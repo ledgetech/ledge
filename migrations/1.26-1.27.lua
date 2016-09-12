@@ -97,6 +97,7 @@ function scan(cursor, redis)
                 ngx.say("Unable to add to entities set: ", err)
             end
 
+            -- Remove the old form
             local res, err = redis:zrem(
                 cache_key .. "::entities",
                 cache_key .. "::" .. entity
@@ -127,10 +128,45 @@ function scan(cursor, redis)
                 end
             end
 
+            -- Look for old entities (things about to be GC'd, but which will fail with the new codebase)
+            -- and delete them.
+
+            local entity_count, err = redis:zcard(cache_key .. "::entities")
+            if not entity_count or entity_count == ngx.null then
+                ngx.say("Could not count entity set: ", err)
+            end
+
+            if entity_count > 1 then
+                -- We have old things to clean up
+                local members, err = redis:zrange(
+                    cache_key .. "::entities",
+                    0,
+                    -1
+                )
+                if not members or members == ngx.null then
+                    ngx.say("Could not get entity set members: ", err)
+                end
+
+                for _, member in pairs(members) do
+                    if member ~= new_entity_id then
+                        local keys = {
+                            member,
+                            member .. ":reval_req_headers",
+                            member .. ":reval_params",
+                            member .. ":headers",
+                            member .. ":body",
+                            member .. ":body_esi",
+                        }
+
+                        local res, err = redis:del(unpack(keys))
+                        if not res or res == ngx.null or res < 6 then
+                            ngx.say("Could not delete old entity: ", err)
+                        end
+                    end
+                end
+            end
 
             -- TODO:
-            --  - Entities set needs the new ID, not the old key
-            --  - Old entities need to be cleaned up
             --  - What happens if cache is updated before the script runs?
 
         end
