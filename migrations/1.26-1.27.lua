@@ -43,7 +43,6 @@ function scan(cursor, redis)
         for _,key in ipairs(res[2]) do
             -- Strip the "main" suffix to find the cache key
             local cache_key = string.sub(key, 1, -(string.len("::key") + 1))
-            ngx.print(".")
 
             local entity, err = redis:get(cache_key .. "::key")
             if not entity or entity == ngx.null then
@@ -162,6 +161,15 @@ function scan(cursor, redis)
                         if not res or res == ngx.null or res < 6 then
                             ngx.say("Could not delete old entity: ", err)
                         end
+
+                        -- Remove from the entities set
+                        local res, err = redis:zrem(
+                            cache_key .. "::entities",
+                            member
+                        )
+                        if not res or res == ngx.null then
+                            ngx.say("Could not remove old entity from the entities set: ", err)
+                        end
                     end
                 end
             end
@@ -169,6 +177,7 @@ function scan(cursor, redis)
             -- TODO:
             --  - What happens if cache is updated before the script runs?
 
+            keys_processed = keys_processed + 1
         end
     end
 
@@ -178,7 +187,6 @@ function scan(cursor, redis)
         return scan(cursor, redis)
     end
 
-    ngx.say("\nComplete.")
     return true
 end
 
@@ -189,5 +197,11 @@ if not redis then
     return
 end
 
+keys_processed = 0
+
 ngx.say("Migrating Ledge data structure from v1.26 to v1.27")
-scan(0, redis)
+
+local res, err = scan(0, redis)
+if res then
+    ngx.say(keys_processed .. " cache entries successfully updated")
+end
