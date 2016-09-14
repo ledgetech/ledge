@@ -1,3 +1,10 @@
+
+        -- TODO:
+        --  - Clean up failures?
+        --  - Count failures but write them to a file since there could be millions
+        --  - Command line args for redis DSN
+
+
 local redis_connector = require("resty.redis.connector").new()
 local math_floor = math.floor
 local math_ceil = math.ceil
@@ -27,6 +34,22 @@ local function random_hex(len)
     local hex = ffi_new("uint8_t[?]", len * 2)
     C.ngx_hex_dump(hex, bytes, len)
     return ffi_string(hex, len * 2)
+end
+
+
+function removeoldentity(redis, set, entity)
+    local keys = {
+        entity,
+        entity .. ":reval_req_headers",
+        entity .. ":reval_params",
+        entity .. ":headers",
+        entity .. ":body",
+        entity .. ":body_esi",
+    }
+    local res, err = redis:del(unpack(keys))
+
+    -- Remove from the entities set
+    local res, err = redis:zrem(set, entity)
 end
 
 
@@ -116,21 +139,7 @@ function scan(cursor, redis)
                     -- We have old things to clean up
                     for _, member in pairs(entity_members) do
                         if member ~= new_entity_id then
-                            local keys = {
-                                member,
-                                member .. ":reval_req_headers",
-                                member .. ":reval_params",
-                                member .. ":headers",
-                                member .. ":body",
-                                member .. ":body_esi",
-                            }
-                            local res, err = redis:del(unpack(keys))
-
-                            -- Remove from the entities set
-                            local res, err = redis:zrem(
-                                cache_key .. "::entities",
-                                member
-                            )
+                            removeoldentity(redis, cache_key .. "::entities", member)
                         end
                     end
                 end
@@ -143,10 +152,6 @@ function scan(cursor, redis)
                     keys_processed = keys_processed + 1
                 end
             end
-
-            -- TODO:
-            --  - Clean up failures?
-            --  - Count failures but write them to a file since there could be millions
         end
     end
 
