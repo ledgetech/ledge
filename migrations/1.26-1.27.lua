@@ -49,12 +49,24 @@ function scan(cursor, redis)
             local memused = redis:get(cache_key .. "::memused")
             local score = redis:zscore(cache_key .. "::entities", cache_key .. "::" .. entity)
             local entity_count = redis:zcard(cache_key .. "::entities")
+            local entity_members = redis:zrange(cache_key .. "::entities", 0, -1)
 
-            for _, val in ipairs({ entity, memused, score, entity_count}) do
+            for _, val in ipairs({ entity, memused, score, entity_count, entity_members }) do
                 if not val or val == ngx.null then
                     table.insert(failed_keys, cache_key)
                     skip = true
                 end
+            end
+
+            -- Watch the main key - if it gets created by real traffic from here on in then
+            -- the transaction will simply fail.
+            local res = redis:watch(cache_key .. "::main")
+
+            -- Find out if real traffic already created this cache entry
+            local main = redis:exists(cache_key .. "::main")
+            if main == 1 then
+                table.insert(failed_keys, cache_key)
+                skip = true
             end
 
             if not skip then
@@ -102,9 +114,7 @@ function scan(cursor, redis)
                 -- the new codebase) and delete them.
                 if entity_count > 1 then
                     -- We have old things to clean up
-                    local members, err = redis:zrange(cache_key .. "::entities", 0, -1)
-
-                    for _, member in pairs(members) do
+                    for _, member in pairs(entity_members) do
                         if member ~= new_entity_id then
                             local keys = {
                                 member,
@@ -135,7 +145,8 @@ function scan(cursor, redis)
             end
 
             -- TODO:
-            --  - What happens if cache is updated before the script runs?
+            --  - Clean up failures?
+            --  - Count failures but write them to a file since there could be millions
         end
     end
 
