@@ -43,150 +43,99 @@ function scan(cursor, redis)
         for _,key in ipairs(res[2]) do
             -- Strip the "main" suffix to find the cache key
             local cache_key = string.sub(key, 1, -(string.len("::key") + 1))
+            local skip = false
 
-            local entity, err = redis:get(cache_key .. "::key")
-            if not entity or entity == ngx.null then
-                ngx.say(err)
-                return
-            end
+            local entity = redis:get(cache_key .. "::key")
+            local memused = redis:get(cache_key .. "::memused")
+            local score = redis:zscore(cache_key .. "::entities", cache_key .. "::" .. entity)
+            local entity_count = redis:zcard(cache_key .. "::entities")
 
-            local memused, err = redis:get(cache_key .. "::memused")
-
-            -- Get the entity score
-            local score, err = redis:zscore(
-                cache_key .. "::entities",
-                cache_key .. "::" .. entity
-            )
-            if not score or score == ngx.null then
-                ngx.say("Unable to get entity score: ", err)
-            end
-
-            local entity_count, err = redis:zcard(cache_key .. "::entities")
-            if not entity_count or entity_count == ngx.null then
-                ngx.say("Could not count entity set: ", err)
-            end
-
-            -- Start transaction
-            redis:multi()
-
-            -- Move main entity to main key
-            local ok, err = redis:rename(cache_key .. "::" .. entity, cache_key .. "::main")
-            if not ok or ok == ngx.null then
-                ngx.say("Renaming entity to main failed: ", err)
-            end
-
-            -- Rename headers etc
-            for _, k in ipairs({ "headers", "reval_req_headers", "reval_params" }) do
-                local ok, err = redis:rename(
-                    cache_key .. "::" .. entity .. ":" .. k,
-                    cache_key .. "::" .. k
-                )
-                if not ok or ok == ngx.null then
-                    ngx.say("Renaming ", k, " failed: ", err)
+            for _, val in ipairs({ entity, memused, score, entity_count}) do
+                if not val or val == ngx.null then
+                    table.insert(failed_keys, cache_key)
+                    skip = true
                 end
             end
 
-            -- Create a new entity id and rename the live entity to it
-            local new_entity_id = random_hex(32)
-            for _, k in ipairs({ "body", "body_esi" }) do
-                local ok, err = redis:rename(
-                    cache_key .. "::" .. entity .. ":" .. k,
-                    "ledge:entity:" .. new_entity_id .. ":" .. k
-                )
-                if not ok or ok == ngx.null then
-                    ngx.say("Renaming ", k, " failed: ", err)
+            if not skip then
+                -- Start transaction
+                redis:multi()
+
+                -- Move main entity to main key
+                local ok, err = redis:rename(cache_key .. "::" .. entity, cache_key .. "::main")
+
+                -- Rename headers etc
+                for _, k in ipairs({ "headers", "reval_req_headers", "reval_params" }) do
+                    local ok, err = redis:rename(
+                        cache_key .. "::" .. entity .. ":" .. k,
+                        cache_key .. "::" .. k
+                    )
                 end
-            end
 
-            -- Add the entity to the entities set
-            local res, err = redis:zadd(cache_key .. "::entities", score, new_entity_id)
-            if not res or res == ngx.null then
-                ngx.say("Unable to add to entities set: ", err)
-            end
-
-            -- Remove the old form
-            local res, err = redis:zrem(
-                cache_key .. "::entities",
-                cache_key .. "::" .. entity
-            )
-            if not res or res == ngx.null then
-                ngx.say("Unable to remove old entity from entities set: ", err)
-            end
-
-            --  Add the live entity pointer to the main hash, and delete the old pointer
-            local ok, err = redis:hset(cache_key .. "::main", "entity", new_entity_id)
-            if not ok or ok == ngx.null then
-                ngx.say("Setting entity id failed: ", err)
-            else
-                local ok, err = redis:del(cache_key .. "::key")
-                if not ok or ok == ngx.null then
-                    ngx.say("Could not delete key: ", err)
+                -- Create a new entity id and rename the live entity to it
+                local new_entity_id = random_hex(32)
+                for _, k in ipairs({ "body", "body_esi" }) do
+                    local ok, err = redis:rename(
+                        cache_key .. "::" .. entity .. ":" .. k,
+                        "ledge:entity:" .. new_entity_id .. ":" .. k
+                    )
                 end
-            end
 
-            -- Add the memused to the main hash, and delete the old key
-            local ok, err = redis:hset(cache_key .. "::main", "memused", memused)
-            if not ok or ok == ngx.null then
-                ngx.say("Setting memused failed: ", err)
-            else
-                local ok, err = redis:del(cache_key .. "::memused")
-                if not ok or ok == ngx.null then
-                    ngx.say("Could not delete memused: ", err)
-                end
-            end
+                -- Add the entity to the entities set
+                local res, err = redis:zadd(cache_key .. "::entities", score, new_entity_id)
 
-            -- Look for old entities (things about to be GC'd, but which will fail with the new codebase)
-            -- and delete them.
-            if entity_count > 1 then
-                -- We have old things to clean up
-                local members, err = redis:zrange(
+                -- Remove the old form
+                local res, err = redis:zrem(
                     cache_key .. "::entities",
-                    0,
-                    -1
+                    cache_key .. "::" .. entity
                 )
-                if not members or members == ngx.null then
-                    ngx.say("Could not get entity set members: ", err)
-                end
 
-                for _, member in pairs(members) do
-                    if member ~= new_entity_id then
-                        local keys = {
-                            member,
-                            member .. ":reval_req_headers",
-                            member .. ":reval_params",
-                            member .. ":headers",
-                            member .. ":body",
-                            member .. ":body_esi",
-                        }
+                --  Add the live entity pointer to the main hash, and delete the old pointer
+                local ok, err = redis:hset(cache_key .. "::main", "entity", new_entity_id)
+                local ok, err = redis:del(cache_key .. "::key")
 
-                        local res, err = redis:del(unpack(keys))
-                        if not res or res == ngx.null or res < 6 then
-                            ngx.say("Could not delete old entity: ", err)
-                        end
+                -- Add the memused to the main hash, and delete the old key
+                local ok, err = redis:hset(cache_key .. "::main", "memused", memused)
+                local ok, err = redis:del(cache_key .. "::memused")
 
-                        -- Remove from the entities set
-                        local res, err = redis:zrem(
-                            cache_key .. "::entities",
-                            member
-                        )
-                        if not res or res == ngx.null then
-                            ngx.say("Could not remove old entity from the entities set: ", err)
+                -- Look for old entities (things about to be GC'd, but which will fail with
+                -- the new codebase) and delete them.
+                if entity_count > 1 then
+                    -- We have old things to clean up
+                    local members, err = redis:zrange(cache_key .. "::entities", 0, -1)
+
+                    for _, member in pairs(members) do
+                        if member ~= new_entity_id then
+                            local keys = {
+                                member,
+                                member .. ":reval_req_headers",
+                                member .. ":reval_params",
+                                member .. ":headers",
+                                member .. ":body",
+                                member .. ":body_esi",
+                            }
+                            local res, err = redis:del(unpack(keys))
+
+                            -- Remove from the entities set
+                            local res, err = redis:zrem(
+                                cache_key .. "::entities",
+                                member
+                            )
                         end
                     end
                 end
-            end
 
-            local res, err = redis:exec()
-            if not res or res == ngx.null then
-                ngx.say("Could not modify cache key ", cache_key, ": ", err)
-                keys_failed = keys_failed + 1
-            else
-                keys_processed = keys_processed + 1
+                local res, err = redis:exec()
+                if not res or res == ngx.null then
+                    ngx.say("Could not modify cache key ", cache_key, ": ", err)
+                    table.insert(failed_keys, cache_key)
+                else
+                    keys_processed = keys_processed + 1
+                end
             end
 
             -- TODO:
             --  - What happens if cache is updated before the script runs?
-            --  - Report errors
         end
     end
 
@@ -207,12 +156,23 @@ if not redis then
 end
 
 keys_processed = 0
-keys_failed = 0
+failed_keys = {}
 
-ngx.say("Migrating Ledge data structure from v1.26 to v1.27")
+ngx.say("Migrating Ledge data structure from v1.26 to v1.27\n")
 
 local res, err = scan(0, redis)
-if res then
-    ngx.say(keys_processed .. " cache entries successfully updated")
-    ngx.say(keys_failed .. " failures")
+if not res or res == ngx.null then
+    ngx.say("Faied to scan keyspace: ", err)
+else
+    ngx.say("> ", keys_processed .. " cache entries successfully updated")
+    ngx.say("> ", #failed_keys .. " failures\n")
+
+    if #failed_keys > 0 then
+        ngx.say("Could not update the following cache keys, most likely because they have already been partially evicted:\n")
+
+        for _, key in ipairs(failed_keys) do
+            ngx.say(key)
+        end
+    end
 end
+
