@@ -120,7 +120,12 @@ function _M.ttl(self)
     -- Fall back to Expires.
     local expires = self.header["Expires"]
     if expires then
-        local time = ngx_parse_http_time(expires)
+        -- If there are multiple, last one wins
+        if type(expires) == "table" then
+            expires = expires[#expires]
+        end
+
+        local time = ngx_parse_http_time(tostring(expires))
         if time then return time - ngx_time() end
     end
 

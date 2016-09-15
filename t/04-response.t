@@ -141,3 +141,34 @@ Cache-Control: no-cache
 GET /response_4_prx
 --- response_headers
 X-TTL: 300
+
+
+=== TEST 4b: TTL from Expires, when there are multiple Expires headers
+--- http_config eval: $::HttpConfig
+--- config
+	location /response_4b_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:bind("response_ready", function(res)
+                res.header["X-TTL"] = res:ttl()
+            end)
+            ledge:run()
+        ';
+    }
+    location /response_4b {
+        set $ttl_1 0;
+        set $ttl_2 0;
+        access_by_lua_block {
+            ngx.var.ttl_1 = ngx.http_time(ngx.time() + 300)
+            ngx.var.ttl_2 = ngx.http_time(ngx.time() + 100)
+        }
+        add_header Expires $ttl_1;
+        add_header Expires $ttl_2;
+        echo "OK";
+    }
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /response_4b_prx
+--- response_headers
+X-TTL: 100
