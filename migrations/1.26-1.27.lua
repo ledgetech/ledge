@@ -1,6 +1,5 @@
 
         -- TODO:
-        --  - Clean up failures?
         --  - Count failures but write them to a file since there could be millions
         --  - Command line args for redis DSN
 
@@ -37,7 +36,24 @@ local function random_hex(len)
 end
 
 
-function removeoldentity(redis, set, entity)
+function delete(redis, cache_key, entities)
+    redis:multi()
+    -- Entities list is intact, so delete them too
+    for _, entity in ipairs(entities) do
+        delete_entity(redis, cache_key .. "::entities", entity)
+    end
+
+    local keys = {
+        cache_key .. "::key",
+        cache_key .. "::memused",
+        cache_key .. "::entities",
+    }
+    redis:del(unpack(keys))
+    return redis:exec()
+end
+
+
+function delete_entity(redis, set, entity)
     local keys = {
         entity,
         entity .. ":reval_req_headers",
@@ -50,6 +66,15 @@ function removeoldentity(redis, set, entity)
 
     -- Remove from the entities set
     local res, err = redis:zrem(set, entity)
+end
+
+
+function delete_old_entities(redis, set, members, current_entity)
+    for _, entity in ipairs(members) do
+        if entity ~= current_entity then
+            delete_entity(redis, set, entity)
+        end
+    end
 end
 
 
@@ -76,7 +101,12 @@ function scan(cursor, redis)
 
             for _, val in ipairs({ entity, memused, score, entity_count, entity_members }) do
                 if not val or val == ngx.null then
-                    table.insert(failed_keys, cache_key)
+                    -- If we're missing something we need (likely evicted) -- delete this key
+                    if delete(redis, cache_key, entity_members) then
+                        table.insert(deleted_keys, cache_key)
+                    else
+                        table.insert(failed_keys, cache_key)
+                    end
                     skip = true
                 end
             end
@@ -86,9 +116,11 @@ function scan(cursor, redis)
             local res = redis:watch(cache_key .. "::main")
 
             -- Find out if real traffic already created this cache entry
-            local main = redis:exists(cache_key .. "::main")
-            if main == 1 then
-                table.insert(failed_keys, cache_key)
+            local new_entity = redis:hget(cache_key .. "::main", "entity")
+            if new_entity and new_entity ~= ngx.null then
+                ngx.say(new_entity)
+                -- The old entities refs will still exist, so clean them up
+                delete_old_entities(redis, cache_key .. "::entities", entity_members, new_entity)
                 skip = true
             end
 
@@ -133,21 +165,18 @@ function scan(cursor, redis)
                 local ok, err = redis:hset(cache_key .. "::main", "memused", memused)
                 local ok, err = redis:del(cache_key .. "::memused")
 
-                -- Look for old entities (things about to be GC'd, but which will fail with
-                -- the new codebase) and delete them.
-                if entity_count > 1 then
-                    -- We have old things to clean up
-                    for _, member in pairs(entity_members) do
-                        if member ~= new_entity_id then
-                            removeoldentity(redis, cache_key .. "::entities", member)
-                        end
-                    end
-                end
+                -- Delete entities scheduled for GC but will fail on new codebase
+                delete_old_entities(redis, cache_key .. "::entities", entity_members, new_entity_id)
 
                 local res, err = redis:exec()
                 if not res or res == ngx.null then
-                    ngx.say("Could not modify cache key ", cache_key, ": ", err)
-                    table.insert(failed_keys, cache_key)
+                    ngx.say("transaction failed")
+                    -- Something went wrong, lets try and delete this cache entry
+                    if delete(redis, cache_key, entity_members) then
+                        table.insert(deleted_keys, cache_key)
+                    else
+                        table.insert(failed_keys, cache_key)
+                    end
                 else
                     keys_processed = keys_processed + 1
                 end
@@ -172,7 +201,9 @@ if not redis then
 end
 
 keys_processed = 0
+deleted_keys = {}
 failed_keys = {}
+
 
 ngx.say("Migrating Ledge data structure from v1.26 to v1.27\n")
 
@@ -181,10 +212,11 @@ if not res or res == ngx.null then
     ngx.say("Faied to scan keyspace: ", err)
 else
     ngx.say("> ", keys_processed .. " cache entries successfully updated")
+    ngx.say("> ", #deleted_keys .. " incomplete / broken cache entries cleaned up")
     ngx.say("> ", #failed_keys .. " failures\n")
 
     if #failed_keys > 0 then
-        ngx.say("Could not update the following cache keys, most likely because they have already been partially evicted:\n")
+        ngx.say("Keys left untouched due to errors:\n")
 
         for _, key in ipairs(failed_keys) do
             ngx.say(key)
