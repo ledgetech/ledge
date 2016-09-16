@@ -1,9 +1,3 @@
-
-        -- TODO:
-        --  - Count failures but write them to a file since there could be millions
-        --  - Command line args for redis DSN
-
-
 local redis_connector = require("resty.redis.connector").new()
 local math_floor = math.floor
 local math_ceil = math.ceil
@@ -192,26 +186,28 @@ function scan(cursor, redis)
     return true
 end
 
-
-local redis, err = redis_connector:connect{ url = "redis://127.0.0.1:6379/0" }
-if not redis then
-    ngx.say(err)
-    return
-end
-
-keys_processed = 0
-keys_deleted = 0
-keys_failed = 0
-
-
-ngx.say("Migrating Ledge data structure from v1.26 to v1.27\n")
-
-local res, err = scan(0, redis)
-if not res or res == ngx.null then
-    ngx.say("Faied to scan keyspace: ", err)
+local dsn = arg[1]
+if not dsn then
+    ngx.say("Please provide a Redis Connector DSN as the first argument, in the form: redis://[PASSWORD@]HOST:PORT/DB")
 else
-    ngx.say("> ", keys_processed .. " cache entries successfully updated")
-    ngx.say("> ", keys_deleted .. " incomplete / broken cache entries cleaned up")
-    ngx.say("> ", keys_failed .. " failures\n")
-end
+    local redis, err = redis_connector:connect{ url = dsn }
+    if not redis then
+        ngx.say("Could not connect to Redis with DSN: ", dsn, " - ", err)
+        return
+    end
 
+    keys_processed = 0
+    keys_deleted = 0
+    keys_failed = 0
+
+    ngx.say("Migrating Ledge data structure from v1.26 to v1.27\n")
+
+    local res, err = scan(0, redis)
+    if not res or res == ngx.null then
+        ngx.say("Faied to scan keyspace: ", err)
+    else
+        ngx.say("> ", keys_processed .. " cache entries successfully updated")
+        ngx.say("> ", keys_deleted .. " incomplete / broken cache entries cleaned up")
+        ngx.say("> ", keys_failed .. " failures\n")
+    end
+end
