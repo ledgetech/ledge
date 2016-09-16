@@ -29,15 +29,15 @@ end
 
 function _M.perform(job)
     local redis = job.redis
-    local entity_keys = job.data.entity_keys
+    local key_chain = job.data.key_chain
 
-    local reval_params, err = hgetall(redis, entity_keys.reval_params)
+    local reval_params, err = hgetall(redis, key_chain.reval_params)
     if not reval_params or reval_params == ngx_null or not reval_params.server_addr then
         return nil, "job-error",    "Revalidation parameters are missing, presumed evicted. " ..
                                     "This can happen if keep_cache_for is set to 0."
     end
 
-    local reval_headers, err = hgetall(redis, entity_keys.reval_req_headers)
+    local reval_headers, err = hgetall(redis, key_chain.reval_req_headers)
     if not reval_headers or reval_headers == ngx_null then
         return nil, "job-error",    "Revalidation headers are missing, presumed evicted. " ..
                                     "This can happen if keep_cache_for is set to 0."
@@ -76,7 +76,7 @@ function _M.perform(job)
 
     local res, err = httpc:request{
         method = "GET",
-        path = job.data.uri,
+        path = reval_params.uri,
         headers = headers,
     }
 

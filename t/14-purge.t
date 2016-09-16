@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4) - 9;
+plan tests => repeat_each() * (blocks() * 4) - 10;
 
 my $pwd = cwd();
 
@@ -400,7 +400,6 @@ TEST 9: primed
 location /purge_cached_9_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
         ledge:run()
     ';
 }
@@ -432,6 +431,7 @@ location /purge_cached_9_prx {
 }
 --- request
 GET /purge_cached_9_prx
+--- wait: 3
 --- no_error_log
 [error]
 --- response_body
@@ -644,15 +644,12 @@ location /purge_cached_13_prx {
             local redis = require("resty.redis"):new()
             redis:connect("127.0.0.1", 6379)
             redis:select(ledge:config_get('redis_database'))
+            ledge:ctx().redis = redis
 
             -- Get the subkeys
-            local key = ledge.cache_key(ledge)
-            local entity = redis:get(key.."::key")
-            local cache_keys = ledge.entity_keys( key .. "::" .. entity)
-
-            -- Bust the entity
-            redis:del(cache_keys.main)
-            ngx.print("Sabotaged: ", key)
+            local entity_key_chain = ledge:entity_key_chain(false)
+            redis:del(entity_key_chain.body)
+            ngx.print("Sabotaged: ", entity_key_chain.body)
         else
             ledge:run()
         end
@@ -670,8 +667,8 @@ Cookie: primed
 [ "GET /purge_cached_13_prx?a=1", "GET /purge_cached_13_prx?a=2", "GET /purge_cached_13_prx?a=1&sabotage=true" ]
 --- no_error_log
 [error]
---- response_body eval
-[ "TEST 13: 1 primed", "TEST 13: 2 primed", "Sabotaged: ledge:cache:http:localhost:/purge_cached_13:a=1" ]
+--- response_body_like eval
+[ "TEST 13: 1 primed", "TEST 13: 2 primed", "Sabotaged: ledge:entity:[a-f0-9]{32}:body" ]
 
 
 === TEST 13b: Wildcard purge broken entry with X-Purge: revalidate
@@ -696,6 +693,6 @@ X-Purge: revalidate
 PURGE /purge_cached_13_prx?*
 --- wait: 2
 --- error_log eval
-["Entity broken: ledge:cache:http:localhost:/purge_cached_13:a=1", "TEST 13 Revalidated: 2 primed"]
+["TEST 13 Revalidated: 2 primed"]
 --- response_body: {"result":"scheduled","qless_job":{"klass":"ledge.jobs.purge","jid":"98fcbee1f37f4dba0b48b0bc49cd162e","options":{"tags":["purge"],"jid":"98fcbee1f37f4dba0b48b0bc49cd162e","priority":5}},"purge_mode":"revalidate"}
 --- error_code: 200

@@ -82,7 +82,7 @@ OK
            local key_chain = ledge:cache_key_chain()
            local num_entities, err = redis:zcard(key_chain.entities)
            ngx.say(num_entities)
-           local memused  = redis:get(key_chain.memused)
+           local memused  = redis:hget(key_chain.main, "memused")
            ngx.say(memused)
         ';
     }
@@ -114,7 +114,7 @@ UPDATED
             local key_chain = ledge:cache_key_chain()
             local num_entities, err = redis:zcard(key_chain.entities)
             ngx.say(num_entities)
-            local memused  = redis:get(key_chain.memused)
+            local memused  = redis:hget(key_chain.main, "memused")
             ngx.say(memused)
         ';
     }
@@ -188,12 +188,10 @@ OK
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
             redis:select(ledge:config_get("redis_database"))
-            local key_chain = ledge:cache_key_chain()
-            local entity = redis:get(key_chain.key)
-            local entity_keys = ledge.entity_keys(key_chain.root .. "::" .. entity)
 
-            redis:del(key_chain.entities)
-            redis:del(entity_keys.body)
+            ledge:ctx().redis = redis 
+            local entity_key_chain = ledge:entity_key_chain()
+            redis:del(entity_key_chain.body)
 
             ledge:run()
         ';
@@ -204,19 +202,19 @@ OK
     }
 --- request
 GET /gc_5_prx
+--- wait: 3
 --- no_error_log
 [error]
 --- response_body
 OK 2
 
 
-=== TEST 5c: Missing keys should cause colleciton of the remaining keys. Confirm they are gone.
+=== TEST 5c: Missing keys should cause colleciton of the old entity.
 --- http_config eval: $::HttpConfig
 --- config
     location /gc_5 {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
-            ngx.sleep(4)
             local redis_mod = require "resty.redis"
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
@@ -231,8 +229,7 @@ OK 2
     }
 --- request
 GET /gc_5
---- timeout: 6
 --- no_error_log
 [error]
 --- response_body
-9
+5

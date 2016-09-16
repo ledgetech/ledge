@@ -288,11 +288,9 @@ location /stale_reval_params_remove {
         redis:connect("127.0.0.1", 6379)
         redis:select(ledge:config_get("redis_database"))
         local key_chain = ledge:cache_key_chain()
-        local entity = redis:get(key_chain.key)
-        local entity_keys = ledge.entity_keys(key_chain.root .. "::" .. entity)
 
-        redis:del(entity_keys.reval_req_headers)
-        redis:del(entity_keys.reval_params)
+        redis:del(key_chain.reval_req_headers)
+        redis:del(key_chain.reval_params)
 
         redis:set_keepalive()
         ngx.print("REMOVED")

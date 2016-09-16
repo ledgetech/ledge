@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) + 3; 
+plan tests => repeat_each() * (blocks() * 3) + 2;
 
 my $pwd = cwd();
 
@@ -167,21 +167,15 @@ TEST 3c
             ledge:run()
         ';
     }
-
-    location /cache {
-        content_by_lua '
-            ngx.header["Cache-Control"] = "max-age=3600"
-            ngx.say("TEST 4")
-        ';
-    }
 --- request
 PURGE /cache_prx
+--- wait: 2
 --- error_code: 200
 --- no_error_log
 [error]
 
 
-=== TEST 4: Cold request (expired but known); X-Cache: MISS
+=== TEST 4b: Cold request (expired but known); X-Cache: MISS
 --- http_config eval: $::HttpConfig
 --- config
     location /cache_prx {
@@ -203,6 +197,25 @@ GET /cache_prx
 X-Cache: MISS from .*
 --- response_body
 TEST 4
+
+
+=== TEST 4c: Clean up
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+--- more_headers
+X-Purge: delete
+--- request
+PURGE /cache_prx
+--- wait: 3
+--- error_code: 200
+--- no_error_log
+[error]
 
 
 === TEST 6a: Prime a resource into cache
@@ -261,7 +274,7 @@ TEST 6b
 [error]
 
 
-=== TEST 6c: Confirm all keys have been removed
+=== TEST 6c: Confirm all keys have been removed (doesn't verify entity gc)
 --- http_config eval: $::HttpConfig
 --- config
     location /cache_6 {
@@ -277,23 +290,11 @@ TEST 6b
             if res then
                 ngx.say("Numkeys: ", #res)
             end
-
-            ngx.sleep(2) -- Wait for gc
-
-            local res, err = redis:keys(key_chain.root .. "*")
-            if res then
-                ngx.say("Numkeys: ", #res)
-                for i,v in ipairs(res) do
-                    ngx.say(v)
-                end
-            end
         ';
     }
 --- request
 GET /cache_6
---- timeout: 6
 --- response_body
-Numkeys: 6
 Numkeys: 0
 --- no_error_log
 [error]
