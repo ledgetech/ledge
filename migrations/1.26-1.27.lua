@@ -114,6 +114,7 @@ function scan(cursor, redis)
             if new_entity and new_entity ~= ngx.null then
                 -- The old entities refs will still exist, so clean them up
                 delete_old_entities(redis, cache_key .. "::entities", entity_members, new_entity)
+                keys_processed = keys_processed + 1
                 skip = true
             end
 
