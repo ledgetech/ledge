@@ -103,9 +103,9 @@ function scan(cursor, redis)
                 if not val or val == ngx.null then
                     -- If we're missing something we need (likely evicted) -- delete this key
                     if delete(redis, cache_key, entity_members) then
-                        table.insert(deleted_keys, cache_key)
+                        keys_deleted = keys_deleted + 1
                     else
-                        table.insert(failed_keys, cache_key)
+                        keys_failed = keys_failed + 1
                     end
                     skip = true
                 end
@@ -118,7 +118,6 @@ function scan(cursor, redis)
             -- Find out if real traffic already created this cache entry
             local new_entity = redis:hget(cache_key .. "::main", "entity")
             if new_entity and new_entity ~= ngx.null then
-                ngx.say(new_entity)
                 -- The old entities refs will still exist, so clean them up
                 delete_old_entities(redis, cache_key .. "::entities", entity_members, new_entity)
                 skip = true
@@ -173,9 +172,9 @@ function scan(cursor, redis)
                     ngx.say("transaction failed")
                     -- Something went wrong, lets try and delete this cache entry
                     if delete(redis, cache_key, entity_members) then
-                        table.insert(deleted_keys, cache_key)
+                        keys_deleted = keys_deleted + 1
                     else
-                        table.insert(failed_keys, cache_key)
+                        keys_failed = keys_failed + 1
                     end
                 else
                     keys_processed = keys_processed + 1
@@ -201,8 +200,8 @@ if not redis then
 end
 
 keys_processed = 0
-deleted_keys = {}
-failed_keys = {}
+keys_deleted = 0
+keys_failed = 0
 
 
 ngx.say("Migrating Ledge data structure from v1.26 to v1.27\n")
@@ -212,15 +211,7 @@ if not res or res == ngx.null then
     ngx.say("Faied to scan keyspace: ", err)
 else
     ngx.say("> ", keys_processed .. " cache entries successfully updated")
-    ngx.say("> ", #deleted_keys .. " incomplete / broken cache entries cleaned up")
-    ngx.say("> ", #failed_keys .. " failures\n")
-
-    if #failed_keys > 0 then
-        ngx.say("Keys left untouched due to errors:\n")
-
-        for _, key in ipairs(failed_keys) do
-            ngx.say(key)
-        end
-    end
+    ngx.say("> ", keys_deleted .. " incomplete / broken cache entries cleaned up")
+    ngx.say("> ", keys_failed .. " failures\n")
 end
 
