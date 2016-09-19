@@ -113,13 +113,14 @@ information.
 }
 ```
 
-In addtion, PURGE requests accept an `X-Purge` request header, to alter the purge mode. Supported values are `invalidate` (default), `delete` (to actually hard remove the item and all metadata), and `revalidate`.
+In addtion, PURGE requests accept an `X-Purge` request header, to alter the purge mode. Supported values
+are `invalidate` (default), `delete` (to actually hard remove the item and all metadata), and `revalidate`.
 
 #### Revalidate-on-purge
 
 When specifying `X-Purge: revalidate`, a JSON response is returned detailing a background job ID scheduled
-to revalidate the cache item. Note that `X-Cache: revalidate, delete` has no useful meaning beacause revalidation
-requires metadata to be present.
+to revalidate the cache item. Note that `X-Cache: revalidate, delete` has no useful meaning beacause
+revalidation requires metadata to be present.
 
 `$> curl -v -X PURGE -X "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/page1 | jq .`
 
@@ -171,11 +172,128 @@ making it possible to trigger site / section wide revalidation for example.
 }
 ```
 
-### ESI
+### Edge Side Includes (ESI)
+
+Almost complete support for the [ESI 1.0 Language Specification](https://www.w3.org/TR/esi-lang) is
+included, with a few exceptions, and a few enhancements.
+
+```html
+<html>
+<esi include="/header" />
+<body>
+
+   <esi:choose>
+      <esi:when test="$(QUERY_STRING{foo}) == 'bar'">
+         Hi
+      </esi:when>
+      <esi:otherwise>
+         <esi:choose>
+            <esi:when test="$(HTTP_COOKIE{mycookie}) == 'yep'">
+               Yep
+            </esi:when>
+         </es:choose>
+      </esi:otherwise>
+   </esi:choose>
+   
+</body>
+</html>
+```
+
+#### Enabling ESI
+
+Note that simply [enabling](#esi_enabled) ESI might not be enough. We also check the
+[content type](#esi_content_types) against the allowed types specified, but more importantly ESI processing
+is contingent upon the [Edge Architecture Specification](https://www.w3.org/TR/edge-arch/). When enabled,
+Ledge will advertise capabilities upstream with the `Surrogate-Capability` request header, and expect
+the origin to include a `Surrogate-Control` header delegating ESI processing to Ledge.
+
+If your origin cannot be made aware of this, a common approach is to bind to the [origin_fetched](#origin_fetched)
+event in order to add the `Surrogate-Control` header manually. E.g.
+
+```lua
+local function set_surrogate_response_header(res)
+    -- Don't enable ESI on redirect responses
+    -- Don't override Surrogate Control if it already exists
+    local status = res.status
+    if not res.header["Surrogate-Control"] and not (status > 300 and status < 303) then
+        res.header["Surrogate-Control"] = 'content="ESI/1.0"'
+    end
+end
+ledge:bind("origin_fetched", set_surrogate_response_header)
+```
+
+#### Regular expressions in conditions
+
+In addition to the operators defined in the [ESI specification](https://www.w3.org/TR/esi-lang), we also
+support regular expressions in conditions, using the Perl-ish operator `=~`.
+
+```html
+<esi:choose>
+   <esi:when test="$(QUERY_STRING{name}) =~ '/james|john/i'">
+      Hi James or John
+   </esi:when>
+</esi:choose>
+```
+
+#### Custom variables
+
+In addition to the variables defined in the [ESI specification](https://www.w3.org/TR/esi-lang), it is possible
+to stuff custom variables into the following table before running Ledge
+
+```lua
+content_by_lua_block {
+   ngx.ctx.ledge_esi_custom_variables = {
+      messages = {
+         foo = "bar",
+      }
+   }
+   ledge:run()
+}
+```
+
+```html
+<esi:vars>$(MESSAGES{foo})</esi:vars>
+```
+
+#### ESI Args
+
+ESI args are query string parameters identified by a configurable prefix, which defaults to `esi_`. With ESI enabled,
+query string parameters with this prefix are removed from the cache key and also from upstream requests, and instead
+stuffed into the `$(ESI_ARGS{foo})` variable for use in ESI, typically in conditions.
+
+This has the effect of allowing query string parameters to alter the page layout without splitting the cache,
+since variables are used exclusively by the ESI processor, downstream of cache.
+
+`$> curl -H "Host: example.com" http://cache.example.com/page1?esi_display_mode=summary`
+
+```html
+<esi:choose>
+   <esi:when test="$(ESI_ARGS{display_mode} == 'summary'>
+      <!-- SUMMARY -->
+   </esi:when>
+   <esi:when test="$(ESI_ARGS{display_mode} == 'details'>
+      <!-- DETAILS -->
+   </esi:when>
+</esi:choose>
+```
+
+In this example, the `esi_display_mode` values of `summary` or `details` will return the same cache HIT, but
+display different content.
+
+#### Missing ESI features
+
+The following parts of the [ESI specification](https://www.w3.org/TR/esi-lang) are not supported,
+but could be in due course if a need is identified.
+
+* `<esi:inline>` not implemented (or advertised as a capability).
+* No support for the onerror or alt attributes for `<esi:include>`. Instead, we "continue" on error by default.
+* `<esi:try | attempt | except>` not implemented.
+* The "dictionary (special)" substructure variable type for `HTTP_USER_AGENT` is not implemented.
 
 
 ### Miscellaneous
 
+* Streaming architecture for predictable memory usage.
 * Configurable max memory limits for entities.
 * Event hooks to override cache policies at various stages using Lua script.
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
