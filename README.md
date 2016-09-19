@@ -67,7 +67,7 @@ functionality, backed by [Redis](http://redis.io).
 
 ## Status
 
-Under active development, functionality may change without much notice. However, release branches are 
+Under active development, functionality may change without much notice. However, release branches are
 generally well tested in staging environments against real world sites before being tagged, and the latest tagged
 release is guaranteed to be running hundreds of sites worldwide.
 
@@ -858,7 +858,8 @@ syntax: `ledge:config_set("esi_args_prefix", "__esi_")`
 
 default: "esi_"
 
-URI args prefix for parameters to be ignored from the cache key (and not proxied upstream), for use exclusively with ESI rendering logic. Set to nil to disable the feature.
+URI args prefix for parameters to be ignored from the cache key (and not proxied upstream), for use
+exclusively with ESI rendering logic. Set to nil to disable the feature.
 
 
 ### gunzip_enabled
@@ -880,7 +881,8 @@ syntax: `ledge:config_set("keyspace_scan_count", 10000)`
 
 default: 1000
 
-Tunes the behaviour of keyspace scans, which occur when sending a PURGE request with wildcard syntax. A higher number may be better if latency to Redis is high and the keyspace is large.
+Tunes the behaviour of keyspace scans, which occur when sending a PURGE request with wildcard syntax.
+A higher number may be better if latency to Redis is high and the keyspace is large.
 
 ### revalidate_parent_headers
 
@@ -974,7 +976,8 @@ Fires when decided we need to request from the origin.
 
 syntax: `ledge:bind("before_request", function(req_params) -- end)`
 
-params: `req_params`. The table of request params about to send to the [httpc:request](https://github.com/pintsized/lua-resty-http#request) method. 
+params: `req_params`. The table of request params about to send to the
+[httpc:request](https://github.com/pintsized/lua-resty-http#request) method.
 
 Fires when about to perform an origin request.
 
@@ -985,7 +988,7 @@ syntax: `ledge:bind("origin_fetched", function(res) -- end)`
 
 params: `res`. The response table (does not include the body).
 
-Fires when the status/headers have been fetched, but before it is stored. Typically used to override 
+Fires when the status/headers have been fetched, but before it is stored. Typically used to override
 cache headers before we decide what to do with this response. Note unlike `before_save` below, this
 fires for all fetched content, not just cacheable content.
 
