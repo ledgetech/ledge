@@ -1,7 +1,6 @@
 local cjson = require "cjson"
 local http = require "resty.http"
 local http_headers = require "resty.http_headers"
-local resolver = require "resty.dns.resolver"
 local qless = require "resty.qless"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
