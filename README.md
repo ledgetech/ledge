@@ -1,11 +1,7 @@
 # Ledge
 
-A [Lua](http://www.lua.org) application for [OpenResty](http://openresty.org), providing HTTP cache
-functionality for [Nginx](http://nginx.org), using [Redis](http://redis.io) as a cache / metadata
-store.
-
-This offers Squid / Varnish like functionality and performance, directly within your Nginx server,
-coupled with the flexibility to script configuration dynamically.
+A [Lua](http://www.lua.org) module for [OpenResty](http://openresty.org), providing ESI capable HTTP cache
+functionality, backed by [Redis](http://redis.io).
 
 ## Table of Contents
 
@@ -65,32 +61,124 @@ coupled with the flexibility to script configuration dynamically.
 * [Logging](#logging)
 * [Licence](#licence)
 
+
 ## Status
 
-Under active development, functionality may change without much notice. Please
-feel free to raise issues / request features at
+Under active development, functionality may change without much notice. However, release branches are 
+tested in staging environments against real world sites before being tagged, and the latest tagged
+release is guaranteed to be running hundreds of sites worldwide. 
+
+Please feel free to ask questions / raise issues / request features at
 [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
 
 
 ## Features
 
-* Cache items and metadata stored in [Redis](http://redis.io).
+### RFC compliant HTTP reverse proxy caching
+
+In general the aim has been to be as compliant as possible, providing enough options / hooks to deal
+with real world cases. This includes full end-to-end revalidation (specified and unspecified) semantics
+and so on.
+
+
+### High availability
+
+Support for Redis [Sentinel](http://redis.io/topics/sentinel) is fully integrated, making it possible
+run master / slave pairs, where Sentinel promotes the slave to master in the event of failure, without
+losing cache.
+
+Upstreams can be load balanced using [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream),
+and there are two [offline modes](#origin_mode) to either bypass a failing origin or "avoid" it, serving stale
+cache where possible.
+
+
+### Advanced caching behaviours
+
+Concurrent similar requests can be [collapsed](#enable_collapsed_forwarding) into single upstream requests
+to reduce load at the origin. There is also support for intentionally serving stale content in the event of
+upstream errors, or even for a pre-determined "additional TTL" whilst revalidating in the background.
+
+
+### PURGE
+
+Cache can be invalidating using the PURGE method. In general, these will return a status of `200` indicating
+success, or `404` if there was nothing to purge. In addition, a JSON response body is returned with more
+information.
+
+`$> curl -v -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
+```json
+{
+  "purge_mode": "invalidate",
+  "result": "nothing to purge"
+}
+```
+
+In addtion, PURGE requests accept an `X-Purge` request header, to alter the purge mode. Supported values are `invalidate` (default), `delete` (to actually hard remove the item and all metadata), and `revalidate`.
+
+#### Revalidate-on-purge
+
+When specifying `X-Purge: revalidate`, a JSON response is returned detailing a background job ID scheduled
+to revalidate the cache item. Note that `X-Cache: revalidate, delete` has no useful meaning beacause revalidation
+requires metadata to be present.
+
+`$> curl -v -X PURGE -X "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/page1 | jq .`
+
+```json
+{
+  "purge_mode": "revalidate",
+  "qless_job": {
+    "options": {
+      "priority": 4,
+      "jid": "5eeabecdc75571d1b93e9c942dfcebcb",
+      "tags": [
+        "revalidate"
+      ]
+    },
+    "jid": "5eeabecdc75571d1b93e9c942dfcebcb",
+    "klass": "ledge.jobs.revalidate"
+  },
+  "result": "already expired"
+}
+```
+
+#### Wildcard PURGE
+
+Wildcard (*) patterns are also supported in URIs, which will always return a status of `200` and a JSON
+body detailing a background job ID. Wildcard purges involve scanning the keyspace, and so can take
+a little while. In general, this is more useful for admin purposes than application cache invalidation
+but it is designed to be as polite as possible.
+
+In addtion, the `X-Purge` request header will propogate to all URIs purged as a result of the wildcard,
+making it possible to trigger site / section wide revalidation for example.
+
+`$> curl -v -X PURGE -H "Host: example.com" http://cache.example.com/* | jq .`
+
+```json
+{
+  "purge_mode": "invalidate",
+  "qless_job": {
+    "options": {
+      "priority": 5,
+      "jid": "b2697f7cb2e856cbcad1f16682ee20b0",
+      "tags": [
+        "purge"
+      ]
+    },
+    "jid": "b2697f7cb2e856cbcad1f16682ee20b0",
+    "klass": "ledge.jobs.purge"
+  },
+  "result": "scheduled"
+}
+```
+
+### ESI
+
+
+### Miscellaneous
+
 * Configurable max memory limits for entities.
-* Redis automatic failover with [Sentinel](http://redis.io/topics/sentinel).
 * Event hooks to override cache policies at various stages using Lua script.
-* End-to-end revalidation (specific and unspecified).
-* Range requests (single and multipart).
-* Offline modes (bypass, avoid).
-* Stale-if-error (serves stale content on upstream error).
-* Serve stale content for an additional stale period.
-* Stale-while-revalidate (revalidates content in the background after having served as stale).
-* Collapsed forwarding (concurrent similar requests collapsed into a single upstream request).
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
-* PURGE requests to expire resources by URI.
-* Wildcard PURGE requests (performed in the background).
-* Revalidate-on-purge by sending X-Purge: revalidate in a PURGE request. Works for wildcards too.
-* Delete-on-purge by sending X-Purge: delete in a PURGE request (instead of a soft "expire").
-* ESI 1.0 support. See [documentation](#esi_enabled) for exceptions.
 * Store gzipped responses and dynamically gunzip when Accept-Encoding: gzip is not present.
 
 
