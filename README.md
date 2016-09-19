@@ -26,6 +26,8 @@ functionality, backed by [Redis](http://redis.io).
     * [redis_qless_database](#redis_qless_database)
     * [redis_connect_timeout](#redis_connect_timeout)
     * [redis_read_timeout](#redis_read_timeout)
+    * [redis_keepalive_timeout](#redis_keepalive_timeout)
+    * [redis_keepalive_poolsize](#redis_keepalive_poolsize)
     * [redis_host](#redis_host)
     * [redis_use_sentinel](#redis_use_sentinel)
     * [redis_sentinel_master_name](#redis_sentinel_master_name)
@@ -585,6 +587,20 @@ default: `5000 (ms)`
 
 Maximum time to wait for data on a connected Redis socket (in milliseconds). If it is exceeded, we
 send a `503` status code.
+
+
+### redis_keepalive_timeout
+
+syntax: `ledge:config_set("redis_keepalive_timeout", 120)`
+
+default: `60s or lua_socket_keepalive_timeout (sec)`
+
+
+### redis_keepalive_poolsize
+
+syntax: `ledge:config_set("redis_keepalive_poolsize", 60)`
+
+default: `Defaults to 30 or lua_socket_pool_size`
 
 
 ### redis_host
