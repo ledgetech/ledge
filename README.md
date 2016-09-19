@@ -207,7 +207,7 @@ included, with a few exceptions, and a few enhancements.
       <esi:otherwise>
          <esi:choose>
             <esi:when test="$(HTTP_COOKIE{mycookie}) == 'yep'">
-               Yep
+               <esi:include src="/_fragments/fragment1" />
             </esi:when>
          </es:choose>
       </esi:otherwise>
