@@ -287,10 +287,10 @@ since variables are used exclusively by the ESI processor, downstream of cache.
 
 ```html
 <esi:choose>
-   <esi:when test="$(ESI_ARGS{display_mode} == 'summary'">
+   <esi:when test="$(ESI_ARGS{display_mode}) == 'summary'">
       <!-- SUMMARY -->
    </esi:when>
-   <esi:when test="$(ESI_ARGS{display_mode} == 'details'">
+   <esi:when test="$(ESI_ARGS{display_mode}) == 'details'">
       <!-- DETAILS -->
    </esi:when>
 </esi:choose>
