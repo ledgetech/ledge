@@ -85,7 +85,8 @@ and so on.
 
 Support for Redis [Sentinel](http://redis.io/topics/sentinel) is fully integrated, making it possible
 run master / slave pairs, where Sentinel promotes the slave to master in the event of failure, without
-losing cache.
+losing cache. Cache reads will be served from the slave in the window between the master failing and the
+slave being promoted.
 
 Upstreams can be load balanced using [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream),
 and there are two [offline modes](#origin_mode) to either bypass a failing origin or "avoid" it, serving stale
@@ -94,9 +95,18 @@ cache where possible.
 
 ### Advanced caching behaviours
 
+#### Collapsed forwarding
+
 Concurrent similar requests can be [collapsed](#enable_collapsed_forwarding) into single upstream requests
-to reduce load at the origin. There is also support for intentionally serving stale content in the event of
-upstream errors, or even for a pre-determined "additional TTL" whilst revalidating in the background.
+to reduce load at the origin. 
+
+#### Stale / background revalidation
+
+There is support for intentionally serving stale content in the event of upstream errors, or even for a pre-determined
+"additional TTL" whilst revalidating in the background. For example, if your cache TTL is 24 hours, consider
+changing this to 1 hour, and specifying `max_stale` as 23 hours. The net TTL is thus the same, but requests
+after the first hour will serve a cache HIT and then trigger a background revalidation of the content, extending
+the TTL for a further 1 hour + 23 hours stale.
 
 
 ### PURGE
@@ -268,10 +278,10 @@ since variables are used exclusively by the ESI processor, downstream of cache.
 
 ```html
 <esi:choose>
-   <esi:when test="$(ESI_ARGS{display_mode} == 'summary'>
+   <esi:when test="$(ESI_ARGS{display_mode} == 'summary'">
       <!-- SUMMARY -->
    </esi:when>
-   <esi:when test="$(ESI_ARGS{display_mode} == 'details'>
+   <esi:when test="$(ESI_ARGS{display_mode} == 'details'">
       <!-- DETAILS -->
    </esi:when>
 </esi:choose>
@@ -293,11 +303,14 @@ but could be in due course if a need is identified.
 
 ### Miscellaneous
 
-* Streaming architecture for predictable memory usage.
-* Configurable max memory limits for entities.
-* Event hooks to override cache policies at various stages using Lua script.
+Other features include:
+
+* Cache key can be flexibly configured for tuning cache HIT rates (e.g. dropping querystring tracking args).
+* 100% streaming architecture for predictable memory usage, even when processing ESI instructions.
+* Configurable [max memory](#cache_max_memory) limits for body entities.
+* [Event hooks](#events) to override cache policies at various stages using Lua script.
 * Caching POST responses (serve-able to subsequent GET / HEAD requests).
-* Store gzipped responses and dynamically gunzip when Accept-Encoding: gzip is not present.
+* Stores gzipped responses and dynamically gunzip when Accept-Encoding: gzip is not present.
 
 
 ## Installation
@@ -314,9 +327,9 @@ properly, as the environment is quite specific. Note that LuaJIT must be enabled
 Clone this repo, and the following dependencies into a path defined by
 [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path):
 
-* [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.08
+* [lua-resty-http](https://github.com/pintsized/lua-resty-http) >= 0.09
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) >= 0.03
-* [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.06
+* [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) >= 0.07
 * [lua-resty-cookie](https://github.com/cloudflare/lua-resty-cookie)
 * [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib) >= 0.01
 
