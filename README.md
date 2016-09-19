@@ -68,8 +68,8 @@ functionality, backed by [Redis](http://redis.io).
 ## Status
 
 Under active development, functionality may change without much notice. However, release branches are 
-tested in staging environments against real world sites before being tagged, and the latest tagged
-release is guaranteed to be running hundreds of sites worldwide. 
+generally well tested in staging environments against real world sites before being tagged, and the latest tagged
+release is guaranteed to be running hundreds of sites worldwide.
 
 Please feel free to ask questions / raise issues / request features at
 [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
@@ -83,11 +83,14 @@ In general the aim has been to be as compliant as possible, providing enough opt
 with real world cases. This includes full end-to-end revalidation (specified and unspecified) semantics
 and so on.
 
+There are exceptions and omissions. Please raise an [an issue](https://github.com/pintsized/ledge/issues)
+if something doesn't work as expected.
+
 
 ### High availability
 
 Support for Redis [Sentinel](http://redis.io/topics/sentinel) is fully integrated, making it possible
-run master / slave pairs, where Sentinel promotes the slave to master in the event of failure, without
+to run master / slave pairs, where Sentinel promotes the slave to master in the event of failure, without
 losing cache. Cache reads will be served from the slave in the window between the master failing and the
 slave being promoted.
 
@@ -114,11 +117,11 @@ the TTL for a further 1 hour + 23 hours stale.
 
 ### PURGE
 
-Cache can be invalidating using the PURGE method. In general, these will return a status of `200` indicating
+Cache can be invalidating using the PURGE method. This will return a status of `200` indicating
 success, or `404` if there was nothing to purge. In addition, a JSON response body is returned with more
 information.
 
-`$> curl -v -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
+`$> curl -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
 ```json
 {
   "purge_mode": "invalidate",
@@ -129,13 +132,15 @@ information.
 In addtion, PURGE requests accept an `X-Purge` request header, to alter the purge mode. Supported values
 are `invalidate` (default), `delete` (to actually hard remove the item and all metadata), and `revalidate`.
 
+
 #### Revalidate-on-purge
 
-When specifying `X-Purge: revalidate`, a JSON response is returned detailing a background job ID scheduled
-to revalidate the cache item. Note that `X-Cache: revalidate, delete` has no useful meaning beacause
-revalidation requires metadata to be present.
+When specifying `X-Purge: revalidate`, a JSON response is returned detailing a background
+[Qless](https://github.com/pintsized/lua-resty-qless) job ID scheduled to revalidate the cache item.
+Note that `X-Cache: revalidate, delete` has no useful meaning beacause revalidation requires metadata
+to be present (`delete` overrides).
 
-`$> curl -v -X PURGE -X "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/page1 | jq .`
+`$> curl -X PURGE -H "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/page1 | jq .`
 
 ```json
 {
@@ -158,18 +163,18 @@ revalidation requires metadata to be present.
 #### Wildcard PURGE
 
 Wildcard (*) patterns are also supported in URIs, which will always return a status of `200` and a JSON
-body detailing a background job ID. Wildcard purges involve scanning the keyspace, and so can take
-a little while. In general, this is more useful for admin purposes than application cache invalidation
-but it is designed to be as polite as possible.
+body detailing a background job ID. Wildcard purges involve scanning the entire keyspace, and so can take
+a little while. See [keyspace_scan_count](#keyspace_scan_count) for tuning help.
 
 In addtion, the `X-Purge` request header will propogate to all URIs purged as a result of the wildcard,
-making it possible to trigger site / section wide revalidation for example.
+making it possible to trigger site / section wide revalidation for example. Again, be careful what you
+wish for.
 
-`$> curl -v -X PURGE -H "Host: example.com" http://cache.example.com/* | jq .`
+`$> curl -v -X PURGE -H "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/* | jq .`
 
 ```json
 {
-  "purge_mode": "invalidate",
+  "purge_mode": "revalidate",
   "qless_job": {
     "options": {
       "priority": 5,
@@ -220,7 +225,7 @@ is contingent upon the [Edge Architecture Specification](https://www.w3.org/TR/e
 Ledge will advertise capabilities upstream with the `Surrogate-Capability` request header, and expect
 the origin to include a `Surrogate-Control` header delegating ESI processing to Ledge.
 
-If your origin cannot be made aware of this, a common approach is to bind to the [origin_fetched](#origin_fetched)
+If your origin is not ESI aware, a common approach is to bind to the [origin_fetched](#origin_fetched)
 event in order to add the `Surrogate-Control` header manually. E.g.
 
 ```lua
@@ -251,7 +256,8 @@ support regular expressions in conditions, using the Perl-ish operator `=~`.
 #### Custom variables
 
 In addition to the variables defined in the [ESI specification](https://www.w3.org/TR/esi-lang), it is possible
-to stuff custom variables into the following table before running Ledge
+to stuff custom variables into a special table before running Ledge. A common use case is to combine the
+[Geo IP](http://nginx.org/en/docs/http/ngx_http_geoip_module.html) module varibles for use in ESI conditions.
 
 ```lua
 content_by_lua_block {
@@ -1077,7 +1083,7 @@ James Hurst <james@pintsized.co.uk>
 
 This module is licensed under the 2-clause BSD license.
 
-Copyright (c) 2014, James Hurst <james@pintsized.co.uk>
+Copyright (c) 2016, James Hurst <james@pintsized.co.uk>
 
 All rights reserved.
 
