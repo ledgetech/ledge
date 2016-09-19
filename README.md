@@ -41,9 +41,10 @@ functionality, backed by [Redis](http://redis.io).
     * [collapsed_forwarding_window](#collapsed_forwarding_window)
     * [esi_enabled](#esi_enabled)
     * [esi_content_types](#esi_content_types)
-    * [esi_surrogate_delegation](#esi_surrogate_delegation)
+    * [esi_allow_surrogate_delegation](#esi_allow_surrogate_delegation)
     * [esi_recursion_limit](#esi_recursion_limit)
     * [esi_pre_include_callback](#esi_pre_include_callback)
+    * [esi_args_prefix](#esi_args_prefix)
     * [gunzip_enabled](#gunzip_enabled)
     * [keyspace_scan_count](#keyspace_scan_count)
     * [revalidate_parent_headers](#revalidate_parent_headers)
@@ -811,9 +812,9 @@ Specifies content types to perform ESI processing on. All other content types wi
 for processing.
 
 
-### esi_surrogate_delegation
+### esi_allow_surrogate_delegation
 
-syntax: `ledge:config_set("esi_surrogate_delegation", true)`
+syntax: `ledge:config_set("esi_allow_surrogate_delegation", true)`
 
 default: false
 
@@ -843,6 +844,15 @@ default: nil
 A function provided here will be called each time the ESI parser goes to make an outbound HTTP request
 for a fragment. The request parameters are passed through and can be manipulated here, for example
 to modify request headers.
+
+
+### esi_args_prefix
+
+syntax: `ledge:config_set("esi_args_prefix", "__esi_")`
+
+default: "esi_"
+
+URI args prefix for parameters to be ignored from the cache key (and not proxied upstream), for use exclusively with ESI rendering logic. Set to nil to disable the feature.
 
 
 ### gunzip_enabled
