@@ -296,7 +296,7 @@ Download and install:
 luarocks install ledge
 ```
 
-This will install the latest stable release, all other Lua module dependencies, which are:
+This will install the latest stable release, and all other Lua module dependencies, which are:
 
 * [lua-resty-http](https://github.com/pintsized/lua-resty-http)
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector)
