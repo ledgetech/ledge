@@ -1,7 +1,6 @@
 # Ledge
 
-A [Lua](http://www.lua.org) module for [OpenResty](http://openresty.org), providing ESI capable HTTP cache
-functionality, backed by [Redis](http://redis.io).
+An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache module for [OpenResty](http://openresty.org), backed by [Redis](http://redis.io).
 
 ## Table of Contents
 
@@ -9,45 +8,6 @@ functionality, backed by [Redis](http://redis.io).
 * [Features](#features)
 * [Installation](#installation)
 * [Configuration options](#configuration-options)
-    * [origin_mode](#origin_mode)
-    * [upstream_connect_timeout](#upstream_connect_timeout)
-    * [upstream_read_timeout](#upstream_read_timeout)
-    * [upstream_host](#upstream_host)
-    * [upstream_port](#upstream_port)
-    * [upstream_use_ssl](#upstream_use_ssl)
-    * [upstream_ssl_server_name](#upstream_ssl_server_name)
-    * [upstream_ssl_verify](#upstream_ssl_verify)
-    * [use_resty_upstream](#use_resty_upstream)
-    * [resty_upstream](#resty_upstream)
-    * [buffer_size](#buffer_size)
-    * [cache_max_memory](#cache_max_memory)
-    * [advertise_ledge](#advertise_ledge)
-    * [redis_database](#redis_database)
-    * [redis_qless_database](#redis_qless_database)
-    * [redis_connect_timeout](#redis_connect_timeout)
-    * [redis_read_timeout](#redis_read_timeout)
-    * [redis_keepalive_timeout](#redis_keepalive_timeout)
-    * [redis_keepalive_poolsize](#redis_keepalive_poolsize)
-    * [redis_host](#redis_host)
-    * [redis_use_sentinel](#redis_use_sentinel)
-    * [redis_sentinel_master_name](#redis_sentinel_master_name)
-    * [redis_sentinels](#redis_sentinels)
-    * [keep_cache_for](#keep_cache_for)
-    * [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
-    * [max_stale](#max_stale)
-    * [stale_if_error](#stale_if_error)
-    * [cache_key_spec](#cache_key_spec)
-    * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
-    * [collapsed_forwarding_window](#collapsed_forwarding_window)
-    * [esi_enabled](#esi_enabled)
-    * [esi_content_types](#esi_content_types)
-    * [esi_allow_surrogate_delegation](#esi_allow_surrogate_delegation)
-    * [esi_recursion_limit](#esi_recursion_limit)
-    * [esi_pre_include_callback](#esi_pre_include_callback)
-    * [esi_args_prefix](#esi_args_prefix)
-    * [gunzip_enabled](#gunzip_enabled)
-    * [keyspace_scan_count](#keyspace_scan_count)
-    * [revalidate_parent_headers](#revalidate_parent_headers)
 * [Workers](#workers)
     * [run_workers](#run_workers)
 * [Events](#events)
@@ -389,6 +349,50 @@ nginx {
 
 
 ## Configuration options
+
+ * [Overview](#overview)
+ * [origin_mode](#origin_mode)
+ * [upstream_connect_timeout](#upstream_connect_timeout)
+ * [upstream_read_timeout](#upstream_read_timeout)
+ * [upstream_host](#upstream_host)
+ * [upstream_port](#upstream_port)
+ * [upstream_use_ssl](#upstream_use_ssl)
+ * [upstream_ssl_server_name](#upstream_ssl_server_name)
+ * [upstream_ssl_verify](#upstream_ssl_verify)
+ * [use_resty_upstream](#use_resty_upstream)
+ * [resty_upstream](#resty_upstream)
+ * [buffer_size](#buffer_size)
+ * [cache_max_memory](#cache_max_memory)
+ * [advertise_ledge](#advertise_ledge)
+ * [redis_database](#redis_database)
+ * [redis_qless_database](#redis_qless_database)
+ * [redis_connect_timeout](#redis_connect_timeout)
+ * [redis_read_timeout](#redis_read_timeout)
+ * [redis_keepalive_timeout](#redis_keepalive_timeout)
+ * [redis_keepalive_poolsize](#redis_keepalive_poolsize)
+ * [redis_host](#redis_host)
+ * [redis_use_sentinel](#redis_use_sentinel)
+ * [redis_sentinel_master_name](#redis_sentinel_master_name)
+ * [redis_sentinels](#redis_sentinels)
+ * [keep_cache_for](#keep_cache_for)
+ * [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
+ * [max_stale](#max_stale)
+ * [stale_if_error](#stale_if_error)
+ * [cache_key_spec](#cache_key_spec)
+ * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
+ * [collapsed_forwarding_window](#collapsed_forwarding_window)
+ * [esi_enabled](#esi_enabled)
+ * [esi_content_types](#esi_content_types)
+ * [esi_allow_surrogate_delegation](#esi_allow_surrogate_delegation)
+ * [esi_recursion_limit](#esi_recursion_limit)
+ * [esi_pre_include_callback](#esi_pre_include_callback)
+ * [esi_args_prefix](#esi_args_prefix)
+ * [gunzip_enabled](#gunzip_enabled)
+ * [keyspace_scan_count](#keyspace_scan_count)
+ * [revalidate_parent_headers](#revalidate_parent_headers)
+
+
+### Overview
 
 Options can be specified globally during `init_by_lua`, or for a specific server/location during
 `content_by_lua`, before calling `ledge:run()`.
