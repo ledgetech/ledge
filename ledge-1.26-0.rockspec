@@ -5,7 +5,7 @@ source = {
     tag = "v1.26"
 }
 description = {
-    summary = [[A Lua module for OpenResty, providing ESI capable HTTP cache functionality, backed by Redis.]],
+    summary = "An ESI capable HTTP cache module for OpenResty",
     homepage = "https://github.com/pintsized/ledge",
     license = "2-clause BSD",
     maintainer = "James Hurst <james@pintsized.co.uk>"
