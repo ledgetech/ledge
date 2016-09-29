@@ -28,7 +28,7 @@ Ledge aims to be an RFC compliant HTTP reverse proxy cache wherever possible, pr
 
 There are exceptions and omissions. Please raise an [an issue](https://github.com/pintsized/ledge/issues) if something doesn't work as expected.
 
-Moreover, it is particularly suited so applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible. For example, using [ESI](#edge-side-includes-esi) to separate page fragments where their TTL differs, serving stale content whilst [revalidating in the background](#stale--background-revalidation), [collapsing](#collapsed-forwarding) concurrent similar upstream requests, dynamically modifying the cache key specification, and [automatically revalidating](#revalidate-on-purge) content with a PURGE API.
+Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible. For example, using [ESI](#edge-side-includes-esi) to separate page fragments where their TTL differs, serving stale content whilst [revalidating in the background](#stale--background-revalidation), [collapsing](#collapsed-forwarding) concurrent similar upstream requests, dynamically modifying the cache key specification, and [automatically revalidating](#revalidate-on-purge) content with a PURGE API.
 
 * [Dynamic configuration](#dynamic-configuration)
 * [Serving stale content](#serving-stale-content)
@@ -66,7 +66,7 @@ In other words, set the TTL to the highest comfortable frequency of requests at 
 
 ### PURGE API
 
-Cache can be invalidating using the PURGE method. This will return a status of `200` indicating success, or `404` if there was nothing to purge. A JSON response body is returned with more information.
+Cache can be invalidated using the PURGE method. This will return a status of `200` indicating success, or `404` if there was nothing to purge. A JSON response body is returned with more information.
 
 `$> curl -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
 ```json
@@ -896,7 +896,8 @@ Fires when we're about to serve. Often used to modify downstream headers.
 syntax: `ledge:bind("before_save_revalidation_data", function(reval_params, reval_headers) -- end)`
 
 params: `reval_params`. Table of revalidation params.
-params: `reval_headers`. Table of revalidation headers.
+
+params: `reval_headers`. Table of revalidation headers.
 
 Fires when a background revalidation is triggered or when cache is being saved. Allows for modifying the headers and paramters (such as connection parameters) which are inherited by the background revalidation.
 
@@ -916,7 +917,7 @@ The `reval_params` are values derived from the current running configuration for
 
 Ledge uses [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) to schedule and process background tasks, which are stored in Redis (usually in a separate DB to cache data).
 
-Background tasks are scheduled for revalidation as well as wildcard PURGE requests, but most importantly for garbage collection of replaced body entities.
+Jobs are scheduled for background revalidation requests as well as wildcard PURGE requests, but most importantly for garbage collection of replaced body entities.
 
 That is, it's very important that jobs are being run properly and in a timely fashion.
 
