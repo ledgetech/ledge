@@ -7,6 +7,13 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache module for [OpenRest
 
 * [Status](#status)
 * [Features](#features)
+	* [Dynamic configuration](#dynamic-configuration)
+	* [Serving stale content](#serving-stale-content)
+	* [PURGE API](#purge-api)
+	* [Load balancing upstreams](#load-balancing-upstreams)
+	* [Redis failover with Sentinel](#redis-sentinel)
+	* [Collapsed forwarding](#collapsed-forwarding)
+	* [Edge Side Includes](#edge-side-includes-esi)
 * [Installation](#installation)
 * [Configuration options](#configuration-options)
 * [Binding to events](#events)
@@ -29,14 +36,6 @@ Ledge aims to be an RFC compliant HTTP reverse proxy cache wherever possible, pr
 There are exceptions and omissions. Please raise an [an issue](https://github.com/pintsized/ledge/issues) if something doesn't work as expected.
 
 Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible. For example, using [ESI](#edge-side-includes-esi) to separate page fragments where their TTL differs, serving stale content whilst [revalidating in the background](#stale--background-revalidation), [collapsing](#collapsed-forwarding) concurrent similar upstream requests, dynamically modifying the cache key specification, and [automatically revalidating](#revalidate-on-purge) content with a PURGE API.
-
-* [Dynamic configuration](#dynamic-configuration)
-* [Serving stale content](#serving-stale-content)
-* [PURGE API](#purge-api)
-* [Load balancing upstreams](#load-balancing-upstreams)
-* [Redis failover with Sentinel](#redis-sentinel)
-* [Collapsed forwarding](#collapsed-forwarding)
-* [Edge Side Includes](#edge-side-includes-esi)
 
 
 ### Dynamic configuration
@@ -132,7 +131,6 @@ In addition, the `X-Purge` request header will propagate to all URIs purged as a
   "result": "scheduled"
 }
 ```
-
 
 
 ### Load balancing upstreams
@@ -352,7 +350,10 @@ nginx {
 
 ## Configuration options
 
- * [Overview](#overview)
+Options can be specified globally with the `init_by_lua_block` directive, or for a specific server / location with `content_by_lua_block` directives.
+
+Config set in `content_by_lua_block` will only affect that specific location, and runs in the context of the current running request. That is, you can write request-specific conditions which dynamically set configuration for matching requests.
+
  * [origin_mode](#origin_mode)
  * [upstream_connect_timeout](#upstream_connect_timeout)
  * [upstream_read_timeout](#upstream_read_timeout)
@@ -392,13 +393,6 @@ nginx {
  * [gunzip_enabled](#gunzip_enabled)
  * [keyspace_scan_count](#keyspace_scan_count)
  * [revalidate_parent_headers](#revalidate_parent_headers)
-
-
-### Overview
-
-Options can be specified globally with the `init_by_lua_block` directive, or for a specific server / location with `content_by_lua_block` directives.
-
-Config set in `content_by_lua_block` will only affect that specific location, and runs in the context of the current running request. That is, you can write request-specific conditions which dynamically set configuration for matching requests.
 
 
 ### origin_mode
