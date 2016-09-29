@@ -182,7 +182,7 @@ Almost complete support for the [ESI 1.0 Language Specification](https://www.w3.
       <esi:otherwise>
          <esi:choose>
             <esi:when test="$(HTTP_COOKIE{mycookie}) == 'yep'">
-               <esi:include src="/_fragments/fragment1" />
+               <esi:include src="http://example.com/_fragments/fragment1" />
             </esi:when>
          </es:choose>
       </esi:otherwise>
