@@ -929,13 +929,17 @@ You may also wish to tweak the [qless job history](https://github.com/pintsized/
 
 syntax: `init_worker_by_lua_block { ledge:run_workers(options) }`
 
-default options: `{ interval = 10, concurrency = 1 }`
+default options: `{ interval = 10, concurrency = 1, purge_concurrency = 1, revalidate_concurrency = 1 }`
 
 Starts the Ledge workers within each Nginx worker process. When no jobs are left to be processed, each worker will wait for `interval` before checking again.
 
-You can have many worker "light threads" per worker process, by upping the concurrency. They will yield to each other when doing i/o.
+You can have many worker "light threads" per worker process, by upping the concurrency. They will yield to each other when doing i/o. Concurrency can be adjusted for each job type indepedently:
 
-The default options are quite conservative. You probably want to up the `concurrency` and lower the `interval` on busy systems.
+* __concurrency__: Controls core job concurrency, which currently is just the garbage collection jobs.
+* __purge_concurrency__: Controls job concurrency for backgrounded purge requests.
+* __revalidate_concurrency__: Controls job concurrency for backgrounded revalidation.
+
+The default options are quite conservative. You probably want to up the `*concurrency` options and lower the `interval` on busy systems.
 
 
 ## Logging
