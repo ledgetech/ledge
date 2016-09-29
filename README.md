@@ -26,7 +26,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache module for [OpenRest
 
 Under active development, and so functionality may change without much notice. However, release branches are generally well tested in staging environments against real world sites before being tagged, and the latest tagged release is guaranteed to be running hundreds of sites worldwide.
 
-Please feel free to ask questions / raise issues / request features at [https://github.com/pintsized/ledge/issues](https://github.com/pintsized/ledge/issues).
+Please feel free to [ask questions / raise issues / request features](https://github.com/pintsized/ledge/issues).
 
 
 ## Features
