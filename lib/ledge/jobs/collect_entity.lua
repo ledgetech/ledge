@@ -46,9 +46,7 @@ function _M.perform(job)
 
     res, err = redis:exec()
 
-    if res then
-        return true, nil
-    else
+    if not res then
         return nil, "redis-error", err
     end
 end

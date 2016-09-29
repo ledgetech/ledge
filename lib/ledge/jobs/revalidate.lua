@@ -99,8 +99,6 @@ function _M.perform(job)
         until not chunk
 
         httpc:set_keepalive()
-
-        return true, nil, nil
     end
 end
 

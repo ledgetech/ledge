@@ -36,9 +36,7 @@ function _M.perform(job)
     -- has been scanned.
     local res, err = _M.expire_pattern(0, job)
 
-    if res ~= nil then
-        return true, nil
-    else
+    if not res then
         return nil, "redis-error", err
     end
 end
