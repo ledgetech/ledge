@@ -172,7 +172,7 @@ Almost complete support for the [ESI 1.0 Language Specification](https://www.w3.
 
 ```html
 <html>
-<esi include="/header" />
+<esi:include="/header" />
 <body>
 
    <esi:choose>
@@ -184,7 +184,7 @@ Almost complete support for the [ESI 1.0 Language Specification](https://www.w3.
             <esi:when test="$(HTTP_COOKIE{mycookie}) == 'yep'">
                <esi:include src="http://example.com/_fragments/fragment1" />
             </esi:when>
-         </es:choose>
+         </esi:choose>
       </esi:otherwise>
    </esi:choose>
    
