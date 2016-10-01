@@ -2986,7 +2986,7 @@ function _M.serve(self)
 
         if not event_history["response_not_cacheable"] then
             local x_cache = "HIT from " .. visible_hostname
-            if not event_history["can_serve_disconnected"] and
+            if not event_history["can_serve_disconnected"] and not event_history["can_serve_stale"] and
                 (state_history["fetching"] or state_history["revalidating_upstream"]) then
                 x_cache = "MISS from " .. visible_hostname
             end
