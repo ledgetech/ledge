@@ -505,23 +505,41 @@ function _M.accepts_stale(self, res)
         end
     end
 
+    -- Fall back to response value for stale-while-revalidate
+    local stale_while_revalidate = h_util.get_numeric_header_token(
+        res.header["Cache-Control"], "stale-while-revalidate"
+    ) or 0
+
+
     -- Fall back to max_stale config
-    local max_stale = self:config_get("max_stale")
-    if max_stale and max_stale > 0 then
+    local max_stale = self:config_get("max_stale") or 0
+
+    if max_stale > stale_while_revalidate then
         return max_stale
+    else
+        return stale_while_revalidate
     end
 end
 
 
 function _M.calculate_stale_ttl(self)
     local res = self:get_response()
+
     local stale = self:accepts_stale(res) or 0
-    local min_fresh = h_util.get_numeric_header_token(
-        ngx_req_get_headers()['Cache-Control'],
-        'min-fresh'
+    local stale_while_revalidate = h_util.get_numeric_header_token(
+        res.header["Cache-Control"], "stale-while-revalidate"
     ) or 0
 
-    return (res.remaining_ttl - min_fresh) + stale
+    local min_fresh = h_util.get_numeric_header_token(
+        ngx_req_get_headers()["Cache-Control"],
+        "min-fresh"
+    ) or 0
+
+    -- The base TTL
+    local ttl = res.remaining_ttl - min_fresh
+
+    -- Return stale TTL, stale-while-revalidate TTL
+    return ttl + stale, ttl + stale_while_revalidate
 end
 
 
@@ -579,7 +597,7 @@ function _M.must_revalidate(self)
         local res = self:get_response()
         local res_age = res.header["Age"]
 
-        if h_util.header_has_directive(res.header["Cache-Control"], "revalidate") then
+        if h_util.header_has_directive(res.header["Cache-Control"], "must-revalidate") then
             return true
         elseif type(cc) == "string" and res_age then
             local max_age = cc:match("max%-age=(%d+)")
@@ -1296,7 +1314,12 @@ _M.events = {
     -- response headers.
     can_serve_stale = {
         { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
-        { begin = "considering_esi_process", but_first = { "add_stale_warning" } }, --"revalidate_in_background" } },
+        { begin = "considering_esi_process", but_first = { "add_stale_warning" } },
+    },
+
+    -- We can serve stale, but also trigger a background revalidation
+    can_serve_stale_while_revalidate = {
+        { begin = "considering_esi_process", but_first = { "add_stale_warning", "revalidate_in_background" } },
     },
 
     -- We have a response we can use. If we've already served (we are doing background work) then
@@ -2094,9 +2117,16 @@ _M.states = {
     end,
 
     checking_can_serve_stale = function(self)
-        if  self:config_get("origin_mode") < self.ORIGIN_MODE_NORMAL or
-            self:calculate_stale_ttl() > 0 then
+        local stale_ttl, stale_while_revalidate_ttl = self:calculate_stale_ttl()
+
+        if self:config_get("origin_mode") < self.ORIGIN_MODE_NORMAL then
             return self:e "can_serve_stale"
+        elseif stale_ttl > 0 then
+            if  stale_while_revalidate_ttl > 0 then
+                return self:e "can_serve_stale_while_revalidate"
+            else
+                return self:e "can_serve_stale"
+            end
         else
             return self:e "cache_expired"
         end
