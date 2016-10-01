@@ -2982,10 +2982,12 @@ function _M.serve(self)
         -- Don't set if this isn't a cacheable response. Set to MISS is we fetched.
         local ctx = self:ctx()
         local state_history = ctx.state_history
+        local event_history = ctx.event_history
 
-        if not ctx.event_history["response_not_cacheable"] then
+        if not event_history["response_not_cacheable"] then
             local x_cache = "HIT from " .. visible_hostname
-            if state_history["fetching"] or state_history["revalidating_upstream"] then
+            if not event_history["can_serve_disconnected"] and
+                (state_history["fetching"] or state_history["revalidating_upstream"]) then
                 x_cache = "MISS from " .. visible_hostname
             end
 
