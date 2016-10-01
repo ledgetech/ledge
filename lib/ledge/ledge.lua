@@ -1296,7 +1296,7 @@ _M.events = {
     -- response headers.
     can_serve_stale = {
         { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
-        { begin = "considering_esi_process", but_first = { "add_stale_warning", "revalidate_in_background" } },
+        { begin = "considering_esi_process", but_first = { "add_stale_warning" } }, --"revalidate_in_background" } },
     },
 
     -- We have a response we can use. If we've already served (we are doing background work) then
@@ -2094,7 +2094,8 @@ _M.states = {
     end,
 
     checking_can_serve_stale = function(self)
-        if self:calculate_stale_ttl() > 0 then
+        if  self:config_get("origin_mode") < self.ORIGIN_MODE_NORMAL or
+            self:calculate_stale_ttl() > 0 then
             return self:e "can_serve_stale"
         else
             return self:e "cache_expired"
