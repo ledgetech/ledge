@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 7) + 4;
+plan tests => repeat_each() * (blocks() * 7) + 1;
 
 my $pwd = cwd();
 
@@ -60,12 +60,35 @@ location /stale_1 {
 Cache-Control: max-stale=1000
 --- request eval
 ["GET /stale_1_prx", "GET /stale_1_prx"]
+--- wait: 2
 --- response_body eval
 ["TEST 1: 1", "TEST 1: 1"]
 --- response_headers_like eval
 ["", 'Warning: 110 (?:[^\s]*) "Response is stale"']
 --- error_code eval
 [404, 404]
+--- no_error_log
+[error]
+
+
+=== TEST 1b: Confirm nothing was revalidated in the background
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_1_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:run()
+    }
+}
+--- more_headers
+Cache-Control: max-stale=1000
+--- request
+GET /stale_1_prx
+--- response_body: TEST 1: 1
+--- response_headers_like
+Warning: 110 (?:[^\s]*) "Response is stale"
+--- error_code eval
+404
 --- no_error_log
 [error]
 
