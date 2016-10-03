@@ -68,7 +68,7 @@ location /events_1 {
 }
 --- request
 GET /events_1_prx
---- raw_response_headers_unlike: Via: \d+\.\d+ .+ \(ledge/\d+\.\d+[\.\d*]\)
+--- raw_response_headers_unlike: Via: \d+\.\d+ .+ \(ledge/\d+\.\d+[\.\d]*\)
 --- no_error_log
 [error]
 

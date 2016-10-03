@@ -348,7 +348,7 @@ cookie: foo
 x-esi-parent-uri: http://localhost/esi_5b_prx
 cache-control: no-cache
 x-esi-recursion-level: 1
-user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+
+user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+[\.\d]*
 authorization: bar
 --- no_error_log
 [error]
