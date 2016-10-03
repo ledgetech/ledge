@@ -5,7 +5,7 @@ local ngx_null = ngx.null
 local str_match = string.match
 
 local _M = {
-    _VERSION = '1.26',
+    _VERSION = '1.26.1',
 }
 
 

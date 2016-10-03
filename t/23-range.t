@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4) - 5;
+plan tests => repeat_each() * (blocks() * 4) - 1;
 
 my $pwd = cwd();
 
@@ -612,3 +612,62 @@ GET /range_13_prx?a=234
 --- error_code: 200
 --- no_error_log
 [error]
+
+
+=== TEST 14: Confirm we don't cache 206 responses from upstream
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_14_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+
+    location /range_14 {
+        content_by_lua_block {
+            ngx.status = 206
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.header["Content-Range"] = "bytes 0-5/10"
+            ngx.print("012345");
+        }
+    }
+--- more_headers
+Range: bytes=0-5
+--- request eval
+["GET /range_14_prx", "GET /range_14_prx"]
+--- raw_response_headers_unlike eval
+["X-Cache", "X-Cache"]
+--- response_body eval
+["012345", "012345"]
+--- error_code eval
+[206, 206]
+
+
+=== TEST 15: Confirm we don't cache 416 responses from upstream
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_15_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+
+    location /range_15 {
+        content_by_lua_block {
+            ngx.status = 416
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.header["Content-Range"] = "bytes */10"
+        }
+    }
+--- more_headers
+Range: bytes=11-
+--- request eval
+["GET /range_15_prx", "GET /range_15_prx"]
+--- raw_response_headers_unlike eval
+["X-Cache", "X-Cache"]
+--- response_body eval
+["", ""]
+--- error_code eval
+[416, 416]
