@@ -75,7 +75,8 @@ end
 
 function _M.is_cacheable(self)
     -- Never cache partial content
-    if self.status == 206 then
+    local status = self.status
+    if status == 206 or status == 416 then
         return false
     end
 
