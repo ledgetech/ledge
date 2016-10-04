@@ -11,7 +11,7 @@ $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 
 our $HttpConfig = qq{
 lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
-    init_by_lua "
+    init_by_lua_block {
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
         if use_resty_core then
             require 'resty.core'
@@ -22,10 +22,11 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
         ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
-    ";
-    init_worker_by_lua "
+    }
+
+    init_worker_by_lua_block {
         ledge:run_workers()
-    ";
+    }
 };
 
 run_tests();
@@ -36,16 +37,16 @@ __DATA__
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 
     location /range {
-        content_by_lua '
+        content_by_lua_block {
             ngx.header["Cache-Control"] = "public, max-age=3600";
             ngx.print("0123456789");
-        ';
+        }
     }
 --- request
 GET /range_prx
@@ -57,9 +58,9 @@ GET /range_prx
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=0-1
@@ -81,9 +82,9 @@ Cache-Control: public, max-age=3600
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=3-5
@@ -105,9 +106,9 @@ Cache-Control: public, max-age=3600
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=6-
@@ -129,9 +130,9 @@ Cache-Control: public, max-age=3600
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=-4
@@ -153,9 +154,9 @@ Cache-Control: public, max-age=3600
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=2-
@@ -177,10 +178,10 @@ Cache-Control: public, max-age=3600
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:config_set("buffer_size", 2)
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=0-5
@@ -202,10 +203,10 @@ Cache-Control: public, max-age=3600
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:config_set("buffer_size", 4)
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=3-7
@@ -227,9 +228,9 @@ Cache-Control: public, max-age=3600
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=3-12
@@ -251,9 +252,9 @@ Cache-Control: public, max-age=3600
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=12-3
@@ -272,9 +273,9 @@ Content-Range: bytes */10
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=-12
@@ -291,9 +292,9 @@ Content-Range: bytes */10
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=asdfa
@@ -312,9 +313,9 @@ Content-Range: bytes */10
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: isdfsdbytes=asdfa
@@ -333,9 +334,9 @@ Content-Range: bytes */10
 --- config
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=0-3,5-8
@@ -366,18 +367,18 @@ Content-Range: bytes 5-8/10
 --- config
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:config_set("buffer_size", 3)
             ledge:run()
-        ';
+        }
     }
 
     location /range_12 {
-        content_by_lua '
+        content_by_lua_block {
             ngx.header["Cache-Control"] = "public, max-age=3600";
             ngx.status = 200
             ngx.print("0123456789");
-        ';
+        }
     }
 --- request
 GET /range_12_prx
@@ -391,9 +392,9 @@ GET /range_12_prx
 --- config
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=0-3,5-8
@@ -424,9 +425,9 @@ Content-Range: bytes 5-8/10
 --- config
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=4-7
@@ -443,9 +444,9 @@ Content-Range: bytes 4-7/10
 --- config
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=5-8,0-3
@@ -476,9 +477,9 @@ Content-Range: bytes 5-8/10
 --- config
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=5-8,0-3,4-6
@@ -509,9 +510,9 @@ Content-Range: bytes 4-8/10
 --- config
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=5-8,0-3,3-6
@@ -530,22 +531,22 @@ Content-Range: bytes 0-8/10
 --- config
     location /range_13_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:config_set("esi_enabled", true)
             ledge:run()
-        ';
+        }
     }
 
     location /range_13 {
         default_type text/html;
-        content_by_lua '
+        content_by_lua_block {
             ngx.header["Cache-Control"] = "public, max-age=3600";
-            ngx.header["Surrogate-Control"] = "content=\\\"ESI/1.0\\\""
+            ngx.header["Surrogate-Control"] = 'content="ESI/1.0"'
             ngx.status = 200
             ngx.print("01");
             ngx.print("<esi:vars>$(QUERY_STRING{a})</esi:vars>")
             ngx.print("56789");
-        ';
+        }
     }
 --- request
 GET /range_13_prx?a=234
@@ -559,10 +560,10 @@ GET /range_13_prx?a=234
 --- config
     location /range_13_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:config_set("esi_enabled", true)
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=0-5
@@ -579,10 +580,10 @@ GET /range_13_prx?a=234
 --- config
     location /range_13_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:config_set("esi_enabled", true)
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=-5
@@ -599,10 +600,10 @@ GET /range_13_prx?a=234
 --- config
     location /range_13_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
+        content_by_lua_block {
             ledge:config_set("esi_enabled", true)
             ledge:run()
-        ';
+        }
     }
 --- more_headers
 Range: bytes=5-
