@@ -2033,7 +2033,21 @@ _M.states = {
             -- Shouldn't happen, but just in case
             return self:e "background_fetch_skipped"
         else
-            return self:e "can_fetch_in_background"
+            local content_range = res.header["Content-Range"]
+            local m, err = ngx_re_match(
+                content_range,
+                [[bytes\s+((\d+|\*)-(\d+|\*))/(\d+|\*)]],
+                "soj"
+            )
+
+            if m[4] then
+                local max_memory = self:config_get("cache_max_memory")
+                if max_memory * 1024 > tonumber(m[4]) then
+                    return self:e "can_fetch_in_background"
+                end
+            end
+
+            return self:e "background_fetch_skipped"
         end
     end,
 

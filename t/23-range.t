@@ -713,7 +713,7 @@ Range: bytes=0-5
 [error]
 
 
-=== TEST 17: Cache miss range request, upstream returns range, triggers background revalidation
+=== TEST 17: Cache miss range request, upstream returns range, triggers background fetch
 --- http_config eval: $::HttpConfig
 --- config
     location /range_17_prx {
@@ -767,5 +767,74 @@ GET /range_17_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- error_code: 206
+--- no_error_log
+[error]
+
+
+=== TEST 18: Cache miss range request, upstream returns range, but size is too big for background fetch
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_18_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            -- Set max memory on first hit, but not on background fetch. We want to test
+            -- that the job is never started
+            if ngx.req.get_headers()["Range"] then
+                ledge:config_set("cache_max_memory", 0.009) -- Less than 10 bytes, in kilobytes
+            end
+            ledge:run()
+        }
+    }
+
+    location /range_18 {
+        content_by_lua_block {
+            if ngx.req.get_headers()["Range"] then
+                ngx.status = 206
+                ngx.header["Cache-Control"] = "public, max-age=3600";
+                ngx.header["Content-Range"] = "bytes 0-5/10"
+                ngx.print("012345");
+            else
+                ngx.status = 200
+                ngx.header["Cache-Control"] = "public, max-age=3600";
+                ngx.print("0123456789");
+            end
+        }
+    }
+--- more_headers
+Range: bytes=0-5
+--- request
+GET /range_18_prx
+--- response_body: 012345
+--- raw_response_headers_unlike
+X-Cache: .*
+--- wait: 1
+--- error_code: 206
+--- no_error_log
+[error]
+
+
+=== TEST 18b: Confirm revalidation, with a different range
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_18_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+    location /range_18 {
+        content_by_lua_block {
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.print("MISS")
+        }
+    }
+--- more_headers
+Range: bytes=6-
+--- request
+GET /range_18_prx
+--- response_body: MISS
+--- response_headers_like
+X-Cache: MISS from .*
+--- error_code: 200
 --- no_error_log
 [error]
