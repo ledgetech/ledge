@@ -337,7 +337,7 @@ end
 function _M.handle_abort(self)
     -- Use a closure to pass through the ledge instance
     return function()
-        self:e "aborted"
+        return self:e "aborted"
     end
 end
 
@@ -367,7 +367,7 @@ function _M.run(self)
     if set == nil then
        ngx_log(ngx_WARN, "on_abort handler not set: "..msg)
     end
-    self:e "init"
+    return self:e "init"
 end
 
 
@@ -407,7 +407,7 @@ function _M.run_workers(self, options)
 
         co_yield() -- Perform the job
 
-        self:e "worker_finished"
+        return self:e "worker_finished"
     end
 
     worker:start({
@@ -1721,7 +1721,7 @@ _M.states = {
         ngx_log(ngx_ERR, "sleeping for ", sleep, "s before reconnecting...")
         ngx_sleep(sleep)
         self:ctx().last_sleep = sleep
-        self:e "woken"
+        return self:e "woken"
     end,
 
     checking_method = function(self)
@@ -1845,7 +1845,7 @@ _M.states = {
 
         -- If we know there's no esi or it hasn't been scanned, don't process
         if not res.has_esi and res.esi_scanned == false then
-            self:e "esi_process_disabled"
+            return self:e "esi_process_disabled"
         end
 
         if not self:ctx().esi_parser then
@@ -1862,7 +1862,7 @@ _M.states = {
                 end
             else
                 -- We know there's nothing to do
-                self:e "esi_process_not_required"
+                return self:e "esi_process_not_required"
             end
         end
 
@@ -1909,11 +1909,11 @@ _M.states = {
         local res, partial_response = self:handle_range_request(res)
         self:set_response(res)
         if partial_response then
-            self:e "range_accepted"
+            return self:e "range_accepted"
         elseif partial_response == false then
-            self:e "range_not_accepted"
+            return self:e "range_not_accepted"
         else
-            self:e "range_not_requested"
+            return self:e "range_not_requested"
         end
     end,
 
@@ -1980,7 +1980,7 @@ _M.states = {
         local key_chain = self:cache_key_chain()
         redis:del(key_chain.fetching_lock) -- Clear the lock
         redis:publish(key_chain.root, "collapsed_response_ready")
-        self:e "published"
+        return self:e "published"
     end,
 
     publishing_collapse_failure = function(self)
@@ -1988,7 +1988,7 @@ _M.states = {
         local key_chain = self:cache_key_chain()
         redis:del(key_chain.fetching_lock) -- Clear the lock
         redis:publish(key_chain.root, "collapsed_forwarding_failed")
-        self:e "published"
+        return self:e "published"
     end,
 
     publishing_collapse_upstream_error = function(self)
@@ -1996,7 +1996,7 @@ _M.states = {
         local key_chain = self:cache_key_chain()
         redis:del(key_chain.fetching_lock) -- Clear the lock
         redis:publish(key_chain.root, "collapsed_forwarding_upstream_error")
-        self:e "published"
+        return self:e "published"
     end,
 
     publishing_collapse_abort = function(self)
@@ -2005,7 +2005,7 @@ _M.states = {
         redis:del(key_chain.fetching_lock) -- Clear the lock
         -- Surrogate aborted, go back and attempt to fetch or collapse again
         redis:publish(key_chain.root, "can_fetch_but_try_collapse")
-        self:e "aborted"
+        return self:e "aborted"
     end,
 
     fetching_as_surrogate = function(self)
@@ -3076,7 +3076,7 @@ function _M.get_cache_body_reader(self, entity_keys)
 
             if chunk == ngx_null then
                 ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
-                self:e "entity_removed_during_read"
+                return self:e "entity_removed_during_read"
             end
 
             co_yield(chunk, nil, has_esi == "true")
