@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4);
+plan tests => repeat_each() * (blocks() * 4) + 8;
 
 my $pwd = cwd();
 
@@ -128,7 +128,7 @@ Cache-Control: public, max-age=3600
 [error]
 
 
-=== TEST 5: Cache HIT, get offset from end bytes. 
+=== TEST 5: Cache HIT, get offset from end bytes.
 --- http_config eval: $::HttpConfig
 --- config
     location /range_prx {
@@ -646,6 +646,8 @@ Range: bytes=0-5
 ["012345", "012345"]
 --- error_code eval
 [206, 206]
+--- no_error_log
+[error]
 
 
 === TEST 15: Confirm we don't cache 416 responses from upstream
@@ -675,3 +677,36 @@ Range: bytes=11-
 ["", ""]
 --- error_code eval
 [416, 416]
+--- no_error_log
+[error]
+
+
+=== TEST 16: Confirm we don't attempt range processing on non-200 responses
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_16_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+
+    location /range_16 {
+        content_by_lua_block {
+            ngx.status = 404
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.print("0123456789")
+        }
+    }
+--- more_headers
+Range: bytes=0-5
+--- request eval
+["GET /range_16_prx", "GET /range_16_prx"]
+--- response_headers_like eval
+["X-Cache: MISS from .*", "X-Cache: HIT from .*"]
+--- response_body eval
+["0123456789", "0123456789"]
+--- error_code eval
+[404, 404]
+--- no_error_log
+[error]

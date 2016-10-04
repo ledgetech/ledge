@@ -2352,6 +2352,11 @@ function _M.handle_range_request(self, res)
     local range_request = self:request_byte_range()
 
     if range_request and type(range_request) == "table" and res.size then
+        -- Don't attempt range filtering on non 200 responses
+        if res.status ~= 200 then
+            return res, false
+        end
+
         local ranges = {}
 
         for i,range in ipairs(range_request) do
