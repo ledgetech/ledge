@@ -155,3 +155,64 @@ GET /sanity_2
 OK
 
 
+=== TEST 3: Run module without errors, returning origin content.
+--- http_config eval: $::HttpConfig
+--- config
+    location /sanity_2_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location /sanity_2 {
+        echo "OK";
+    }
+--- request
+GET /sanity_2_prx
+--- no_error_log
+[error]
+--- response_body
+OK
+
+
+=== TEST 4: Run module against Redis on a Unix socket without errors.
+--- http_config eval: $::HttpConfig
+--- config
+    location /sanity_4_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:config_set("redis_hosts", {
+                { socket = redis_socket },
+            })
+            ledge:run()
+        ';
+    }
+    location /sanity_4 {
+        echo "OK";
+    }
+--- request
+GET /sanity_4_prx
+--- no_error_log
+[error]
+--- response_body
+OK
+
+
+=== TEST 4: Request with encoded spaces, without errors.
+--- http_config eval: $::HttpConfig
+--- config
+    location "/sanity _4_prx" {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+    location "/sanity _4" {
+        echo "OK";
+    }
+--- request
+GET /sanity%20_4_prx
+--- no_error_log
+[error]
+--- response_body
+OK
