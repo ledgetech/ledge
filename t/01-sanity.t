@@ -49,7 +49,7 @@ GET /sanity_1
 --- http_config eval: $::HttpConfig
 --- config
     location /sanity_2 {
-        content_by_lua '
+        content_by_lua_block {
             for ev,t in pairs(ledge.events) do
                 for _,trans in ipairs(t) do
                     -- Check states
@@ -101,8 +101,23 @@ GET /sanity_1
                 end
             end
 
+            for state, v in pairs(ledge.states) do
+                local found = false
+                for ev, t in pairs(ledge.events) do
+                    for _, trans in ipairs(t) do
+                        if trans["begin"] == state then
+                            found = true
+                        end
+                    end
+                end
+
+                if found == false then
+                    ngx.say("State '", state, "' is never transitioned to")
+                end
+            end
+
             ngx.say("OK")
-        ';
+        }
     }
 --- request
 GET /sanity_2
