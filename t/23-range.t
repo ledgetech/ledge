@@ -644,6 +644,7 @@ Range: bytes=0-5
 ["X-Cache", "X-Cache"]
 --- response_body eval
 ["012345", "012345"]
+--- wait: 1
 --- error_code eval
 [206, 206]
 --- no_error_log
@@ -708,5 +709,63 @@ Range: bytes=0-5
 ["0123456789", "0123456789"]
 --- error_code eval
 [404, 404]
+--- no_error_log
+[error]
+
+
+=== TEST 17: Cache miss range request, upstream returns range, triggers background revalidation
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_17_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+
+    location /range_17 {
+        content_by_lua_block {
+            if ngx.req.get_headers()["Range"] then
+                ngx.status = 206
+                ngx.header["Cache-Control"] = "public, max-age=3600";
+                ngx.header["Content-Range"] = "bytes 0-5/10"
+                ngx.print("012345");
+            else
+                ngx.status = 200
+                ngx.header["Cache-Control"] = "public, max-age=3600";
+                ngx.print("0123456789");
+            end
+        }
+    }
+--- more_headers
+Range: bytes=0-5
+--- request
+GET /range_17_prx
+--- response_body: 012345
+--- raw_response_headers_unlike
+X-Cache: .*
+--- wait: 1
+--- error_code: 206
+--- no_error_log
+[error]
+
+
+=== TEST 17b: Confirm revalidation, with a different range
+--- http_config eval: $::HttpConfig
+--- config
+    location /range_17_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+--- more_headers
+Range: bytes=6-
+--- request
+GET /range_17_prx
+--- response_body: 6789
+--- response_headers_like
+X-Cache: HIT from .*
+--- error_code: 206
 --- no_error_log
 [error]

@@ -1143,7 +1143,20 @@ _M.events = {
     },
 
     partial_response_fetched = {
-        { begin = "considering_esi_scan" },
+        { begin = "considering_background_fetch" },
+    },
+
+    -- We had a partial response and were able to schedule a backgroud fetch for the complete
+    -- resource.
+    can_fetch_in_background = {
+        { in_case = "partial_response_fetched", begin = "considering_esi_scan",
+            but_first = "fetch_in_background" },
+    },
+
+    -- We had a partial response but skipped background fetching the complete
+    -- resource, most likely because it is bigger than cache_max_memory.
+    background_fetch_skipped = {
+        { in_case = "partial_response_fetched", begin = "considering_esi_scan" },
     },
 
     -- If we went upstream and errored, check if we can serve a cached copy (stale-if-error),
@@ -1583,6 +1596,13 @@ _M.actions = {
         return self:revalidate_in_background(true)
     end,
 
+    -- Triggered on upstream partial content, assumes no stored
+    -- revalidation metadata but since we have a rqeuest context (which isn't
+    -- the case with `revalidate_in_background` we can simply fetch.
+    fetch_in_background = function(self)
+        return self:fetch_in_background()
+    end,
+
     save_to_cache = function(self)
         local res = self:get_response()
         return self:save_to_cache(res)
@@ -2004,6 +2024,16 @@ _M.states = {
             return self:e "partial_response_fetched"
         else
             return self:e "response_fetched"
+        end
+    end,
+
+    considering_background_fetch = function(self)
+        local res = self:get_response()
+        if res.status ~= ngx_PARTIAL_CONTENT then
+            -- Shouldn't happen, but just in case
+            return self:e "background_fetch_skipped"
+        else
+            return self:e "can_fetch_in_background"
         end
     end,
 
@@ -2607,6 +2637,24 @@ function _M.revalidate_in_background(self, update_revalidation_data)
         key_chain = key_chain,
     }, {
         jid = ngx_md5("revalidate:" .. uri),
+        tags = { "revalidate" },
+        priority = 4,
+    })
+end
+
+
+-- Starts a "revalidation" job but maybe for brand new cache. We pass the current
+-- request's revalidation data through so that the job has meaningul parameters to
+-- work with (rather than using stored metadata).
+function _M.fetch_in_background(self)
+    local key_chain = self:cache_key_chain()
+    local reval_params, reval_headers = self:revalidation_data()
+    return self:put_background_job("ledge_revalidate", "ledge.jobs.revalidate", {
+        key_chain = key_chain,
+        reval_params = reval_params,
+        reval_headers = reval_headers,
+    }, {
+        jid = ngx_md5("revalidate:" .. self:full_uri()),
         tags = { "revalidate" },
         priority = 4,
     })
