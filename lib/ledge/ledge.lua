@@ -1206,8 +1206,6 @@ _M.events = {
     response_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_success",
             but_first = "save_to_cache" },
-        { after = "revalidating_in_background", begin = "exiting",
-            but_first = "save_to_cache" },
         { begin = "considering_local_revalidation",
             but_first = "save_to_cache" },
     },
@@ -1216,8 +1214,6 @@ _M.events = {
     -- "response_cacheable", except we "delete" rather than "save", and we don't try to revalidate.
     response_not_cacheable = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
-            but_first = "delete_from_cache" },
-        { after = "revalidating_in_background", begin = "exiting",
             but_first = "delete_from_cache" },
         { begin = "considering_esi_process", but_first = "delete_from_cache" },
     },
@@ -1230,7 +1226,6 @@ _M.events = {
         { in_case = "must_revalidate", begin = "considering_local_revalidation" } ,
         { after = "fetching_as_surrogate", begin = "publishing_collapse_failure",
             but_first = "delete_from_cache" },
-        { after = "revalidating_in_background", begin = "exiting" },
         { begin = "serving",
             but_first = {
                 "install_no_body_reader", "set_http_status_from_response"
@@ -1248,7 +1243,6 @@ _M.events = {
 
     -- Client requests a max-age of 0 or stored response requires revalidation.
     must_revalidate = {
-        --{ begin = "revalidating_upstream" },
         { begin = "checking_can_fetch" },
     },
 
@@ -1274,7 +1268,6 @@ _M.events = {
     modified = {
         { in_case = "init_worker", begin = "considering_local_revalidation" },
         { when = "revalidating_locally", begin = "considering_esi_process" },
-        { when = "revalidating_upstream", begin = "considering_local_revalidation" },
     },
 
     esi_process_enabled = {
@@ -1364,16 +1357,6 @@ _M.events = {
     -- Useful events for exiting with a common status. If we've already served (perhaps we're doing
     -- background work, we just exit without re-setting the status (as this errors).
 
-    http_ok = {
-        { in_case = "served", begin = "exiting" },
-        { begin = "exiting", but_first = "set_http_ok" },
-    },
-
-    http_not_found = {
-        { in_case = "served", begin = "exiting" },
-        { begin = "exiting", but_first = "set_http_not_found" },
-    },
-
     http_gateway_timeout = {
         { in_case = "served", begin = "exiting" },
         { begin = "exiting", but_first = "set_http_gateway_timeout" },
@@ -1382,11 +1365,6 @@ _M.events = {
     http_service_unavailable = {
         { in_case = "served", begin = "exiting" },
         { begin = "exiting", but_first = "set_http_service_unavailable" },
-    },
-
-    http_too_many_requests = {
-        { in_case = "served", begin = "exiting" },
-        { begin = "exiting", but_first = "set_http_too_many_requests" },
     },
 
     http_internal_server_error = {
@@ -1406,14 +1384,6 @@ _M.pre_transitions = {
     -- Never fetch with client validators, but put them back afterwards.
     fetching = {
         "remove_client_validators", "fetch", "restore_client_validators"
-    },
-    -- Use validators from cache when revalidating upstream, and restore client validators
-    -- afterwards.
-    revalidating_upstream = {
-        "remove_client_validators",
-        "add_validators_from_cache",
-        "fetch",
-        "restore_client_validators"
     },
     -- Need to save the error response before reading from cache in case we need to serve it later
     considering_stale_error = {
@@ -1648,10 +1618,6 @@ _M.actions = {
 
     set_http_connection_timed_out = function(self)
         ngx.status = 524
-    end,
-
-    set_http_too_many_requests = function(self)
-        ngx.status = 429
     end,
 
     set_http_internal_server_error = function(self)
@@ -1999,15 +1965,6 @@ _M.states = {
         return self:e "published"
     end,
 
-    publishing_collapse_abort = function(self)
-        local redis = self:ctx().redis
-        local key_chain = self:cache_key_chain()
-        redis:del(key_chain.fetching_lock) -- Clear the lock
-        -- Surrogate aborted, go back and attempt to fetch or collapse again
-        redis:publish(key_chain.root, "can_fetch_but_try_collapse")
-        return self:e "aborted"
-    end,
-
     fetching_as_surrogate = function(self)
         return self:e "can_fetch"
     end,
@@ -2024,8 +1981,15 @@ _M.states = {
             redis:set_timeout(self:config_get("redis_read_timeout"))
             redis:unsubscribe()
 
-            -- Returns either "collapsed_response_ready" or "collapsed_forwarding_failed"
-            return self:e(res[3])
+            -- This is overly explicit for the sake of state machine introspection. That is
+            -- we never call self:e() without a literal event string.
+            if res[3] == "collapsed_response_ready" then
+                return self:e "collapsed_response_ready"
+            elseif res[3] == "collapsed_forwarding_upstream_error" then
+                return self:e "collapsed_forwarding_upstream_error"
+            else
+                return self:e "collapsed_forwarding_failed"
+            end
         end
     end,
 
@@ -2098,22 +2062,6 @@ _M.states = {
         else
             return self:e "modified"
         end
-    end,
-
-    revalidating_upstream = function(self)
-        local res = self:get_response()
-
-        if res.status >= 500 then
-            return self:e "upstream_error"
-        elseif res.status == ngx.HTTP_NOT_MODIFIED then
-            return self:e "response_ready"
-        else
-            return self:e "response_fetched"
-        end
-    end,
-
-    revalidating_in_background = function(self)
-        return self:e "response_fetched"
     end,
 
     checking_can_serve_stale = function(self)
@@ -3021,8 +2969,10 @@ function _M.serve(self)
 
         if not event_history["response_not_cacheable"] then
             local x_cache = "HIT from " .. visible_hostname
-            if not event_history["can_serve_disconnected"] and not event_history["can_serve_stale"] and
-                (state_history["fetching"] or state_history["revalidating_upstream"]) then
+            if not event_history["can_serve_disconnected"]
+                and not event_history["can_serve_stale"]
+                and state_history["fetching"] then
+
                 x_cache = "MISS from " .. visible_hostname
             end
 
