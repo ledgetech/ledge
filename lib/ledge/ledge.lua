@@ -2387,7 +2387,7 @@ function _M.handle_range_request(self, res)
             end
 
             -- Check the range is satisfiable
-            if range.from > range.to or range.to > res.size then
+            if range.from > range.to then
                 range_satisfiable = false
             end
 
