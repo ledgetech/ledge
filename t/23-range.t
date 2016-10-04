@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4) - 1;
+plan tests => repeat_each() * (blocks() * 4);
 
 my $pwd = cwd();
 
@@ -51,6 +51,9 @@ __DATA__
 --- request
 GET /range_prx
 --- response_body: 0123456789
+--- error_code: 200
+--- no_error_log
+[error]
 
 
 === TEST 2: Cache HIT, get the first byte only
