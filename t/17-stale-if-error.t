@@ -361,3 +361,50 @@ X-Cache: HIT from .*
 OK
 --- no_error_log
 [error]
+
+
+=== TEST 5: Prime Cache with stale-if-error config
+--- http_config eval: $::HttpConfig
+--- config
+    location /stale_if_error_5_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+    location /stale_if_error_5 {
+        more_set_headers "Cache-Control public, max-age=600, stale-if-error=60";
+        echo "OK";
+    }
+--- request
+GET /stale_if_error_5_prx
+--- response_body
+OK
+--- no_error_log
+[error]
+
+
+=== TEST 5b: serve stale on error due to response config
+--- http_config eval: $::HttpConfig
+--- config
+    location /stale_if_error_5_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+    location /stale_if_error_5 {
+        return 500;
+    }
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale_if_error_5_prx
+--- response_body
+OK
+--- error_code: 200
+--- response_headers_like
+X-Cache: HIT from .*
+Warning: 110 .*
+--- no_error_log
+[error]
