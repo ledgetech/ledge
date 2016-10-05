@@ -43,14 +43,12 @@ function _M.perform(job)
         local err
         reval_params, err = hgetall(redis, key_chain.reval_params)
         if not reval_params or reval_params == ngx_null or not reval_params.server_addr then
-            return nil, "job-error",    "Revalidation parameters are missing, presumed evicted. " ..
-            "This can happen if keep_cache_for is set to 0."
+            return nil, "job-error", "Revalidation parameters are missing, presumed evicted. "
         end
 
         reval_headers, err = hgetall(redis, key_chain.reval_req_headers)
         if not reval_headers or reval_headers == ngx_null then
-            return nil, "job-error",    "Revalidation headers are missing, presumed evicted. " ..
-            "This can happen if keep_cache_for is set to 0."
+            return nil, "job-error", "Revalidation headers are missing, presumed evicted. "
         end
     end
 
