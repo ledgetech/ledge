@@ -2273,6 +2273,13 @@ function _M.read_from_cache(self)
         return nil
     end
 
+    -- "touch" other keys not needed for read, so that they are
+    -- less likely to be unfairly evicted ahead of time
+    -- TODO: From Redis 3.2.1 this can be one TOUCH command
+    local _ = redis:hlen(key_chain.reval_params)
+    local _ = redis:hlen(key_chain.reval_req_headers)
+    local _ = redis:zcard(key_chain.entities)
+
     local ttl = nil
     local time_in_cache = 0
     local time_since_generated = 0
