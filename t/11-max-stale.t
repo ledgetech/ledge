@@ -231,8 +231,6 @@ location /stale_5 {
         ngx.print("TEST 5: ", ledge.miss_count)
     }
 }
---- more_headers
-Cache-Control: max-stale=0
 --- request eval
 ["GET /stale_5_prx", "GET /stale_5_prx"]
 --- response_body eval
@@ -245,7 +243,7 @@ Cache-Control: max-stale=0
 [error]
 
 
-=== TEST 6: proxy-revalidate must revalidate (not serve stale)
+=== TEST 6: must-revalidate must revalidate (not serve stale)
 --- http_config eval: $::HttpConfig
 --- config
 location /stale_6_prx {
@@ -267,8 +265,6 @@ location /stale_6 {
         ngx.print("TEST 6: ", ledge.miss_count)
     }
 }
---- more_headers
-Cache-Control: max-stale=0
 --- request eval
 ["GET /stale_6_prx", "GET /stale_6_prx"]
 --- response_body eval
