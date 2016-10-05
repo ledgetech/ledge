@@ -20,7 +20,9 @@ function _M.header_has_directive(header, directive)
 
         -- Just checking the directive appears in the header, e.g. no-cache, private etc.
         return ngx_re_find(
-            header, [[(?:\s*|,?)(]] .. directive .. [[)\s*(?:$|=|,)]], "oj"
+            header,
+            [[(?:\s*|,?)(]] .. directive .. [[)\s*(?:$|=|,)]],
+            "ioj"
         ) ~= nil
     end
     return false
@@ -34,7 +36,8 @@ function _M.get_header_token(header, directive)
         -- Want the string value from a token
         local value = ngx_re_match(
             header,
-            str_gsub(directive, '-','\\-').."=\"?([a-z0-9_~!#%&/',`\\$\\*\\+\\-\\|\\^\\.]+)\"?", "ioj"
+            directive .. [[="?([a-z0-9_~!#%&/',`\$\*\+\-\|\^\.]+)"?]],
+            "ioj"
         )
         if value ~= nil then
             return value[1]
@@ -52,7 +55,7 @@ function _M.get_numeric_header_token(header, directive)
         -- Want the numeric value from a token
         local value = ngx_re_match(
             header,
-            str_gsub(directive, '-','\\-').."=\"?(\\d+)\"?", "ioj"
+            directive .. [[="?(\d+)"?]], "ioj"
         )
         if value ~= nil then
             return tonumber(value[1])
