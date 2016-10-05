@@ -231,6 +231,8 @@ location /stale_5 {
         ngx.print("TEST 5: ", ledge.miss_count)
     }
 }
+--- more_headers
+Cache-Control: max-stale=120
 --- request eval
 ["GET /stale_5_prx", "GET /stale_5_prx"]
 --- response_body eval
@@ -265,6 +267,8 @@ location /stale_6 {
         ngx.print("TEST 6: ", ledge.miss_count)
     }
 }
+--- more_headers
+Cache-Control: max-stale=120
 --- request eval
 ["GET /stale_6_prx", "GET /stale_6_prx"]
 --- response_body eval

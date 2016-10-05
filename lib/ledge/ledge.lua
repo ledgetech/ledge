@@ -497,8 +497,8 @@ function _M.accepts_stale(self, res)
     if req_max_stale then
         -- Check response for headers that prevent serving stale
         local res_cc = res.header["Cache-Control"]
-        if h_util.header_has_directive(res_cc, 'revalidate') or
-            h_util.header_has_directive(res_cc, 's-maxage') then
+        if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") or
+            h_util.header_has_directive(res_cc, "s-maxage") then
             return nil
         else
             return req_max_stale
@@ -597,7 +597,7 @@ function _M.must_revalidate(self)
         local res = self:get_response()
         local res_age = res.header["Age"]
 
-        if h_util.header_has_directive(res.header["Cache-Control"], "must-revalidate") then
+        if h_util.header_has_directive(res.header["Cache-Control"], "(must|proxy)-revalidate") then
             return true
         elseif type(cc) == "string" and res_age then
             local max_age = cc:match("max%-age=(%d+)")

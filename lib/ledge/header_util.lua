@@ -1,4 +1,5 @@
 local ngx_re_match = ngx.re.match
+local ngx_re_find = ngx.re.find
 local str_find = string.find
 local str_gsub = string.gsub
 local tbl_concat = table.concat
@@ -18,7 +19,9 @@ function _M.header_has_directive(header, directive)
         if type(header) == "table" then header = tbl_concat(header, ", ") end
 
         -- Just checking the directive appears in the header, e.g. no-cache, private etc.
-        return (str_find(header, directive, 1, true) ~= nil)
+        return ngx_re_find(
+            header, [[(?:\s*|,?)(]] .. directive .. [[)\s*(?:$|=|,)]], "oj"
+        ) ~= nil
     end
     return false
 end
