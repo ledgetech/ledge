@@ -405,6 +405,6 @@ OK
 --- error_code: 200
 --- response_headers_like
 X-Cache: HIT from .*
-Warning: 110 .*
+Warning: 112 .*
 --- no_error_log
 [error]
