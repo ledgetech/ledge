@@ -2792,10 +2792,13 @@ function _M.save_to_cache(self, res)
         'esi_scanned', tostring(res.esi_scanned)
     )
 
+    redis:del(key_chain.headers)
     redis:hmset(key_chain.headers, unpack(h))
 
     -- Set revalidation parameters from this request
+    redis:del(key_chain.reval_params)
     redis:hmset(key_chain.reval_params, reval_params)
+    redis:del(key_chain.reval_req_headers)
     redis:hmset(key_chain.reval_req_headers, reval_headers)
 
     -- Mark the keys as eventually volatile (the body is set by the body writer)
