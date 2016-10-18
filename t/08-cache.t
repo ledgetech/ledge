@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) + 2;
+plan tests => repeat_each() * (blocks() * 3) + 4;
 
 my $pwd = cwd();
 
@@ -521,8 +521,92 @@ X-Cache: HIT from .*
 --- no_error_log
 [error]
 
+=== TEST 13: Subzero request; X-Cache: MISS
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_13_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
 
-=== TEST 13: Allow pending qless jobs to run
+    location /cache {
+        content_by_lua_block {
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.header["X-Custom-Hdr"] = "foo"
+            ngx.say("TEST 13")
+        }
+    }
+--- request
+GET /cache_13_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_headers
+X-Custom-Hdr: foo
+--- response_body
+TEST 13
+
+
+=== TEST 13b: Forced cache update
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_13_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /cache {
+        content_by_lua_block {
+            -- Should override ALL headers from TEST 13
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.header["X-Custom-Hdr2"] = "bar"
+            ngx.say("TEST 13b")
+        }
+    }
+--- request
+GET /cache_13_prx
+--- more_headers
+Cache-Control: no-cache
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_headers
+X-Custom-Hdr2: bar
+--- response_body
+TEST 13b
+
+=== TEST 13c: Cache hit - Headers are overriden not appended to
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_13_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            -- Only return headers from TEST 13b
+            ledge:run()
+        }
+    }
+
+    location /cache {
+        content_by_lua_block {
+            ngx.say("TEST 13b")
+            ngx.log(ngx.ERR, "Never run")
+        }
+    }
+--- request
+GET /cache_13_prx
+--- response_headers_like
+X-Cache: HIT from .*
+--- response_headers
+X-Custom-Hdr2: bar
+--- raw_response_headers_unlike: .*X-Custom-Hdr: foo.*
+--- no_error_log
+[error]
+--- response_body
+TEST 13b
+
+=== TEST 14: Allow pending qless jobs to run
 --- http_config eval: $::HttpConfig
 --- config
 location /qless {
