@@ -539,7 +539,7 @@ X-Cache: HIT from .*
                 'no-cache="X-Test2"'
             }
             ngx.header["XTest"] = "foo"
-            ngx.header["X-Test2"] = "bar"
+            ngx.header["X-test2"] = "bar"
             ngx.say("TEST 13")
         }
     }
@@ -575,7 +575,7 @@ TEST 13
 GET /cache_13_prx
 --- response_headers_like
 X-Cache: HIT from .*
---- raw_response_headers_unlike: .*(XTest: foo|X-Test2: bar).*
+--- raw_response_headers_unlike: .*(XTest: foo|X-test2: bar).*
 --- no_error_log
 [error]
 --- response_body
