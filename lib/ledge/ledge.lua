@@ -2678,17 +2678,6 @@ function _M.fetch_in_background(self)
 end
 
 
--- Utility to search in uncacheable_headers.
-local function is_hdr_uncacheable(t, h)
-    for _, v in ipairs(t) do
-        if str_lower(v) == str_lower(h) then
-            return true
-        end
-    end
-    return nil
-end
-
-
 function _M.save_to_cache(self, res)
     local reval_params, reval_headers = self:revalidation_data()
     self:emit("before_save", res)
@@ -2707,14 +2696,14 @@ function _M.save_to_cache(self, res)
     local cc = res.header["Cache-Control"]
     if cc then
         if type(cc) == "table" then cc = tbl_concat(cc, ", ") end
-
+        cc = str_lower(cc)
         if str_find(cc, "=", 1, true) then
-            local pattern = '(?:no-cache|private)="?([0-9a-zA-Z-]+)"?'
+            local pattern = '(?:no-cache|private)="?([0-9a-z-]+)"?'
             local re_ctx = {}
             repeat
                 local from, to, err = ngx_re_find(cc, pattern, "jo", re_ctx, 1)
                 if from then
-                    tbl_insert(uncacheable_headers, str_sub(cc, from, to))
+                    uncacheable_headers[str_sub(cc, from, to)] = true
                 end
             until not from
         end
@@ -2723,7 +2712,7 @@ function _M.save_to_cache(self, res)
     -- Turn the headers into a flat list of pairs for the Redis query.
     local h = {}
     for header,header_value in pairs(res.header) do
-        if not is_hdr_uncacheable(uncacheable_headers, header) then
+        if not uncacheable_headers[str_lower(header)] then
             if type(header_value) == 'table' then
                 -- Multiple headers are represented as a table of values
                 local header_value_len = tbl_getn(header_value)
