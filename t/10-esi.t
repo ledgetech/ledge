@@ -9,40 +9,50 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_LEDGE_CHUNKED} ||= 'on';
+$ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
     resolver 8.8.8.8;
     if_modified_since off;
     chunked_transfer_encoding $ENV{TEST_LEDGE_CHUNKED};
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
-    init_by_lua "
+lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+    init_by_lua_block {
+        if $ENV{TEST_COVERAGE} == 1 then
+            jit.off()
+            require("luacov.runner").init()
+        end
+
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
         if use_resty_core then
-            require 'resty.core'
+            require "resty.core"
         end
-        ledge_mod = require 'ledge.ledge'
+        ledge_mod = require "ledge.ledge"
         ledge = ledge_mod:new()
-        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
-        ledge:config_set('esi_enabled', true)
-        ledge:config_set('buffer_size', 5) -- Try to trip scanning up with small buffers
+        ledge:config_set("redis_database", $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
+        ledge:config_set("upstream_host", "127.0.0.1")
+        ledge:config_set("upstream_port", 1984)
+        ledge:config_set("esi_enabled", true)
+        ledge:config_set("buffer_size", 5) -- Try to trip scanning up with small buffers
 
         function run()
-            ledge:bind('origin_fetched', function(res)
-                res.header['Surrogate-Control'] = [[content=\\"ESI/1.0\\"]]
+            ledge:bind("origin_fetched", function(res)
+                res.header["Surrogate-Control"] = [[content="ESI/1.0"]]
             end)
             ledge:run()
         end
-    ";
-    init_worker_by_lua "
+    }
+
+    init_worker_by_lua_block {
+        if $ENV{TEST_COVERAGE} == 1 then
+            jit.off()
+        end
         ledge:run_workers()
-    ";
+    }
 };
 
-master_on();
 no_long_string();
+no_diff();
 run_tests();
 
 __DATA__

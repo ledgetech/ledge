@@ -14,10 +14,8 @@ our $HttpConfig = qq{
 lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
     init_by_lua_block {
         if $ENV{TEST_COVERAGE} == 1 then
-            runner = require "luacov.runner"
-            runner.tick = true
-            runner.init({savestepsize = 50})
             jit.off()
+            require("luacov.runner").init()
         end
 
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
