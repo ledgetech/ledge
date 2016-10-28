@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4) - 5;
+plan tests => repeat_each() * (blocks() * 4) - 8;
 
 my $pwd = cwd();
 
@@ -406,5 +406,47 @@ OK
 --- response_headers_like
 X-Cache: HIT from .*
 Warning: 112 .*
+--- no_error_log
+[error]
+
+
+=== TEST 6: Prime Cache with no stale-if-error config
+--- http_config eval: $::HttpConfig
+--- config
+    location /stale_if_error_6_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+    location /stale_if_error_6 {
+        more_set_headers "Cache-Control public, max-age=600";
+        echo "OK";
+    }
+--- request
+GET /stale_if_error_6_prx
+--- response_body
+OK
+--- no_error_log
+[error]
+
+
+=== TEST 6b: Error cannot serve stale
+--- http_config eval: $::HttpConfig
+--- config
+    location /stale_if_error_6_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:run()
+        }
+    }
+    location /stale_if_error_6 {
+        return 500;
+    }
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale_if_error_6_prx
+--- error_code: 500
 --- no_error_log
 [error]

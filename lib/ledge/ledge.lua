@@ -537,11 +537,7 @@ function _M.accepts_stale_error(self)
         res.header["Cache-Control"], "stale-if-error"
     ) or 0
 
-    if stale_age > stale_if_error then
-        return ((res.remaining_ttl + stale_age) > 0)
-    else
-        return ((res.remaining_ttl + stale_if_error) > 0)
-    end
+    return stale_age > 0 or stale_if_error > 0
 end
 
 

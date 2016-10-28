@@ -156,6 +156,7 @@ Etag: req_method_posted
 --- response_body
 POST
 
+
 === TEST 7: 501 on unrecognised method
 --- http_config eval: $::HttpConfig
 --- config
