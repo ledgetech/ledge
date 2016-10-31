@@ -1860,13 +1860,15 @@ _M.states = {
                 local capability_parser, capability_version = split_esi_token(
                     h_util.get_header_token(surrogate_capability, ngx_var.host)
                 )
+                capability_version = tonumber(capability_version)
 
                 if capability_parser and capability_version then
                     local control_parser, control_version = split_esi_token(token)
+                    control_version = tonumber(control_version)
 
                     if control_parser and control_version
                         and control_parser == capability_parser
-                        and tonumber(control_version) <= tonumber(capability_version) then
+                        and control_version <= capability_version then
 
                         local surrogates = self:config_get("esi_allow_surrogate_delegation")
                         if type(surrogates) == "boolean" then
