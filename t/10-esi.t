@@ -2312,3 +2312,29 @@ OK
 
 AFTER CONTENT
 --- no_error_log
+
+=== TEST 33: Invalid Surrogate-Capability header is ignored
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_33_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("esi_allow_surrogate_delegation", true)
+        ledge:run()
+    }
+}
+location /esi_33 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Surrogate-Control"] = 'content="ESI/1.0"'
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    }
+}
+--- request
+GET /esi_33_prx?foo=bar
+--- more_headers
+Surrogate-capability: localhost="ESI/1foo"
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: foo=bar
+--- no_error_log
+[error]

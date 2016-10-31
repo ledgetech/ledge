@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) + 5;
+plan tests => repeat_each() * (blocks() * 3) + 7;
 
 my $pwd = cwd();
 
@@ -533,7 +533,7 @@ X-Cache: HIT from .*
 [error]
 
 
-=== TEST 13: Cache-Control no-cache=#field and private=#field, drop headers from cache
+=== TEST 13: Subzero request; X-Cache: MISS
 --- http_config eval: $::HttpConfig
 --- config
     location /cache_13_prx {
@@ -545,12 +545,8 @@ X-Cache: HIT from .*
 
     location /cache {
         content_by_lua_block {
-            ngx.header["Cache-Control"] = {
-                'max-age=3600, private="XTest"',
-                'no-cache="X-Test2"'
-            }
-            ngx.header["XTest"] = "foo"
-            ngx.header["X-test2"] = "bar"
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.header["X-Custom-Hdr"] = "foo"
             ngx.say("TEST 13")
         }
     }
@@ -559,13 +555,42 @@ GET /cache_13_prx
 --- response_headers_like
 X-Cache: MISS from .*
 --- response_headers
-XTest: foo
-X-Test2: bar
+X-Custom-Hdr: foo
 --- response_body
 TEST 13
 
 
-=== TEST 13b: Cache hit - Headers are not returned from cache
+=== TEST 13b: Forced cache update
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_13_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /cache {
+        content_by_lua_block {
+            -- Should override ALL headers from TEST 13
+            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.header["X-Custom-Hdr2"] = "bar"
+            ngx.say("TEST 13b")
+        }
+    }
+--- request
+GET /cache_13_prx
+--- more_headers
+Cache-Control: no-cache
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_headers
+X-Custom-Hdr2: bar
+--- response_body
+TEST 13b
+
+
+=== TEST 13c: Cache hit - Headers are overriden not appended to
 --- http_config eval: $::HttpConfig
 --- config
     location /cache_13_prx {
@@ -586,26 +611,70 @@ TEST 13
 GET /cache_13_prx
 --- response_headers_like
 X-Cache: HIT from .*
+--- response_headers
+X-Custom-Hdr2: bar
+--- raw_response_headers_unlike: .*X-Custom-Hdr: foo.*
+--- no_error_log
+[error]
+--- response_body
+TEST 13b
+
+
+=== TEST 14: Cache-Control no-cache=#field and private=#field, drop headers from cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_14_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /cache {
+        content_by_lua_block {
+            ngx.header["Cache-Control"] = {
+                'max-age=3600, private="XTest"',
+                'no-cache="X-Test2"'
+            }
+            ngx.header["XTest"] = "foo"
+            ngx.header["X-test2"] = "bar"
+            ngx.say("TEST 14")
+        }
+    }
+--- request
+GET /cache_14_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_headers
+XTest: foo
+X-Test2: bar
+--- response_body
+TEST 14
+
+
+=== TEST 14b: Cache hit - Headers are not returned from cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_14_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            -- Only return headers from TEST 14b
+            ledge:run()
+        }
+    }
+
+    location /cache {
+        content_by_lua_block {
+            ngx.say("TEST 14b")
+            ngx.log(ngx.ERR, "Never run")
+        }
+    }
+--- request
+GET /cache_14_prx
+--- response_headers_like
+X-Cache: HIT from .*
 --- raw_response_headers_unlike: .*(XTest: foo|X-test2: bar).*
 --- no_error_log
 [error]
 --- response_body
-TEST 13
-
-
-=== TEST 14: Allow pending qless jobs to run
---- http_config eval: $::HttpConfig
---- config
-location /qless {
-    content_by_lua '
-        ngx.sleep(5)
-        ngx.say("TEST 12")
-    ';
-}
---- request
-GET /qless
---- timeout: 6
---- response_body
-TEST 12
---- no_error_log
-[error]
+TEST 14
