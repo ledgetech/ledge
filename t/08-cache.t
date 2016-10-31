@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) + 2;
+plan tests => repeat_each() * (blocks() * 3) + 5;
 
 my $pwd = cwd();
 
@@ -533,7 +533,67 @@ X-Cache: HIT from .*
 [error]
 
 
-=== TEST 13: Allow pending qless jobs to run
+=== TEST 13: Cache-Control no-cache=#field and private=#field, drop headers from cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_13_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua '
+            ledge:run()
+        ';
+    }
+
+    location /cache {
+        content_by_lua_block {
+            ngx.header["Cache-Control"] = {
+                'max-age=3600, private="XTest"',
+                'no-cache="X-Test2"'
+            }
+            ngx.header["XTest"] = "foo"
+            ngx.header["X-test2"] = "bar"
+            ngx.say("TEST 13")
+        }
+    }
+--- request
+GET /cache_13_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_headers
+XTest: foo
+X-Test2: bar
+--- response_body
+TEST 13
+
+
+=== TEST 13b: Cache hit - Headers are not returned from cache
+--- http_config eval: $::HttpConfig
+--- config
+    location /cache_13_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            -- Only return headers from TEST 13b
+            ledge:run()
+        }
+    }
+
+    location /cache {
+        content_by_lua_block {
+            ngx.say("TEST 13b")
+            ngx.log(ngx.ERR, "Never run")
+        }
+    }
+--- request
+GET /cache_13_prx
+--- response_headers_like
+X-Cache: HIT from .*
+--- raw_response_headers_unlike: .*(XTest: foo|X-test2: bar).*
+--- no_error_log
+[error]
+--- response_body
+TEST 13
+
+
+=== TEST 14: Allow pending qless jobs to run
 --- http_config eval: $::HttpConfig
 --- config
 location /qless {
