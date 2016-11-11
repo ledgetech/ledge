@@ -379,7 +379,6 @@ Config set in `content_by_lua_block` will only affect that specific location, an
  * [redis_sentinels](#redis_sentinels)
  * [keep_cache_for](#keep_cache_for)
  * [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
- * [max_stale](#max_stale)
  * [stale_if_error](#stale_if_error)
  * [cache_key_spec](#cache_key_spec)
  * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
@@ -638,19 +637,6 @@ Clients reading slower than this who are also unfortunate enough to have started
 Lowering this is fairer on slow clients, but widens the potential window for multiple old entities to stack up, which in turn could threaten Redis storage space and force evictions.
 
 This design favours high availability (since there are no read-locks, we can serve cache from Redis slaves in the event of failure) on the assumption that the chances of this causing incomplete resources to be served are quite low.
-
-
-### max_stale
-
-syntax: `ledge:config_set("max_stale", 300)`
-
-default: `nil`
-
-Specifies, in seconds, how far past expiry we can serve cached content. If a value is specified by the `Cache-Control: max-stale=xx` request header, then this setting is ignored, placing control in the client's hands.
-
-When content is served stale because of this, a background revalidation job is scheduled immediately.
-
-**WARNING:** Any setting other than `nil` may violate the HTTP specification (i.e. if the client does not override it with a valid request header value).
 
 
 ### stale_if_error
