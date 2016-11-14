@@ -522,19 +522,24 @@ end
 
 
 function _M.can_serve_stale_while_revalidate(self)
+    -- Get response header stale-while-revalidate token
+    local res = self:get_response()
+    local res_cc = res.header["Cache-Control"]
+    local res_cc_swr = h_util.get_numeric_header_token(res_cc, "stale-while-revalidate")
+    ngx.log(ngx.DEBUG, "res.age: ", res.header["Age"])
+
+    -- Check the response permits this at all
+    if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
+        return false
+    end
+
     -- Get request header tokens
     local req_cc = ngx_req_get_headers()["Cache-Control"]
     local req_cc_swr = h_util.get_numeric_header_token(req_cc, "stale-while-revalidate")
     local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
     ngx.log(ngx.DEBUG, "req_cc_max_age: ", req_cc_max_age)
-    ngx.log(ngx.DEBUG, "res.age: ", res.header["Age"])
     local req_cc_max_stale = h_util.get_numeric_header_token(req_cc, "max-stale")
     ngx.log(ngx.DEBUG, "req_cc_max_stale: ", req_cc_max_stale)
-
-    -- Get response header stale-while-revalidate token
-    local res = self:get_response()
-    local res_cc = res.header["Cache-Control"]
-    local res_cc_swr = h_util.get_numeric_header_token(res_cc, "stale-while-revalidate")
 
     local swr_ttl = 0
     -- If we have both req and res stale-while-revalidate, use the lower value
@@ -567,15 +572,31 @@ function _M.can_serve_stale_while_revalidate(self)
 end
 
 
+-- True if the request specifically asks for stale (req.cc.max-stale) and the response
+-- doesn't explicitly forbid this res.cc.(must|proxy)-revalidate.
 function _M.can_serve_stale(self)
     local req_cc = ngx_req_get_headers()["Cache-Control"]
     local req_cc_max_stale = h_util.get_numeric_header_token(req_cc, "max-stale")
     if req_cc_max_stale then
         local res = self:get_response()
-        if (req_cc_max_stale * -1) <= res.remaining_ttl then
-            return true
+        local res_cc = res.header["Cache-Control"]
+
+        -- Check the response permits this at all
+        if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
+            ngx.log(ngx.DEBUG, "Cannot serve stale because must|proxy-revaldiate")
+            return false
+        else
+            ngx.log(ngx.DEBUG, "req_cc_max_stale * -1: ", req_cc_max_stale * -1)
+            ngx.log(ngx.DEBUG, "res.remaining_ttl: ", res.remaining_ttl)
+            if (req_cc_max_stale * -1) <= res.remaining_ttl then
+                ngx.log(ngx.DEBUG, "Can serve stale because max-stale > stale")
+                return true
+            else
+                ngx.log(ngx.DEBUG, "Cannot serve stale because max-stale < stale")
+            end
         end
     end
+    ngx.log(ngx.DEBUG, "Cannot serve stale because max-stale not requested")
     return false
 end
 
@@ -614,18 +635,23 @@ end
 
 
 function _M.must_revalidate(self)
-    local cc = ngx_req_get_headers()["Cache-Control"]
-    if cc == "max-age=0" then
+    local req_cc = ngx_req_get_headers()["Cache-Control"]
+    local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
+    if req_cc_max_age == 0 then
         return true
     else
         local res = self:get_response()
         local res_age = res.header["Age"]
+        local res_cc = res.header["Cache-Control"]
 
-        if h_util.header_has_directive(res.header["Cache-Control"], "(must|proxy)-revalidate") then
+        if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
+            ngx.log(ngx.DEBUG, "must revalidate because res.cc.must|proxy-revalidate")
             return true
-        elseif type(cc) == "string" and res_age then
-            local max_age = cc:match("max%-age=(%d+)")
-            if max_age and res_age > tonumber(max_age) then
+        elseif req_cc_max_age and res_age then
+            ngx.log(ngx.DEBUG, "req_cc_max_age: ", req_cc_max_age)
+            ngx.log(ngx.DEBUG, "res_age: ", res_age)
+            if req_cc_max_age < res_age then
+                ngx.log(ngx.DEBUG, "must revalidate because req_cc_max_age < res_age")
                 return true
             end
         end
@@ -1326,7 +1352,7 @@ _M.events = {
     -- response headers.
     can_serve_stale = {
         { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
-        { begin = "considering_esi_process", but_first = { "add_stale_warning" } },
+        { begin = "considering_revalidation", but_first = { "add_stale_warning" } },
     },
 
     -- We can serve stale, but also trigger a background revalidation
