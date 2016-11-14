@@ -54,11 +54,8 @@ local NOCACHE_HEADERS = {
 
 
 function _M.new()
-    local header = http_headers.new()
-    local status = nil
-
     return setmetatable({   status = nil,
-                            header = header,
+                            header = http_headers.new(),
                             remaining_ttl = 0,
                             has_esi = false,
     }, mt)
@@ -96,18 +93,17 @@ function _M.is_cacheable(self)
 end
 
 
+-- Calculates the TTL from response headers.
+-- Header precedence is Cache-Control: s-maxage=NUM, Cache-Control: max-age=NUM,
+-- and finally Expires: HTTP_TIMESTRING.
 function _M.ttl(self)
-    -- Header precedence is Cache-Control: s-maxage=NUM, Cache-Control: max-age=NUM,
-    -- and finally Expires: HTTP_TIMESTRING.
     local cc = self.header["Cache-Control"]
     if cc then
         if type(cc) == "table" then
             cc = tbl_concat(cc, ", ")
         end
         local max_ages = {}
-        for max_age in ngx_re_gmatch(cc,
-            "(s\\-maxage|max\\-age)=(\\d+)",
-            "io") do
+        for max_age in ngx_re_gmatch(cc, [[(s-maxage|max-age)=(\d+)]], "ijo") do
             max_ages[max_age[1]] = max_age[2]
         end
 
@@ -135,14 +131,7 @@ end
 
 
 function _M.has_expired(self)
-    if self.remaining_ttl <= 0 then
-        return true
-    end
-
-    local cc = ngx_req_get_headers()["Cache-Control"]
-    if self.remaining_ttl - (h_util.get_numeric_header_token(cc, "min-fresh") or 0) <= 0 then
-        return true
-    end
+    return self.remaining_ttl <= 0
 end
 
 
@@ -151,7 +140,7 @@ end
 function _M.stale_ttl(self)
     -- Check response for headers that prevent serving stale
     local cc = self.header["Cache-Control"]
-    if h_util.header_has_directive(cc, "revalidate") or
+    if h_util.header_has_directive(cc, "(must|proxy)-revalidate") or
         h_util.header_has_directive(cc, "s-maxage") then
         return 0
     end
