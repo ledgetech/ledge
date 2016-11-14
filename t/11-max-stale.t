@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 7) + 1;
+plan tests => repeat_each() * (blocks() * 7);
 
 my $pwd = cwd();
 
@@ -102,120 +102,12 @@ Warning: 110 (?:[^\s]*) "Response is stale"
 [error]
 
 
-=== TEST 2: Honour max_stale config option
---- http_config eval: $::HttpConfig
---- config
-location /stale_2_prx {
-    rewrite ^(.*)_prx$ $1 break;
-    content_by_lua_block {
-        ledge:config_set("max_stale", 120)
-        ledge:bind("before_save", function(res)
-            -- immediately expire
-            res.header["Cache-Control"] = "max-age=0"
-        end)
-        ledge:run()
-    }
-}
-location /stale_2 {
-    content_by_lua_block {
-        ledge.miss_count = ledge.miss_count + 1
-        ngx.status = 404
-        ngx.header["Cache-Control"] = "max-age=60"
-        ngx.print("TEST 2: ", ledge.miss_count)
-    }
-}
---- request eval
-["GET /stale_2_prx", "GET /stale_2_prx"]
---- response_body eval
-["TEST 2: 1", "TEST 2: 1"]
---- response_headers_like eval
-["", 'Warning: 110 (?:[^\s]*) "Response is stale"']
---- error_code eval
-[404, 404]
---- no_error_log
-[error]
-
-
-
-=== TEST 3: max_stale header overrides config
---- http_config eval: $::HttpConfig
---- config
-location /stale_3_prx {
-    rewrite ^(.*)_prx$ $1 break;
-    content_by_lua_block {
-        ledge:config_set("max_stale", 120)
-        ledge:bind("before_save", function(res)
-            -- immediately expire
-            res.header["Cache-Control"] = "max-age=0"
-        end)
-        ledge:run()
-    }
-}
-location /stale_3 {
-    content_by_lua_block {
-        ledge.miss_count = ledge.miss_count + 1
-        ngx.status = 404
-        ngx.header["Cache-Control"] = "max-age=60"
-        ngx.print("TEST 3: ", ledge.miss_count)
-    }
-}
---- more_headers
-Cache-Control: max-stale=0
---- request eval
-["GET /stale_3_prx", "GET /stale_3_prx"]
---- response_body eval
-["TEST 3: 1", "TEST 3: 2"]
---- raw_response_headers_unlike eval
-["Warning: 110", "Warning: 110"]
---- error_code eval
-[404, 404]
---- no_error_log
-[error]
-
-
-=== TEST 4: s-maxage must revalidate (not serve stale)
---- http_config eval: $::HttpConfig
---- config
-location /stale_4_prx {
-    rewrite ^(.*)_prx$ $1 break;
-    content_by_lua_block {
-        ledge:config_set("max_stale", 120)
-        ledge:bind("before_save", function(res)
-            -- immediately expire
-            res.header["Cache-Control"] = "s-maxage=0"
-        end)
-        ledge:run()
-    }
-}
-location /stale_4 {
-    content_by_lua_block {
-        ledge.miss_count = ledge.miss_count + 1
-        ngx.status = 404
-        ngx.header["Cache-Control"] = "s-maxage=60"
-        ngx.print("TEST 4: ", ledge.miss_count)
-    }
-}
---- more_headers
-Cache-Control: max-stale=0
---- request eval
-["GET /stale_4_prx", "GET /stale_4_prx"]
---- response_body eval
-["TEST 4: 1", "TEST 4: 2"]
---- raw_response_headers_unlike eval
-["Warning: 110", "Warning: 110"]
---- error_code eval
-[404, 404]
---- no_error_log
-[error]
-
-
 === TEST 5: proxy-revalidate must revalidate (not serve stale)
 --- http_config eval: $::HttpConfig
 --- config
 location /stale_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:config_set("max_stale", 120)
         ledge:bind("before_save", function(res)
             -- immediately expire
             res.header["Cache-Control"] = "max-age=0, proxy-revalidate"
@@ -251,7 +143,6 @@ Cache-Control: max-stale=120
 location /stale_6_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:config_set("max_stale", 120)
         ledge:bind("before_save", function(res)
             -- immediately expire
             res.header["Cache-Control"] = "max-age=0, must-revalidate"
@@ -280,3 +171,38 @@ Cache-Control: max-stale=120
 --- no_error_log
 [error]
 
+
+=== TEST 7: Can serve stale but must revalidate because of Age
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_7_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:bind("before_save", function(res)
+            -- immediately expire
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        ledge:run()
+    }
+}
+location /stale_7 {
+    content_by_lua_block {
+        ledge.miss_count = ledge.miss_count + 1
+        ngx.status = 404
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 7: ", ledge.miss_count)
+    }
+}
+--- more_headers
+Cache-Control: max-stale=120, max-age=1
+--- request eval
+["GET /stale_7_prx", "GET /stale_7_prx"]
+--- response_body eval
+["TEST 7: 1", "TEST 7: 2"]
+--- raw_response_headers_unlike eval
+["Warning: 110", "Warning: 110"]
+--- error_code eval
+[404, 404]
+--- no_error_log
+[error]
+--- wait: 2
