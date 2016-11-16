@@ -204,10 +204,7 @@ X-Cache: MISS from .*
 location /stale_3_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        if not ledge.req then ledge.req = 1 end
-ngx.log(ngx.DEBUG, "req number: ", ledge.req)
         ledge:run()
-        ledge.req = ledge.req + 1
     }
 }
 location /stale_3 {
