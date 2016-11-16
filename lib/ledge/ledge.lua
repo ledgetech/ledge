@@ -489,25 +489,6 @@ function _M.redis_close(self)
 end
 
 
-function _M.accepts_stale_error(self)
-    local req_cc = ngx_req_get_headers()["Cache-Control"]
-    local stale_age = self:config_get("stale_if_error") or 0
-
-    local res = self:get_response()
-    if not res then return false end
-
-    if h_util.header_has_directive(req_cc, "stale-if-error") then
-        stale_age = h_util.get_numeric_header_token(req_cc, "stale-if-error")
-    end
-
-    local stale_if_error = h_util.get_numeric_header_token(
-        res.header["Cache-Control"], "stale-if-error"
-    ) or 0
-
-    return stale_age > 0 or stale_if_error > 0
-end
-
-
 function _M.request_accepts_cache(self)
     -- Check for no-cache
     local h = ngx_req_get_headers()
@@ -518,57 +499,6 @@ function _M.request_accepts_cache(self)
     end
 
     return true
-end
-
-
-function _M.can_serve_stale_while_revalidate(self)
-    -- Get response header stale-while-revalidate token
-    local res = self:get_response()
-    local res_cc = res.header["Cache-Control"]
-    local res_cc_swr = h_util.get_numeric_header_token(res_cc, "stale-while-revalidate")
-    ngx.log(ngx.DEBUG, "res.age: ", res.header["Age"])
-
-    -- Check the response permits this at all
-    if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
-        return false
-    end
-
-    -- Get request header tokens
-    local req_cc = ngx_req_get_headers()["Cache-Control"]
-    local req_cc_swr = h_util.get_numeric_header_token(req_cc, "stale-while-revalidate")
-    local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
-    ngx.log(ngx.DEBUG, "req_cc_max_age: ", req_cc_max_age)
-    local req_cc_max_stale = h_util.get_numeric_header_token(req_cc, "max-stale")
-    ngx.log(ngx.DEBUG, "req_cc_max_stale: ", req_cc_max_stale)
-
-    local swr_ttl = 0
-    -- If we have both req and res stale-while-revalidate, use the lower value
-    if req_cc_swr and res_cc_swr then
-        swr_ttl = math_min(req_cc_swr, res_cc_swr)
-    -- Otherwise return the req or res value
-    elseif req_cc_swr then
-        swr_ttl = req_cc_swr
-    elseif res_cc_swr then
-        swr_ttl = res_cc_swr
-    end
-    ngx.log(ngx.DEBUG, "SWR-TTL: ", swr_ttl)
-
-    if swr_ttl <= 0 then
-        ngx.log(ngx.DEBUG, "No S-W-R policy defined")
-        return false -- No S-W-R policy defined
-    elseif h_util.header_has_directive(req_cc, "min-fresh") then
-        ngx.log(ngx.DEBUG, "Cannot serve stale as request demands freshness")
-        return false -- Cannot serve stale as request demands freshness
-    elseif req_cc_max_age and req_cc_max_age < (res.header["Age"] or 0) then
-        ngx.log(ngx.DEBUG, "Cannot serve stale as req max-age is less than res Age")
-        return false -- Cannot serve stale as req max-age is less than res Age
-    elseif req_cc_max_stale and req_cc_max_stale < swr_ttl then
-        ngx.log(ngx.DEBUG, "Cannot serve stale as req max-stale is less than S-W-R policy")
-        return false -- Cannot serve stale as req max-stale is less than S-W-R policy
-    else
-        -- We can return stale
-        return true
-    end
 end
 
 
@@ -583,21 +513,70 @@ function _M.can_serve_stale(self)
 
         -- Check the response permits this at all
         if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
-            ngx.log(ngx.DEBUG, "Cannot serve stale because must|proxy-revaldiate")
             return false
         else
-            ngx.log(ngx.DEBUG, "req_cc_max_stale * -1: ", req_cc_max_stale * -1)
-            ngx.log(ngx.DEBUG, "res.remaining_ttl: ", res.remaining_ttl)
             if (req_cc_max_stale * -1) <= res.remaining_ttl then
-                ngx.log(ngx.DEBUG, "Can serve stale because max-stale > stale")
                 return true
             else
-                ngx.log(ngx.DEBUG, "Cannot serve stale because max-stale < stale")
             end
         end
     end
-    ngx.log(ngx.DEBUG, "Cannot serve stale because max-stale not requested")
     return false
+end
+
+
+-- Returns true if stale-while-revalidate or stale-if-error is specified, valid
+-- and not constrained by other factors such as max-stale.
+-- @param   reason  "stale-while-revalidate" | "stale-if-error"
+function _M.verify_stale_conditions(self, token)
+    local res = self:get_response()
+    local res_cc = res.header["Cache-Control"]
+    local res_cc_stale = h_util.get_numeric_header_token(res_cc, token)
+
+    -- Check the response permits this at all
+    if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
+        return false
+    end
+
+    -- Get request header tokens
+    local req_cc = ngx_req_get_headers()["Cache-Control"]
+    local req_cc_stale = h_util.get_numeric_header_token(req_cc, token)
+    local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
+    local req_cc_max_stale = h_util.get_numeric_header_token(req_cc, "max-stale")
+
+    local stale_ttl = 0
+    -- If we have both req and res stale-" .. reason, use the lower value
+    if req_cc_stale and res_cc_stale then
+        stale_ttl = math_min(req_cc_stale, res_cc_stale)
+    -- Otherwise return the req or res value
+    elseif req_cc_stale then
+        stale_ttl = req_cc_stale
+    elseif res_cc_stale then
+        stale_ttl = res_cc_stale
+    end
+
+    if stale_ttl <= 0 then
+        return false -- No stale policy defined
+    elseif h_util.header_has_directive(req_cc, "min-fresh") then
+        return false -- Cannot serve stale as request demands freshness
+    elseif req_cc_max_age and req_cc_max_age < (res.header["Age"] or 0) then
+        return false -- Cannot serve stale as req max-age is less than res Age
+    elseif req_cc_max_stale and req_cc_max_stale < stale_ttl then
+        return false -- Cannot serve stale as req max-stale is less than S-W-R policy
+    else
+        -- We can return stale
+        return true
+    end
+end
+
+
+function _M.can_serve_stale_while_revalidate(self)
+    return self:verify_stale_conditions("stale-while-revalidate")
+end
+
+
+function _M.can_serve_stale_if_error(self)
+    return self:verify_stale_conditions("stale-if-error")
 end
 
 
@@ -645,13 +624,9 @@ function _M.must_revalidate(self)
         local res_cc = res.header["Cache-Control"]
 
         if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
-            ngx.log(ngx.DEBUG, "must revalidate because res.cc.must|proxy-revalidate")
             return true
         elseif req_cc_max_age and res_age then
-            ngx.log(ngx.DEBUG, "req_cc_max_age: ", req_cc_max_age)
-            ngx.log(ngx.DEBUG, "res_age: ", res_age)
             if req_cc_max_age < res_age then
-                ngx.log(ngx.DEBUG, "must revalidate because req_cc_max_age < res_age")
                 return true
             end
         end
@@ -1195,6 +1170,8 @@ _M.events = {
     -- Publish the error first if we were the surrogate request
     upstream_error = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_upstream_error" },
+        { in_case = "cache_not_accepted", begin = "serving_upstream_error" },
+        { in_case = "cache_missing", begin = "serving_upstream_error" },
         { begin = "considering_stale_error" }
     },
 
@@ -1474,8 +1451,10 @@ _M.actions = {
     end,
 
     restore_error_response = function(self)
-        local error_res = self:get_response('error')
-        self:set_response(error_res)
+        local error_res = self:get_response("error")
+        if error_res then
+            self:set_response(error_res)
+        end
     end,
 
     read_cache = function(self)
@@ -1678,10 +1657,10 @@ _M.actions = {
 
     set_http_status_from_response = function(self)
         local res = self:get_response()
-        if res.status then
+        if res and res.status then
             ngx.status = res.status
         else
-            res.status = ngx.HTTP_INTERNAL_SERVER_ERROR
+            ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
         end
     end,
 }
@@ -2102,13 +2081,8 @@ _M.states = {
     end,
 
     considering_stale_error = function(self)
-        if self:accepts_stale_error() then
-            local res = self:get_response()
-            if res:stale_ttl() <= 0 then
-                return self:e "can_serve_stale"
-            else
-                return self:e "can_serve_disconnected"
-            end
+        if self:can_serve_stale_if_error() then
+            return self:e "can_serve_disconnected"
         else
             return self:e "can_serve_upstream_error"
         end
