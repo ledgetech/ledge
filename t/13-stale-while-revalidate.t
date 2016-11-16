@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4) + 3;
+plan tests => 123;
 
 my $pwd = cwd();
 
@@ -44,17 +44,13 @@ __DATA__
 === TEST 1: Prime cache for subsequent tests
 --- http_config eval: $::HttpConfig
 --- config
-location /stale_prx {
+location /stale_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
-            -- immediately expire cache entries
-            res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60"
-        end)
         ledge:run()
     }
 }
-location /stale {
+location /stale_1 {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
         ngx.say("TEST 1")
@@ -63,7 +59,7 @@ location /stale {
 --- more_headers
 Cache-Control: no-cache
 --- request
-GET /stale_prx
+GET /stale_1_prx
 --- response_body
 TEST 1
 --- response_headers_like
@@ -72,59 +68,298 @@ X-Cache: MISS from .*
 [error]
 
 
-=== TEST 2: Return stale
+=== TEST 1b: Assert standard non-stale behaviours are unaffected.
 --- http_config eval: $::HttpConfig
 --- config
-location /stale_prx {
+location /stale_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         ledge:run()
     }
 }
-location /stale {
+location /stale_1 {
     content_by_lua_block {
-        ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.say("TEST 2")
-        local hdr = ngx.req.get_headers()
-        ngx.say("Authorization: ",hdr["Authorization"])
-        ngx.say("Cookie: ",hdr["Cookie"])
+        if not ledge.req then ledge.req = 1 end
+
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
+        ngx.print("ORIGIN: ", ledge.req)
+
+        ledge.req = ledge.req + 1
     }
 }
---- request
-GET /stale_prx
---- more_headers
-Authorization: foobar
-Cookie: baz=qux
---- response_body
-TEST 1
---- response_headers_like
-X-Cache: HIT from .*
---- wait: 3
+--- more_headers eval
+["Cache-Control: no-cache", "Cache-Control: no-store", "Pragma: no-cache", ""]
+--- request eval
+["GET /stale_1_prx", "GET /stale_1_prx", "GET /stale_1_prx", "GET /stale_1_prx"]
+--- response_body eval
+["ORIGIN: 1", "ORIGIN: 2", "ORIGIN: 3", "ORIGIN: 3"]
+--- response_headers_like eval
+["X-Cache: MISS from .*", "X-Cache: MISS from .*", "X-Cache: MISS from .*", "X-Cache: HIT from .*"]
+--- raw_response_headers_unlike eval
+["Warning: .*", "Warning: .*", "Warning: .*", "Warning: .*"]
 --- no_error_log
 [error]
 
 
-=== TEST 3: Cache has been revalidated
+=== TEST 2: Prime cache and expire it
 --- http_config eval: $::HttpConfig
 --- config
-location /stale_prx {
+location /stale_2_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:bind("before_save", function(res)
+            res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60"
+        end)
+        ledge:run()
+    }
+}
+location /stale_2 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
+        ngx.say("TEST 2")
+    }
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale_2_prx
+--- response_body
+TEST 2
+--- response_headers_like
+X-Cache: MISS from .*
+--- wait: 1
+--- no_error_log
+[error]
+
+
+=== TEST 2b: Request doesn't accept stale, for different reasons
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_2_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:bind("before_save", function(res)
+            res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60"
+        end)
+        ledge:run()
+    }
+}
+location /stale_2 {
+    content_by_lua_block {
+        if not ledge.req then ledge.req = 1 end
+
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
+        ngx.print("ORIGIN: ", ledge.req)
+
+        ledge.req = ledge.req + 1
+    }
+}
+--- more_headers eval
+["Cache-Control: min-fresh=5", "Cache-Control: max-age=1", "Cache-Control: max-stale=1"]
+--- request eval
+["GET /stale_2_prx", "GET /stale_2_prx", "GET /stale_2_prx"]
+--- response_body eval
+["ORIGIN: 1", "ORIGIN: 2", "ORIGIN: 3"]
+--- response_headers_like eval
+["X-Cache: MISS from .*", "X-Cache: MISS from .*", "X-Cache: MISS from .*"]
+--- raw_response_headers_unlike eval
+["Warning: .*", "Warning: .*", "Warning: .*"]
+--- no_error_log
+[error]
+--- wait: 2
+
+
+=== TEST 3: Prime cache and expire it
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_3_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:bind("before_save", function(res)
+            res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60"
+        end)
+        ledge:run()
+    }
+}
+location /stale_3 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
+        ngx.print("TEST 3")
+    }
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale_3_prx
+--- response_body: TEST 3
+--- response_headers_like
+X-Cache: MISS from .*
+--- no_error_log
+[error]
+
+
+=== TEST 3b: Request accepts stale
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_3_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         ledge:run()
     }
 }
-location /stale_main {
+location /stale_3 {
     content_by_lua_block {
-        ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.say("TEST 3")
+        ngx.print("ORIGIN")
+    }
+}
+--- more_headers eval
+["Cache-Control: max-age=99999", "Cache-Control: max-stale=99999", ""]
+--- request eval
+["GET /stale_3_prx", "GET /stale_3_prx", "GET /stale_3_prx"]
+--- response_body eval
+["TEST 3", "TEST 3", "TEST 3"]
+--- response_headers_like eval
+["X-Cache: HIT from .*", "X-Cache: HIT from .*", "X-Cache: HIT from .*"]
+--- raw_response_headers_like eval
+["Warning: 110 .*", "Warning: 110 .*", "Warning: 110 .*"]
+--- no_error_log
+[error]
+
+
+=== TEST 3c: Let revalidations finish to prevent errors
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_3_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:run()
+    }
+}
+location /stale_3 {
+    content_by_lua_block {
+        ngx.print("ORIGIN")
     }
 }
 --- request
-GET /stale_prx
+GET /stale_3_prx
+--- response_body: TEST 3
+--- wait: 1
+--- no_error_log
+[error]
+
+
+=== TEST 4: Prime cache and expire it
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_4_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:bind("before_save", function(res)
+            res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60, must-revalidate"
+        end)
+        ledge:run()
+    }
+}
+location /stale_4 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60, must-revalidate"
+        ngx.say("TEST 2")
+    }
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale_4_prx
 --- response_body
 TEST 2
-Authorization: foobar
-Cookie: baz=qux
+--- response_headers_like
+X-Cache: MISS from .*
+--- wait: 1
+--- no_error_log
+[error]
+
+
+=== TEST 4b: Response cannot be served stale (must-revalidate)
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_4_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:run()
+    }
+}
+location /stale_4 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
+        ngx.say("ORIGIN")
+    }
+}
+--- request
+GET /stale_4_prx
+--- response_body
+ORIGIN
+--- response_headers_like
+X-Cache: MISS from .*
+--- raw_response_headers_unlike
+Warning: .*
+--- no_error_log
+[error]
+
+
+=== TEST 4c: Prime cache (with valid stale config + proxy-revalidate) and expire it
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_4_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:bind("before_save", function(res)
+            res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60, proxy-revalidate"
+        end)
+        ledge:run()
+    }
+}
+location /stale_4 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60, proxy-revalidate"
+        ngx.say("TEST 2")
+    }
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /stale_4_prx
+--- response_body
+TEST 2
+--- response_headers_like
+X-Cache: MISS from .*
+--- wait: 1
+--- no_error_log
+[error]
+
+
+=== TEST 4d: Response cannot be served stale (proxy-revalidate)
+--- http_config eval: $::HttpConfig
+--- config
+location /stale_4_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:run()
+    }
+}
+location /stale_4 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
+        ngx.say("ORIGIN")
+    }
+}
+--- request
+GET /stale_4_prx
+--- response_body
+ORIGIN
+--- response_headers_like
+X-Cache: MISS from .*
+--- raw_response_headers_unlike
+Warning: .*
 --- no_error_log
 [error]
 

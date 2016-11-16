@@ -1943,10 +1943,11 @@ a=1
 location /esi_27_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("max_stale", 60)
         run()
     ';
 }
+--- more_headers
+Cache-Control: stale-while-revalidate=60
 --- request
 GET /esi_27_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
@@ -1962,13 +1963,14 @@ a=1
 location /esi_27_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("stale_if_error", 60)
         run()
     ';
 }
 location /esi_27 {
     return 500;
 }
+--- more_headers
+Cache-Control: stale-if-error=9999
 --- request
 GET /esi_27_prx?a=1
 --- wait: 1

@@ -44,21 +44,21 @@ __DATA__
 === TEST 1: Multiple cache-control response headers, miss
 --- http_config eval: $::HttpConfig
 --- config
-    location /cache_prx {
+    location /multiple_cache_headers_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:run()
         ';
     }
 
-    location /cache {
+    location /multiple_cache_headers {
         content_by_lua '
             ngx.header["Cache-Control"] = { "public", "max-age=3600"}
             ngx.say("TEST 1")
         ';
     }
 --- request
-GET /cache_prx
+GET /multiple_cache_headers_prx
 --- response_headers_like
 X-Cache: MISS from .*
 --- response_headers
@@ -66,24 +66,25 @@ Cache-Control: public, max-age=3600
 --- response_body
 TEST 1
 
+
 === TEST 1b: Multiple cache-control response headers, hit
 --- http_config eval: $::HttpConfig
 --- config
-    location /cache_prx {
+    location /multiple_cache_headers_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
             ledge:run()
         ';
     }
 
-    location /cache {
+    location /multiple_cache_headers {
         content_by_lua '
             ngx.header["Cache-Control"] = { "public", "max-age=3600"}
             ngx.say("TEST 2")
         ';
     }
 --- request
-GET /cache_prx
+GET /multiple_cache_headers_prx
 --- response_headers_like
 X-Cache: HIT from .*
 --- response_headers

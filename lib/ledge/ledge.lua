@@ -56,6 +56,7 @@ local str_len = string.len
 local str_rep = string.rep
 local math_floor = math.floor
 local math_ceil = math.ceil
+local math_min = math.min
 local co_yield = coroutine.yield
 local co_create = coroutine.create
 local co_status = coroutine.status
@@ -257,8 +258,6 @@ function _M.new(self)
                                                 -- to be reading from replaced (in memory) entities will
                                                 -- have their entity garbage collected before they finish.
 
-        max_stale       = nil,  -- (sec) Overrides how long cache will continue be served
-                                -- for beyond the TTL. This violates the spec, and adds a warning header.
         stale_if_error  = nil,  -- (sec) Overrides how long to serve stale on upstream error.
 
         esi_enabled      = false,
@@ -490,59 +489,6 @@ function _M.redis_close(self)
 end
 
 
-function _M.accepts_stale(self, res)
-    -- Check for max-stale request header
-    local req_cc = ngx_req_get_headers()['Cache-Control']
-    local req_max_stale = h_util.get_numeric_header_token(req_cc, 'max-stale')
-    if req_max_stale then
-        -- Check response for headers that prevent serving stale
-        local res_cc = res.header["Cache-Control"]
-        if h_util.header_has_directive(res_cc, 'revalidate') or
-            h_util.header_has_directive(res_cc, 's-maxage') then
-            return nil
-        else
-            return req_max_stale
-        end
-    end
-
-    -- Fall back to response value for stale-while-revalidate
-    local stale_while_revalidate = h_util.get_numeric_header_token(
-        res.header["Cache-Control"], "stale-while-revalidate"
-    ) or 0
-
-
-    -- Fall back to max_stale config
-    local max_stale = self:config_get("max_stale") or 0
-
-    if max_stale > stale_while_revalidate then
-        return max_stale
-    else
-        return stale_while_revalidate
-    end
-end
-
-
-function _M.calculate_stale_ttl(self)
-    local res = self:get_response()
-
-    local stale = self:accepts_stale(res) or 0
-    local stale_while_revalidate = h_util.get_numeric_header_token(
-        res.header["Cache-Control"], "stale-while-revalidate"
-    ) or 0
-
-    local min_fresh = h_util.get_numeric_header_token(
-        ngx_req_get_headers()["Cache-Control"],
-        "min-fresh"
-    ) or 0
-
-    -- The base TTL
-    local ttl = res.remaining_ttl - min_fresh
-
-    -- Return stale TTL, stale-while-revalidate TTL
-    return ttl + stale, ttl + stale_while_revalidate
-end
-
-
 function _M.request_accepts_cache(self)
     -- Check for no-cache
     local h = ngx_req_get_headers()
@@ -553,6 +499,84 @@ function _M.request_accepts_cache(self)
     end
 
     return true
+end
+
+
+-- True if the request specifically asks for stale (req.cc.max-stale) and the response
+-- doesn't explicitly forbid this res.cc.(must|proxy)-revalidate.
+function _M.can_serve_stale(self)
+    local req_cc = ngx_req_get_headers()["Cache-Control"]
+    local req_cc_max_stale = h_util.get_numeric_header_token(req_cc, "max-stale")
+    if req_cc_max_stale then
+        local res = self:get_response()
+        local res_cc = res.header["Cache-Control"]
+
+        -- Check the response permits this at all
+        if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
+            return false
+        else
+            if (req_cc_max_stale * -1) <= res.remaining_ttl then
+                return true
+            else
+            end
+        end
+    end
+    return false
+end
+
+
+-- Returns true if stale-while-revalidate or stale-if-error is specified, valid
+-- and not constrained by other factors such as max-stale.
+-- @param   reason  "stale-while-revalidate" | "stale-if-error"
+function _M.verify_stale_conditions(self, token)
+    local res = self:get_response()
+    local res_cc = res.header["Cache-Control"]
+    local res_cc_stale = h_util.get_numeric_header_token(res_cc, token)
+
+    -- Check the response permits this at all
+    if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
+        return false
+    end
+
+    -- Get request header tokens
+    local req_cc = ngx_req_get_headers()["Cache-Control"]
+    local req_cc_stale = h_util.get_numeric_header_token(req_cc, token)
+    local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
+    local req_cc_max_stale = h_util.get_numeric_header_token(req_cc, "max-stale")
+
+    local stale_ttl = 0
+    -- If we have both req and res stale-" .. reason, use the lower value
+    if req_cc_stale and res_cc_stale then
+        stale_ttl = math_min(req_cc_stale, res_cc_stale)
+    -- Otherwise return the req or res value
+    elseif req_cc_stale then
+        stale_ttl = req_cc_stale
+    elseif res_cc_stale then
+        stale_ttl = res_cc_stale
+    end
+
+    if stale_ttl <= 0 then
+        return false -- No stale policy defined
+    elseif h_util.header_has_directive(req_cc, "min-fresh") then
+        return false -- Cannot serve stale as request demands freshness
+    elseif req_cc_max_age and req_cc_max_age < (res.header["Age"] or 0) then
+        return false -- Cannot serve stale as req max-age is less than res Age
+    elseif req_cc_max_stale and req_cc_max_stale < stale_ttl then
+        return false -- Cannot serve stale as req max-stale is less than S-W-R policy
+    else
+        -- We can return stale
+        return true
+    end
+end
+
+
+function _M.can_serve_stale_while_revalidate(self)
+    return self:verify_stale_conditions("stale-while-revalidate")
+end
+
+
+function _M.can_serve_stale_if_error(self)
+    return self:verify_stale_conditions("stale-if-error")
 end
 
 
@@ -590,18 +614,19 @@ end
 
 
 function _M.must_revalidate(self)
-    local cc = ngx_req_get_headers()["Cache-Control"]
-    if cc == "max-age=0" then
+    local req_cc = ngx_req_get_headers()["Cache-Control"]
+    local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
+    if req_cc_max_age == 0 then
         return true
     else
         local res = self:get_response()
         local res_age = res.header["Age"]
+        local res_cc = res.header["Cache-Control"]
 
-        if h_util.header_has_directive(res.header["Cache-Control"], "must-revalidate") then
+        if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
             return true
-        elseif type(cc) == "string" and res_age then
-            local max_age = cc:match("max%-age=(%d+)")
-            if max_age and res_age > tonumber(max_age) then
+        elseif req_cc_max_age and res_age then
+            if req_cc_max_age < res_age then
                 return true
             end
         end
@@ -850,25 +875,6 @@ function _M.entity_key_chain(self, verify)
 end
 
 
-function _M.accepts_stale_error(self)
-    local req_cc = ngx_req_get_headers()["Cache-Control"]
-    local stale_age = self:config_get("stale_if_error")
-
-    local res = self:get_response()
-    if not res then return false end
-
-    if h_util.header_has_directive(req_cc, "stale-if-error") then
-        stale_age = h_util.get_numeric_header_token(req_cc, "stale-if-error")
-    end
-
-    if not stale_age then
-        return false
-    else
-        return ((res.remaining_ttl + stale_age) > 0)
-    end
-end
-
-
 -- Calculate when to GC an entity based on its size and the minimum download rate setting,
 -- plus 1 second of arbitrary latency for good measure.
 function _M.gc_wait(self, entity_size)
@@ -1077,6 +1083,7 @@ _M.events = {
     cache_expired = {
         { when = "checking_cache", begin = "checking_can_serve_stale" },
         { when = "checking_can_serve_stale", begin = "checking_can_fetch" },
+        { when = "checking_can_serve_stale", begin = "checking_can_fetch" },
     },
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
@@ -1163,6 +1170,8 @@ _M.events = {
     -- Publish the error first if we were the surrogate request
     upstream_error = {
         { after = "fetching_as_surrogate", begin = "publishing_collapse_upstream_error" },
+        { in_case = "cache_not_accepted", begin = "serving_upstream_error" },
+        { in_case = "cache_missing", begin = "serving_upstream_error" },
         { begin = "considering_stale_error" }
     },
 
@@ -1320,7 +1329,7 @@ _M.events = {
     -- response headers.
     can_serve_stale = {
         { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
-        { begin = "considering_esi_process", but_first = { "add_stale_warning" } },
+        { begin = "considering_revalidation", but_first = { "add_stale_warning" } },
     },
 
     -- We can serve stale, but also trigger a background revalidation
@@ -1442,8 +1451,10 @@ _M.actions = {
     end,
 
     restore_error_response = function(self)
-        local error_res = self:get_response('error')
-        self:set_response(error_res)
+        local error_res = self:get_response("error")
+        if error_res then
+            self:set_response(error_res)
+        end
     end,
 
     read_cache = function(self)
@@ -1646,10 +1657,10 @@ _M.actions = {
 
     set_http_status_from_response = function(self)
         local res = self:get_response()
-        if res.status then
+        if res and res.status then
             ngx.status = res.status
         else
-            res.status = ngx.HTTP_INTERNAL_SERVER_ERROR
+            ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
         end
     end,
 }
@@ -2070,13 +2081,8 @@ _M.states = {
     end,
 
     considering_stale_error = function(self)
-        if self:accepts_stale_error() then
-            local res = self:get_response()
-            if res:stale_ttl() <= 0 then
-                return self:e "can_serve_stale"
-            else
-                return self:e "can_serve_disconnected"
-            end
+        if self:can_serve_stale_if_error() then
+            return self:e "can_serve_disconnected"
         else
             return self:e "can_serve_upstream_error"
         end
@@ -2114,16 +2120,12 @@ _M.states = {
     end,
 
     checking_can_serve_stale = function(self)
-        local stale_ttl, stale_while_revalidate_ttl = self:calculate_stale_ttl()
-
         if self:config_get("origin_mode") < self.ORIGIN_MODE_NORMAL then
             return self:e "can_serve_stale"
-        elseif stale_ttl > 0 then
-            if  stale_while_revalidate_ttl > 0 then
-                return self:e "can_serve_stale_while_revalidate"
-            else
-                return self:e "can_serve_stale"
-            end
+        elseif self:can_serve_stale_while_revalidate() then
+            return self:e "can_serve_stale_while_revalidate"
+        elseif self:can_serve_stale() then
+            return self:e "can_serve_stale"
         else
             return self:e "cache_expired"
         end
