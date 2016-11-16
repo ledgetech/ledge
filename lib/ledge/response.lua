@@ -135,48 +135,4 @@ function _M.has_expired(self)
 end
 
 
--- The amount of additional stale time allowed for this response considering
--- the current requests 'min-fresh'.
-function _M.stale_ttl(self)
-    -- Check response for headers that prevent serving stale
-    local cc = self.header["Cache-Control"]
-    if h_util.header_has_directive(cc, "(must|proxy)-revalidate") or
-        h_util.header_has_directive(cc, "s-maxage") then
-        return 0
-    end
-
-    local min_fresh = h_util.get_numeric_header_token(
-        ngx_req_get_headers()["Cache-Control"], "min-fresh"
-    ) or 0
-
-    return self.remaining_ttl - min_fresh
-end
-
-
--- Reduce the cache lifetime and Last-Modified of this response to match
--- the newest / shortest in a given table of responses. Useful for esi:include.
-function _M.minimise_lifetime(self, responses)
-    for _,res in ipairs(responses) do
-        local ttl = res:ttl()
-        if ttl < self:ttl() then
-            self.header["Cache-Control"] = "max-age="..ttl
-            if self.header["Expires"] then
-                self.header["Expires"] = ngx_http_time(ngx_time() + ttl)
-            end
-        end
-
-        if res.header["Age"] and self.header["Age"] and
-            (tonumber(res.header["Age"]) < tonumber(self.header["Age"])) then
-            self.header["Age"] = res.header["Age"]
-        end
-
-        if res.header["Last-Modified"] and self.header["Last-Modified"] then
-            local res_lm = ngx_parse_http_time(res.header["Last-Modified"])
-            if res_lm > ngx_parse_http_time(self.header["Last-Modified"]) then
-                self.header["Last-Modified"] = res.header["Last-Modified"]
-            end
-        end
-    end
-end
-
 return _M
