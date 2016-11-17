@@ -88,8 +88,9 @@ function scan(cursor, redis)
             local skip = false
 
             local entity = redis:get(cache_key .. "::key")
+            if entity == ngx.null then entity = nil end -- prevent concatentation error
             local memused = redis:get(cache_key .. "::memused")
-            local score = redis:zscore(cache_key .. "::entities", cache_key .. "::" .. entity)
+            local score = redis:zscore(cache_key .. "::entities", cache_key .. "::" .. (entity or ""))
             local entity_count = redis:zcard(cache_key .. "::entities")
             local entity_members = redis:zrange(cache_key .. "::entities", 0, -1)
 
