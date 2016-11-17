@@ -377,6 +377,7 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback,
                 local ok, err = httpc:ssl_handshake(false, host, false)
                 if not ok then
                     ngx_log(ngx_ERR, "ssl handshake failed: ", err)
+                    return nil
                 end
             end
 

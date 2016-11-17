@@ -2510,6 +2510,8 @@ function _M.fetch_from_origin(self)
                                                 self:config_get("upstream_ssl_verify"))
             if not ok then
                 ngx_log(ngx_ERR, "ssl handshake failed: ", err)
+                res.status = 525 -- SSL Handshake Failed
+                return res
             end
         end
     end
