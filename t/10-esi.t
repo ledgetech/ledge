@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) + 31;
+plan tests =>  repeat_each() * (blocks() * 4) + 35;
 
 my $pwd = cwd();
 
@@ -2119,20 +2119,28 @@ X-Cache: MISS from .*
 === TEST 30b: ESI args vary, but cache is a HIT
 --- http_config eval: $::HttpConfig
 --- config
-location /esi_30 {
+location /esi_30_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         ledge:config_set("enable_esi", true)
         run()
     }
 }
+location /esi_30 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("MISS")
+    }
+}
 --- request eval
-["GET /esi_30?esi_a=2", "GET /esi_30?esi_a=3"]
+["GET /esi_30_prx?esi_a=2", "GET /esi_30_prx?esi_a=3", "GET /esi_30_prx?bad_esi_a=4"]
 --- response_body eval
-["2: nil", "3: nil"]
+["2: nil", "3: nil", "MISS"]
 --- error_code eval
-["200", "200"]
+["200", "200", "200"]
 --- response_headers_like eval
-["X-Cache: HIT from .*", "X-Cache: HIT from .*"]
+["X-Cache: HIT from .*", "X-Cache: HIT from .*", "X-Cache: MISS from .*"]
 --- no_error_log
 [error]
 

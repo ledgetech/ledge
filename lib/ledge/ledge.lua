@@ -725,12 +725,13 @@ function _M.cache_key(self)
                 local non_esi_args = {}
 
                 for k,v in pairs(args) do
-                    local _, suffix_pos = str_find(k, esi_args_prefix, 1, true)
-                    if suffix_pos then
+                    -- If we have the prefix, extract the suffix
+                    local m, err = ngx_re_match(k, "^" .. esi_args_prefix .. "(\\S+)", "oj")
+                    if m and m[1] then
                         has_esi_args = true
-                        local suffix = str_sub(k, suffix_pos + 1)
-                        esi_args[suffix] = v
+                        esi_args[m[1]] = v
                     else
+                        -- Otherwise, this is a normal arg
                         non_esi_args[k] = v
                     end
                 end
