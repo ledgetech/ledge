@@ -1,8 +1,8 @@
 package = "ledge"
-version = "1.26.1-1"
+version = "1.27-1"
 source = {
    url = "git://github.com/pintsized/ledge",
-   tag = "v1.26.1"
+   tag = "v1.27"
 }
 description = {
    summary = "An ESI capable HTTP cache module for OpenResty",
@@ -12,9 +12,9 @@ description = {
 }
 dependencies = {
    "lua ~> 5.1",
-   "lua-resty-http >= 0.09",
+   "lua-resty-http >= 0.10",
    "lua-resty-redis-connector >= 0.03",
-   "lua-resty-qless >= 0.07",
+   "lua-resty-qless >= 0.08",
    "lua-resty-cookie >= 0.1",
    "lua-ffi-zlib >= 0.1"
 }
