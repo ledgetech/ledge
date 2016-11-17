@@ -364,6 +364,44 @@ authorization: bar
 [error]
 
 
+=== TEST 5c: Include fragment with absolute URI, schemalss, and no path
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /fragment_1 {
+    echo "FRAGMENT";
+}
+location =/ {
+    echo "ROOT FRAGMENT";
+}
+location /esi_5 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print([[<esi:include src="http://127.0.0.1:1984/fragment_1" />]])
+        ngx.print([[<esi:include src="//127.0.0.1:1984/fragment_1" />]])
+        ngx.print([[<esi:include src="http://127.0.0.1:1984/" />]])
+        ngx.print([[<esi:include src="http://127.0.0.1:1984" />]])
+        ngx.print([[<esi:include src="//127.0.0.1:1984" />]])
+    ';
+}
+--- request
+GET /esi_5_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+FRAGMENT
+FRAGMENT
+ROOT FRAGMENT
+ROOT FRAGMENT
+ROOT FRAGMENT
+--- no_error_log
+[error]
+
+
 === TEST 6: Include multiple fragments, in correct order.
 --- http_config eval: $::HttpConfig
 --- config
