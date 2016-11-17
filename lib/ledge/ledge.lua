@@ -258,8 +258,6 @@ function _M.new(self)
                                                 -- to be reading from replaced (in memory) entities will
                                                 -- have their entity garbage collected before they finish.
 
-        stale_if_error  = nil,  -- (sec) Overrides how long to serve stale on upstream error.
-
         esi_enabled      = false,
         esi_content_types = { "text/html" },
         esi_allow_surrogate_delegation = false, -- Set to true to delegate to any downstream host
@@ -527,7 +525,7 @@ end
 
 -- Returns true if stale-while-revalidate or stale-if-error is specified, valid
 -- and not constrained by other factors such as max-stale.
--- @param   reason  "stale-while-revalidate" | "stale-if-error"
+-- @param   token  "stale-while-revalidate" | "stale-if-error"
 function _M.verify_stale_conditions(self, token)
     local res = self:get_response()
     local res_cc = res.header["Cache-Control"]
