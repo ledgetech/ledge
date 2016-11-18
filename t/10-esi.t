@@ -293,17 +293,19 @@ location /esi_5_prx {
     ';
 }
 location /fragment_1 {
-    echo "FRAGMENT";
+    content_by_lua_block {
+        ngx.say("FRAGMENT: ", ngx.req.get_uri_args()["a"] or "")
+    }
 }
 location /esi_5 {
     default_type text/html;
     content_by_lua '
         ngx.say("1")
-        ngx.print("<esi:include src=\\"/fragment_1\\" />")
+        ngx.print([[<esi:include src="/fragment_1" />]])
         ngx.say("2")
-        ngx.print("<esi:include src=\\"/fragment_1\\" />")
+        ngx.print([[<esi:include src="/fragment_1?a=2" />]])
         ngx.print("3")
-        ngx.print("<esi:include src=\\"/fragment_1\\" />")
+        ngx.print([[<esi:include src="http://127.0.0.1:1984/fragment_1?a=3" />]])
     ';
 }
 --- request
@@ -311,10 +313,10 @@ GET /esi_5_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
-FRAGMENT
+FRAGMENT: 
 2
-FRAGMENT
-3FRAGMENT
+FRAGMENT: 2
+3FRAGMENT: 3
 --- no_error_log
 [error]
 
