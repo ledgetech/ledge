@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests =>  repeat_each() * (blocks() * 4) + 31;
+plan tests =>  repeat_each() * (blocks() * 4) + 35;
 
 my $pwd = cwd();
 
@@ -9,40 +9,50 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_LEDGE_CHUNKED} ||= 'on';
+$ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
     resolver 8.8.8.8;
     if_modified_since off;
     chunked_transfer_encoding $ENV{TEST_LEDGE_CHUNKED};
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
-    init_by_lua "
+lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+    init_by_lua_block {
+        if $ENV{TEST_COVERAGE} == 1 then
+            jit.off()
+            require("luacov.runner").init()
+        end
+
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
         if use_resty_core then
-            require 'resty.core'
+            require "resty.core"
         end
-        ledge_mod = require 'ledge.ledge'
+        ledge_mod = require "ledge.ledge"
         ledge = ledge_mod:new()
-        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
-        ledge:config_set('esi_enabled', true)
-        ledge:config_set('buffer_size', 5) -- Try to trip scanning up with small buffers
+        ledge:config_set("redis_database", $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
+        ledge:config_set("upstream_host", "127.0.0.1")
+        ledge:config_set("upstream_port", 1984)
+        ledge:config_set("esi_enabled", true)
+        ledge:config_set("buffer_size", 5) -- Try to trip scanning up with small buffers
 
         function run()
-            ledge:bind('origin_fetched', function(res)
-                res.header['Surrogate-Control'] = [[content=\\"ESI/1.0\\"]]
+            ledge:bind("origin_fetched", function(res)
+                res.header["Surrogate-Control"] = [[content="ESI/1.0"]]
             end)
             ledge:run()
         end
-    ";
-    init_worker_by_lua "
+    }
+
+    init_worker_by_lua_block {
+        if $ENV{TEST_COVERAGE} == 1 then
+            jit.off()
+        end
         ledge:run_workers()
-    ";
+    }
 };
 
-master_on();
 no_long_string();
+no_diff();
 run_tests();
 
 __DATA__
@@ -283,17 +293,19 @@ location /esi_5_prx {
     ';
 }
 location /fragment_1 {
-    echo "FRAGMENT";
+    content_by_lua_block {
+        ngx.say("FRAGMENT: ", ngx.req.get_uri_args()["a"] or "")
+    }
 }
 location /esi_5 {
     default_type text/html;
     content_by_lua '
         ngx.say("1")
-        ngx.print("<esi:include src=\\"/fragment_1\\" />")
+        ngx.print([[<esi:include src="/fragment_1" />]])
         ngx.say("2")
-        ngx.print("<esi:include src=\\"/fragment_1\\" />")
+        ngx.print([[<esi:include src="/fragment_1?a=2" />]])
         ngx.print("3")
-        ngx.print("<esi:include src=\\"/fragment_1\\" />")
+        ngx.print([[<esi:include src="http://127.0.0.1:1984/fragment_1?a=3" />]])
     ';
 }
 --- request
@@ -301,10 +313,10 @@ GET /esi_5_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
-FRAGMENT
+FRAGMENT: 
 2
-FRAGMENT
-3FRAGMENT
+FRAGMENT: 2
+3FRAGMENT: 3
 --- no_error_log
 [error]
 
@@ -350,6 +362,44 @@ cache-control: no-cache
 x-esi-recursion-level: 1
 user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+[\.\d]*
 authorization: bar
+--- no_error_log
+[error]
+
+
+=== TEST 5c: Include fragment with absolute URI, schemalss, and no path
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        run()
+    ';
+}
+location /fragment_1 {
+    echo "FRAGMENT";
+}
+location =/ {
+    echo "ROOT FRAGMENT";
+}
+location /esi_5 {
+    default_type text/html;
+    content_by_lua '
+        ngx.print([[<esi:include src="http://127.0.0.1:1984/fragment_1" />]])
+        ngx.print([[<esi:include src="//127.0.0.1:1984/fragment_1" />]])
+        ngx.print([[<esi:include src="http://127.0.0.1:1984/" />]])
+        ngx.print([[<esi:include src="http://127.0.0.1:1984" />]])
+        ngx.print([[<esi:include src="//127.0.0.1:1984" />]])
+    ';
+}
+--- request
+GET /esi_5_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+FRAGMENT
+FRAGMENT
+ROOT FRAGMENT
+ROOT FRAGMENT
+ROOT FRAGMENT
 --- no_error_log
 [error]
 
@@ -1933,10 +1983,11 @@ a=1
 location /esi_27_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("max_stale", 60)
         run()
     ';
 }
+--- more_headers
+Cache-Control: stale-while-revalidate=60
 --- request
 GET /esi_27_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
@@ -1952,13 +2003,14 @@ a=1
 location /esi_27_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("stale_if_error", 60)
         run()
     ';
 }
 location /esi_27 {
     return 500;
 }
+--- more_headers
+Cache-Control: stale-if-error=9999
 --- request
 GET /esi_27_prx?a=1
 --- wait: 1
@@ -2069,20 +2121,28 @@ X-Cache: MISS from .*
 === TEST 30b: ESI args vary, but cache is a HIT
 --- http_config eval: $::HttpConfig
 --- config
-location /esi_30 {
+location /esi_30_prx {
+    rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         ledge:config_set("enable_esi", true)
         run()
     }
 }
+location /esi_30 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("MISS")
+    }
+}
 --- request eval
-["GET /esi_30?esi_a=2", "GET /esi_30?esi_a=3"]
+["GET /esi_30_prx?esi_a=2", "GET /esi_30_prx?esi_a=3", "GET /esi_30_prx?bad_esi_a=4"]
 --- response_body eval
-["2: nil", "3: nil"]
+["2: nil", "3: nil", "MISS"]
 --- error_code eval
-["200", "200"]
+["200", "200", "200"]
 --- response_headers_like eval
-["X-Cache: HIT from .*", "X-Cache: HIT from .*"]
+["X-Cache: HIT from .*", "X-Cache: HIT from .*", "X-Cache: MISS from .*"]
 --- no_error_log
 [error]
 
@@ -2302,3 +2362,29 @@ OK
 
 AFTER CONTENT
 --- no_error_log
+
+=== TEST 33: Invalid Surrogate-Capability header is ignored
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_33_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("esi_allow_surrogate_delegation", true)
+        ledge:run()
+    }
+}
+location /esi_33 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Surrogate-Control"] = 'content="ESI/1.0"'
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    }
+}
+--- request
+GET /esi_33_prx?foo=bar
+--- more_headers
+Surrogate-capability: localhost="ESI/1foo"
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: foo=bar
+--- no_error_log
+[error]

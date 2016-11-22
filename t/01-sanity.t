@@ -8,28 +8,40 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
+$ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
-    init_by_lua "
+lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+    init_by_lua_block {
+        if $ENV{TEST_COVERAGE} == 1 then
+            jit.off()
+            require("luacov.runner").init()
+        end
+
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
         if use_resty_core then
-            require 'resty.core'
+            require "resty.core"
         end
-        local ledge_mod = require 'ledge.ledge'
+        ledge_mod = require "ledge.ledge"
         ledge = ledge_mod:new()
-        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
+        ledge:config_set("redis_database", $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
+        ledge:config_set("upstream_host", "127.0.0.1")
+        ledge:config_set("upstream_port", 1984)
         redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
-    ";
-    init_worker_by_lua "
+        pwd = '$pwd'
+    }
+
+    init_worker_by_lua_block {
+        if $ENV{TEST_COVERAGE} == 1 then
+            jit.off()
+        end
         ledge:run_workers()
-    ";
+    }
 };
 
 no_long_string();
+no_diff();
 run_tests();
 
 __DATA__
@@ -49,7 +61,7 @@ GET /sanity_1
 --- http_config eval: $::HttpConfig
 --- config
     location /sanity_2 {
-        content_by_lua '
+        content_by_lua_block {
             for ev,t in pairs(ledge.events) do
                 for _,trans in ipairs(t) do
                     -- Check states
@@ -101,8 +113,50 @@ GET /sanity_1
                 end
             end
 
+            for state, v in pairs(ledge.states) do
+                local found = false
+                for ev, t in pairs(ledge.events) do
+                    for _, trans in ipairs(t) do
+                        if trans["begin"] == state then
+                            found = true
+                        end
+                    end
+                end
+
+                if found == false then
+                    ngx.say("State '", state, "' is never transitioned to")
+                end
+            end
+
+
+            -- Run luac to extract self:e(event) calls by event name
+            local cmd = "luac -p -l " .. pwd .. "/lib/ledge/ledge.lua"
+            cmd = cmd .. [[ | grep -A2 'SELF .* "e"' | awk '{print $7}' | grep "\".*\""]]
+            local f = io.popen(cmd, 'r')
+
+            -- For each call, check the event being triggered exists, and place the event in a table
+            local events_called = {}
+            repeat
+                local event = f:read('*l')
+                if event then
+                    event = ngx.re.gsub(event, "\"", "") -- remove surrounding quotes
+                    events_called[event] = true
+                    if not ledge.events[event] then
+                        ngx.say("Event '", event, "' is called but does not exist")
+                    end
+                end
+            until not event
+
+            for event, t_table in pairs(ledge.events) do
+                if not events_called[event] then
+                    ngx.say("Event '", event, "' exits but is never called")
+                end
+            end
+
+            f:close()
+
             ngx.say("OK")
-        ';
+        }
     }
 --- request
 GET /sanity_2

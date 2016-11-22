@@ -54,13 +54,22 @@ end)
 
 Content is considered "stale" when its age is beyond its TTL. However, depending on the value of [keep_cache_for](#keep_cache_for) (which defaults to 1 month), we don't actually expire content in Redis straight away.
 
-This allows us to continue to serve expired content in the event of upstream failures (see [stale_if_error](#stale_if_error)), or scheduled maintenance (see [origin_mode](#origin_mode)).
+This allows us to implement the stale cache control extensions described in [RFC5861](https://tools.ietf.org/html/rfc5861), which provides request and response header semantics for describing how stale something can be served, when it should be revalidated in the background, and how long we can serve stale content in the event of upstream errors.
 
-In addition, by configuring [max_stale](#max_stale), expired content will continue to be served from cache in normal conditions (advertised as "stale" with the `Warning` response header), but immediately triggering a background revalidation.
+This can be very effective in ensuring a fast user experience. For example, if your content has a `max-age` of 24 hours, consider changing this to 1 hour, and adding `stale-while-revalidate` for 23 hours. The net TTL is therefore the same, but the first request after the first hour will trigger backgrounded revalidation, extending the TTL for a further 1 hour + 23 hours.
 
-This can be very effective in ensuring a fast user experience. For example, if you have a TTL of 24 hours, consider changing this TTL to 1 hour, and specifying `max_stale` as 23 hours. The net TTL is therefore the same, but the first request after the first hour will trigger backgrounded revalidation, extending the TTL for a further 1 hour + 23 hours.
+If your origin server cannot be configured in this way, you can always override by [binding](#events) to the `before_save` event.
 
-In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `max_stale` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long `max_stale` values can result in very out of data content for one request.
+```lua
+ledge:bind("before_save", function(res)
+	-- Valid for 1 hour, stale-while-revalidate for 23 hours, stale-if-error for three days
+	res.header["Cache-Control"] = "max-age=3600, stale-while-revalidate=82800, stale-if-error=259200"
+end)
+```
+
+In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of data content for one request.
+
+All stale behaviours are constrained by normal cache control semantics. For example, if the origin is down, and the response could be served stale due to the upstream error, but the request contains `Cache-Control: no-cache` or even `Cache-Control: max-age=60` where the content is older than 60 seconds, they will be served the error, rather than the stale content.
 
 
 ### PURGE API
@@ -287,7 +296,7 @@ Ledge is a Lua module for OpenResty. It is not designed to work in a pure Lua en
 Download and install:
 
 * [OpenResty](http://openresty.org/) >= 1.9.x *(With LuaJIT enabled)*
-* [Redis](http://redis.io/download) >= 2.8.x *(Note: Redis 3.2 is is currently not supported)*
+* [Redis](http://redis.io/download) >= 2.8.x *(Note: Redis 3.2.x is not yet supported)*
 * [LuaRocks](https://luarocks.org/) *(Not required, but simplifies installation)*
 
 ```
@@ -379,8 +388,6 @@ Config set in `content_by_lua_block` will only affect that specific location, an
  * [redis_sentinels](#redis_sentinels)
  * [keep_cache_for](#keep_cache_for)
  * [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
- * [max_stale](#max_stale)
- * [stale_if_error](#stale_if_error)
  * [cache_key_spec](#cache_key_spec)
  * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
  * [collapsed_forwarding_window](#collapsed_forwarding_window)
@@ -392,7 +399,6 @@ Config set in `content_by_lua_block` will only affect that specific location, an
  * [esi_args_prefix](#esi_args_prefix)
  * [gunzip_enabled](#gunzip_enabled)
  * [keyspace_scan_count](#keyspace_scan_count)
- * [revalidate_parent_headers](#revalidate_parent_headers)
 
 
 ### origin_mode
@@ -640,30 +646,6 @@ Lowering this is fairer on slow clients, but widens the potential window for mul
 This design favours high availability (since there are no read-locks, we can serve cache from Redis slaves in the event of failure) on the assumption that the chances of this causing incomplete resources to be served are quite low.
 
 
-### max_stale
-
-syntax: `ledge:config_set("max_stale", 300)`
-
-default: `nil`
-
-Specifies, in seconds, how far past expiry we can serve cached content. If a value is specified by the `Cache-Control: max-stale=xx` request header, then this setting is ignored, placing control in the client's hands.
-
-When content is served stale because of this, a background revalidation job is scheduled immediately.
-
-**WARNING:** Any setting other than `nil` may violate the HTTP specification (i.e. if the client does not override it with a valid request header value).
-
-
-### stale_if_error
-
-syntax: `ledge:config_set("stale_if_error", 86400)`
-
-default: `nil`
-
-Specifies, in seconds, how far past expiry to serve stale cached content if the origin returns an error.
-
-This can be overridden by the request using the [stale-if-error](http://tools.ietf.org/html/rfc5861) `Cache-Control` extension.
-
-
 ### cache_key_spec
 
 `syntax: ledge:config_set("cache_key_spec", { ngx.var.host, ngx.var.uri, ngx.var.args })`
@@ -721,6 +703,7 @@ default: `false`
 Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though behaviour is also contingent upon [esi_content_types](#esi_content_types) and [esi_surrogate_delegation](#esi_surrogate_delegation) settings, as well as `Surrogate-Control` / `Surrogate-Capability` headers.
 
 ESI instructions are detected on the slow path (i.e. when fetching from the origin), so only instructions which are known to be present are processed on cache HITs.
+
 
 ### esi_content_types
 
@@ -791,14 +774,6 @@ Tunes the behaviour of keyspace scans, which occur when sending a PURGE request 
 A higher number may be better if latency to Redis is high and the keyspace is large.
 
 
-### revalidate_parent_headers
-
-syntax: `ledge:config_set("revalidate_parent_headers", {"x-real-ip", "authorization"})`
-
-default: {"authorization", "cookie"}
-
-Defines which headers from the parent request are passed through to a background revalidation. Useful when upstreams require authentication.
-
 
 ## Events
 
@@ -827,7 +802,7 @@ end)
 * [origin_fetched](#origin_fetched)
 * [before_save](#before_save)
 * [response_ready](#response_ready)
-* [set_revalidation_headers](#set_revalidation_headers)
+* [before_save_revalidation_data](#before_save_revalidation_data)
 
 ### cache_accessed
 

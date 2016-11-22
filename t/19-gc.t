@@ -8,10 +8,16 @@ my $pwd = cwd();
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
+$ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
-    init_by_lua "
+lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+    init_by_lua_block {
+        if $ENV{TEST_COVERAGE} == 1 then
+            jit.off()
+            require("luacov.runner").init()
+        end
+
         local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
         if use_resty_core then
             require 'resty.core'
@@ -23,11 +29,14 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('keep_cache_for', 0)
-    ";
+    }
 
-    init_worker_by_lua "
+    init_worker_by_lua_block {
+        if $ENV{TEST_COVERAGE} == 1 then
+            jit.off()
+        end
         ledge:run_workers()
-    ";
+    }
 };
 
 no_long_string();
@@ -82,7 +91,7 @@ OK
            local key_chain = ledge:cache_key_chain()
            local num_entities, err = redis:zcard(key_chain.entities)
            ngx.say(num_entities)
-           local memused  = redis:get(key_chain.memused)
+           local memused  = redis:hget(key_chain.main, "memused")
            ngx.say(memused)
         ';
     }
@@ -114,7 +123,7 @@ UPDATED
             local key_chain = ledge:cache_key_chain()
             local num_entities, err = redis:zcard(key_chain.entities)
             ngx.say(num_entities)
-            local memused  = redis:get(key_chain.memused)
+            local memused  = redis:hget(key_chain.main, "memused")
             ngx.say(memused)
         ';
     }
@@ -188,12 +197,10 @@ OK
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
             redis:select(ledge:config_get("redis_database"))
-            local key_chain = ledge:cache_key_chain()
-            local entity = redis:get(key_chain.key)
-            local entity_keys = ledge.entity_keys(key_chain.root .. "::" .. entity)
 
-            redis:del(key_chain.entities)
-            redis:del(entity_keys.body)
+            ledge:ctx().redis = redis 
+            local entity_key_chain = ledge:entity_key_chain()
+            redis:del(entity_key_chain.body)
 
             ledge:run()
         ';
@@ -204,19 +211,19 @@ OK
     }
 --- request
 GET /gc_5_prx
+--- wait: 3
 --- no_error_log
 [error]
 --- response_body
 OK 2
 
 
-=== TEST 5c: Missing keys should cause colleciton of the remaining keys. Confirm they are gone.
+=== TEST 5c: Missing keys should cause colleciton of the old entity.
 --- http_config eval: $::HttpConfig
 --- config
     location /gc_5 {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua '
-            ngx.sleep(4)
             local redis_mod = require "resty.redis"
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
@@ -231,8 +238,7 @@ OK 2
     }
 --- request
 GET /gc_5
---- timeout: 6
 --- no_error_log
 [error]
 --- response_body
-9
+5

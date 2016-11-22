@@ -22,7 +22,7 @@ REDIS_FIRST_PORT                    := $(firstword $(TEST_LEDGE_REDIS_PORTS))
 REDIS_SLAVE_ARG                     := --slaveof 127.0.0.1 $(REDIS_FIRST_PORT)
 REDIS_CLI                           := redis-cli -p $(REDIS_FIRST_PORT)
 
-# Override ledge socket for running make test on its' own 
+# Override ledge socket for running make test on its' own
 # (make test TEST_LEDGE_REDIS_SOCKET=/path/to/sock.sock)
 TEST_LEDGE_REDIS_SOCKET             ?= $(REDIS_PREFIX)$(REDIS_FIRST_PORT)$(REDIS_SOCK)
 
@@ -66,7 +66,7 @@ INSTALL         ?= install
 .PHONY: all install test test_all start_redis_instances stop_redis_instances \
 	start_redis_instance stop_redis_instance cleanup_redis_instance flush_db \
 	create_sentinel_config delete_sentinel_config check_ports test_ledge \
-	test_sentinel
+	test_sentinel coverage
 
 all: ;
 
@@ -153,3 +153,10 @@ test_sentinel: flush_db
 
 test_leak: flush_db
 	$(TEST_LEDGE_REDIS_VARS) TEST_NGINX_CHECK_LEAK=1 $(PROVE) $(TEST_FILE)
+
+coverage: flush_db
+	-@echo "Cleaning stats"
+	@rm -f luacov.stats.out
+	$(TEST_LEDGE_REDIS_VARS) TEST_COVERAGE=1 $(PROVE) $(TEST_FILE)
+	@luacov
+	@tail -12 luacov.report.out

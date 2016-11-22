@@ -1,15 +1,17 @@
 local redis_connector = require "resty.redis.connector"
-local ledge = require "ledge.ledge"
+local response = require "ledge.response"
 local qless = require "resty.qless"
 
 local ipairs, tonumber = ipairs, tonumber
 local str_len = string.len
 local str_sub = string.sub
+local ngx_log = ngx.log
+local ngx_ERR = ngx.ERR
 local ngx_null = ngx.null
 local ngx_md5 = ngx.md5
 
 local _M = {
-    _VERSION = '1.26.1',
+    _VERSION = '1.27',
 }
 
 
@@ -34,84 +36,47 @@ function _M.perform(job)
     -- has been scanned.
     local res, err = _M.expire_pattern(0, job)
 
-    if res ~= nil then
-        return true, nil
-    else
+    if not res then
         return nil, "redis-error", err
     end
 end
 
 
--- Scans the keyspace based on a pattern (asterisk) present in the main key,
--- including the ::key suffix to denote the main key entry.
--- (i.e. one per entry)
+-- Scans the keyspace based on a pattern (asterisk), and runs a purge for each cache entry
 function _M.expire_pattern(cursor, job)
-    local res, err = job.redis_slave:scan(
-        cursor,
-        "MATCH", job.data.key_chain.key,
-        "COUNT", job.data.keyspace_scan_count
-    )
-
     if job:ttl() < 10 then
         if not job:heartbeat() then
             return false, "Failed to heartbeat job"
         end
     end
 
+    local res, err = job.redis_slave:scan(
+        cursor,
+        "MATCH", job.data.key_chain.main, -- We use the "main" key to single out a cache entry
+        "COUNT", job.data.keyspace_scan_count
+    )
+
     if not res or res == ngx_null then
-        return nil, "SCAN error: "..tostring(err)
+        return nil, "SCAN error: " .. tostring(err)
     else
         for _,key in ipairs(res[2]) do
-            local entity = job.redis:get(key)
-            if entity and entity ~= ngx_null then
-                -- Remove the ::key part to give the cache_key without a suffix
-                local cache_key = str_sub(key, 1, -(str_len("::key") + 1))
-                -- the entity keys for the live entity
-                local entity_keys = ledge.entity_keys(cache_key .. "::" .. entity)
+            -- Strip the "main" suffix to find the cache key
+            local cache_key = str_sub(key, 1, -(str_len("::main") + 1))
 
-                if job.data.purge_mode == "delete" then
-                    local k_chain = ledge.key_chain(nil, cache_key)
-                    -- hard delete, not just expire
-                    ledge.delete(job.redis, k_chain)
-                    ledge.delete(job.redis, entity_keys)
+            -- Create a Ledge instance and give it just enough scaffolding to run a headless PURGE.
+            -- Remember there's no real request context here.
+            local ledge = require("ledge.ledge").new()
+            ledge:config_set("redis_database", job.redis_params.db)
+            ledge:config_set("redis_qless_database", job.redis_qless_database)
+            ledge:ctx().redis = job.redis
+            ledge:ctx().cache_key = cache_key
+            ledge:set_response(response.new())
 
-                elseif job.data.purge_mode == "revalidate" then
-                    local uri, err = job.redis:hget(entity_keys.main, "uri")
-                    if not uri or uri == ngx_null then
-                        -- If main key is missing or (somehow) the uri field is missing
-                        -- Log error but continue processing keys
-                        -- TODO: schedule gc cleanup here?
-                        if not err then
-                            ngx.log(ngx.ERR, "Entity broken: ", cache_key, "::", entity)
-                        else
-                            ngx.log(ngx.ERR, "Redis Error: ", err)
-                        end
-                    else
-                        -- Schedule the background job (immediately). jid is a function of the
-                        -- URI for automatic de-duping.
-                        _M.put_background_job(
-                            job.redis_params,
-                            job.redis_qless_database,
-                            "ledge_revalidate",
-                            "ledge.jobs.revalidate", {
-                                uri = uri,
-                                entity_keys = entity_keys,
-                            }, {
-                                jid = ngx_md5("revalidate:" .. uri),
-                                tags = { "revalidate" },
-                                priority = 3,
-                            }
-                        )
-                    end
-                end
-
-                local res = ledge.expire_keys(
-                    job.redis,
-                    ledge.key_chain(nil, cache_key), -- a keychain for this key
-                    entity_keys
-                )
-            end -- if not entity
-        end -- loop
+            local res, err = ledge:purge(job.data.purge_mode)
+            if err then
+                ngx_log(ngx_ERR, err)
+            end
+        end
 
         local cursor = tonumber(res[1])
         if cursor > 0 then
@@ -121,43 +86,6 @@ function _M.expire_pattern(cursor, job)
 
         return true
     end
-end
-
-
-function _M.put_background_job(redis_params, qless_db, queue, klass, data, options)
-    -- Try to connect to a slave for SCAN commands.
-    local rc = redis_connector.new()
-    redis_params.db = qless_db
-    redis_params.role = "master"
-
-    local redis, err = rc:connect(redis_params)
-
-    if not redis then
-        return nil, "job-error", "no redis connection provided"
-    end
-
-    redis:select(qless_db)
-    local q = qless.new({ redis_client = redis })
-    -- If we've been specified a jid (i.e. a non random jid), putting this
-    -- job will overwrite any existing job with the same jid.
-    -- We test for a "running" state, and if so we silently drop this job.
-    if options.jid then
-        local existing = q.jobs:get(options.jid)
-
-        if existing and existing.state == "running" then
-            return nil, "Job with the same jid is currently running"
-        end
-    end
-
-    -- Put the job
-    local res, err = q.queues[queue]:put(klass, data, options)
-    if not res then
-        ngx.log(ngx.ERR, err)
-    end
-
-    redis:set_keepalive()
-
-    return res, err
 end
 
 

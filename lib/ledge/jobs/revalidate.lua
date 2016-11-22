@@ -5,7 +5,7 @@ local ngx_null = ngx.null
 local str_match = string.match
 
 local _M = {
-    _VERSION = '1.26.1',
+    _VERSION = '1.27',
 }
 
 
@@ -29,18 +29,27 @@ end
 
 function _M.perform(job)
     local redis = job.redis
-    local entity_keys = job.data.entity_keys
+    local key_chain = job.data.key_chain
 
-    local reval_params, err = hgetall(redis, entity_keys.reval_params)
-    if not reval_params or reval_params == ngx_null or not reval_params.server_addr then
-        return nil, "job-error",    "Revalidation parameters are missing, presumed evicted. " ..
-                                    "This can happen if keep_cache_for is set to 0."
-    end
+    -- Normal background revalidation operates on stored metadata.
+    -- A background fetch due to partial content from upstream however, uses the current
+    -- request metadata for reval_headers / reval_params and passes it through as job data.
+    local reval_params = job.data.reval_params
+    local reval_headers = job.data.reval_headers
 
-    local reval_headers, err = hgetall(redis, entity_keys.reval_req_headers)
-    if not reval_headers or reval_headers == ngx_null then
-        return nil, "job-error",    "Revalidation headers are missing, presumed evicted. " ..
-                                    "This can happen if keep_cache_for is set to 0."
+    -- If we don't have the metadata in job data, this is a background revalidation using
+    -- stored metadata.
+    if not reval_params and not reval_headers then
+        local err
+        reval_params, err = hgetall(redis, key_chain.reval_params)
+        if not reval_params or reval_params == ngx_null or not reval_params.server_addr then
+            return nil, "job-error", "Revalidation parameters are missing, presumed evicted. "
+        end
+
+        reval_headers, err = hgetall(redis, key_chain.reval_req_headers)
+        if not reval_headers or reval_headers == ngx_null then
+            return nil, "job-error", "Revalidation headers are missing, presumed evicted. "
+        end
     end
 
     -- Make outbound http request to revalidate
@@ -76,7 +85,7 @@ function _M.perform(job)
 
     local res, err = httpc:request{
         method = "GET",
-        path = job.data.uri,
+        path = reval_params.uri,
         headers = headers,
     }
 
@@ -90,8 +99,6 @@ function _M.perform(job)
         until not chunk
 
         httpc:set_keepalive()
-
-        return true, nil, nil
     end
 end
 

@@ -1,9 +1,11 @@
 local pairs, unpack = pairs, unpack
 local tbl_insert = table.insert
+local ngx_log = ngx.log
+local ngx_ERR = ngx.ERR
 
 
 local _M = {
-    _VERSION = '1.26.1',
+    _VERSION = '1.27',
 }
 
 
@@ -17,7 +19,7 @@ function _M.perform(job)
     local ok = redis:multi()
 
     local del_keys = {}
-    for _, key in pairs(job.data.entity_keys) do
+    for _, key in pairs(job.data.entity_key_chain) do
         tbl_insert(del_keys, key)
     end
 
@@ -28,22 +30,23 @@ function _M.perform(job)
     -- Params: key, decrement
     -- Return: (integer): the value of the key after the operation.
     local POSDECRBYX = [[
-        local value = redis.call("GET", KEYS[1])
+        local value = redis.call("HGET", KEYS[1], ARGV[1])
         if value and tonumber(value) > 0 then
-            return redis.call("DECRBY", KEYS[1], ARGV[1])
+            return redis.call("HINCRBY", KEYS[1], ARGV[1], -ARGV[2])
         else
             return 0
         end
     ]]
 
-    res, err = redis:eval(POSDECRBYX, 1, job.data.cache_key_chain.memused, job.data.size)
-    res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.entity_keys.main)
+    res, err = redis:eval(POSDECRBYX, 1, job.data.cache_key_chain.main, "memused", job.data.size)
+    if not res then ngx_log(ngx_ERR, err) end
+
+    res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.entity_id)
+    if not res then ngx_log(ngx_ERR, err) end
 
     res, err = redis:exec()
 
-    if res then
-        return true, nil
-    else
+    if not res then
         return nil, "redis-error", err
     end
 end
