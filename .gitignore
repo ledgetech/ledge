@@ -3,3 +3,4 @@ t/error.log
 dump.rdb
 stdout
 luacov.*
+*.src.rock
