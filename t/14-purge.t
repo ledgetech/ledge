@@ -658,6 +658,8 @@ location /purge_cached_13_prx {
             -- Get the subkeys
             local entity_key_chain = ledge:entity_key_chain(false)
             redis:del(entity_key_chain.body)
+            local cache_key_chain = ledge:cache_key_chain()
+            redis:hdel(cache_key_chain.main, "uri")
             ngx.print("Sabotaged: ", entity_key_chain.body)
         else
             ledge:run()
