@@ -11,7 +11,7 @@ local ngx_null = ngx.null
 local ngx_md5 = ngx.md5
 
 local _M = {
-    _VERSION = '1.27',
+    _VERSION = '1.27.1',
 }
 
 
@@ -72,8 +72,10 @@ function _M.expire_pattern(cursor, job)
             ledge:ctx().cache_key = cache_key
             ledge:set_response(response.new())
 
-            local res, err = ledge:purge(job.data.purge_mode)
-            if err then
+            local ok, res, err = pcall(ledge.purge, ledge, job.data.purge_mode)
+            if not ok then
+                ngx_log(ngx_ERR, tostring(res))
+            elseif err then
                 ngx_log(ngx_ERR, err)
             end
         end

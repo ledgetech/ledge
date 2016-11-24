@@ -179,7 +179,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.27',
+    _VERSION = '1.27.1',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -2658,7 +2658,11 @@ function _M.revalidate_in_background(self, update_revalidation_data)
         end
     end
 
-    local uri = redis:hget(key_chain.main, "uri")
+    local uri, err = redis:hget(key_chain.main, "uri")
+    if not uri or uri == ngx_null then
+        ngx_log(ngx_ERR, "Cache key has no 'uri' field, aborting revalidation")
+        return nil
+    end
 
     -- Schedule the background job (immediately). jid is a function of the
     -- URI for automatic de-duping.
@@ -2971,7 +2975,7 @@ function _M.expire_keys(redis, key_chain, entity_key_chain)
         local time = ngx_time()
         local expires, err = redis:hget(key_chain.main, "expires")
         if not expires or expires == ngx_null then
-            return nil, "could not determine existing expiry: " .. err
+            return nil, "could not determine existing expiry: " .. (err or "")
         end
 
         -- If expires is in the past then this key is stale. Nothing to do here.
@@ -2979,9 +2983,9 @@ function _M.expire_keys(redis, key_chain, entity_key_chain)
             return false, nil
         end
 
-        local ttl = redis:ttl(key_chain.main)
+        local ttl, err = redis:ttl(key_chain.main)
         if not ttl or ttl == ngx_null then
-            return nil, "count not determine exsiting ttl: " .. err
+            return nil, "count not determine exsiting ttl: " .. (err or "")
         end
 
         local ttl_reduction = expires - time
