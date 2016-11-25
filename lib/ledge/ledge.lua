@@ -179,7 +179,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.27.1',
+    _VERSION = '1.27.2',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -2281,7 +2281,14 @@ function _M.read_from_cache(self)
     -- TODO: From Redis 3.2.1 this can be one TOUCH command
     local _ = redis:hlen(key_chain.reval_params)
     local _ = redis:hlen(key_chain.reval_req_headers)
-    local _ = redis:zcard(key_chain.entities)
+    local entities, err = redis:zcard(key_chain.entities)
+    if not entities or entities == ngx_null then
+        ngx_log(ngx_ERR, "could not read entities set: ", err)
+        return nil
+    elseif entities == 0 then
+        -- Entities set is perhaps evicted
+        return nil
+    end
 
     local ttl = nil
     local time_in_cache = 0
@@ -2316,31 +2323,38 @@ function _M.read_from_cache(self)
 
     -- Read headers
     local headers = redis:hgetall(key_chain.headers)
-    if headers then
-        local headers_len = tbl_getn(headers)
+    if not headers or headers == ngx_null then
+        ngx_log(ngx_ERR, "could not read headers: ", err)
+        return nil
+    end
 
-        for i = 1, headers_len, 2 do
-            local header = headers[i]
-            if str_find(header, ":") then
-                -- We have multiple headers with the same field name
-                local index, key = unpack(str_split(header, ":"))
-                if not res.header[key] then
-                    res.header[key] = {}
-                end
-                tbl_insert(res.header[key], headers[i + 1])
-            else
-                res.header[header] = headers[i + 1]
+    local headers_len = tbl_getn(headers)
+    if headers_len == 0 then
+        -- Headers have likely been evicted
+        return nil
+    end
+
+    for i = 1, headers_len, 2 do
+        local header = headers[i]
+        if str_find(header, ":") then
+            -- We have multiple headers with the same field name
+            local index, key = unpack(str_split(header, ":"))
+            if not res.header[key] then
+                res.header[key] = {}
             end
+            tbl_insert(res.header[key], headers[i + 1])
+        else
+            res.header[header] = headers[i + 1]
         end
+    end
 
-        -- Calculate the Age header
-        if res.header["Age"] then
-            -- We have end-to-end Age headers, add our time_in_cache.
-            res.header["Age"] = tonumber(res.header["Age"]) + time_in_cache
-        elseif res.header["Date"] then
-            -- We have no advertised Age, use the generated timestamp.
-            res.header["Age"] = time_since_generated
-        end
+    -- Calculate the Age header
+    if res.header["Age"] then
+        -- We have end-to-end Age headers, add our time_in_cache.
+        res.header["Age"] = tonumber(res.header["Age"]) + time_in_cache
+    elseif res.header["Date"] then
+        -- We have no advertised Age, use the generated timestamp.
+        res.header["Age"] = time_since_generated
     end
 
     self:emit("cache_accessed", res)
