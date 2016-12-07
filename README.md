@@ -33,7 +33,7 @@ Please feel free to [ask questions / raise issues / request features](https://gi
 
 Ledge aims to be an RFC compliant HTTP reverse proxy cache wherever possible, providing a fast and robust alternative to Squid / Varnish etc.
 
-There are exceptions and omissions. Please raise an [an issue](https://github.com/pintsized/ledge/issues) if something doesn't work as expected.
+There are exceptions and omissions. Please raise an [issue](https://github.com/pintsized/ledge/issues) if something doesn't work as expected.
 
 Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible. For example, using [ESI](#edge-side-includes-esi) to separate page fragments where their TTL differs, serving stale content whilst [revalidating in the background](#stale--background-revalidation), [collapsing](#collapsed-forwarding) concurrent similar upstream requests, dynamically modifying the cache key specification, and [automatically revalidating](#revalidate-on-purge) content with a PURGE API.
 
