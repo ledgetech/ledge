@@ -2093,6 +2093,9 @@ _M.states = {
     end,
 
     considering_revalidation = function(self)
+        if self:config_get("origin_mode") < _M.ORIGIN_MODE_NORMAL then
+             return self:e "no_validator_present"
+        end
         if self:must_revalidate() then
             return self:e "must_revalidate"
         elseif self:can_revalidate_locally() then
