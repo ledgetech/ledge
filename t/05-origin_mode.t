@@ -90,6 +90,25 @@ X-Cache: HIT from .*
 --- no_error_log
 [error]
 
+=== TEST 2a: ORIGIN_MODE_AVOID (max-age=0 request)
+--- http_config eval: $::HttpConfig
+--- config
+    location /origin_mode_prx {
+        rewrite ^(.*)_prx$ $1 break;
+        content_by_lua_block {
+            ledge:config_set("origin_mode", ledge.ORIGIN_MODE_AVOID)
+            ledge:run()
+        }
+    }
+--- more_headers
+Cache-Control: max-age=0
+--- request
+GET /origin_mode_prx
+--- response_body: OK
+--- response_headers_like
+X-Cache: HIT from .*
+--- no_error_log
+[error]
 
 === TEST 2b: ORIGIN_MODE_AVOID (expired cache)
 --- http_config eval: $::HttpConfig
