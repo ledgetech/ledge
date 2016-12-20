@@ -666,19 +666,21 @@ function _M.is_valid_locally(self)
         local req_ims_parsed = ngx_parse_http_time(req_ims)
 
         if res_lm_parsed and req_ims_parsed then
-            if res_lm_parsed > req_ims_parsed then
-                return false
+            if res_lm_parsed <= req_ims_parsed then
+                return true
             end
         end
     end
 
-    if res.header["Etag"] and req_h["If-None-Match"] then
-        if res.header["Etag"] ~= req_h["If-None-Match"] then
-            return false
+    local etag = res.header["Etag"]
+    local inm = req_h["If-None-Match"]
+    if etag and inm then
+        if etag == inm then
+            return true
         end
     end
 
-    return true
+    return false
 end
 
 
