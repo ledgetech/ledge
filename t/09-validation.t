@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 7;
+plan tests => repeat_each() * (blocks() * 3) - 10;
 
 my $pwd = cwd();
 
@@ -440,8 +440,72 @@ TEST 10
 --- response_headers_like
 X-Cache: HIT from .*
 
+=== TEST 12: Prime cache
+--- http_config eval: $::HttpConfig
+--- config
+location /validation_12_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /validation_12 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "public, max-age=600"
+        ngx.say("Test 12")
+    ';
+}
+--- request
+GET /validation_12_prx
+--- error_code: 200
+--- response_body
+Test 12
 
-=== TEST 12: Allow pending qless jobs to run
+=== TEST 12a: IMS in req and missing LM does not 304
+--- http_config eval: $::HttpConfig
+--- config
+location /validation_12_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /validation_12 {
+    content_by_lua '
+        ngx.say("Test 12")
+    ';
+}
+--- more_headers
+If-Modified-Since: Tue, 29 Nov 2016 23:16:59 GMT
+--- request
+GET /validation_12_prx
+--- error_code: 200
+--- response_body
+Test 12
+
+=== TEST 12b: INM in req and missing etag does not 304
+--- http_config eval: $::HttpConfig
+--- config
+location /validation_12_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /validation_12 {
+    content_by_lua '
+        ngx.say("Test 12")
+    ';
+}
+--- more_headers
+If-None-Match: 1234
+--- request
+GET /validation_12_prx
+--- error_code: 200
+--- response_body
+Test 12
+
+=== TEST 13: Allow pending qless jobs to run
 --- http_config eval: $::HttpConfig
 --- config
 location /qless {
