@@ -36,7 +36,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.27.2'
+    _VERSION = '1.27.3'
 }
 
 local mt = {
