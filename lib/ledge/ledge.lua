@@ -1868,7 +1868,10 @@ _M.states = {
 
             if surrogate_capability then
                 -- Surrogate-Capability: host.example.com="ESI/1.0"
-                local capability_token =  h_util.get_header_token(surrogate_capability, "[!#\\$%&'\\*\\+\\-.\\^_`\\|~0-9a-zA-Z]+")
+                local capability_token = h_util.get_header_token(
+                    surrogate_capability,
+                    "[!#\\$%&'\\*\\+\\-.\\^_`\\|~0-9a-zA-Z]+"
+                )
                 local capability_parser, capability_version = split_esi_token(capability_token)
                 capability_version = tonumber(capability_version)
 
