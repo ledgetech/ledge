@@ -179,7 +179,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.27.2',
+    _VERSION = '1.27.3',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -666,19 +666,19 @@ function _M.is_valid_locally(self)
         local req_ims_parsed = ngx_parse_http_time(req_ims)
 
         if res_lm_parsed and req_ims_parsed then
-            if res_lm_parsed > req_ims_parsed then
-                return false
+            if res_lm_parsed <= req_ims_parsed then
+                return true
             end
         end
     end
 
-    if res.header["Etag"] and req_h["If-None-Match"] then
-        if res.header["Etag"] ~= req_h["If-None-Match"] then
-            return false
-        end
+    local res_etag = res.header["Etag"]
+    local req_inm = req_h["If-None-Match"]
+    if res_etag and req_inm and res_etag == req_inm then
+        return true
     end
 
-    return true
+    return false
 end
 
 
