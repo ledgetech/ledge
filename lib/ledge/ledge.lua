@@ -1087,6 +1087,7 @@ _M.events = {
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
     cache_valid = {
+        { in_case = "forced_cache", begin = "considering_esi_process" },
         { in_case = "collapsed_response_ready", begin = "considering_local_revalidation" },
         { when = "checking_cache", begin = "considering_revalidation" },
     },
@@ -2096,9 +2097,6 @@ _M.states = {
     end,
 
     considering_revalidation = function(self)
-        if self:config_get("origin_mode") < _M.ORIGIN_MODE_NORMAL then
-             return self:e "no_validator_present"
-        end
         if self:must_revalidate() then
             return self:e "must_revalidate"
         elseif self:can_revalidate_locally() then
