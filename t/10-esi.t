@@ -636,7 +636,7 @@ location /esi_8 {
 --- request
 GET /esi_8_prx
 --- response_headers_like
-Cache-Control: private, must-revalidate
+Cache-Control: private, max-age=0
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- no_error_log
 [error]

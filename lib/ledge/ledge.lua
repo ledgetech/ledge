@@ -1534,7 +1534,7 @@ _M.actions = {
     zero_downstream_lifetime = function(self)
         local res = self:get_response()
         if res.header then
-            res.header["Cache-Control"] = "private, must-revalidate"
+            res.header["Cache-Control"] = "private, max-age=0"
         end
     end,
 
