@@ -1087,6 +1087,7 @@ _M.events = {
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
     cache_valid = {
+        { in_case = "forced_cache", begin = "considering_esi_process" },
         { in_case = "collapsed_response_ready", begin = "considering_local_revalidation" },
         { when = "checking_cache", begin = "considering_revalidation" },
     },
