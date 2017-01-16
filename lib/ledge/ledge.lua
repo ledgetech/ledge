@@ -672,12 +672,10 @@ function _M.is_valid_locally(self)
         end
     end
 
-    local etag = res.header["Etag"]
-    local inm = req_h["If-None-Match"]
-    if etag and inm then
-        if etag == inm then
-            return true
-        end
+    local res_etag = res.header["Etag"]
+    local req_inm = req_h["If-None-Match"]
+    if res_etag and req_inm and res_etag == req_inm then
+        return true
     end
 
     return false
