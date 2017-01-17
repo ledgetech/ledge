@@ -100,8 +100,11 @@ local function esi_eval_var(var)
             local cookie_value = ck:get(key)
             return cookie_value or default
         elseif header == "ACCEPT_LANGUAGE" and key then
-            -- TODO: I don't think this works anymore because it will be a table. Test.
-            
+            -- If we're a table (multilple Accept-Language headers), convert to string
+            if type(value) == "table" then
+                value = tbl_concat(value, ", ")
+            end
+
             if ngx_re_find(value, key, "oj") then
                 return "true"
             else
@@ -109,11 +112,11 @@ local function esi_eval_var(var)
             end
 
         elseif type(value) == "table" then
-            -- Multiple request headers turn up as a table (one per request header)
+            -- For normal repeated headers, numeric indexes are supported
             key = tonumber(key)
             if key then
-                -- We can index numerically
-                return tostring(value[key] or default)
+                -- We can index numerically (0 indexed)
+                return tostring(value[key + 1] or default)
             else
                 -- Without a numeric key, render as a comma separated list
                 return tbl_concat(value, ", ") or default

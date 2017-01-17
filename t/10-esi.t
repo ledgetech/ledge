@@ -660,7 +660,7 @@ location /esi_9 {
         ngx.say("</esi:vars>");
         ngx.say("<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>$(HTTP_COOKIE)<esi:vars>$(QUERY_STRING)</esi:vars>")
         ngx.say("$(HTTP_X_MANY_HEADERS): <esi:vars>$(HTTP_X_MANY_HEADERS)</esi:vars>")
-        ngx.say("$(HTTP_X_MANY_HEADERS{3}): <esi:vars>$(HTTP_X_MANY_HEADERS{3})</esi:vars>")
+        ngx.say("$(HTTP_X_MANY_HEADERS{2}): <esi:vars>$(HTTP_X_MANY_HEADERS{2})</esi:vars>")
     ';
 }
 --- more_headers
@@ -680,7 +680,7 @@ HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
 hello$(HTTP_COOKIE)t=1
 $(HTTP_X_MANY_HEADERS): 1, 2, 3, 4, 5, 6=hello
-$(HTTP_X_MANY_HEADERS{3}): 3, 4, 5, 6=hello
+$(HTTP_X_MANY_HEADERS{2}): 3, 4, 5, 6=hello
 --- no_error_log
 [error]
 
@@ -765,7 +765,37 @@ location /fragment1d {
 --- request
 GET /esi_9d_prx?t=1
 --- more_headers
-Accept-Language: da, en-gb, fr 
+Accept-Language: da, en-gb, fr
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+FRAGMENT:1&en-gb=true&de=false
+--- no_error_log
+[error]
+
+
+=== TEST 9e: List variable syntax (accept-language) with multiple headers
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_9e_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'run()';
+}
+location /esi_9e {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("<esi:include src=\\"/fragment1d?$(QUERY_STRING{t})&en-gb=$(HTTP_ACCEPT_LANGUAGE{en-gb})&de=$(HTTP_ACCEPT_LANGUAGE{de})\\" />")
+    ';
+}
+location /fragment1d {
+    content_by_lua '
+        ngx.print("FRAGMENT:"..ngx.var.args)
+    ';
+}
+--- request
+GET /esi_9e_prx?t=1
+--- more_headers
+Accept-Language: da, en-gb
+Accept-Language: fr
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT:1&en-gb=true&de=false
