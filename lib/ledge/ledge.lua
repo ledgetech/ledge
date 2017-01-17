@@ -179,7 +179,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.27.3',
+    _VERSION = '1.28',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -1087,6 +1087,7 @@ _M.events = {
 
     -- We have a (not expired) cache entry. Lets try and validate in case we can exit 304.
     cache_valid = {
+        { in_case = "forced_cache", begin = "considering_esi_process" },
         { in_case = "collapsed_response_ready", begin = "considering_local_revalidation" },
         { when = "checking_cache", begin = "considering_revalidation" },
     },
@@ -1867,9 +1868,12 @@ _M.states = {
             local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
 
             if surrogate_capability then
-                local capability_parser, capability_version = split_esi_token(
-                    h_util.get_header_token(surrogate_capability, ngx_var.host)
+                -- Surrogate-Capability: host.example.com="ESI/1.0"
+                local capability_token = h_util.get_header_token(
+                    surrogate_capability,
+                    "[!#\\$%&'\\*\\+\\-.\\^_`\\|~0-9a-zA-Z]+"
                 )
+                local capability_parser, capability_version = split_esi_token(capability_token)
                 capability_version = tonumber(capability_version)
 
                 if capability_parser and capability_version then

@@ -2388,3 +2388,31 @@ Surrogate-capability: localhost="ESI/1foo"
 --- response_body: foo=bar
 --- no_error_log
 [error]
+
+
+=== TEST 34: Leave instructions intact if surrogate-capability doesn't match http host
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_34_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("esi_allow_surrogate_delegation", true)
+        run()
+    ';
+}
+location /esi_34 {
+    default_type text/html;
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    ';
+}
+--- request
+GET /esi_34_prx?a=1
+--- more_headers
+Surrogate-Capability: esi.example.com="ESI/1.0"
+--- response_body: <esi:vars>$(QUERY_STRING)</esi:vars>
+--- response_headers
+Surrogate-Control: content="ESI/1.0"
+--- no_error_log
+[error]

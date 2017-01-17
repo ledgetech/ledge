@@ -11,7 +11,7 @@ local ngx_null = ngx.null
 local ngx_md5 = ngx.md5
 
 local _M = {
-    _VERSION = '1.27.3',
+    _VERSION = '1.28',
 }
 
 
