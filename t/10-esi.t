@@ -659,10 +659,15 @@ location /esi_9 {
         ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: $(HTTP_COOKIE{SQ_SYSTEM_SESSION})");
         ngx.say("</esi:vars>");
         ngx.say("<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>$(HTTP_COOKIE)<esi:vars>$(QUERY_STRING)</esi:vars>")
+        ngx.say("$(HTTP_X_MANY_HEADERS): <esi:vars>$(HTTP_X_MANY_HEADERS)</esi:vars>")
+        ngx.say("$(HTTP_X_MANY_HEADERS{3}): <esi:vars>$(HTTP_X_MANY_HEADERS{3})</esi:vars>")
     ';
 }
 --- more_headers
 Cookie: myvar=foo; SQ_SYSTEM_SESSION=hello
+X-Many-Headers: 1
+X-Many-Headers: 2
+X-Many-Headers: 3, 4, 5, 6=hello
 --- request
 GET /esi_9_prx?t=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
@@ -674,6 +679,8 @@ HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
 HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
 hello$(HTTP_COOKIE)t=1
+$(HTTP_X_MANY_HEADERS): 1, 2, 3, 4, 5, 6=hello
+$(HTTP_X_MANY_HEADERS{3}): 3, 4, 5, 6=hello
 --- no_error_log
 [error]
 

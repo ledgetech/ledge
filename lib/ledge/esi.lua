@@ -87,6 +87,9 @@ local function esi_eval_var(var)
             end
         end
     elseif str_sub(var_name, 1, 5) == "HTTP_" then
+        -- Evaluate request headers. Cookie and Accept-Language are special
+        -- according to the spec.
+
         local header = str_sub(var_name, 6)
         local value = ngx_req_get_headers()[header]
 
@@ -97,10 +100,23 @@ local function esi_eval_var(var)
             local cookie_value = ck:get(key)
             return cookie_value or default
         elseif header == "ACCEPT_LANGUAGE" and key then
+            -- TODO: I don't think this works anymore because it will be a table. Test.
+            
             if ngx_re_find(value, key, "oj") then
                 return "true"
             else
                 return "false"
+            end
+
+        elseif type(value) == "table" then
+            -- Multiple request headers turn up as a table (one per request header)
+            key = tonumber(key)
+            if key then
+                -- We can index numerically
+                return tostring(value[key] or default)
+            else
+                -- Without a numeric key, render as a comma separated list
+                return tbl_concat(value, ", ") or default
             end
         else
             return value
@@ -115,6 +131,9 @@ local function esi_eval_var(var)
                         return tostring(var[key]) or default
                     end
                 else
+
+                    -- TODO: if ESI_ARGS, stringify and urlencode
+                    
                     if type(var) == "table" then var = default end
                     return var or default
                 end
