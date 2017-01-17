@@ -717,39 +717,6 @@ end
 function _M.cache_key(self)
     if not self:ctx().cache_key then
 
-        -- If ESI is enabled and we have an esi_args prefix, weed uri args
-        -- beginning with the prefix out of the URI (and thus cache key)
-        -- and stash them in the custom ESI variables table.
-        if self:config_get("esi_enabled") then
-            local esi_args_prefix = self:config_get("esi_args_prefix")
-            if esi_args_prefix then
-                local args = ngx_req_get_uri_args()
-                local esi_args = {}
-                local has_esi_args = false
-                local non_esi_args = {}
-
-                for k,v in pairs(args) do
-                    -- If we have the prefix, extract the suffix
-                    local m, err = ngx_re_match(k, "^" .. esi_args_prefix .. "(\\S+)", "oj")
-                    if m and m[1] then
-                        has_esi_args = true
-                        esi_args[m[1]] = v
-                    else
-                        -- Otherwise, this is a normal arg
-                        non_esi_args[k] = v
-                    end
-                end
-
-                if has_esi_args then
-                    local custom_variables = ngx.ctx.ledge_esi_custom_variables
-                    if not custom_variables then custom_variables = {} end
-                    custom_variables["ESI_ARGS"] = esi_args
-                    ngx.ctx.ledge_esi_custom_variables = custom_variables
-                    ngx_req_set_uri_args(non_esi_args)
-                end
-            end
-        end
-
         -- If there is is a wildcard PURGE request with an asterisk placed
         -- at the end of the path, and we have no args, use * as the args.
         local args_default = ""
@@ -1028,7 +995,7 @@ _M.events = {
     -- If we're a worker then we just start running tasks.
     redis_connected = {
         { in_case = "init_worker", begin = "running_worker" },
-        { begin = "checking_method" },
+        { begin = "checking_method", but_first = "filter_esi_args" },
     },
 
     cacheable_method = {
@@ -1465,6 +1432,41 @@ _M.actions = {
         local error_res = self:get_response("error")
         if error_res then
             self:set_response(error_res)
+        end
+    end,
+
+    -- If ESI is enabled and we have an esi_args prefix, weed uri args
+    -- beginning with the prefix (knows as ESI_ARGS) out of the URI (and thus cache key)
+    -- and stash them in the custom ESI variables table.
+    filter_esi_args = function(self)
+        if self:config_get("esi_enabled") then
+            local esi_args_prefix = self:config_get("esi_args_prefix")
+            if esi_args_prefix then
+                local args = ngx_req_get_uri_args()
+                local esi_args = {}
+                local has_esi_args = false
+                local non_esi_args = {}
+
+                for k,v in pairs(args) do
+                    -- If we have the prefix, extract the suffix
+                    local m, err = ngx_re_match(k, "^" .. esi_args_prefix .. "(\\S+)", "oj")
+                    if m and m[1] then
+                        has_esi_args = true
+                        esi_args[m[1]] = v
+                    else
+                        -- Otherwise, this is a normal arg
+                        non_esi_args[k] = v
+                    end
+                end
+
+                if has_esi_args then
+                    local custom_variables = ngx.ctx.ledge_esi_custom_variables
+                    if not custom_variables then custom_variables = {} end
+                    custom_variables["ESI_ARGS"] = esi_args
+                    ngx.ctx.ledge_esi_custom_variables = custom_variables
+                    ngx_req_set_uri_args(non_esi_args)
+                end
+            end
         end
     end,
 

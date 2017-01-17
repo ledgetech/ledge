@@ -2118,6 +2118,7 @@ X-Cache: MISS from .*
 --- no_error_log
 [error]
 
+
 === TEST 30b: ESI args vary, but cache is a HIT
 --- http_config eval: $::HttpConfig
 --- config
@@ -2143,6 +2144,36 @@ location /esi_30 {
 ["200", "200", "200"]
 --- response_headers_like eval
 ["X-Cache: HIT from .*", "X-Cache: HIT from .*", "X-Cache: MISS from .*"]
+--- no_error_log
+[error]
+
+
+=== TEST 30c: As 30 but with request not accepting cache
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_30c_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("enable_esi", true)
+        run()
+    }
+}
+location /esi_30c {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>: ")
+        ngx.print(ngx.req.get_uri_args()["esi_a"])
+    }
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /esi_30c_prx?esi_a=1
+--- response_body: 1: nil
+--- error_code: 200
+--- response_headers_like
+X-Cache: MISS from .*
 --- no_error_log
 [error]
 
