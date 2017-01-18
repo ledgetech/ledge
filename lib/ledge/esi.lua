@@ -134,10 +134,16 @@ local function esi_eval_var(var)
                         return tostring(var[key] or default)
                     end
                 else
-
-                    -- TODO: if ESI_ARGS, stringify and urlencode
-                    
-                    if type(var) == "table" then var = default end
+                    if type(var) == "table" then
+                        if var_name == "ESI_ARGS" then
+                            -- The string version is the origin querystring syntax (encoded)
+                            return ngx.ctx.ledge_esi_args_encoded or default
+                        else
+                            -- No sane way to stringify other tables
+                            return default
+                        end
+                    end
+                    -- We're a string
                     return var or default
                 end
             end

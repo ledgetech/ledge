@@ -2139,6 +2139,7 @@ location /esi_30_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         ledge:config_set("enable_esi", true)
+        ledge:config_set("esi_args_prefix", "_esi_")
         run()
     }
 }
@@ -2147,12 +2148,18 @@ location /esi_30 {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>: ")
-        ngx.print(ngx.req.get_uri_args()["esi_a"])
+        ngx.say(ngx.req.get_uri_args()["esi_a"])
+        ngx.print("<esi:vars>$(ESI_ARGS{b}|noarg)</esi:vars>: ")
+        ngx.say(ngx.req.get_uri_args()["esi_b"])
+        ngx.say("<esi:vars>$(ESI_ARGS|noarg)</esi:vars>")
     }
 }
 --- request
-GET /esi_30_prx?esi_a=1
---- response_body: 1: nil
+GET /esi_30_prx?_esi_a=1&_esi_b=2&_esi_c=hello%20world
+--- response_body
+1: nil
+2: nil
+_esi_a=1&_esi_c=hello%20world&_esi_b=2
 --- error_code: 200
 --- response_headers_like
 X-Cache: MISS from .*
@@ -2180,7 +2187,15 @@ location /esi_30 {
 --- request eval
 ["GET /esi_30_prx?esi_a=2", "GET /esi_30_prx?esi_a=3", "GET /esi_30_prx?bad_esi_a=4"]
 --- response_body eval
-["2: nil", "3: nil", "MISS"]
+["2: nil
+noarg: nil
+esi_a=2
+",
+"3: nil
+noarg: nil
+esi_a=3
+",
+"MISS"]
 --- error_code eval
 ["200", "200", "200"]
 --- response_headers_like eval
