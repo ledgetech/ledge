@@ -131,7 +131,7 @@ local function esi_eval_var(var)
             if var then
                 if key then
                     if type(var) == "table" then
-                        return tostring(var[key]) or default
+                        return tostring(var[key] or default)
                     end
                 else
 

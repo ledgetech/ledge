@@ -651,17 +651,18 @@ location /esi_9_prx {
 }
 location /esi_9 {
     default_type text/html;
-    content_by_lua '
+    content_by_lua_block {
         ngx.say("HTTP_COOKIE: <esi:vars>$(HTTP_COOKIE)</esi:vars>");
         ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: <esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>");
         ngx.say("<esi:vars>");
         ngx.say("HTTP_COOKIE: $(HTTP_COOKIE)");
         ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: $(HTTP_COOKIE{SQ_SYSTEM_SESSION})");
+        ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION_TYPO}: $(HTTP_COOKIE{SQ_SYSTEM_SESSION_TYPO}|'default message')");
         ngx.say("</esi:vars>");
         ngx.say("<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>$(HTTP_COOKIE)<esi:vars>$(QUERY_STRING)</esi:vars>")
         ngx.say("$(HTTP_X_MANY_HEADERS): <esi:vars>$(HTTP_X_MANY_HEADERS)</esi:vars>")
         ngx.say("$(HTTP_X_MANY_HEADERS{2}): <esi:vars>$(HTTP_X_MANY_HEADERS{2})</esi:vars>")
-    ';
+    }
 }
 --- more_headers
 Cookie: myvar=foo; SQ_SYSTEM_SESSION=hello
@@ -677,6 +678,7 @@ HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
 HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
 HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
+HTTP_COOKIE{SQ_SYSTEM_SESSION_TYPO}: default message
 
 hello$(HTTP_COOKIE)t=1
 $(HTTP_X_MANY_HEADERS): 1, 2, 3, 4, 5, 6=hello
@@ -854,6 +856,7 @@ location /esi_9f {
         ngx.say("$(CUSTOM_DICTIONARY|novalue)")
         ngx.say("$(CUSTOM_DICTIONARY{a})")
         ngx.say("$(CUSTOM_DICTIONARY{b})")
+        ngx.say("$(CUSTOM_DICTIONARY{c}|novalue)")
         ngx.say("$(CUSTOM_STRING)")
         ngx.say("$(CUSTOM_STRING{x}|novalue)")
         ngx.print("</esi:vars>")
@@ -866,6 +869,7 @@ GET /esi_9f_prx?a=1
 novalue
 1
 2
+novalue
 foo
 novalue
 --- no_error_log
