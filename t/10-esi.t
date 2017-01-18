@@ -651,18 +651,24 @@ location /esi_9_prx {
 }
 location /esi_9 {
     default_type text/html;
-    content_by_lua '
+    content_by_lua_block {
         ngx.say("HTTP_COOKIE: <esi:vars>$(HTTP_COOKIE)</esi:vars>");
         ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: <esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>");
         ngx.say("<esi:vars>");
         ngx.say("HTTP_COOKIE: $(HTTP_COOKIE)");
         ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION}: $(HTTP_COOKIE{SQ_SYSTEM_SESSION})");
+        ngx.say("HTTP_COOKIE{SQ_SYSTEM_SESSION_TYPO}: $(HTTP_COOKIE{SQ_SYSTEM_SESSION_TYPO}|'default message')");
         ngx.say("</esi:vars>");
         ngx.say("<esi:vars>$(HTTP_COOKIE{SQ_SYSTEM_SESSION})</esi:vars>$(HTTP_COOKIE)<esi:vars>$(QUERY_STRING)</esi:vars>")
-    ';
+        ngx.say("$(HTTP_X_MANY_HEADERS): <esi:vars>$(HTTP_X_MANY_HEADERS)</esi:vars>")
+        ngx.say("$(HTTP_X_MANY_HEADERS{2}): <esi:vars>$(HTTP_X_MANY_HEADERS{2})</esi:vars>")
+    }
 }
 --- more_headers
 Cookie: myvar=foo; SQ_SYSTEM_SESSION=hello
+X-Many-Headers: 1
+X-Many-Headers: 2
+X-Many-Headers: 3, 4, 5, 6=hello
 --- request
 GET /esi_9_prx?t=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
@@ -672,8 +678,11 @@ HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
 
 HTTP_COOKIE: myvar=foo; SQ_SYSTEM_SESSION=hello
 HTTP_COOKIE{SQ_SYSTEM_SESSION}: hello
+HTTP_COOKIE{SQ_SYSTEM_SESSION_TYPO}: default message
 
 hello$(HTTP_COOKIE)t=1
+$(HTTP_X_MANY_HEADERS): 1, 2, 3, 4, 5, 6=hello
+$(HTTP_X_MANY_HEADERS{2}): 3, 4, 5, 6=hello
 --- no_error_log
 [error]
 
@@ -758,7 +767,37 @@ location /fragment1d {
 --- request
 GET /esi_9d_prx?t=1
 --- more_headers
-Accept-Language: da, en-gb, fr 
+Accept-Language: da, en-gb, fr
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+FRAGMENT:1&en-gb=true&de=false
+--- no_error_log
+[error]
+
+
+=== TEST 9e: List variable syntax (accept-language) with multiple headers
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_9e_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua 'run()';
+}
+location /esi_9e {
+    default_type text/html;
+    content_by_lua '
+        ngx.say("<esi:include src=\\"/fragment1d?$(QUERY_STRING{t})&en-gb=$(HTTP_ACCEPT_LANGUAGE{en-gb})&de=$(HTTP_ACCEPT_LANGUAGE{de})\\" />")
+    ';
+}
+location /fragment1d {
+    content_by_lua '
+        ngx.print("FRAGMENT:"..ngx.var.args)
+    ';
+}
+--- request
+GET /esi_9e_prx?t=1
+--- more_headers
+Accept-Language: da, en-gb
+Accept-Language: fr
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 FRAGMENT:1&en-gb=true&de=false
@@ -817,6 +856,7 @@ location /esi_9f {
         ngx.say("$(CUSTOM_DICTIONARY|novalue)")
         ngx.say("$(CUSTOM_DICTIONARY{a})")
         ngx.say("$(CUSTOM_DICTIONARY{b})")
+        ngx.say("$(CUSTOM_DICTIONARY{c}|novalue)")
         ngx.say("$(CUSTOM_STRING)")
         ngx.say("$(CUSTOM_STRING{x}|novalue)")
         ngx.print("</esi:vars>")
@@ -829,6 +869,7 @@ GET /esi_9f_prx?a=1
 novalue
 1
 2
+novalue
 foo
 novalue
 --- no_error_log
@@ -2098,6 +2139,7 @@ location /esi_30_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         ledge:config_set("enable_esi", true)
+        ledge:config_set("esi_args_prefix", "_esi_")
         run()
     }
 }
@@ -2106,17 +2148,24 @@ location /esi_30 {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>: ")
-        ngx.print(ngx.req.get_uri_args()["esi_a"])
+        ngx.say(ngx.req.get_uri_args()["esi_a"])
+        ngx.print("<esi:vars>$(ESI_ARGS{b}|noarg)</esi:vars>: ")
+        ngx.say(ngx.req.get_uri_args()["esi_b"])
+        ngx.say("<esi:vars>$(ESI_ARGS|noarg)</esi:vars>")
     }
 }
 --- request
-GET /esi_30_prx?esi_a=1
---- response_body: 1: nil
+GET /esi_30_prx?_esi_a=1&_esi_b=2&_esi_c=hello%20world
+--- response_body
+1: nil
+2: nil
+_esi_a=1&_esi_c=hello%20world&_esi_b=2
 --- error_code: 200
 --- response_headers_like
 X-Cache: MISS from .*
 --- no_error_log
 [error]
+
 
 === TEST 30b: ESI args vary, but cache is a HIT
 --- http_config eval: $::HttpConfig
@@ -2138,11 +2187,49 @@ location /esi_30 {
 --- request eval
 ["GET /esi_30_prx?esi_a=2", "GET /esi_30_prx?esi_a=3", "GET /esi_30_prx?bad_esi_a=4"]
 --- response_body eval
-["2: nil", "3: nil", "MISS"]
+["2: nil
+noarg: nil
+esi_a=2
+",
+"3: nil
+noarg: nil
+esi_a=3
+",
+"MISS"]
 --- error_code eval
 ["200", "200", "200"]
 --- response_headers_like eval
 ["X-Cache: HIT from .*", "X-Cache: HIT from .*", "X-Cache: MISS from .*"]
+--- no_error_log
+[error]
+
+
+=== TEST 30c: As 30 but with request not accepting cache
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_30c_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("enable_esi", true)
+        run()
+    }
+}
+location /esi_30c {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>: ")
+        ngx.print(ngx.req.get_uri_args()["esi_a"])
+    }
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /esi_30c_prx?esi_a=1
+--- response_body: 1: nil
+--- error_code: 200
+--- response_headers_like
+X-Cache: MISS from .*
 --- no_error_log
 [error]
 

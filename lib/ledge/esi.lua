@@ -87,6 +87,9 @@ local function esi_eval_var(var)
             end
         end
     elseif str_sub(var_name, 1, 5) == "HTTP_" then
+        -- Evaluate request headers. Cookie and Accept-Language are special
+        -- according to the spec.
+
         local header = str_sub(var_name, 6)
         local value = ngx_req_get_headers()[header]
 
@@ -97,10 +100,26 @@ local function esi_eval_var(var)
             local cookie_value = ck:get(key)
             return cookie_value or default
         elseif header == "ACCEPT_LANGUAGE" and key then
+            -- If we're a table (multilple Accept-Language headers), convert to string
+            if type(value) == "table" then
+                value = tbl_concat(value, ", ")
+            end
+
             if ngx_re_find(value, key, "oj") then
                 return "true"
             else
                 return "false"
+            end
+
+        elseif type(value) == "table" then
+            -- For normal repeated headers, numeric indexes are supported
+            key = tonumber(key)
+            if key then
+                -- We can index numerically (0 indexed)
+                return tostring(value[key + 1] or default)
+            else
+                -- Without a numeric key, render as a comma separated list
+                return tbl_concat(value, ", ") or default
             end
         else
             return value
@@ -112,10 +131,19 @@ local function esi_eval_var(var)
             if var then
                 if key then
                     if type(var) == "table" then
-                        return tostring(var[key]) or default
+                        return tostring(var[key] or default)
                     end
                 else
-                    if type(var) == "table" then var = default end
+                    if type(var) == "table" then
+                        if var_name == "ESI_ARGS" then
+                            -- The string version is the origin querystring syntax (encoded)
+                            return ngx.ctx.ledge_esi_args_encoded or default
+                        else
+                            -- No sane way to stringify other tables
+                            return default
+                        end
+                    end
+                    -- We're a string
                     return var or default
                 end
             end
