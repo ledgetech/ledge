@@ -277,6 +277,8 @@ This has the effect of allowing query string parameters to alter the page layout
 
 In this example, the `esi_display_mode` values of `summary` or `details` will return the same cache HIT, but display different content.
 
+If `$(ESI_ARGS)` is used without a field key, it renders the original query string arguments, e.g. `esi_foo=bar&esi_display_mode=summary`, URL encoded.
+
 #### Missing ESI features
 
 The following parts of the [ESI specification](https://www.w3.org/TR/esi-lang) are not supported, but could be in due course if a need is identified.
