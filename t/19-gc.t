@@ -24,8 +24,11 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         end
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
-        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
+        ledge:config_set("redis_connection", {
+            socket = "$ENV{TEST_LEDGE_REDIS_SOCKET}",
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
+        ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('keep_cache_for', 0)
@@ -87,7 +90,7 @@ OK
            local redis_mod = require "resty.redis"
            local redis = redis_mod.new()
            redis:connect("127.0.0.1", 6379)
-           redis:select(ledge:config_get("redis_database"))
+           redis:select(ledge:config_get("redis_connection").db)
            local key_chain = ledge:cache_key_chain()
            local num_entities, err = redis:zcard(key_chain.entities)
            ngx.say(num_entities)
@@ -119,7 +122,7 @@ UPDATED
             local redis_mod = require "resty.redis"
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_database"))
+            redis:select(ledge:config_get("redis_connection").db)
             local key_chain = ledge:cache_key_chain()
             local num_entities, err = redis:zcard(key_chain.entities)
             ngx.say(num_entities)
@@ -147,7 +150,7 @@ GET /gc
             local redis_mod = require "resty.redis"
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_database"))
+            redis:select(ledge:config_get("redis_connection").db)
             local key_chain = ledge:cache_key_chain()
 
             local res, err = redis:keys(key_chain.root .. "*")
@@ -196,7 +199,7 @@ OK
             local redis_mod = require "resty.redis"
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_database"))
+            redis:select(ledge:config_get("redis_connection").db)
 
             ledge:ctx().redis = redis 
             local entity_key_chain = ledge:entity_key_chain()
@@ -227,7 +230,7 @@ OK 2
             local redis_mod = require "resty.redis"
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_database"))
+            redis:select(ledge:config_get("redis_connection").db)
             local key_chain = ledge:cache_key_chain()
 
             local res, err = redis:keys(key_chain.root .. "*")

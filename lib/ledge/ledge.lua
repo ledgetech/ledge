@@ -220,6 +220,27 @@ function _M.new(self)
     local config = {
         origin_mode     = _M.ORIGIN_MODE_NORMAL,
 
+        -- Redis connection settings
+        redis_connect_timeout = 500,    -- (ms) Connect timeout
+        redis_read_timeout = 5000,      -- (ms) Read/write timeout
+        redis_connection_options = nil, -- Additional options passed to tcpsock:connect
+
+        -- Redis keepalive settings
+        redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
+        redis_keepalive_poolsize = nil, -- (sec) Defaults to 30 or lua_socket_pool_size
+
+        -- Redis connection DSN (as supplied to lua-resty-redis-connector)
+        redis_connection = {
+            url = "redis://127.0.0.1:6379/0", -- The Redis DSN for cache metadata
+        },
+
+        -- Redis database for Qless jobs
+        redis_qless_database = 1,
+
+        data_connection = {
+            url = "redis://127.0.0.1:6379/0", -- DSN for data storage
+        },
+
         upstream_connect_timeout = 500,
         upstream_read_timeout = 5000,
         upstream_host = "",
@@ -237,22 +258,6 @@ function _M.new(self)
 
         advertise_ledge = true, -- Set this to false to omit (ledge/_VERSION) from the "Server" response header.
 
-        redis_database  = 0,
-        redis_qless_database = 1,
-        redis_connect_timeout = 500,    -- (ms) Connect timeout
-        redis_read_timeout = 5000,      -- (ms) Read/write timeout
-        redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
-        redis_keepalive_poolsize = nil, -- (sec) Defaults to 30 or lua_socket_pool_size
-        redis_host = { host = "127.0.0.1", port = 6379, socket = nil, password = nil },
-
-        redis_use_sentinel = false,
-        redis_sentinel_master_name = "mymaster",
-        redis_sentinels = {
-            -- e.g.
-            -- { host = "127.0.0.1", port = 6381 },
-            -- { host = "127.0.0.1", port = 6382 },
-            -- { host = "127.0.0.1", port = 6383 },
-        },
 
         keep_cache_for  = 86400 * 30,   -- (sec) Max time to keep cache items past expiry + stale.
                                         -- Items will be evicted when under memory pressure, so this
@@ -378,19 +383,8 @@ function _M.run_workers(self, options)
     if not options then options = {} end
     local resty_qless_worker = require "resty.qless.worker"
 
-    local redis_params
-
-    if self:config_get("redis_use_sentinel") then
-        redis_params = {
-            sentinels = self:config_get("redis_sentinels"),
-            master_name = self:config_get("redis_sentinel_master_name"),
-            role = "master",
-            db = self:config_get("redis_qless_database")
-        }
-    else
-        redis_params = self:config_get("redis_host")
-        redis_params.db = self:config_get("redis_qless_database")
-    end
+    local redis_params = self:config_get("redis_connection")
+    redis_params.db = self:config_get("redis_qless_database")
 
     local connection_options = {
         connect_timeout = self:config_get("redis_connect_timeout"),
@@ -857,6 +851,8 @@ end
 
 function _M.put_background_job(self, queue, klass, data, options)
     local redis = self:ctx().redis
+    local redis_params = self:ctx().redis_params
+    local redis_db = redis_params.db
     local qless_db = self:config_get("redis_qless_database") or 1
 
     redis:select(qless_db)
@@ -869,14 +865,14 @@ function _M.put_background_job(self, queue, klass, data, options)
         local existing = q.jobs:get(options.jid)
 
         if existing and existing.state == "running" then
-            redis:select(self:config_get("redis_database") or 0)
+            redis:select(redis_db or 0)
             return nil, "Job with the same jid is currently running"
         end
     end
 
     -- Put the job
     local res, err = q.queues[queue]:put(klass, data, options)
-    redis:select(self:config_get("redis_database") or 0)
+    redis:select(redis_db or 0)
 
     if res then
         return {
@@ -1706,31 +1702,14 @@ _M.actions = {
 ---------------------------------------------------------------------------------------------------
 _M.states = {
     connecting_to_redis = function(self)
-        local redis_params
-
-        if self:config_get("redis_use_sentinel") then
-            redis_params = {
-                sentinels = self:config_get("redis_sentinels"),
-                master_name = self:config_get("redis_sentinel_master_name"),
-                role = "any",
-                db = self:config_get("redis_database")
-            }
-        else
-            local host = self:config_get("redis_host")
-            redis_params = {
-                host = host.host,
-                port = host.port,
-                password = host.password,
-                db = self:config_get("redis_database")
-            }
-        end
-
         local rc = redis_connector.new()
+
         local connect_timeout = self:config_get("redis_connect_timeout")
         local read_timeout = self:config_get("redis_read_timeout")
-
         rc:set_connect_timeout(connect_timeout)
         rc:set_read_timeout(read_timeout)
+
+        local redis_params = self:config_get("redis_connection")
 
         local redis, err = rc:connect(redis_params)
         if not redis then
