@@ -123,8 +123,9 @@ function _M.get_reader(self, entity_id)
 
             if chunk == ngx_null then
                 ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
-                -- TODO: how to bail out?
                 --return self:e "entity_removed_during_read"
+                -- TODO: how to bail out? For now, we return an error
+                return nil, "entity removed during read"
             end
 
             co_yield(chunk, nil, has_esi == "true")
@@ -133,6 +134,10 @@ function _M.get_reader(self, entity_id)
 end
 
 
+-- Returns a wrapped coroutine for writing chunks to cache, where reader is a
+-- coroutine to be resumed which reads from the upstream socket.
+-- If we cross the body_max_memory boundary, we just keep yielding chunks to be served,
+-- after having removed the cache entry.
 function _M.get_writer(self, entity_id, reader, ttl)
     local redis = self.redis
     local max_memory = (self.body_max_memory or 0) * 1024
@@ -156,11 +161,11 @@ function _M.get_writer(self, entity_id, reader, ttl)
                         end
                         transaction_aborted = true
 
-                        local ok, err = self:delete_from_cache()
+                        local ok, err = self:delete()
                         if err then
-                            ngx_log(ngx_ERR, "error deleting from cache: ", err)
+                            ngx_log(ngx_ERR, "error deleting body: ", err)
                         else
-                            ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ",
+                            ngx_log(ngx_NOTICE, "body could not be stored as it is larger than ",
                                                 max_memory, " bytes")
                         end
                     else
@@ -216,6 +221,9 @@ function _M.get_writer(self, entity_id, reader, ttl)
             -- May have been discarded cleanly due to memory so ignore errors
             redis:discard()
 
+            -- Returning nil should abort the outer (metadata) transaction too
+            -- TODO: Previous behavior was to delete cache item if transaction aborted due
+            -- to memory size, but simply fail for any other reason.
             return nil, "body writer transaction aborted"
         end
     end)
