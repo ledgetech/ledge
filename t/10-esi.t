@@ -32,6 +32,10 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             socket = "$ENV{TEST_LEDGE_REDIS_SOCKET}",
             db = $ENV{TEST_LEDGE_REDIS_DATABASE},
         })
+        ledge:config_set("storage_connection", {
+            socket = "$ENV{TEST_LEDGE_REDIS_SOCKET}",
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
         ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set("upstream_host", "127.0.0.1")
         ledge:config_set("upstream_port", 1984)

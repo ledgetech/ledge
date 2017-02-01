@@ -76,9 +76,10 @@ function _M.connect(self, params)
 
     local redis, err = rc:connect(params)
     if not redis then
-        ngx_log(ngx_ERR, err)
+        return nil, err
     else
         self.redis = redis
+        return true, nil
     end
 end
 

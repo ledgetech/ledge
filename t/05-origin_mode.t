@@ -28,6 +28,10 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             socket = "$ENV{TEST_LEDGE_REDIS_SOCKET}",
             db = $ENV{TEST_LEDGE_REDIS_DATABASE},
         })
+        ledge:config_set("storage_connection", {
+            socket = "$ENV{TEST_LEDGE_REDIS_SOCKET}",
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
         ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set("upstream_host", "127.0.0.1")
         ledge:config_set("upstream_port", 1984)
@@ -91,6 +95,7 @@ GET /origin_mode_prx
 X-Cache: HIT from .*
 --- no_error_log
 [error]
+
 
 === TEST 2a: ORIGIN_MODE_AVOID (max-age=0 request)
 --- http_config eval: $::HttpConfig

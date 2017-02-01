@@ -237,7 +237,7 @@ function _M.new(self)
         -- Redis database for Qless jobs
         redis_qless_database = 1,
 
-        data_connection = {
+        storage_connection = {
             url = "redis://127.0.0.1:6379/0", -- DSN for data storage
         },
 
@@ -320,6 +320,21 @@ function _M.ctx(self)
     return ctx
 end
 
+local function tbl_copy(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == "table" then
+        copy = {}
+        for orig_key, orig_value in next, orig, nil do
+            copy[tbl_copy(orig_key)] = tbl_copy(orig_value)
+        end
+        setmetatable(copy, tbl_copy(getmetatable(orig)))
+    else -- number, string, boolean, etc
+        copy = orig
+    end
+    return copy
+end
+
 
 -- Set a config parameter
 function _M.config_set(self, param, value)
@@ -335,7 +350,12 @@ end
 function _M.config_get(self, param)
     local p = self:ctx().config[param]
     if p == nil then
-        return self.config[param]
+        local static = self.config[param]
+        if type(static) == "table" then
+            return tbl_copy(static)
+        else
+            return static
+        end
     else
         return p
     end
@@ -386,13 +406,15 @@ function _M.run_workers(self, options)
     local redis_params = self:config_get("redis_connection")
     redis_params.db = self:config_get("redis_qless_database")
 
+    local cjson = require "cjson"
+    ngx.log(ngx.DEBUG, "starting qless worker: ", cjson.encode(redis_params))
+
     local connection_options = {
         connect_timeout = self:config_get("redis_connect_timeout"),
         read_timeout = self:config_get("redis_read_timeout"),
     }
 
     local worker = resty_qless_worker.new(redis_params, connection_options)
-
     worker.middleware = function(job)
         self:e "init_worker"
         job.redis = self:ctx().redis
@@ -779,6 +801,18 @@ function _M.cache_key_chain(self)
 end
 
 
+function _M.entity_id(self, key_chain)
+    local redis = self:ctx().redis
+
+    local entity_id, err = redis:hget(key_chain.main, "entity")
+    if not entity_id or entity_id == ngx_null then
+        return nil, err
+    end
+
+    return entity_id
+end
+
+
 function _M.entity_key_chain(self, verify)
     local key_chain = self:cache_key_chain()
     local redis = self:ctx().redis
@@ -989,9 +1023,18 @@ _M.events = {
         { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
 
+    redis_connected = {
+        { begin = "connecting_to_storage" },
+    },
+
+    storage_connection_failed = {
+        { in_case = "init_worker", begin = "sleeping" },
+        { begin = "exiting", but_first = "set_http_service_unavailable" },
+    },
+
     -- We're connected! Let's get on with it then... First step, analyse the request.
     -- If we're a worker then we just start running tasks.
-    redis_connected = {
+    storage_connected = {
         { in_case = "init_worker", begin = "running_worker" },
         { begin = "checking_method", but_first = "filter_esi_args" },
     },
@@ -1403,10 +1446,6 @@ _M.pre_transitions = {
 -- Actions. Functions which can be called on transition.
 ---------------------------------------------------------------------------------------------------
 _M.actions = {
-    redis_connect = function(self)
-        return self:redis_connect()
-    end,
-
     redis_close = function(self)
         return self:redis_close()
     end,
@@ -1702,6 +1741,7 @@ _M.actions = {
 ---------------------------------------------------------------------------------------------------
 _M.states = {
     connecting_to_redis = function(self)
+        ngx.log(ngx.DEBUG, "main redis connection")
         local rc = redis_connector.new()
 
         local connect_timeout = self:config_get("redis_connect_timeout")
@@ -1719,6 +1759,29 @@ _M.states = {
             self:ctx().redis = redis
             self:ctx().redis_params = redis_params
             return self:e "redis_connected"
+        end
+    end,
+
+    connecting_to_storage = function(self)
+        ngx.log(ngx.DEBUG, "storage redis connection")
+        local storage_params = self:config_get("storage_connection")
+
+        -- TODO: For now we assume redis. The plan is to make the schema drive different backends.
+
+        local storage = require("ledge.storage.redis").new()
+
+        local connect_timeout = self:config_get("redis_connect_timeout")
+        local read_timeout = self:config_get("redis_read_timeout")
+        storage:set_connect_timeout(connect_timeout)
+        storage:set_read_timeout(read_timeout)
+
+        local ok, err = storage:connect(storage_params)
+        if not ok then
+            ngx_log(ngx_ERR, err)
+            return self:e "storage_connection_failed"
+        else
+            self:ctx().storage = storage
+            return self:e "storage_connected"
         end
     end,
 
@@ -2257,6 +2320,8 @@ function _M.read_from_cache(self)
     local redis = self:ctx().redis
     local res = response.new()
 
+    -- TODO: This stuff should go away now we have storage drivers
+    -- Drivers need a "verify" step though, like entity_key_chain has currently
     local key_chain = self:cache_key_chain()
     local entity_key_chain, err = self:entity_key_chain(true)
     if not entity_key_chain then
@@ -2267,10 +2332,19 @@ function _M.read_from_cache(self)
         end
     end
 
+    local entity_id = self:entity_id(key_chain)
+
+    local storage, err = self:ctx().storage
+    if not storage:exists(entity_id) then
+        return nil -- MISS
+    end
+
+    local reader = storage:get_reader(entity_id)
+
     -- Get our body reader coroutine for later
     res.body_reader = self:filter_body_reader(
         "cache_body_reader",
-        self:get_cache_body_reader(entity_key_chain)
+        reader
     )
 
     -- Read main metdata
@@ -3189,7 +3263,7 @@ function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
                         if not esi_detected and has_esi then
                             local esi_parser = self:ctx().esi_parser
                             if not esi_parser or not esi_parser.token then
-                                ngx_log(ngx.ERR, "ESI detected but no parser identified")
+                                ngx_log(ngx_ERR, "ESI detected but no parser identified")
                             else
                                 -- Flag this in the main key
                                 local ok, err = redis:hset(key_chain.main, "has_esi", esi_parser.token)
