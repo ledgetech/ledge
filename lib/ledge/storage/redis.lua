@@ -7,6 +7,8 @@ local   tostring, ipairs, pairs, type, tonumber, next, unpack, setmetatable =
 
 local ngx_null = ngx.null
 local ngx_log = ngx.log
+local ngx_ERR = ngx.ERR
+local ngx_NOTICE = ngx.NOTICE
 local ngx_WARN = ngx.WARN
 
 local co_yield = coroutine.yield
@@ -176,7 +178,7 @@ function _M.get_writer(self, entity_id, reader, ttl)
                         if not esi_detected and has_esi then
                             esi_parser = self:ctx().esi_parser
                             if not esi_parser or not esi_parser.token then
-                                ngx_log(ngx.ERR, "ESI detected but no parser identified")
+                                ngx_log(ngx_ERR, "ESI detected but no parser identified")
                             else
                                 esi_detected = true
                             end
