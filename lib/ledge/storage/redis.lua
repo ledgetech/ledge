@@ -10,6 +10,7 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_NOTICE = ngx.NOTICE
 local ngx_WARN = ngx.WARN
+local tbl_insert = table.insert
 
 local co_yield = coroutine.yield
 local co_create = coroutine.create
@@ -85,27 +86,33 @@ end
 
 
 local function entity_keys(entity_id)
-    return setmetatable({
-        body = KEY_PREFIX .. entity_id .. ":body", -- list
-        body_esi = KEY_PREFIX .. entity_id .. ":body_esi", -- list
-    }, { __index = {
-        -- Hide the id from iterators
-        entity_id = entity_id,
-    }})
+    if entity_id then
+        return setmetatable({
+            body = KEY_PREFIX .. entity_id .. ":body", -- list
+            body_esi = KEY_PREFIX .. entity_id .. ":body_esi", -- list
+        }, { __index = {
+            -- Hide the id from iterators
+            entity_id = entity_id,
+        }})
+    end
 end
 
 
 function _M.exists(self, entity_id)
     local keys = entity_keys(entity_id)
-    local redis = self.redis
-
-    local res, err = redis:exists(keys.body, keys.body_esi)
-    if not res and err then
-        return nil, err
-    elseif res == ngx_null or res == 0 then
-        return nil, "entity is missing"
+    if not keys then
+        return nil, "no entity id"
     else
-        return true, nil
+        local redis = self.redis
+
+        local res, err = redis:exists(keys.body, keys.body_esi)
+        if not res and err then
+            return nil, err
+        elseif res == ngx_null or res < 2 then
+            return nil, "entity is missing"
+        else
+            return true, nil
+        end
     end
 end
 
@@ -232,7 +239,14 @@ end
 
 
 function _M.delete(self, entity_id)
-    return self.redis:del(unpack(entity_keys(entity_id)))
+    local key_chain = entity_keys(entity_id)
+    if key_chain then
+        local keys = {}
+        for k, v in pairs(key_chain) do
+            tbl_insert(keys, v)
+        end
+        return self.redis:del(unpack(keys))
+    end
 end
 
 

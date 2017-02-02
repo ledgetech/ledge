@@ -418,6 +418,7 @@ function _M.run_workers(self, options)
     worker.middleware = function(job)
         self:e "init_worker"
         job.redis = self:ctx().redis
+        job.storage = self:ctx().storage
         -- Pass though connection params in case jobs need to
         -- connect to a slave or anything of that nature.
         job.redis_params = self:ctx().redis_params
@@ -2323,7 +2324,7 @@ function _M.read_from_cache(self)
     -- TODO: This stuff should go away now we have storage drivers
     -- Drivers need a "verify" step though, like entity_key_chain has currently
     local key_chain = self:cache_key_chain()
-    local entity_key_chain, err = self:entity_key_chain(true)
+    --[[local entity_key_chain, err = self:entity_key_chain(true)
     if not entity_key_chain then
         if err then
             return self:e "http_internal_server_error"
@@ -2331,11 +2332,31 @@ function _M.read_from_cache(self)
             return nil -- MISS
         end
     end
+    ]]--
 
     local entity_id = self:entity_id(key_chain)
+    if not entity_id then
+        return nil -- Couldn't lookup the entity ID, MISS
+    end
 
     local storage, err = self:ctx().storage
     if not storage:exists(entity_id) then
+        -- The entity is missing (poss evicted). Clean up
+        local size = redis:zscore(key_chain.entities, entity_id)
+        if not size or size == ngx_null then
+            -- Entities set evicted too most likely. Collect immediately.
+            size = 0
+        end
+
+        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+            cache_key_chain = key_chain,
+            entity_id = entity_id,
+            size = size,
+        }, {
+            delay = self:gc_wait(size),
+            tags = { "collect_entity" },
+            priority = 10,
+        })
         return nil -- MISS
     end
 

@@ -2,6 +2,7 @@ local pairs, unpack = pairs, unpack
 local tbl_insert = table.insert
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
+local ngx_null = ngx.null
 
 
 local _M = {
@@ -16,14 +17,18 @@ function _M.perform(job)
         return nil, "job-error", "no redis connection provided"
     end
 
-    local ok = redis:multi()
-
-    local del_keys = {}
-    for _, key in pairs(job.data.entity_key_chain) do
-        tbl_insert(del_keys, key)
+    local storage = job.storage
+    if not storage then
+        return nil, "job-error", "no storage driver provided"
     end
 
-    local res, err = redis:del(unpack(del_keys))
+    redis:multi()
+
+    local ok, err = storage:delete(job.data.entity_id)
+    if not ok or ok == ngx_null then
+        redis:discard()
+        return nil, "job-error", "could not collect entity: " .. job.data.entity_id
+    end
 
     -- Decrement the integer value of a key by the given number, only if the key exists,
     -- and only if the current value is a positive integer.
@@ -38,7 +43,7 @@ function _M.perform(job)
         end
     ]]
 
-    res, err = redis:eval(POSDECRBYX, 1, job.data.cache_key_chain.main, "memused", job.data.size)
+    local res, err = redis:eval(POSDECRBYX, 1, job.data.cache_key_chain.main, "memused", job.data.size)
     if not res then ngx_log(ngx_ERR, err) end
 
     res, err = redis:zrem(job.data.cache_key_chain.entities, job.data.entity_id)
