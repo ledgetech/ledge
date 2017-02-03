@@ -1768,7 +1768,7 @@ _M.states = {
         local storage_params = self:config_get("storage_connection")
 
         -- TODO: For now we assume redis. The plan is to make the schema drive different backends.
-        local storage = require("ledge.storage.redis").new()
+        local storage = require("ledge.storage.redis").new(self, self:ctx())
 
         local ok, err = storage:connect(storage_params)
         if not ok then

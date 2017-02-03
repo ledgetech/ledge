@@ -45,29 +45,37 @@ local mt = {
 local KEY_PREFIX = "ledge:entity:"
 
 
-function _M.new()
+--- Creates a new (disconnected) storage instance.
+-- @param   ledge   Referenence to the ledge module
+-- @param   ctx     Request context
+-- @return  The module instance
+function _M.new(ledge, ctx)
     return setmetatable({
+        ledge = ledge,
+        ctx = ctx,
         redis = nil,
+        reader_cursor = 0,
         body_max_memory = 2048, -- (KB) Max size for a cache body before we bail on trying to store.
     }, mt)
 end
 
 
+--- Connects to the Redis storage backend
+-- @param   params  Redis connection parameters as per lua-resty-redis-connector
+-- @see     https://github.com/pintsized/lua-resty-redis-connector
+-- @usage   The params table can also include
 function _M.connect(self, params)
     local rc = redis_connector.new()
 
-    if params.connect_timeout then
-        rc:set_connect_timeout(self.connect_timeout)
-    end
+    -- Set timeout / connection options
+    local   connect_timeout, read_timeout, connection_options =
+            params.connect_timeout, params.read_timeout, params.connection_options
 
-    if params.read_timeout then
-        rc:set_read_timeout(self.read_timeout)
-    end
+    if connect_timeout then rc:set_connect_timeout(connect_timeout) end
+    if read_timeout then rc:set_read_timeout(read_timeout) end
+    if connection_options then rc:set_connection_options(connection_options) end
 
-    if params.connection_options then
-        rc:set_connection_options()
-    end
-
+    -- Connect
     local redis, err = rc:connect(params)
     if not redis then
         return nil, err
@@ -109,29 +117,43 @@ function _M.exists(self, entity_id)
 end
 
 
--- Returns a reader function, yielding chunk, err, has_esi
+--- Returns an iterator for reading the body chunks.
+-- @param   entity_id   The entity ID
+-- @return  chunk       The chunk data, or nil indicating error or end of stream
+-- @return  err         Error message
+-- @return  has_esi     Boolean to indicate presence of ESI instructions
 function _M.get_reader(self, entity_id)
     local redis = self.redis
     local entity_keys = entity_keys(entity_id)
+    local num_chunks = redis:llen(entity_keys.body) or 0
 
-    local num_chunks = redis:llen(entity_keys.body) - 1
-    if num_chunks < 0 then return nil end
+    return function()
+        local cursor = self.reader_cursor
+        self.reader_cursor = cursor + 1
 
-    return co_wrap(function()
-        for i = 0, num_chunks do
-            local chunk, err = redis:lindex(entity_keys.body, i)
-            local has_esi, err = redis:lindex(entity_keys.body_esi, i)
+        local has_esi = false
 
-            if chunk == ngx_null then
-                ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
-                --return self:e "entity_removed_during_read"
-                -- TODO: how to bail out? For now, we return an error
-                return nil, "entity removed during read"
+        if cursor < num_chunks then
+            local chunk, err = redis:lindex(entity_keys.body, cursor)
+            if not chunk then return nil, err, nil end
+
+            -- Only bother with the body_esi list if we know there are some chunks marked as true
+            -- The body server is responsible for deciding whether to actually call process_esi() or not.
+            local process_esi = self.ctx.esi_process_enabled
+            if process_esi then
+                has_esi, err = redis:lindex(entity_keys.body_esi, cursor)
+                if not has_esi then return nil, err, nil end
             end
 
-            co_yield(chunk, nil, has_esi == "true")
+            if chunk == ngx_null or (process_esi and has_esi == ngx_null) then
+                ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
+                -- Jump out using the state machine
+                return self.ledge:e "entity_removed_during_read"
+            end
+
+            return chunk, nil, has_esi == "true"
         end
-    end)
+    end
 end
 
 
