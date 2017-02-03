@@ -109,6 +109,7 @@ function _M.exists(self, entity_id)
 end
 
 
+-- Returns a reader function, yielding chunk, err, has_esi
 function _M.get_reader(self, entity_id)
     local redis = self.redis
     local entity_keys = entity_keys(entity_id)

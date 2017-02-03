@@ -3182,38 +3182,6 @@ function _M.serve(self)
 end
 
 
--- Returns a wrapped coroutine to be resumed for each body chunk.
-function _M.get_cache_body_reader(self, entity_keys)
-    local redis = self:ctx().redis
-
-    local num_chunks = redis:llen(entity_keys.body) - 1
-    if num_chunks < 0 then return nil end
-
-    local has_esi = false
-
-    return co_wrap(function()
-        local process_esi = self:ctx().esi_process_enabled
-
-        for i = 0, num_chunks do
-            local chunk, err = redis:lindex(entity_keys.body, i)
-
-            -- Just for efficiency, we avoid the lookup. The body server is responsible
-            -- for deciding whether to call process_esi() or not.
-            if process_esi == true then
-                has_esi, err = redis:lindex(entity_keys.body_esi, i)
-            end
-
-            if chunk == ngx_null then
-                ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
-                return self:e "entity_removed_during_read"
-            end
-
-            co_yield(chunk, nil, has_esi == "true")
-        end
-    end)
-end
-
-
 -- Returns a wrapped coroutine for writing chunks to cache, where reader is a
 -- coroutine to be resumed which reads from the upstream socket.
 -- If we cross the max_memory boundary, we just keep yielding chunks to be served,
