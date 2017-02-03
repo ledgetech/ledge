@@ -41,39 +41,32 @@ local mt = {
 }
 
 
+-- Redis key namespace
 local KEY_PREFIX = "ledge:entity:"
 
 
 function _M.new()
     return setmetatable({
         redis = nil,
-        connect_timeout = 100,
-        read_timeout = 1000,
-        connection_options = nil, -- pool, etc
         body_max_memory = 2048, -- (KB) Max size for a cache body before we bail on trying to store.
     }, mt)
 end
 
 
-function _M.set_connect_timeout(self, timeout)
-    self.connect_timeout = timeout
-end
-
-
-function _M.set_read_timeout(self, timeout)
-    self.read_timeout = timeout
-end
-
-
-function _M.set_connection_options(self, options)
-    self.connection_options = options
-end
-
-
 function _M.connect(self, params)
     local rc = redis_connector.new()
-    rc:set_connect_timeout(self.connect_timeout)
-    rc:set_read_timeout(self.read_timeout)
+
+    if params.connect_timeout then
+        rc:set_connect_timeout(self.connect_timeout)
+    end
+
+    if params.read_timeout then
+        rc:set_read_timeout(self.read_timeout)
+    end
+
+    if params.connection_options then
+        rc:set_connection_options()
+    end
 
     local redis, err = rc:connect(params)
     if not redis then
@@ -85,19 +78,18 @@ function _M.connect(self, params)
 end
 
 
+-- Return the Redis keys for the entity; entity_id
 local function entity_keys(entity_id)
     if entity_id then
-        return setmetatable({
+        return {
             body = KEY_PREFIX .. entity_id .. ":body", -- list
             body_esi = KEY_PREFIX .. entity_id .. ":body_esi", -- list
-        }, { __index = {
-            -- Hide the id from iterators
-            entity_id = entity_id,
-        }})
+        }
     end
 end
 
 
+-- Returns a boolean indicating if the entity exists, or nil, err
 function _M.exists(self, entity_id)
     local keys = entity_keys(entity_id)
     if not keys then
@@ -109,7 +101,7 @@ function _M.exists(self, entity_id)
         if not res and err then
             return nil, err
         elseif res == ngx_null or res < 2 then
-            return nil, "entity is missing"
+            return false
         else
             return true, nil
         end

@@ -1768,13 +1768,7 @@ _M.states = {
         local storage_params = self:config_get("storage_connection")
 
         -- TODO: For now we assume redis. The plan is to make the schema drive different backends.
-
         local storage = require("ledge.storage.redis").new()
-
-        local connect_timeout = self:config_get("redis_connect_timeout")
-        local read_timeout = self:config_get("redis_read_timeout")
-        storage:set_connect_timeout(connect_timeout)
-        storage:set_read_timeout(read_timeout)
 
         local ok, err = storage:connect(storage_params)
         if not ok then
@@ -2321,19 +2315,7 @@ function _M.read_from_cache(self)
     local redis = self:ctx().redis
     local res = response.new()
 
-    -- TODO: This stuff should go away now we have storage drivers
-    -- Drivers need a "verify" step though, like entity_key_chain has currently
     local key_chain = self:cache_key_chain()
-    --[[local entity_key_chain, err = self:entity_key_chain(true)
-    if not entity_key_chain then
-        if err then
-            return self:e "http_internal_server_error"
-        else
-            return nil -- MISS
-        end
-    end
-    ]]--
-
     local entity_id = self:entity_id(key_chain)
     if not entity_id then
         return nil -- Couldn't lookup the entity ID, MISS
@@ -2360,12 +2342,10 @@ function _M.read_from_cache(self)
         return nil -- MISS
     end
 
-    local reader = storage:get_reader(entity_id)
-
     -- Get our body reader coroutine for later
     res.body_reader = self:filter_body_reader(
         "cache_body_reader",
-        reader
+        storage:get_reader(entity_id)
     )
 
     -- Read main metdata
