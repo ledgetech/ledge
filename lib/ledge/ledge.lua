@@ -803,6 +803,7 @@ end
 
 
 function _M.entity_id(self, key_chain)
+    if not key_chain and key_chain.main then return nil end
     local redis = self:ctx().redis
 
     local entity_id, err = redis:hget(key_chain.main, "entity")
@@ -859,10 +860,7 @@ function _M.entity_key_chain(self, verify)
             end
 
             self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-                cache_key_chain = key_chain,
-                entity_key_chain = keys,
                 entity_id = keys.entity_id,
-                size = size,
             }, {
                 delay = self:gc_wait(size),
                 tags = { "collect_entity" },
@@ -878,6 +876,7 @@ end
 
 -- Calculate when to GC an entity based on its size and the minimum download rate setting,
 -- plus 1 second of arbitrary latency for good measure.
+-- TODO: Move to util
 function _M.gc_wait(self, entity_size)
     local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
     return math_ceil((entity_size / dl_rate_Bps)) + 1
@@ -1375,6 +1374,7 @@ _M.events = {
     served = {
         { in_case = "upstream_error", begin = "exiting" },
         { in_case = "collapsed_forwarding_upstream_error", begin = "exiting" },
+        { in_case = "response_cacheable", begin = "exiting", but_first = "commit_transaction" },
         { begin = "exiting" },
     },
 
@@ -1769,6 +1769,7 @@ _M.states = {
 
         -- TODO: For now we assume redis. The plan is to make the schema drive different backends.
         local storage = require("ledge.storage.redis").new(self, self:ctx())
+        storage.body_max_memory = self:config_get("cache_max_memory")
 
         local ok, err = storage:connect(storage_params)
         if not ok then
@@ -2322,23 +2323,10 @@ function _M.read_from_cache(self)
     end
 
     local storage, err = self:ctx().storage
-    if not storage:exists(entity_id) then
-        -- The entity is missing (poss evicted). Clean up
-        local size = redis:zscore(key_chain.entities, entity_id)
-        if not size or size == ngx_null then
-            -- Entities set evicted too most likely. Collect immediately.
-            size = 0
-        end
 
-        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-            cache_key_chain = key_chain,
-            entity_id = entity_id,
-            size = size,
-        }, {
-            delay = self:gc_wait(size),
-            tags = { "collect_entity" },
-            priority = 10,
-        })
+    if not storage:exists(entity_id) then
+        -- Presumed evicted, attempt to clean up anything that's left
+        storage:collect(entity_id)
         return nil -- MISS
     end
 
@@ -2347,6 +2335,9 @@ function _M.read_from_cache(self)
         "cache_body_reader",
         storage:get_reader(entity_id)
     )
+
+    res.has_esi = storage:has_esi(entity_id)
+    res.size = storage:size(entity_id)
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(key_chain.main)
@@ -2370,7 +2361,7 @@ function _M.read_from_cache(self)
     -- TODO: From Redis 3.2.1 this can be one TOUCH command
     local _ = redis:hlen(key_chain.reval_params)
     local _ = redis:hlen(key_chain.reval_req_headers)
-    local entities, err = redis:zcard(key_chain.entities)
+    local entities, err = redis:scard(key_chain.entities)
     if not entities or entities == ngx_null then
         ngx_log(ngx_ERR, "could not read entities set: ", err)
         return nil
@@ -2396,8 +2387,8 @@ function _M.read_from_cache(self)
             time_in_cache = ngx_time() - tonumber(cache_parts[i + 1])
         elseif cache_parts[i] == "generated_ts" then
             time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
-        elseif cache_parts[i] == "has_esi" then
-            res.has_esi = cache_parts[i + 1]
+      --  elseif cache_parts[i] == "has_esi" then
+         --   res.has_esi = cache_parts[i + 1]
         elseif cache_parts[i] == "esi_scanned" then
             local scanned = cache_parts[i + 1]
             if scanned == "false" then
@@ -2405,8 +2396,8 @@ function _M.read_from_cache(self)
             else
                 res.esi_scanned = true
             end
-        elseif cache_parts[i] == "size" then
-            res.size = tonumber(cache_parts[i + 1])
+        --elseif cache_parts[i] == "size" then
+          --  res.size = tonumber(cache_parts[i + 1])
         end
     end
 
@@ -2445,6 +2436,9 @@ function _M.read_from_cache(self)
         -- We have no advertised Age, use the generated timestamp.
         res.header["Age"] = time_since_generated
     end
+
+    local cjson = require "cjson"
+    ngx.log(ngx.DEBUG, "Headers read: ", cjson.encode(res.header))
 
     self:emit("cache_accessed", res)
 
@@ -2858,16 +2852,20 @@ function _M.save_to_cache(self, res)
     redis:watch(key_chain.main)
 
     -- Create new entity keys
-    local entity = random_hex(32)
-    local entity_key_chain = _M.entity_keys(entity)
+    local entity_id = random_hex(32)
+    local entity_key_chain = _M.entity_keys(entity_id)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
     -- be in progress. We need to know the previous entity keys and the size.
     local previous_entity_key_chain = self:entity_key_chain()
 
+    local previous_entity_id = self:entity_id(key_chain)
+
+    local storage, err = self:ctx().storage
+
     local previous_entity_size, err
     if previous_entity_key_chain then
-        previous_entity_size, err = redis:hget(key_chain.main, "size")
+        previous_entity_size, err = storage:size(previous_entity_id)
         if previous_entity_size == ngx_null then
             previous_entity_key_chain = nil
             if err then
@@ -2880,10 +2878,12 @@ function _M.save_to_cache(self, res)
     redis:multi()
 
     if previous_entity_key_chain then
+        storage:collect(previous_entity_id)
+        local res, err = redis:srem(key_chain.entities, previous_entity_id)
+        if not res then ngx_log(ngx_ERR, err) end
+--[[
         -- Place this job on the queue
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-            cache_key_chain = key_chain,
-            entity_key_chain = previous_entity_key_chain,
             entity_id = previous_entity_key_chain.entity_id,
             size = previous_entity_size,
         }, {
@@ -2891,10 +2891,11 @@ function _M.save_to_cache(self, res)
             tags = { "collect_entity" },
             priority = 10,
         })
+        ]]--
     end
 
     redis:hmset(key_chain.main,
-        'entity', entity,
+        'entity', entity_id,
         'status', res.status,
         'uri', uri,
         'expires', expires,
@@ -2919,12 +2920,19 @@ function _M.save_to_cache(self, res)
     redis:expire(key_chain.reval_params, keep_cache_for)
     redis:expire(key_chain.reval_req_headers, keep_cache_for)
 
-    -- Instantiate writer coroutine with the entity key set.
-    -- The writer will commit the transaction later.
+    local ok, err = redis:sadd(key_chain.entities, entity_id)
+    if not ok then
+        ngx_log(ngx_ERR, "error adding entity to set: ", err)
+    end
+
+    redis:expire(key_chain.entities, keep_cache_for)
+
+
     if res.has_body then
         res.body_reader = self:filter_body_reader(
             "cache_body_writer",
-            self:get_cache_body_writer(res.body_reader, entity_key_chain, keep_cache_for)
+--            self:get_cache_body_writer(res.body_reader, entity_key_chain, keep_cache_for)
+            storage:get_writer(entity_id, res.body_reader, keep_cache_for)
         )
     else
         -- Run transaction
@@ -2947,33 +2955,12 @@ end
 function _M.delete_from_cache(self)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
-    local entity_key_chain = self:entity_key_chain()
 
-    if entity_key_chain then
-        -- Check we haven't already been deleted by another request
-        local res = redis:exists(key_chain.entities)
-        if res then
-            -- Set a gc job for the current entity, delayed for current reads
-            local size, err = redis:zscore(key_chain.entities, entity_key_chain.entity_id)
-            if not size or size == ngx_null then
-                size = 60
-                ngx_log(ngx_ERR,
-                    "could not determine entity size for scheduling GC, "
-                    .. "will collect in 60 seconds: " .. (err or "")
-                )
-            end
+    local entity_id = self:entity_id(key_chain)
 
-            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-                cache_key_chain = key_chain,
-                entity_key_chain = entity_key_chain,
-                entity_id = entity_key_chain.entity_id,
-                size = size,
-            }, {
-                delay = self:gc_wait(size),
-                tags = { "collect_entity" },
-                priority = 10,
-            })
-        end
+    if entity_id then
+        local storage = self:ctx().storage
+        storage:collect(entity_id, key_chain)
     end
 
     -- Delete everything else immediately
@@ -3019,7 +3006,8 @@ function _M.purge(self, purge_mode)
     end
 
     -- Invalidate the keys
-    local ok, err = _M.expire_keys(redis, key_chain, entity_key_chain)
+    local entity_id = self:entity_id(key_chain)
+    local ok, err = self:expire_keys(key_chain, entity_id)
 
     local result
     if not ok and err then
@@ -3072,7 +3060,10 @@ end
 
 
 -- Expires the keys in key_chain and the entity provided by entity_keys
-function _M.expire_keys(redis, key_chain, entity_key_chain)
+function _M.expire_keys(self, key_chain, entity_id)
+    local redis = self:ctx().redis
+    local storage = self:ctx().storage
+
     local exists, err =  redis:exists(key_chain.main)
     if exists == 1 then
         local time = ngx_time()
@@ -3106,10 +3097,7 @@ function _M.expire_keys(redis, key_chain, entity_key_chain)
             redis:expire(key, ttl - ttl_reduction)
         end
 
-        -- Set new TTLs for all entity keys
-        for _,key in pairs(entity_key_chain) do
-            redis:expire(key, ttl - ttl_reduction)
-        end
+        storage:expire(entity_id, ttl - ttl_reduction)
 
         local ok, err = redis:exec()
         if err then
@@ -3172,6 +3160,9 @@ function _M.serve(self)
             end
         end
 
+        local cjson = require "cjson"
+        ngx.log(ngx.DEBUG, "Headers at serve: ", cjson.encode(res.header))
+
         if res.body_reader and ngx_req_get_method() ~= "HEAD" then
             local buffer_size = self:config_get("buffer_size")
             self:serve_body(res, buffer_size)
@@ -3179,117 +3170,6 @@ function _M.serve(self)
 
         ngx.eof()
     end
-end
-
-
--- Returns a wrapped coroutine for writing chunks to cache, where reader is a
--- coroutine to be resumed which reads from the upstream socket.
--- If we cross the max_memory boundary, we just keep yielding chunks to be served,
--- after having removed the cache entry.
-function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
-    local redis = self:ctx().redis
-    local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
-    local transaction_aborted = false
-    local esi_detected = false
-    local key_chain = self:cache_key_chain()
-
-    return co_wrap(function(buffer_size)
-        local size = 0
-        repeat
-            local chunk, err, has_esi = reader(buffer_size)
-            if chunk then
-                if not transaction_aborted then
-                    size = size + #chunk
-
-                    -- If we cannot store any more, delete everything.
-                    -- TODO: Options for persistent storage and retaining metadata etc.
-                    if size > max_memory then
-                        local res, err = redis:discard()
-                        if err then
-                            ngx_log(ngx_ERR, err)
-                        end
-                        transaction_aborted = true
-
-                        local ok, err = self:delete_from_cache()
-                        if err then
-                            ngx_log(ngx_ERR, "error deleting from cache: ", err)
-                        else
-                            ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ",
-                                                max_memory, " bytes")
-                        end
-                    else
-                        local ok, err = redis:rpush(entity_keys.body, chunk)
-                        if not ok then
-                            transaction_aborted = true
-                            ngx_log(ngx_ERR, "error writing cache chunk: ", err)
-                        end
-                        local ok, err = redis:rpush(entity_keys.body_esi, tostring(has_esi))
-                        if not ok then
-                            transaction_aborted = true
-                            ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
-                        end
-
-                        if not esi_detected and has_esi then
-                            local esi_parser = self:ctx().esi_parser
-                            if not esi_parser or not esi_parser.token then
-                                ngx_log(ngx_ERR, "ESI detected but no parser identified")
-                            else
-                                -- Flag this in the main key
-                                local ok, err = redis:hset(key_chain.main, "has_esi", esi_parser.token)
-                                if not ok then
-                                    transaction_aborted = true
-                                    ngx_log(ngx_ERR, "error setting esi flag: ", err)
-                                end
-                                esi_detected = true
-                            end
-                        end
-                    end
-                end
-                co_yield(chunk, nil, has_esi)
-            elseif size == 0 then
-                local ok, err = redis:rpush(entity_keys.body, "")
-                if not ok then
-                    transaction_aborted = true
-                    ngx_log(ngx_ERR, "error writing blank cache chunk: ", err)
-                end
-                local ok, err = redis:rpush(entity_keys.body_esi, tostring(has_esi))
-                if not ok then
-                    transaction_aborted = true
-                    ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
-                end
-            end
-        until not chunk
-
-        if not transaction_aborted then
-            local ok, err = redis:hset(key_chain.main, "size", size)
-            if not ok then
-                ngx_log(ngx_ERR, "error setting size: ", err)
-            end
-
-            local key_chain = self:cache_key_chain()
-            local ok, err = redis:hincrby(key_chain.main, "memused", size)
-            if not ok then
-                ngx_log(ngx_ERR, "error incrementing memused: ", err)
-            end
-            local ok, err = redis:zadd(key_chain.entities, size, entity_keys.entity_id)
-            if not ok then
-                ngx_log(ngx_ERR, "error adding entity to set: ", err)
-            end
-
-            redis:expire(key_chain.entities, ttl)
-            redis:expire(entity_keys.body, ttl)
-            redis:expire(entity_keys.body_esi, ttl)
-
-            local res, err = redis:exec()
-            if err then
-                ngx_log(ngx_ERR, "error executing cache transaction: ",  err)
-            end
-        else
-            -- If the transaction was aborted make sure we discard
-            -- May have been discarded cleanly due to memory so ignore errors
-            redis:discard()
-        end
-    end)
 end
 
 

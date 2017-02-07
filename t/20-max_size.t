@@ -73,7 +73,7 @@ RESPONSE IS TOO LARGE TEST 1
 --- response_headers_like
 X-Cache: MISS from .*
 --- error_log
-cache item deleted as it is larger than 8 bytes
+larger than 8 bytes
 
 
 === TEST 2: Test we didn't store in previous test.

@@ -55,7 +55,8 @@ function _M.new(ledge, ctx)
         ctx = ctx,
         redis = nil,
         reader_cursor = 0,
-        body_max_memory = 2048, -- (KB) Max size for a cache body before we bail on trying to store.
+        -- TODO: max memory from config
+--        body_max_memory = 2048, -- (KB) Max size for a cache body before we bail on trying to store.
     }, mt)
 end
 
@@ -90,8 +91,10 @@ end
 local function entity_keys(entity_id)
     if entity_id then
         return {
-            body = KEY_PREFIX .. entity_id .. ":body", -- list
-            body_esi = KEY_PREFIX .. entity_id .. ":body_esi", -- list
+            body        = KEY_PREFIX .. entity_id .. ":body", -- list
+            body_esi    = KEY_PREFIX .. entity_id .. ":body_esi", -- list
+            size        = KEY_PREFIX .. entity_id .. ":size", -- string
+            has_esi     = KEY_PREFIX .. entity_id .. ":has_esi", -- string
         }
     end
 end
@@ -113,6 +116,19 @@ function _M.exists(self, entity_id)
         else
             return true, nil
         end
+    end
+end
+
+
+function _M.size(self, entity_id)
+    return self.redis:get(entity_keys(entity_id).size)
+end
+
+
+function _M.has_esi(self, entity_id)
+    local res, err = self.redis:get(entity_keys(entity_id).has_esi)
+    if res and res ~= ngx_null then
+        return res
     end
 end
 
@@ -168,6 +184,10 @@ function _M.get_writer(self, entity_id, reader, ttl)
     local esi_detected = false
     local esi_parser = nil
 
+    -- new
+    local entity_keys = entity_keys(entity_id)
+    redis:multi()
+
     return co_wrap(function(buffer_size)
         local size = 0
         repeat
@@ -204,7 +224,8 @@ function _M.get_writer(self, entity_id, reader, ttl)
                         end
 
                         if not esi_detected and has_esi then
-                            esi_parser = self:ctx().esi_parser
+                            ngx.log(ngx.DEBUG, "setting parser")
+                            esi_parser = self.ledge:ctx().esi_parser
                             if not esi_parser or not esi_parser.token then
                                 ngx_log(ngx_ERR, "ESI detected but no parser identified")
                             else
@@ -229,16 +250,24 @@ function _M.get_writer(self, entity_id, reader, ttl)
         until not chunk
 
         if not transaction_aborted then
+            -- Set size
+            redis:set(entity_keys.size, size)
+            if esi_parser then
+                redis:set(entity_keys.has_esi, esi_parser.token)
+            end
+
             -- Set expiries
             redis:expire(entity_keys.body, ttl)
             redis:expire(entity_keys.body_esi, ttl)
+            redis:expire(entity_keys.size, ttl)
+            redis:expire(entity_keys.has_esi, esi_detected)
 
             local res, err = redis:exec()
             if err then
                 ngx_log(ngx_ERR, "error executing cache transaction: ",  err)
             end
 
-            return entity_id, size, esi_detected, (esi_parser.token or nil)
+            --return res, err --entity_id --, size, esi_detected, (esi_parser.token or nil)
         else
             -- If the transaction was aborted make sure we discard
             -- May have been discarded cleanly due to memory so ignore errors
@@ -247,7 +276,7 @@ function _M.get_writer(self, entity_id, reader, ttl)
             -- Returning nil should abort the outer (metadata) transaction too
             -- TODO: Previous behavior was to delete cache item if transaction aborted due
             -- to memory size, but simply fail for any other reason.
-            return nil, "body writer transaction aborted"
+            --return nil, "body writer transaction aborted"
         end
     end)
 end
@@ -262,6 +291,38 @@ function _M.delete(self, entity_id)
         end
         return self.redis:del(unpack(keys))
     end
+end
+
+
+function _M.expire(self, entity_id, ttl)
+    local key_chain = entity_keys(entity_id)
+    if key_chain then
+        for _,key in pairs(key_chain) do
+            self.redis:expire(key, ttl)
+        end
+    end
+end
+
+
+-- Deferred deletion, allowing existing reads to complete.
+function _M.collect(self, entity_id)
+    ngx.log(ngx.DEBUG, "will collect: ", entity_id)
+    local ledge = self.ledge
+
+    local size, err = self:size(entity_id)
+    if not size or size == ngx_null then
+        ngx_log(ngx_ERR, err)
+        size = 0
+    end
+
+    local delay = ledge:gc_wait(size)
+    ledge:put_background_job("ledge", "ledge.jobs.collect_entity", {
+        entity_id = entity_id,
+    }, {
+        delay = size,
+        tags = { "collect_entity" },
+        priority = 10,
+    })
 end
 
 

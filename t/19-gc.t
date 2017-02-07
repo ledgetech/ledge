@@ -96,10 +96,8 @@ OK
            redis:connect("127.0.0.1", 6379)
            redis:select(ledge:config_get("redis_connection").db)
            local key_chain = ledge:cache_key_chain()
-           local num_entities, err = redis:zcard(key_chain.entities)
+           local num_entities, err = redis:scard(key_chain.entities)
            ngx.say(num_entities)
-           local memused  = redis:hget(key_chain.main, "memused")
-           ngx.say(memused)
         ';
     }
     location /gc {
@@ -112,26 +110,22 @@ Cache-Control: no-cache
 GET /gc_prx
 --- response_body
 UPDATED
-2
-11
+1
+--- wait: 1
 
 
-=== TEST 3: Check we now have just one entity, and memused is reduced by 3 bytes.
+=== TEST 3: Check we now have just one entity
 --- http_config eval: $::HttpConfig
 --- config
     location /gc {
         content_by_lua '
-            ngx.sleep(1) -- Wait for qless to do the work
-
             local redis_mod = require "resty.redis"
             local redis = redis_mod.new()
             redis:connect("127.0.0.1", 6379)
             redis:select(ledge:config_get("redis_connection").db)
             local key_chain = ledge:cache_key_chain()
-            local num_entities, err = redis:zcard(key_chain.entities)
+            local num_entities, err = redis:scard(key_chain.entities)
             ngx.say(num_entities)
-            local memused  = redis:hget(key_chain.main, "memused")
-            ngx.say(memused)
         ';
     }
 --- request
@@ -141,7 +135,6 @@ GET /gc
 [error]
 --- response_body
 1
-8
 
 
 === TEST 4: Entity will have expired, check Redis has cleaned up all keys.

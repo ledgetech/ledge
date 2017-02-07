@@ -69,6 +69,7 @@ function _M.expire_pattern(cursor, job)
             ledge:config_set("redis_connection", job.redis_params)
             ledge:config_set("redis_qless_database", job.redis_qless_database)
             ledge:ctx().redis = job.redis
+            ledge:ctx().storage = job.storage
             ledge:ctx().redis_params = job.redis_params
             ledge:ctx().cache_key = cache_key
             ledge:set_response(response.new())
