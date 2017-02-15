@@ -12,25 +12,6 @@ local ngx_NOTICE = ngx.NOTICE
 local ngx_WARN = ngx.WARN
 local tbl_insert = table.insert
 
-local co_yield = coroutine.yield
-local co_create = coroutine.create
-local co_status = coroutine.status
-local co_resume = coroutine.resume
-local co_wrap = function(func)
-    local co = co_create(func)
-    if not co then
-        return nil, "could not create coroutine"
-    else
-        return function(...)
-            if co_status(co) == "suspended" then
-                return select(2, co_resume(co, ...))
-            else
-                return nil, "can't resume a " .. co_status(co) .. " coroutine"
-            end
-        end
-    end
-end
-
 
 local _M = {
     _VERSION = "1.28"
@@ -164,6 +145,9 @@ function _M.get_reader(self, entity_id)
             if chunk == ngx_null or (process_esi and has_esi == ngx_null) then
                 ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
                 -- Jump out using the state machine
+                -- TODO: Is this necessary? Do we need to know why we're finished other than to log
+                -- it. Surely we just "exit" normally? Would be nice if drivers didn't need to program
+                -- the state machine
                 return self.ledge:e "entity_removed_during_read"
             end
 
@@ -188,8 +172,8 @@ function _M.get_writer(self, entity_id, reader, ttl)
     local entity_keys = entity_keys(entity_id)
     redis:multi()
 
-    return co_wrap(function(buffer_size)
-        local size = 0
+    local size = 0
+    return function(buffer_size)
         repeat
             local chunk, err, has_esi = reader(buffer_size)
             if chunk then
@@ -234,7 +218,10 @@ function _M.get_writer(self, entity_id, reader, ttl)
                         end
                     end
                 end
-                co_yield(chunk, nil, has_esi)
+
+                -- Return the chunk
+                return chunk, nil, has_esi
+
             elseif size == 0 then
                 local ok, err = redis:rpush(entity_keys.body, "")
                 if not ok then
@@ -278,7 +265,7 @@ function _M.get_writer(self, entity_id, reader, ttl)
             -- to memory size, but simply fail for any other reason.
             --return nil, "body writer transaction aborted"
         end
-    end)
+    end
 end
 
 
