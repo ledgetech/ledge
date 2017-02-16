@@ -732,6 +732,28 @@ function _M.filter_body_reader(self, filter_name, filter)
 end
 
 
+
+--TODO: Is this better?
+-- We pass "res" through to filters. They can change values. How are these persisted?
+-- self:install_body_filter(res, get_gzip_decoder)
+-- Nope because the get_filter() function might need args (storage:get_reader(entity_id))
+--[[
+function _M.install_body_filter(self, res, filter_name, filter)
+    if _M.DEBUG then
+        local filters = self:ctx().body_filters
+        if not filters then filters = {} end
+
+        ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")")
+
+        tbl_insert(filters, 1, filter_name)
+        self:ctx().body_filters = filters
+    end
+
+    res.body_reader = filter(res)
+end
+]]--
+
+
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
@@ -2336,6 +2358,13 @@ function _M.read_from_cache(self)
         "cache_body_reader",
         storage:get_reader(entity_id)
     )
+
+    --[[
+    self:install_body_filter(
+        "storage_body_reader",
+        storage:get_reader(res, entity_id)
+    )
+    ]]--
 
     res.has_esi = storage:has_esi(entity_id)
     res.size = storage:size(entity_id)

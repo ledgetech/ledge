@@ -254,16 +254,15 @@ function _M.get_writer(self, entity_id, reader, ttl)
                 ngx_log(ngx_ERR, "error executing cache transaction: ",  err)
             end
 
-            --return res, err --entity_id --, size, esi_detected, (esi_parser.token or nil)
         else
             -- If the transaction was aborted make sure we discard
             -- May have been discarded cleanly due to memory so ignore errors
             redis:discard()
 
-            -- Returning nil should abort the outer (metadata) transaction too
             -- TODO: Previous behavior was to delete cache item if transaction aborted due
             -- to memory size, but simply fail for any other reason.
-            --return nil, "body writer transaction aborted"
+            -- How to notify outer transaction if this one failed??
+            return nil, "body writer transaction aborted"
         end
     end
 end
