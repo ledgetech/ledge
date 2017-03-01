@@ -3,5 +3,6 @@ modules = {
     ["ledge.esi"] = "lib/ledge/esi.lua",
     ["ledge.response"] = "lib/ledge/response.lua",
     ["ledge.header_util"] = "lib/ledge/header_util.lua",
+    ["ledge.util"] = "lib/ledge/util.lua",
     ["ledge.storage.redis"] = "lib/ledge/storage/redis.lua",
 }
