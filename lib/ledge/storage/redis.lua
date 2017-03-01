@@ -1,6 +1,8 @@
 local redis = require "resty.redis"
 local redis_connector = require "resty.redis.connector"
 
+-- TODO: Storage drivers need unit tests
+--       Including memory pressure tests for Redis
 
 local   tostring, ipairs, pairs, type, tonumber, next, unpack, setmetatable =
         tostring, ipairs, pairs, type, tonumber, next, unpack, setmetatable
@@ -297,7 +299,7 @@ function _M.collect(self, entity_id)
 
     local size, err = self:size(entity_id)
     if not size or size == ngx_null then
-        ngx_log(ngx_ERR, err)
+        if err then ngx_log(ngx_ERR, err) end
         size = 0
     end
 

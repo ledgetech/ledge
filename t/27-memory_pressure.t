@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 36;
+plan tests => 24;
 
 my $pwd = cwd();
 
@@ -71,15 +71,11 @@ __DATA__
 --- request eval
 ["GET /mem_pressure_1_prx?key=main",
 "GET /mem_pressure_1_prx?key=headers",
-"GET /mem_pressure_1_prx?key=entities",
-"GET /mem_pressure_1_prx?key=body",
-"GET /mem_pressure_1_prx?key=body_esi"]
+"GET /mem_pressure_1_prx?key=entities"]
 --- response_body eval
 ["Key: main",
 "Key: headers",
-"Key: entities",
-"Key: body",
-"Key: body_esi"]
+"Key: entities"]
 --- no_error_log
 [error]
 
@@ -102,12 +98,7 @@ __DATA__
             local entity_key_chain = ledge:entity_key_chain(false)
 
             local evict = ngx.req.get_uri_args()["key"]
-            local key
-            if string.sub(evict, 1, 4) == "body" then
-                key = entity_key_chain[evict]
-            else
-                key = cache_key_chain[evict]
-            end
+            local key = cache_key_chain[evict]
             ngx.log(ngx.DEBUG, "will evict: ", key)
             local res, err = redis:del(key)
             ngx.log(ngx.DEBUG, tostring(res))
@@ -127,15 +118,11 @@ __DATA__
 --- request eval
 ["GET /mem_pressure_1_prx?key=main",
 "GET /mem_pressure_1_prx?key=headers",
-"GET /mem_pressure_1_prx?key=entities",
-"GET /mem_pressure_1_prx?key=body",
-"GET /mem_pressure_1_prx?key=body_esi"]
+"GET /mem_pressure_1_prx?key=entities"]
 --- response_body eval
 ["MISSED: main",
 "MISSED: headers",
-"MISSED: entities",
-"MISSED: body",
-"MISSED: body_esi"]
+"MISSED: entities"]
 --- no_error_log
 [error]
 
@@ -187,4 +174,5 @@ GET /mem_pressure_2_prx
 GET /mem_pressure_2_prx
 --- response_body: ORIGIN
 --- no_error_log
-[error]
+[error
+

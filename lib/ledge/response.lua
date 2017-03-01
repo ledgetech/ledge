@@ -16,14 +16,30 @@ local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
+local tbl_getn = table.getn
+local tbl_insert = table.insert
+
+local str_find = string.find
+-- TODO: Move this to util
+local str_split = function(str, delim)
+    if not str or not delim then return nil end
+    local it, err = string.gmatch(str, "([^"..delim.."]+)")
+    if it then
+        local output = {}
+        while true do
+            local m, err = it()
+            if not m then
+                break
+            end
+            tbl_insert(output, m)
+        end
+        return output
+    end
+end
 
 
 local _M = {
     _VERSION = '1.28.3'
-}
-
-local mt = {
-    __index = _M,
 }
 
 local NOCACHE_HEADERS = {
@@ -36,18 +52,48 @@ local NOCACHE_HEADERS = {
 }
 
 
-function _M.new()
+-- Const functions
+local _empty_body_reader = function() return nil end
+
+-- Metamethod, error if object is modified externally
+local _newindex = function(t, k, v)
+    error("Attempt to modify response object", 2)
+end
+
+
+local _M = {
+    _VERSION = '1.28'
+}
+
+local mt = {
+    __index = _M,
+    __newindex = _newindex,
+    __metatable = false,
+}
+
+
+function _M.new(ctx)
     return setmetatable({
-        uri = nil,
-        status = nil,
+        ctx = ctx,  -- Request context
+        conn = {},  -- httpc instance
+
+        uri = "",
+        status = 0,
         header = http_headers.new(),
 
-        -- metadata
+        -- stored metadata
         remaining_ttl = 0,
         has_esi = false,
+        size = 0,
+
+        -- runtime metadata
+        esi_scanned = false,
+        length = 0,  -- If Content-Length is present
 
         -- body
-        body_reader = function() return nil end,
+        has_body = false,
+        entity_id = "",
+        body_reader = _empty_body_reader,
     }, mt)
 end
 
@@ -128,6 +174,125 @@ end
 
 function _M.has_expired(self)
     return self.remaining_ttl <= 0
+end
+
+
+function _M.read(self, key_chain)
+    local redis = self.ctx.redis
+
+    -- Read main metdata
+    local cache_parts, err = redis:hgetall(key_chain.main)
+    if not cache_parts then
+        if err then
+            return nil, err -- self:e "http_internal_server_error"
+        else
+            return nil
+        end
+    end
+
+    -- No cache entry for this key
+    local cache_parts_len = #cache_parts
+    if not cache_parts_len then
+        ngx_log(ngx_ERR, "live entity has no data")
+        return nil
+    end
+
+    -- "touch" other keys not needed for read, so that they are
+    -- less likely to be unfairly evicted ahead of time
+    -- TODO: From Redis 3.2.1 this can be one TOUCH command
+    local _ = redis:hlen(key_chain.reval_params)
+    local _ = redis:hlen(key_chain.reval_req_headers)
+    local entities, err = redis:scard(key_chain.entities)
+    if not entities or entities == ngx_null then
+        ngx_log(ngx_ERR, "could not read entities set: ", err)
+        return nil
+    elseif entities == 0 then
+        -- Entities set is perhaps evicted
+        return nil
+    end
+
+    local ttl = nil
+    local time_in_cache = 0
+    local time_since_generated = 0
+
+    -- The Redis replies is a sequence of messages, so we iterate over pairs
+    -- to get hash key/values.
+    for i = 1, cache_parts_len, 2 do
+        if cache_parts[i] == "uri" then
+            self.uri = cache_parts[i + 1]
+
+        elseif cache_parts[i] == "status" then
+            self.status = tonumber(cache_parts[i + 1])
+
+        elseif cache_parts[i] == "entity" then
+            self.entity_id = cache_parts[i + 1]
+
+        elseif cache_parts[i] == "expires" then
+            self.remaining_ttl = tonumber(cache_parts[i + 1]) - ngx_time()
+
+        elseif cache_parts[i] == "saved_ts" then
+            time_in_cache = ngx_time() - tonumber(cache_parts[i + 1])
+
+        elseif cache_parts[i] == "generated_ts" then
+            time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
+      --  elseif cache_parts[i] == "has_esi" then
+         --   self.has_esi = cache_parts[i + 1]
+         --
+        elseif cache_parts[i] == "esi_scanned" then
+            local scanned = cache_parts[i + 1]
+            if scanned == "false" then
+                self.esi_scanned = false
+            else
+                self.esi_scanned = true
+            end
+
+        --elseif cache_parts[i] == "size" then
+          --  self.size = tonumber(cache_parts[i + 1])
+        end
+    end
+
+    -- Read headers
+    local headers = redis:hgetall(key_chain.headers)
+    if not headers or headers == ngx_null then
+        ngx_log(ngx_ERR, "could not read headers: ", err)
+        return nil
+    end
+
+    local headers_len = tbl_getn(headers)
+    if headers_len == 0 then
+        -- Headers have likely been evicted
+        return nil
+    end
+
+    for i = 1, headers_len, 2 do
+        local header = headers[i]
+        if str_find(header, ":") then
+            -- We have multiple headers with the same field name
+            local index, key = unpack(str_split(header, ":"))
+            if not self.header[key] then
+                self.header[key] = {}
+            end
+            tbl_insert(self.header[key], headers[i + 1])
+        else
+            self.header[header] = headers[i + 1]
+        end
+    end
+
+    -- Calculate the Age header
+    if self.header["Age"] then
+        -- We have end-to-end Age headers, add our time_in_cache.
+        self.header["Age"] = tonumber(self.header["Age"]) + time_in_cache
+    elseif self.header["Date"] then
+        -- We have no advertised Age, use the generated timestamp.
+        self.header["Age"] = time_since_generated
+    end
+
+    return true
+end
+
+
+function _M.save(self)
+
 end
 
 

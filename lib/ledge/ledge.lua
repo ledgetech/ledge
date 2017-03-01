@@ -1412,9 +1412,9 @@ _M.events = {
 
     -- The cache body reader was reading from the list, but the entity was collected by a worker
     -- thread because it had been replaced, and the client was too slow.
-    entity_removed_during_read = {
+  --[[  entity_removed_during_read = {
         { begin = "exiting", but_first = "set_http_connection_timed_out" },
-    },
+    },]]--
 
     -- Useful events for exiting with a common status. If we've already served (perhaps we're doing
     -- background work, we just exit without re-setting the status (as this errors).
@@ -1478,7 +1478,7 @@ _M.actions = {
         local res = self:get_response()
         if res then
             local httpc = res.conn
-            if httpc then
+            if httpc and type(httpc.set_keepalive) == "function" then
                 return httpc:set_keepalive()
             end
         end
@@ -1681,7 +1681,7 @@ _M.actions = {
     end,
 
     set_json_response = function(self)
-        local res = response.new()
+        local res = response.new(self.ctx())
         res.header["Content-Type"] = "application/json"
         self:set_response(res)
     end,
@@ -2336,42 +2336,11 @@ end
 
 
 function _M.read_from_cache(self)
-    local redis = self:ctx().redis
-    local res = response.new()
+    local ctx = self:ctx()
 
-    local key_chain = self:cache_key_chain()
-    local entity_id = self:entity_id(key_chain)
-    if not entity_id then
-        return nil -- Couldn't lookup the entity ID, MISS
-    end
-
-    local storage, err = self:ctx().storage
-
-    if not storage:exists(entity_id) then
-        -- Presumed evicted, attempt to clean up anything that's left
-        storage:collect(entity_id)
-        return nil -- MISS
-    end
-
-    -- Get our body reader coroutine for later
-    res.body_reader = self:filter_body_reader(
-        "cache_body_reader",
-        storage:get_reader(entity_id)
-    )
-
-    --[[
-    self:install_body_filter(
-        "storage_body_reader",
-        storage:get_reader(res, entity_id)
-    )
-    ]]--
-
-    res.has_esi = storage:has_esi(entity_id)
-    res.size = storage:size(entity_id)
-
-    -- Read main metdata
-    local cache_parts, err = redis:hgetall(key_chain.main)
-    if not cache_parts then
+    local res = response.new(ctx)
+    local ok, err = res:read(self:cache_key_chain())
+    if not ok then
         if err then
             return self:e "http_internal_server_error"
         else
@@ -2379,99 +2348,24 @@ function _M.read_from_cache(self)
         end
     end
 
-    -- No cache entry for this key
-    local cache_parts_len = #cache_parts
-    if not cache_parts_len then
-        ngx_log(ngx_ERR, "live entity has no data")
-        return nil
+    local storage = ctx.storage
+    if not storage:exists(res.entity_id) then
+        -- Should exist, so presumed evicted
+        storage:collect(res.entity_id)
+        return nil -- MISS
     end
 
-    -- "touch" other keys not needed for read, so that they are
-    -- less likely to be unfairly evicted ahead of time
-    -- TODO: From Redis 3.2.1 this can be one TOUCH command
-    local _ = redis:hlen(key_chain.reval_params)
-    local _ = redis:hlen(key_chain.reval_req_headers)
-    local entities, err = redis:scard(key_chain.entities)
-    if not entities or entities == ngx_null then
-        ngx_log(ngx_ERR, "could not read entities set: ", err)
-        return nil
-    elseif entities == 0 then
-        -- Entities set is perhaps evicted
-        return nil
-    end
+    -- Filter body reader with cache storage reader
+    res.body_reader = self:filter_body_reader(
+        "cache_body_reader",
+        storage:get_reader(res.entity_id)
+    )
 
-    local ttl = nil
-    local time_in_cache = 0
-    local time_since_generated = 0
-
-    -- The Redis replies is a sequence of messages, so we iterate over pairs
-    -- to get hash key/values.
-    for i = 1, cache_parts_len, 2 do
-        if cache_parts[i] == "uri" then
-            res.uri = cache_parts[i + 1]
-        elseif cache_parts[i] == "status" then
-            res.status = tonumber(cache_parts[i + 1])
-        elseif cache_parts[i] == "expires" then
-            res.remaining_ttl = tonumber(cache_parts[i + 1]) - ngx_time()
-        elseif cache_parts[i] == "saved_ts" then
-            time_in_cache = ngx_time() - tonumber(cache_parts[i + 1])
-        elseif cache_parts[i] == "generated_ts" then
-            time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
-      --  elseif cache_parts[i] == "has_esi" then
-         --   res.has_esi = cache_parts[i + 1]
-        elseif cache_parts[i] == "esi_scanned" then
-            local scanned = cache_parts[i + 1]
-            if scanned == "false" then
-                res.esi_scanned = false
-            else
-                res.esi_scanned = true
-            end
-        --elseif cache_parts[i] == "size" then
-          --  res.size = tonumber(cache_parts[i + 1])
-        end
-    end
-
-    -- Read headers
-    local headers = redis:hgetall(key_chain.headers)
-    if not headers or headers == ngx_null then
-        ngx_log(ngx_ERR, "could not read headers: ", err)
-        return nil
-    end
-
-    local headers_len = tbl_getn(headers)
-    if headers_len == 0 then
-        -- Headers have likely been evicted
-        return nil
-    end
-
-    for i = 1, headers_len, 2 do
-        local header = headers[i]
-        if str_find(header, ":") then
-            -- We have multiple headers with the same field name
-            local index, key = unpack(str_split(header, ":"))
-            if not res.header[key] then
-                res.header[key] = {}
-            end
-            tbl_insert(res.header[key], headers[i + 1])
-        else
-            res.header[header] = headers[i + 1]
-        end
-    end
-
-    -- Calculate the Age header
-    if res.header["Age"] then
-        -- We have end-to-end Age headers, add our time_in_cache.
-        res.header["Age"] = tonumber(res.header["Age"]) + time_in_cache
-    elseif res.header["Date"] then
-        -- We have no advertised Age, use the generated timestamp.
-        res.header["Age"] = time_since_generated
-    end
-
-    local cjson = require "cjson"
-    ngx.log(ngx.DEBUG, "Headers read: ", cjson.encode(res.header))
+    -- TODO: We want to move this back
+    res.has_esi = storage:has_esi(res.entity_id)
+    res.size = storage:size(res.entity_id)
 
     self:emit("cache_accessed", res)
-
     return res
 end
 
@@ -2603,7 +2497,7 @@ end
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response.new()
+    local res = response.new(self.ctx())
     self:emit("origin_required")
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
@@ -2643,6 +2537,8 @@ function _M.fetch_from_origin(self)
             end
         end
     end
+
+    res.conn = httpc
 
     -- Case insensitve headers so that we can safely manipulate them
     local headers = http_headers.new()
@@ -2686,7 +2582,6 @@ function _M.fetch_from_origin(self)
         return res
     end
 
-    res.conn = httpc
     res.status = origin.status
 
     -- Merge end-to-end headers
