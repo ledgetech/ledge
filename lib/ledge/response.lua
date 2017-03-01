@@ -1,12 +1,10 @@
 local h_util = require "ledge.header_util"
+local util = require "ledge.util"
 local http_headers = require "resty.http_headers"
 
-local pairs = pairs
-local ipairs = ipairs
-local setmetatable = setmetatable
-local rawset = rawset
-local rawget = rawget
-local tonumber = tonumber
+local pairs, ipairs, setmetatable, tonumber, unpack =
+    pairs, ipairs, setmetatable, tonumber, unpack
+
 local tbl_concat = table.concat
 local str_lower = string.lower
 local str_gsub = string.gsub
@@ -18,24 +16,9 @@ local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
 local tbl_getn = table.getn
 local tbl_insert = table.insert
-
 local str_find = string.find
--- TODO: Move this to util
-local str_split = function(str, delim)
-    if not str or not delim then return nil end
-    local it, err = string.gmatch(str, "([^"..delim.."]+)")
-    if it then
-        local output = {}
-        while true do
-            local m, err = it()
-            if not m then
-                break
-            end
-            tbl_insert(output, m)
-        end
-        return output
-    end
-end
+local str_split = string.split
+
 
 
 local _M = {
@@ -55,8 +38,8 @@ local NOCACHE_HEADERS = {
 -- Const functions
 local _empty_body_reader = function() return nil end
 
--- Metamethod, error if object is modified externally
 local _newindex = function(t, k, v)
+    -- error if object is modified externally
     error("Attempt to modify response object", 2)
 end
 

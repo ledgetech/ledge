@@ -1,5 +1,6 @@
 local http = require "resty.http"
 local cookie = require "resty.cookie"
+local util = require "ledge.util"
 
 local   tostring, ipairs, pairs, type, tonumber, next, unpack, pcall =
         tostring, ipairs, pairs, type, tonumber, next, unpack, pcall
@@ -27,21 +28,7 @@ local co_yield = coroutine.yield
 local co_create = coroutine.create
 local co_status = coroutine.status
 local co_resume = coroutine.resume
-local co_wrap = function(func)
-    local co = co_create(func)
-    if not co then
-        return nil, "could not create coroutine"
-    else
-        return function(...)
-            if co_status(co) == "suspended" then
-                return select(2, co_resume(co, ...))
-            else
-                return nil, "can't resume a " .. co_status(co) .. " coroutine"
-            end
-        end
-    end
-end
-
+local co_wrap = coroutine.wrap
 
 local _M = {
     _VERSION = '1.28.3',

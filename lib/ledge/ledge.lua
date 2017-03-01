@@ -4,7 +4,8 @@ local http_headers = require "resty.http_headers"
 local qless = require "resty.qless"
 local response = require "ledge.response"
 local h_util = require "ledge.header_util"
-local ffi = require "ffi"
+local util = require "ledge.util"
+
 local zlib = require "ffi-zlib"
 local redis = require "resty.redis"
 local redis_connector = require "resty.redis.connector"
@@ -46,11 +47,14 @@ local ngx_encode_args = ngx.encode_args
 local ngx_PARTIAL_CONTENT = 206
 local ngx_RANGE_NOT_SATISFIABLE = 416
 local ngx_HTTP_NOT_MODIFIED = 304
+
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 local tbl_remove = table.remove
 local tbl_getn = table.getn
 local tbl_sort = table.sort
+local tbl_copy = table.copy
+
 local str_lower = string.lower
 local str_sub = string.sub
 local str_match = string.match
@@ -59,71 +63,16 @@ local str_find = string.find
 local str_lower = string.lower
 local str_len = string.len
 local str_rep = string.rep
+local str_split = string.split
+local str_randomhex = string.randomhex
+
 local math_floor = math.floor
 local math_ceil = math.ceil
 local math_min = math.min
+
 local co_yield = coroutine.yield
-local co_create = coroutine.create
-local co_status = coroutine.status
-local co_resume = coroutine.resume
-local co_wrap = function(func)
-    local co = co_create(func)
-    if not co then
-        return nil, "could not create coroutine"
-    else
-        return function(...)
-            if co_status(co) == "suspended" then
-                return select(2, co_resume(co, ...))
-            else
-                return nil, "can't resume a " .. co_status(co) .. " coroutine"
-            end
-        end
-    end
-end
+local co_wrap = coroutine.wrap
 local cjson_encode = cjson.encode
-local ffi_cdef = ffi.cdef
-local ffi_new = ffi.new
-local ffi_string = ffi.string
-local C = ffi.C
-
-ffi_cdef[[
-typedef unsigned char u_char;
-u_char * ngx_hex_dump(u_char *dst, const u_char *src, size_t len);
-int RAND_pseudo_bytes(u_char *buf, int num);
-]]
-
-
-local function random_hex(len)
-    local len = math_floor(len / 2)
-
-    local bytes = ffi_new("uint8_t[?]", len)
-    C.RAND_pseudo_bytes(bytes, len)
-    if not bytes then
-        ngx_log(ngx_ERR, "error getting random bytes via FFI")
-        return nil
-    end
-
-    local hex = ffi_new("uint8_t[?]", len * 2)
-    C.ngx_hex_dump(hex, bytes, len)
-    return ffi_string(hex, len * 2)
-end
-
-
-local function str_split(str, delim)
-    if not str or not delim then return nil end
-    local it, err = str_gmatch(str, "([^"..delim.."]+)")
-    if it then
-        local output = {}
-        while true do
-            local m, err = it()
-            if not m then
-                break
-            end
-            tbl_insert(output, m)
-        end
-        return output
-    end
-end
 
 
 -- Body reader for when the response body is missing
@@ -318,22 +267,6 @@ function _M.ctx(self)
         ngx.ctx[id] = ctx
     end
     return ctx
-end
-
-
-local function tbl_copy(orig)
-    local orig_type = type(orig)
-    local copy
-    if orig_type == "table" then
-        copy = {}
-        for orig_key, orig_value in next, orig, nil do
-            copy[tbl_copy(orig_key)] = tbl_copy(orig_value)
-        end
-        setmetatable(copy, tbl_copy(getmetatable(orig)))
-    else -- number, string, boolean, etc
-        copy = orig
-    end
-    return copy
 end
 
 
@@ -732,28 +665,6 @@ function _M.filter_body_reader(self, filter_name, filter)
 end
 
 
-
---TODO: Is this better?
--- We pass "res" through to filters. They can change values. How are these persisted?
--- self:install_body_filter(res, get_gzip_decoder)
--- Nope because the get_filter() function might need args (storage:get_reader(entity_id))
---[[
-function _M.install_body_filter(self, res, filter_name, filter)
-    if _M.DEBUG then
-        local filters = self:ctx().body_filters
-        if not filters then filters = {} end
-
-        ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")")
-
-        tbl_insert(filters, 1, filter_name)
-        self:ctx().body_filters = filters
-    end
-
-    res.body_reader = filter(res)
-end
-]]--
-
-
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
@@ -786,6 +697,7 @@ function _M.cache_key(self)
     end
     return self:ctx().cache_key
 end
+
 
 -- Returns the key chain for all cache keys, except the body entity
 function _M.key_chain(self, cache_key)
@@ -1008,6 +920,15 @@ local function get_gzip_encoder(reader)
 end
 
 
+function _M.add_warning(self, code)
+    local res = self:get_response()
+    if not res.header["Warning"] then
+        res.header["Warning"] = {}
+    end
+
+    local header = code .. ' ' .. self:visible_hostname() .. ' "' .. WARNINGS[code] .. '"'
+    tbl_insert(res.header["Warning"], header)
+end
 
 
 ---------------------------------------------------------------------------------------------------
@@ -2469,7 +2390,7 @@ function _M.handle_range_request(self, res)
             return res, true
         else
             -- Generate boundary and store it in ctx
-            local boundary_string = random_hex(32)
+            local boundary_string = str_randomhex(32)
             local boundary = {
                 "",
                 "--" .. boundary_string,
@@ -2777,7 +2698,7 @@ function _M.save_to_cache(self, res)
     redis:watch(key_chain.main)
 
     -- Create new entity keys
-    local entity_id = random_hex(32)
+    local entity_id = str_randomhex(32)
     local entity_key_chain = _M.entity_keys(entity_id)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
@@ -3190,16 +3111,4 @@ function _M.serve_body(self, res, buffer_size)
 end
 
 
-function _M.add_warning(self, code)
-    local res = self:get_response()
-    if not res.header["Warning"] then
-        res.header["Warning"] = {}
-    end
-
-    local header = code .. ' ' .. self:visible_hostname() .. ' "' .. WARNINGS[code] .. '"'
-    tbl_insert(res.header["Warning"], header)
-end
-
-
 return _M
-
