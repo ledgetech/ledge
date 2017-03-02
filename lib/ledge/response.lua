@@ -14,10 +14,13 @@ local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
+local ngx_re_find = ngx.re.find
 local tbl_getn = table.getn
 local tbl_insert = table.insert
 local str_find = string.find
 local str_split = string.split
+local str_sub = string.sub
+local str_randomhex = string.randomhex
 
 
 
@@ -72,9 +75,9 @@ function _M.new(ctx)
         -- runtime metadata
         esi_scanned = false,
         length = 0,  -- If Content-Length is present
+        has_body = false,  -- From lua-resty-http has_body
 
         -- body
-        has_body = false,
         entity_id = "",
         body_reader = _empty_body_reader,
     }, mt)
@@ -237,14 +240,12 @@ function _M.read(self, key_chain)
     -- Read headers
     local headers = redis:hgetall(key_chain.headers)
     if not headers or headers == ngx_null then
-        ngx_log(ngx_ERR, "could not read headers: ", err)
-        return nil
+        return nil, "could not read headers: " .. err
     end
 
     local headers_len = tbl_getn(headers)
     if headers_len == 0 then
-        -- Headers have likely been evicted
-        return nil
+        return nil, "headers appear evicted"
     end
 
     for i = 1, headers_len, 2 do
@@ -274,7 +275,99 @@ function _M.read(self, key_chain)
 end
 
 
-function _M.save(self)
+-- Takes headers from a HTTP response and returns a flat table of cacheable header
+-- entries formatted for Redis.
+local function prepare_cacheable_headers(headers)
+    -- Don't cache any headers marked as
+    -- Cache-Control: (no-cache|no-store|private)="header".
+    local uncacheable_headers = {}
+    local cc = headers["Cache-Control"]
+    if cc then
+        if type(cc) == "table" then cc = tbl_concat(cc, ", ") end
+        cc = str_lower(cc)
+        if str_find(cc, "=", 1, true) then
+            local pattern = '(?:no-cache|private)="?([0-9a-z-]+)"?'
+            local re_ctx = {}
+            repeat
+                local from, to, err = ngx_re_find(cc, pattern, "jo", re_ctx, 1)
+                if from then
+                    uncacheable_headers[str_sub(cc, from, to)] = true
+                end
+            until not from
+        end
+    end
+
+    -- Turn the headers into a flat list of pairs for the Redis query.
+    local h = {}
+    for header,header_value in pairs(headers) do
+        if not uncacheable_headers[str_lower(header)] then
+            if type(header_value) == 'table' then
+                -- Multiple headers are represented as a table of values
+                local header_value_len = tbl_getn(header_value)
+                for i = 1, header_value_len do
+                    tbl_insert(h, i..':'..header)
+                    tbl_insert(h, header_value[i])
+                end
+            else
+                tbl_insert(h, header)
+                tbl_insert(h, header_value)
+            end
+        end
+    end
+
+    return h
+end
+
+
+function _M.save(self, key_chain, keep_cache_for)
+    -- Create a new entity id
+    self.entity_id = str_randomhex(32)
+
+    local ttl = self:ttl()
+    local time = ngx_time()
+
+    local redis = self.ctx.redis
+    local ok, err = redis:hmset(key_chain.main,
+        "entity",       self.entity_id,
+        "status",       self.status,
+        "uri",          self.uri,
+        "expires",      ttl + time,
+        "generated_ts", ngx_parse_http_time(self.header["Date"]),
+        "saved_ts",     time,
+        "esi_scanned",  tostring(self.esi_scanned)  -- from bool
+    )
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    local h = prepare_cacheable_headers(self.header)
+
+    ok, err = redis:del(key_chain.headers)
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    ok, err = redis:hmset(key_chain.headers, unpack(h))
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    -- Mark the keys as eventually volatile (the body is set by the body writer)
+    local keep_cache_for = ttl + tonumber(keep_cache_for)
+
+    ok, err = redis:expire(key_chain.main, keep_cache_for)
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    ok, err = redis:expire(key_chain.headers, keep_cache_for)
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    local ok, err = redis:sadd(key_chain.entities, self.entity_id)
+    if not ok then
+        ngx_log(ngx_ERR, "error adding entity to set: ", err)
+    end
+
+    ok, err = redis:expire(key_chain.entities, keep_cache_for)
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    return true
+end
+
+
+function _M.set_and_save(self, fields)
 
 end
 

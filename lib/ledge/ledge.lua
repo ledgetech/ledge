@@ -2271,6 +2271,7 @@ function _M.read_from_cache(self)
 
     local storage = ctx.storage
     if not storage:exists(res.entity_id) then
+        ngx.log(ngx.DEBUG, res.entity_id, " doesn't exist in storage")
         -- Should exist, so presumed evicted
         storage:collect(res.entity_id)
         return nil -- MISS
@@ -2418,7 +2419,7 @@ end
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response.new(self.ctx())
+    local res = response.new(self:ctx())
     self:emit("origin_required")
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
@@ -2517,6 +2518,7 @@ function _M.fetch_from_origin(self)
     res.length = tonumber(origin.headers["Content-Length"])
 
     res.has_body = origin.has_body
+    ngx.log(ngx.DEBUG, "fetch set has_body: ", tostring(res.has_body), ". res: ", tostring(res))
     res.body_reader = self:filter_body_reader("upstream_body_reader", origin.body_reader)
 
     if res.status < 500 then
@@ -2638,75 +2640,27 @@ end
 
 
 function _M.save_to_cache(self, res)
-    local reval_params, reval_headers = self:revalidation_data()
     self:emit("before_save", res)
 
-    local uncacheable_headers = {}
-
+    -- Length is only set if there was a Content-Length header
     local length = res.length
     local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
-
     if length and length > max_memory then
         -- We'll carry on serving, just not saving.
-        return nil
+        return nil, "advertised length is greated than cache_max_memory"
     end
 
-    -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
-    local cc = res.header["Cache-Control"]
-    if cc then
-        if type(cc) == "table" then cc = tbl_concat(cc, ", ") end
-        cc = str_lower(cc)
-        if str_find(cc, "=", 1, true) then
-            local pattern = '(?:no-cache|private)="?([0-9a-z-]+)"?'
-            local re_ctx = {}
-            repeat
-                local from, to, err = ngx_re_find(cc, pattern, "jo", re_ctx, 1)
-                if from then
-                    uncacheable_headers[str_sub(cc, from, to)] = true
-                end
-            until not from
-        end
-    end
 
-    -- Turn the headers into a flat list of pairs for the Redis query.
-    local h = {}
-    for header,header_value in pairs(res.header) do
-        if not uncacheable_headers[str_lower(header)] then
-            if type(header_value) == 'table' then
-                -- Multiple headers are represented as a table of values
-                local header_value_len = tbl_getn(header_value)
-                for i = 1, header_value_len do
-                    tbl_insert(h, i..':'..header)
-                    tbl_insert(h, header_value[i])
-                end
-            else
-                tbl_insert(h, header)
-                tbl_insert(h, header_value)
-            end
-        end
-    end
-
-    local ttl = res:ttl()
-    local expires = ttl + ngx_time()
-    local uri = self:full_uri()
-
-    local redis = self:ctx().redis
+    -- Watch the main key pointer. We abort the transaction if another request
+    -- updates this key before we finish.
     local key_chain = self:cache_key_chain()
-
-    -- Watch the main key pointer. We abort the transaction if another request updates
-    -- this key before we finish.
+    local redis = self:ctx().redis
     redis:watch(key_chain.main)
-
-    -- Create new entity keys
-    local entity_id = str_randomhex(32)
-    local entity_key_chain = _M.entity_keys(entity_id)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
     -- be in progress. We need to know the previous entity keys and the size.
     local previous_entity_key_chain = self:entity_key_chain()
-
     local previous_entity_id = self:entity_id(key_chain)
-
     local storage, err = self:ctx().storage
 
     local previous_entity_size, err
@@ -2721,64 +2675,44 @@ function _M.save_to_cache(self, res)
     end
 
     -- Start the transaction
-    redis:multi()
+    local ok, err = redis:multi()
+    if not ok then ngx_log(ngx_ERR, err) end
 
     if previous_entity_key_chain then
+        -- TODO: This will happen regardless of transaction failure
         storage:collect(previous_entity_id)
-        local res, err = redis:srem(key_chain.entities, previous_entity_id)
-        if not res then ngx_log(ngx_ERR, err) end
---[[
-        -- Place this job on the queue
-        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-            entity_id = previous_entity_key_chain.entity_id,
-            size = previous_entity_size,
-        }, {
-            delay = self:gc_wait(previous_entity_size),
-            tags = { "collect_entity" },
-            priority = 10,
-        })
-        ]]--
+
+        local ok, err = redis:srem(key_chain.entities, previous_entity_id)
+        if not ok then ngx_log(ngx_ERR, err) end
     end
 
-    redis:hmset(key_chain.main,
-        'entity', entity_id,
-        'status', res.status,
-        'uri', uri,
-        'expires', expires,
-        'generated_ts', ngx_parse_http_time(res.header["Date"]),
-        'saved_ts', ngx_time(),
-        'esi_scanned', tostring(res.esi_scanned)
+
+    res.uri = self:full_uri()
+
+    local ok, err = res:save(
+        self:cache_key_chain(),
+        self:config_get("keep_cache_for")
     )
 
-    redis:del(key_chain.headers)
-    redis:hmset(key_chain.headers, unpack(h))
-
     -- Set revalidation parameters from this request
+    local reval_params, reval_headers = self:revalidation_data()
     redis:del(key_chain.reval_params)
     redis:hmset(key_chain.reval_params, reval_params)
     redis:del(key_chain.reval_req_headers)
     redis:hmset(key_chain.reval_req_headers, reval_headers)
 
-    -- Mark the keys as eventually volatile (the body is set by the body writer)
-    local keep_cache_for = ttl + tonumber(self:config_get("keep_cache_for"))
-    redis:expire(key_chain.main, keep_cache_for)
-    redis:expire(key_chain.headers, keep_cache_for)
-    redis:expire(key_chain.reval_params, keep_cache_for)
-    redis:expire(key_chain.reval_req_headers, keep_cache_for)
+    local ok, err
+    ok, err = redis:expire(key_chain.reval_params, self:config_get("keep_cache_for"))
+    if not ok then ngx_log(ngx_ERR, err) end
 
-    local ok, err = redis:sadd(key_chain.entities, entity_id)
-    if not ok then
-        ngx_log(ngx_ERR, "error adding entity to set: ", err)
-    end
-
-    redis:expire(key_chain.entities, keep_cache_for)
-
+    ok, err = redis:expire(key_chain.reval_req_headers, self:config_get("keep_cache_for"))
+    if not ok then ngx_log(ngx_ERR, err) end
 
     if res.has_body then
+        local storage = self:ctx().storage
         res.body_reader = self:filter_body_reader(
             "cache_body_writer",
---            self:get_cache_body_writer(res.body_reader, entity_key_chain, keep_cache_for)
-            storage:get_writer(entity_id, res.body_reader, keep_cache_for)
+            storage:get_writer(res.entity_id, res.body_reader, self:config_get("keep_cache_for")) -- TODO: repetition of conget get
         )
     else
         -- Run transaction
@@ -2786,8 +2720,8 @@ function _M.save_to_cache(self, res)
             ngx_log(ngx_ERR, "Failed to save cache item")
         end
     end
-end
 
+end
 
 function _M.delete(redis, key_chain)
     local keys = {}
