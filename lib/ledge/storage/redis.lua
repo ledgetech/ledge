@@ -76,8 +76,6 @@ local function entity_keys(entity_id)
         return {
             body        = KEY_PREFIX .. entity_id .. ":body", -- list
             body_esi    = KEY_PREFIX .. entity_id .. ":body_esi", -- list
-            size        = KEY_PREFIX .. entity_id .. ":size", -- string
-            has_esi     = KEY_PREFIX .. entity_id .. ":has_esi", -- string
         }
     end
 end
@@ -244,16 +242,10 @@ function _M.get_writer(self, res, ttl)
 
         if not transaction_aborted then
             -- Set size
-            redis:set(entity_keys.size, size)
+            res:set_and_save("size", size)
             if esi_parser then
-                redis:set(entity_keys.has_esi, esi_parser.token)
+                res:set_and_save("has_esi", esi_parser.token)
             end
-
-            -- Set expiries
-            redis:expire(entity_keys.body, ttl)
-            redis:expire(entity_keys.body_esi, ttl)
-            redis:expire(entity_keys.size, ttl)
-            redis:expire(entity_keys.has_esi, esi_detected)
 
             local res, err = redis:exec()
             if err then
@@ -293,28 +285,6 @@ function _M.expire(self, entity_id, ttl)
             self.redis:expire(key, ttl)
         end
     end
-end
-
-
--- Deferred deletion, allowing existing reads to complete.
-function _M.collect(self, entity_id)
-    ngx.log(ngx.DEBUG, "will collect: ", entity_id)
-    local ledge = self.ledge
-
-    local size, err = self:size(entity_id)
-    if not size or size == ngx_null then
-        if err then ngx_log(ngx_ERR, err) end
-        size = 0
-    end
-
-    local delay = ledge:gc_wait(size)
-    ledge:put_background_job("ledge", "ledge.jobs.collect_entity", {
-        entity_id = entity_id,
-    }, {
-        delay = size,
-        tags = { "collect_entity" },
-        priority = 10,
-    })
 end
 
 

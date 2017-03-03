@@ -62,9 +62,10 @@ local mt = {
 }
 
 
-function _M.new(ctx)
+function _M.new(ctx, key_chain)
     return setmetatable({
         ctx = ctx,  -- Request context
+        key_chain = key_chain,  -- Cache key chain
         conn = {},  -- httpc instance
 
         uri = "",
@@ -72,16 +73,16 @@ function _M.new(ctx)
         header = http_headers.new(),
 
         -- stored metadata
+        size = 0,
         remaining_ttl = 0,
         has_esi = false,
-        size = 0,
+        esi_scanned = false,
 
         -- body
         entity_id = "",
         body_reader = _empty_body_reader,
 
-        -- runtime metadata
-        esi_scanned = false,
+        -- runtime metadata (not persisted)
         length = 0,  -- If Content-Length is present
         has_body = false,  -- From lua-resty-http has_body
     }, mt)
@@ -183,8 +184,9 @@ function _M.has_expired(self)
 end
 
 
-function _M.read(self, key_chain)
+function _M.read(self)
     local redis = self.ctx.redis
+    local key_chain = self.key_chain
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(key_chain.main)
@@ -241,9 +243,10 @@ function _M.read(self, key_chain)
 
         elseif cache_parts[i] == "generated_ts" then
             time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
-      --  elseif cache_parts[i] == "has_esi" then
-         --   self.has_esi = cache_parts[i + 1]
-         --
+
+        elseif cache_parts[i] == "has_esi" then
+           self.has_esi = cache_parts[i + 1]
+
         elseif cache_parts[i] == "esi_scanned" then
             local scanned = cache_parts[i + 1]
             if scanned == "false" then
@@ -252,8 +255,8 @@ function _M.read(self, key_chain)
                 self.esi_scanned = true
             end
 
-        --elseif cache_parts[i] == "size" then
-          --  self.size = tonumber(cache_parts[i + 1])
+        elseif cache_parts[i] == "size" then
+            self.size = tonumber(cache_parts[i + 1])
         end
     end
 
@@ -339,7 +342,7 @@ local function prepare_cacheable_headers(headers)
 end
 
 
-function _M.save(self, key_chain, keep_cache_for)
+function _M.save(self, keep_cache_for)
     -- Create a new entity id
     self.entity_id = str_randomhex(32)
 
@@ -347,6 +350,7 @@ function _M.save(self, key_chain, keep_cache_for)
     local time = ngx_time()
 
     local redis = self.ctx.redis
+    local key_chain = self.key_chain
     local ok, err = redis:hmset(key_chain.main,
         "entity",       self.entity_id,
         "status",       self.status,
@@ -387,10 +391,9 @@ function _M.save(self, key_chain, keep_cache_for)
 end
 
 
-function _M.set_and_save(self, key_chain, fields)
+function _M.set_and_save(self, field, value)
     local redis = self.ctx.redis
-    -- TODO: Some field values might need casting, like boolean
-    local ok, err = redis:hmset(key_chain.main,  unpack(fields))
+    local ok, err = redis:hset(self.key_chain.main, field, tostring(value))
     if not ok then ngx_log(ngx_ERR, err) end
     return ok
 end

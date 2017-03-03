@@ -1586,7 +1586,7 @@ _M.actions = {
     end,
 
     set_json_response = function(self)
-        local res = response.new(self.ctx())
+        local res = response.new(self.ctx(), self:cache_key_chain())
         res.header["Content-Type"] = "application/json"
         self:set_response(res)
     end,
@@ -1837,6 +1837,7 @@ _M.states = {
 
         -- If we know there's no esi or it hasn't been scanned, don't process
         if not res.has_esi and res.esi_scanned == false then
+            ngx.log(ngx.DEBUG, "bail process, has_esi: ", res.has_esi, " esi_scanned: ", res.esi_scanned)
             return self:e "esi_process_disabled"
         end
 
@@ -2241,8 +2242,8 @@ end
 function _M.read_from_cache(self)
     local ctx = self:ctx()
 
-    local res = response.new(ctx)
-    local ok, err = res:read(self:cache_key_chain())
+    local res = response.new(ctx, self:cache_key_chain())
+    local ok, err = res:read()
     if not ok then
         if err then
             return self:e "http_internal_server_error"
@@ -2255,15 +2256,19 @@ function _M.read_from_cache(self)
     if not storage:exists(res.entity_id) then
         ngx.log(ngx.DEBUG, res.entity_id, " doesn't exist in storage")
         -- Should exist, so presumed evicted
-        storage:collect(res.entity_id)
+
+        local delay = self:gc_wait(res.size)
+        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+            entity_id = res.entity_id,
+        }, {
+            delay = res.size,
+            tags = { "collect_entity" },
+            priority = 10,
+        })
         return nil -- MISS
     end
 
     res:filter_body_reader("cache_body_reader", storage:get_reader(res))
-
-    -- TODO: We want to move this back
-    res.has_esi = storage:has_esi(res.entity_id)
-    res.size = storage:size(res.entity_id)
 
     self:emit("cache_accessed", res)
     return res
@@ -2397,7 +2402,7 @@ end
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response.new(self:ctx())
+    local res = response.new(self:ctx(), self:cache_key_chain())
     self:emit("origin_required")
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
@@ -2660,7 +2665,13 @@ function _M.save_to_cache(self, res)
 
     if previous_entity_key_chain then
         -- TODO: This will happen regardless of transaction failure
-        storage:collect(previous_entity_id)
+        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+            entity_id = previous_entity_id,
+        }, {
+            delay = previous_entity_size,
+            tags = { "collect_entity" },
+            priority = 10,
+        })
 
         local ok, err = redis:srem(key_chain.entities, previous_entity_id)
         if not ok then ngx_log(ngx_ERR, err) end
@@ -2670,7 +2681,6 @@ function _M.save_to_cache(self, res)
     res.uri = self:full_uri()
 
     local ok, err = res:save(
-        self:cache_key_chain(),
         self:config_get("keep_cache_for")
     )
 
@@ -2720,8 +2730,14 @@ function _M.delete_from_cache(self)
     local entity_id = self:entity_id(key_chain)
 
     if entity_id then
-        local storage = self:ctx().storage
-        storage:collect(entity_id, key_chain)
+        local size = redis:hget(key_chain.main, "size")
+        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+            entity_id = entity_id,
+        }, {
+            delay = self:gc_wait(size),
+            tags = { "collect_entity" },
+            priority = 10,
+        })
     end
 
     -- Delete everything else immediately
