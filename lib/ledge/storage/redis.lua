@@ -121,8 +121,9 @@ end
 -- @return  chunk       The chunk data, or nil indicating error or end of stream
 -- @return  err         Error message
 -- @return  has_esi     Boolean to indicate presence of ESI instructions
-function _M.get_reader(self, entity_id)
+function _M.get_reader(self, res)
     local redis = self.redis
+    local entity_id = res.entity_id
     local entity_keys = entity_keys(entity_id)
     local num_chunks = redis:llen(entity_keys.body) or 0
 
@@ -163,7 +164,7 @@ end
 -- coroutine to be resumed which reads from the upstream socket.
 -- If we cross the body_max_memory boundary, we just keep yielding chunks to be served,
 -- after having removed the cache entry.
-function _M.get_writer(self, entity_id, reader, ttl)
+function _M.get_writer(self, res, ttl)
     local redis = self.redis
     local max_memory = (self.body_max_memory or 0) * 1024
     local transaction_aborted = false
@@ -171,7 +172,10 @@ function _M.get_writer(self, entity_id, reader, ttl)
     local esi_parser = nil
 
     -- new
+    local entity_id = res.entity_id
     local entity_keys = entity_keys(entity_id)
+    local reader = res.body_reader
+
     redis:multi()
 
     local size = 0

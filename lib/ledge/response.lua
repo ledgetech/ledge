@@ -20,9 +20,12 @@ local tbl_insert = table.insert
 local str_find = string.find
 local str_split = string.split
 local str_sub = string.sub
+local str_rep = string.rep
 local str_randomhex = string.randomhex
-
-
+local ngx_null = ngx.null
+local ngx_log = ngx.log
+local ngx_ERR = ngx.ERR
+local ngx_DEBUG = ngx.DEBUG
 
 local _M = {
     _VERSION = '1.28.3'
@@ -48,7 +51,8 @@ end
 
 
 local _M = {
-    _VERSION = '1.28'
+    _VERSION = '1.28',
+    DEBUG = false,
 }
 
 local mt = {
@@ -72,14 +76,14 @@ function _M.new(ctx)
         has_esi = false,
         size = 0,
 
+        -- body
+        entity_id = "",
+        body_reader = _empty_body_reader,
+
         -- runtime metadata
         esi_scanned = false,
         length = 0,  -- If Content-Length is present
         has_body = false,  -- From lua-resty-http has_body
-
-        -- body
-        entity_id = "",
-        body_reader = _empty_body_reader,
     }, mt)
 end
 
@@ -95,6 +99,22 @@ function _M.set_body(self, body_string)
             return nil
         end
     end
+end
+
+
+function _M.filter_body_reader(self, filter_name, filter)
+    if _M.DEBUG then
+        -- Keep track of the filters by name, just for debugging
+        local filters = self.ctx.body_filters
+        if not filters then filters = {} end
+
+        ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")")
+
+        tbl_insert(filters, 1, filter_name)
+        self.ctx.body_filters = filters
+    end
+
+    self.body_reader = filter
 end
 
 
@@ -367,8 +387,12 @@ function _M.save(self, key_chain, keep_cache_for)
 end
 
 
-function _M.set_and_save(self, fields)
-
+function _M.set_and_save(self, key_chain, fields)
+    local redis = self.ctx.redis
+    -- TODO: Some field values might need casting, like boolean
+    local ok, err = redis:hmset(key_chain.main,  unpack(fields))
+    if not ok then ngx_log(ngx_ERR, err) end
+    return ok
 end
 
 

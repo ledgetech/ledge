@@ -134,6 +134,7 @@ end
 
 local _M = {
     _VERSION = '1.28.3',
+    DEBUG = false,
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -339,9 +340,6 @@ function _M.run_workers(self, options)
 
     local redis_params = self:config_get("redis_connection")
     redis_params.db = self:config_get("redis_qless_database")
-
-    local cjson = require "cjson"
-    ngx.log(ngx.DEBUG, "starting qless worker: ", cjson.encode(redis_params))
 
     local connection_options = {
         connect_timeout = self:config_get("redis_connect_timeout"),
@@ -648,20 +646,6 @@ end
 function _M.get_response(self, name)
     local name = name or "response"
     return self:ctx()[name]
-end
-
-
-function _M.filter_body_reader(self, filter_name, filter)
-    -- Keep track of the filters by name, just for debugging
-    local filters = self:ctx().body_filters
-    if not filters then filters = {} end
-
-    ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")")
-
-    tbl_insert(filters, 1, filter_name)
-    self:ctx().body_filters = filters
-
-    return filter
 end
 
 
@@ -1477,7 +1461,7 @@ _M.actions = {
     install_gzip_decoder = function(self)
         local res = self:get_response()
         res.header["Content-Encoding"] = nil
-        res.body_reader = self:filter_body_reader(
+        res:filter_body_reader(
             "gzip_decoder",
             get_gzip_decoder(res.body_reader)
         )
@@ -1485,7 +1469,7 @@ _M.actions = {
 
     install_range_filter = function(self)
         local res = self:get_response()
-        res.body_reader = self:filter_body_reader(
+        res:filter_body_reader(
             "range_request_filter",
             self:get_range_request_filter(res.body_reader)
         )
@@ -1503,7 +1487,7 @@ _M.actions = {
         local ctx = self:ctx()
         local esi_parser = ctx.esi_parser
         if esi_parser and esi_parser.parser then
-            res.body_reader = self:filter_body_reader(
+            res:filter_body_reader(
                 "esi_scan_filter",
                 esi_parser.parser.get_scan_filter(res.body_reader)
             )
@@ -1520,7 +1504,7 @@ _M.actions = {
         local res = self:get_response()
         local esi_parser = self:ctx().esi_parser
         if esi_parser and esi_parser.parser then
-            res.body_reader = self:filter_body_reader(
+            res:filter_body_reader(
                 "esi_process_filter",
                 esi_parser.parser.get_process_filter(
                     res.body_reader,
@@ -1686,7 +1670,6 @@ _M.actions = {
 ---------------------------------------------------------------------------------------------------
 _M.states = {
     connecting_to_redis = function(self)
-        ngx.log(ngx.DEBUG, "main redis connection")
         local rc = redis_connector.new()
 
         local connect_timeout = self:config_get("redis_connect_timeout")
@@ -1708,7 +1691,6 @@ _M.states = {
     end,
 
     connecting_to_storage = function(self)
-        ngx.log(ngx.DEBUG, "storage redis connection")
         local storage_params = self:config_get("storage_connection")
 
         -- TODO: For now we assume redis. The plan is to make the schema drive different backends.
@@ -2201,12 +2183,12 @@ function _M.t(self, state)
 
     if pre_t then
         for _,action in ipairs(pre_t) do
-            ngx_log(ngx_DEBUG, "#a: ", action)
+            if _M.DEBUG then ngx_log(ngx_DEBUG, "#a: ", action) end
             self.actions[action](self)
         end
     end
 
-    ngx_log(ngx_DEBUG, "#t: ", state)
+    if _M.DEBUG then ngx_log(ngx_DEBUG, "#t: ", state) end
 
     ctx.state_history[state] = true
     ctx.current_state = state
@@ -2216,7 +2198,7 @@ end
 
 -- Process state transitions and actions based on the event fired.
 function _M.e(self, event)
-    ngx_log(ngx_DEBUG, "#e: ", event)
+    if _M.DEBUG then ngx_log(ngx_DEBUG, "#e: ", event) end
 
     local ctx = self:ctx()
     ctx.event_history[event] = true
@@ -2239,11 +2221,11 @@ function _M.e(self, event)
                     if t_but_first then
                         if type(t_but_first) == "table" then
                             for _,action in ipairs(t_but_first) do
-                                ngx_log(ngx_DEBUG, "#a: ", action)
+                                if _M.DEBUG then ngx_log(ngx_DEBUG, "#a: ", action) end
                                 self.actions[action](self)
                             end
                         else
-                            ngx_log(ngx_DEBUG, "#a: ", t_but_first)
+                            if _M.DEBUG then ngx_log(ngx_DEBUG, "#a: ", t_but_first) end
                             self.actions[t_but_first](self)
                         end
                     end
@@ -2277,11 +2259,7 @@ function _M.read_from_cache(self)
         return nil -- MISS
     end
 
-    -- Filter body reader with cache storage reader
-    res.body_reader = self:filter_body_reader(
-        "cache_body_reader",
-        storage:get_reader(res.entity_id)
-    )
+    res:filter_body_reader("cache_body_reader", storage:get_reader(res))
 
     -- TODO: We want to move this back
     res.has_esi = storage:has_esi(res.entity_id)
@@ -2518,8 +2496,10 @@ function _M.fetch_from_origin(self)
     res.length = tonumber(origin.headers["Content-Length"])
 
     res.has_body = origin.has_body
-    ngx.log(ngx.DEBUG, "fetch set has_body: ", tostring(res.has_body), ". res: ", tostring(res))
-    res.body_reader = self:filter_body_reader("upstream_body_reader", origin.body_reader)
+    res:filter_body_reader(
+        "upstream_body_reader",
+        origin.body_reader
+    )
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -2710,9 +2690,9 @@ function _M.save_to_cache(self, res)
 
     if res.has_body then
         local storage = self:ctx().storage
-        res.body_reader = self:filter_body_reader(
+        res:filter_body_reader(
             "cache_body_writer",
-            storage:get_writer(res.entity_id, res.body_reader, self:config_get("keep_cache_for")) -- TODO: repetition of conget get
+            storage:get_writer(res, self:config_get("keep_cache_for")) -- TODO: repetition of conget get
         )
     else
         -- Run transaction
@@ -2722,6 +2702,7 @@ function _M.save_to_cache(self, res)
     end
 
 end
+
 
 function _M.delete(redis, key_chain)
     local keys = {}
