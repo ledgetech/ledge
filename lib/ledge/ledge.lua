@@ -702,7 +702,7 @@ function _M.entity_id(self, key_chain)
 end
 
 
-function _M.entity_key_chain(self, verify)
+function _M._entity_key_chain(self, verify)
     local key_chain = self:cache_key_chain()
     local redis = self:ctx().redis
 
@@ -2493,15 +2493,14 @@ function _M.save_to_cache(self, res)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
     -- be in progress. We need to know the previous entity keys and the size.
-    local previous_entity_key_chain = self:entity_key_chain()
     local previous_entity_id = self:entity_id(key_chain)
     local storage, err = self:ctx().storage
 
     local previous_entity_size, err
-    if previous_entity_key_chain then
+    if previous_entity_id then
         previous_entity_size, err = storage:size(previous_entity_id)
         if previous_entity_size == ngx_null then
-            previous_entity_key_chain = nil
+            previous_entity_id = nil
             if err then
                 ngx_log(ngx_ERR, err)
             end
@@ -2512,7 +2511,7 @@ function _M.save_to_cache(self, res)
     local ok, err = redis:multi()
     if not ok then ngx_log(ngx_ERR, err) end
 
-    if previous_entity_key_chain then
+    if previous_entity_id then
         -- TODO: This will happen regardless of transaction failure
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
             entity_id = previous_entity_id,
@@ -2599,12 +2598,13 @@ end
 function _M.purge(self, purge_mode)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
-    local entity_key_chain = self:entity_key_chain()
+    local entity_id, err = redis:hget(key_chain.main, "entity")
+    local storage = self:ctx().storage
 
     local resp = self:get_response()
 
     -- We 404 if we have nothing
-    if not entity_key_chain then
+    if not entity_id or entity_id == ngx_null or not storage:exists(entity_id) then
         local json = cjson_encode({ purge_mode = purge_mode, result = "nothing to purge" })
         resp:set_body(json)
         self:set_response(resp)

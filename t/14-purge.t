@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4) - 10;
+plan tests => repeat_each() * (blocks() * 4) - 6;
 
 my $pwd = cwd();
 
@@ -126,6 +126,7 @@ location /foobar {
 --- request
 PURGE /foobar
 --- no_error_log
+[error]
 --- response_body: {"result":"nothing to purge","purge_mode":"invalidate"}
 --- error_code: 404
 
@@ -646,28 +647,39 @@ Cache-Control: max-stale=1000
 [ "ORIGIN: 1", "ORIGIN: 2" ]
 
 
-=== TEST 13a: Prime two keys
+=== TEST 13a: Prime two keys and break them
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_13_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        if ngx.req.get_uri_args()["sabotage"] then
+        local sabotage = ngx.req.get_uri_args()["sabotage"]
+        if sabotage then
             -- Set query string to match original request
             ngx.req.set_uri_args({a=1})
 
             -- Connect to redis
             local redis = require("resty.redis"):new()
             redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get('redis_connection').db)
+            redis:select(ledge:config_get("redis_connection").db)
             ledge:ctx().redis = redis
 
-            -- Get the subkeys
-            local entity_key_chain = ledge:entity_key_chain(false)
-            redis:del(entity_key_chain.body)
-            local cache_key_chain = ledge:cache_key_chain()
-            redis:hdel(cache_key_chain.main, "uri")
-            ngx.print("Sabotaged: ", entity_key_chain.body)
+            local key_chain = ledge:cache_key_chain()
+
+            if sabotage == "uri" then
+                redis:hdel(key_chain.main, "uri")
+                ngx.print("Sabotaged: uri")
+            elseif sabotage == "body" then
+                local storage = require("ledge.storage.redis").new(ledge, ledge:ctx())
+                storage.body_max_memory = ledge:config_get("cache_max_memory")
+
+                local ok, err = storage:connect(ledge:config_get("storage_connection"))
+                ledge:ctx().storage = storage
+
+                storage:delete(redis:hget(key_chain.main, entity))
+
+                ngx.print("Sabotaged: body storage")
+            end
         else
             ledge:run()
         end
@@ -682,11 +694,17 @@ location /purge_cached_13 {
 --- more_headers
 Cookie: primed
 --- request eval
-[ "GET /purge_cached_13_prx?a=1", "GET /purge_cached_13_prx?a=2", "GET /purge_cached_13_prx?a=1&sabotage=true" ]
+[ "GET /purge_cached_13_prx?a=1",
+"GET /purge_cached_13_prx?a=2",
+"GET /purge_cached_13_prx?a=1&sabotage=body",
+"GET /purge_cached_13_prx?a=1&sabotage=uri" ]
 --- no_error_log
 [error]
 --- response_body_like eval
-[ "TEST 13: 1 primed", "TEST 13: 2 primed", "Sabotaged: ledge:entity:[a-f0-9]{32}:body" ]
+[ "TEST 13: 1 primed",
+ "TEST 13: 2 primed",
+ "Sabotaged: body storage",
+ "Sabotaged: uri" ]
 
 
 === TEST 13b: Wildcard purge broken entry with X-Purge: revalidate

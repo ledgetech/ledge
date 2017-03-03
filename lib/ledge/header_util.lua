@@ -1,3 +1,6 @@
+local type, tonumber, setmetatable =
+    type, tonumber, setmetatable
+
 local ngx_re_match = ngx.re.match
 local ngx_re_find = ngx.re.find
 local str_find = string.find

@@ -190,9 +190,9 @@ function _M.read(self)
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(key_chain.main)
-    if not cache_parts then
+    if not cache_parts or cache_parts == ngx_null then
         if err then
-            return nil, err -- self:e "http_internal_server_error"
+            return nil, err
         else
             return nil
         end
@@ -261,14 +261,18 @@ function _M.read(self)
     end
 
     -- Read headers
-    local headers = redis:hgetall(key_chain.headers)
+    local headers, err = redis:hgetall(key_chain.headers)
     if not headers or headers == ngx_null then
-        return nil, "could not read headers: " .. err
+        if err then
+            return nil, err
+        else
+            return nil
+        end
     end
 
     local headers_len = tbl_getn(headers)
     if headers_len == 0 then
-        return nil, "headers appear evicted"
+        return nil  -- "headers appear evicted"
     end
 
     for i = 1, headers_len, 2 do

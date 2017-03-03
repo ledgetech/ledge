@@ -23,6 +23,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             require 'resty.core'
         end
 		ledge_mod = require 'ledge.ledge'
+        ledge_mod.DEBUG = true
         ledge = ledge_mod:new()
         ledge:config_set("redis_connection", {
             socket = "$ENV{TEST_LEDGE_REDIS_SOCKET}",
@@ -94,16 +95,18 @@ __DATA__
 
             local key_chain = ledge:cache_key_chain()
 
-            local cache_key_chain = ledge:cache_key_chain()
-            local entity_key_chain = ledge:entity_key_chain(false)
-
             local evict = ngx.req.get_uri_args()["key"]
-            local key = cache_key_chain[evict]
+            local key = key_chain[evict]
             ngx.log(ngx.DEBUG, "will evict: ", key)
             local res, err = redis:del(key)
+            if not res then
+                ngx.log(ngx.ERR, "could not evict: ", err)
+            end
+            redis:set(evict, "true")
             ngx.log(ngx.DEBUG, tostring(res))
 
-            ledge:ctx().redis:close()
+            redis:close()
+            ledge:ctx().redis = nil
 
             ledge:run()
         }
@@ -111,7 +114,7 @@ __DATA__
 
     location "/mem_pressure_1" {
         content_by_lua_block {
-            ngx.header["Cache-Control"] = "max-age=3600"
+            ngx.header["Cache-Control"] = "max-age=0"
             ngx.print("MISSED: ", ngx.req.get_uri_args()["key"])
         }
     }
@@ -130,7 +133,7 @@ __DATA__
 === TEST 2: Prime and break ::main before transaction completes (leaves it partial)
 --- http_config eval: $::HttpConfig
 --- config
-	location "/mem_pressure_2_prx" {
+    location "/mem_pressure_2_prx" {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
             ledge:bind("response_ready", function(res)
@@ -153,12 +156,10 @@ GET /mem_pressure_2_prx
 --- response_body: ORIGIN
 --- no_error_log
 [error]
-
-
 === TEST 2b: Confirm broken ::main doesn't get served
 --- http_config eval: $::HttpConfig
 --- config
-	location "/mem_pressure_2_prx" {
+    location "/mem_pressure_2_prx" {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
             ledge:run()
@@ -174,5 +175,4 @@ GET /mem_pressure_2_prx
 GET /mem_pressure_2_prx
 --- response_body: ORIGIN
 --- no_error_log
-[error
-
+[error]
