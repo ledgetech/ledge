@@ -1,9 +1,10 @@
 local http = require "resty.http"
 local cookie = require "resty.cookie"
+local tag_parser = require "ledge.esi.tag_parser"
 require "ledge.util"
 
-local   tostring, ipairs, pairs, type, tonumber, next, unpack, pcall =
-        tostring, ipairs, pairs, type, tonumber, next, unpack, pcall
+local   tostring, type, tonumber, next, unpack, pcall, setfenv =
+        tostring, type, tonumber, next, unpack, pcall, setfenv
 
 local str_sub = string.sub
 local str_find = string.find
@@ -13,9 +14,6 @@ local tbl_concat = table.concat
 local tbl_insert = table.insert
 
 local co_yield = coroutine.yield
-local co_create = coroutine.create
-local co_status = coroutine.status
-local co_resume = coroutine.resume
 local co_wrap = coroutine.wrap
 
 local ngx_re_gsub = ngx.re.gsub
@@ -452,180 +450,13 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback,
 end
 
 
--- ==================================================================
--- esi_parser, allows us to walk when / choose / otherwise statements
--- ==================================================================
-
-local esi_parser = {}
-local _esi_parser_mt = { __index = esi_parser }
-
-
-function esi_parser.new(content, offset)
-    return setmetatable({
-        content = content,
-        pos = (offset or 0),
-        open_comments = 0,
-    }, _esi_parser_mt)
-end
-
-
-function esi_parser.next(self, tagname)
-    local tag = self:find_whole_tag(tagname)
-    local before, after
-    if tag then
-        before = str_sub(self.content, self.pos + 1, tag.opening.from - 1)
-
-        if tag.closing then
-            -- This is block level (with a closing tag)
-            after = str_sub(self.content, tag.closing.to + 1)
-            self.pos = tag.closing.to
-        else
-            -- Inline (no closing tag)
-            after = str_sub(self.content, tag.opening.to + 1)
-            self.pos = tag.opening.to
-        end
-    end
-
-    return tag, before, after
-end
-
-
-function esi_parser.open_pattern(tag)
-    if tag == "!--esi" then
-        return "<(!--esi)"
-    else
-        -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
-        return "<(" .. tag .. [[)(?:\s*(?:[a-z]+=\".+?(?<!\\)\"))?[^>]*?(?:\s*)(\/>|>)?]]
-    end
-end
-
-
-function esi_parser.close_pattern(tag)
-    if tag == "!--esi" then
-        return "-->"
-    else
-        -- $1: the tag name
-        return "</(" .. tag .. ")\\s*>"
-    end
-end
-
-
-function esi_parser.either_pattern(tag)
-    if tag == "!--esi" then
-        return "(?:<(!--esi)|(-->))"
-    else
-        -- $1: the tag name, $2 the closing characters, e.g. "/>" or ">"
-        return [[<[\/]?(]] .. tag .. [[)(?:\s*(?:[a-z]+=\".+?(?<!\\)\"))?[^>]*?(?:\s*)(\s*\\/>|>)?]]
-    end
-end
-
-
--- Finds the next esi tag, accounting for nesting to find the correct
--- matching closing tag etc.
-function esi_parser.find_whole_tag(self, tag)
-    -- Only work on the remaining markup (after pos)
-    local markup = str_sub(self.content, self.pos + 1)
-
-    if not tag then
-        -- Look for anything (including comment syntax)
-        tag = "(?:!--esi)|(?:esi:[a-z]+)"
-    end
-
-    -- Find the first opening tag
-    local opening_f, opening_t, err = ngx_re_find(markup, self.open_pattern(tag), "soj")
-    if not opening_f then
-        -- Nothing here
-        return nil
-    end
-
-    -- We found an opening tag and has its position, but need to understand it better
-    -- to handle comments and inline tags.
-    local opening_m, err  = ngx_re_match(
-        str_sub(markup, opening_f, opening_t),
-        self.open_pattern(tag), "soj"
-    )
-    if not opening_m then
-        ngx_log(ngx_ERR, err)
-        return nil
-    end
-
-    -- We return a table with opening tag positions (absolute), as well as
-    -- tag contents etc. Blocl level tags will have "closing" data too.
-    local ret = {
-        opening = {
-            from = opening_f + self.pos,
-            to = opening_t + self.pos,
-            tag = str_sub(markup, opening_f, opening_t),
-        },
-        tagname = opening_m[1],
-        closing = nil,
-        contents = nil,
-    }
-
-    -- If this is an inline (non-block) tag, we have everything
-    if type(opening_m[2]) == "string" and str_sub(opening_m[2], -2) == "/>" then
-        ret.whole = str_sub(markup, opening_f, opening_t)
-        return ret
-    end
-
-    -- We must be block level, and could potentially be nesting
-
-    local search = opening_t -- We search from after the opening tag
-
-    local f, t, closing_f, closing_t
-    local depth = 1
-    local level = 1
-
-    repeat
-        -- keep looking for opening or closing tags
-        f, t = ngx_re_find(str_sub(markup, search + 1), self.either_pattern(ret.tagname), "soj")
-        if f and t then
-            -- Move closing markers along
-            closing_f = f
-            closing_t = t
-
-            -- Track current level and total depth
-            local tag = str_sub(markup, search + f, search + t)
-            if ngx_re_find(tag, self.open_pattern(ret.tagname)) then
-                depth = depth + 1
-                level = level + 1
-            elseif ngx_re_find(tag, self.close_pattern(ret.tagname)) then
-                level = level - 1
-            end
-            -- Move search pos along
-            search = search + t
-        end
-    until level == 0 or not f
-
-    if closing_t and t then
-        -- We have a complete block tag with the matching closing tag
-
-        -- Make closing tag absolute
-        closing_t = closing_t + search - t
-        closing_f = closing_f + search - t
-
-        ret.closing = {
-            from = closing_f + self.pos,
-            to = closing_t + self.pos,
-            tag = str_sub(markup, closing_f, closing_t),
-        }
-        ret.contents = str_sub(markup, opening_t + 1, closing_f - 1)
-        ret.whole = str_sub(markup, opening_f, closing_t)
-
-        return ret
-    else
-        -- We have an opening block tag, but not the closing part. Return
-        -- what we can as the filters will buffer until we find the rest.
-        return ret
-    end
-end
 
 
 local function process_escaping(chunk, res, recursion)
     if not recursion then recursion = 0 end
     if not res then res = {} end
 
-    local parser = esi_parser.new(chunk)
+    local parser = tag_parser.new(chunk)
 
     local chunk_has_escaping = false
     repeat
@@ -662,7 +493,7 @@ local function evaluate_conditionals(chunk, res, recursion)
     if not recursion then recursion = 0 end
     if not res then res = {} end
 
-    local parser = esi_parser.new(chunk)
+    local parser = tag_parser.new(chunk)
 
     -- $1: the condition inside test=""
     local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>)]]
@@ -683,7 +514,7 @@ local function evaluate_conditionals(chunk, res, recursion)
                 after = ch_after
             end
 
-            local inner_parser = esi_parser.new(choose.contents)
+            local inner_parser = tag_parser.new(choose.contents)
 
             local when_found = false
             local when_matched = false
@@ -769,7 +600,7 @@ function _M.get_scan_filter(res)
                 -- an ESI instruction spanning buffers.
                 chunk = prev_chunk .. chunk
 
-                local parser = esi_parser.new(chunk)
+                local parser = tag_parser.new(chunk)
 
                 repeat
                     local tag, before, after = parser:next()
@@ -790,8 +621,8 @@ function _M.get_scan_filter(res)
                         -- TODO: Need to get parser from somewhere?
                         if not esi_detected and has_esi then
                             ngx.log(ngx.DEBUG, "setting parser")
-                            esi_parser = self.ctx.esi_parser
-                            if not esi_parser or not esi_parser.token then
+                            tag_parser = self.ctx.tag_parser
+                            if not tag_parser or not tag_parser.token then
                                 ngx_log(ngx_ERR, "ESI detected but no parser identified")
                             else
                                 esi_detected = true

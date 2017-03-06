@@ -5,7 +5,7 @@ local qless = require "resty.qless"
 local response = require "ledge.response"
 local range = require "ledge.range"
 local h_util = require "ledge.header_util"
-local util = require "ledge.util"
+require "ledge.util"
 
 local zlib = require "ffi-zlib"
 local redis = require "resty.redis"

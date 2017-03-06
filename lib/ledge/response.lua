@@ -1,6 +1,6 @@
 local h_util = require "ledge.header_util"
-local util = require "ledge.util"
 local http_headers = require "resty.http_headers"
+require "ledge.util"
 
 local pairs, ipairs, setmetatable, tonumber, unpack =
     pairs, ipairs, setmetatable, tonumber, unpack

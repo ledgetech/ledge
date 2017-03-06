@@ -1,5 +1,5 @@
 local h_util = require "ledge.header_util"
-local util = require "ledge.util"
+require "ledge.util"
 
 local setmetatable, tonumber, ipairs, type =
     setmetatable, tonumber, ipairs, type
