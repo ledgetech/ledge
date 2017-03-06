@@ -1458,7 +1458,7 @@ _M.actions = {
         if esi_parser and esi_parser.parser then
             res:filter_body_reader(
                 "esi_scan_filter",
-                esi_parser.parser.get_scan_filter(res.body_reader)
+                esi_parser.parser.get_scan_filter(res)
             )
         end
     end,
@@ -1476,7 +1476,7 @@ _M.actions = {
             res:filter_body_reader(
                 "esi_process_filter",
                 esi_parser.parser.get_process_filter(
-                    res.body_reader,
+                    res,
                     self:config_get("esi_pre_include_callback"),
                     self:config_get("esi_recursion_limit")
                 )

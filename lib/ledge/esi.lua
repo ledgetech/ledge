@@ -756,7 +756,8 @@ end
 -- Reads from reader according to "buffer_size", and scans for ESI instructions.
 -- Acts as a sink when ESI instructions are not complete, buffering until the chunk
 -- contains a full instruction safe to process on serve.
-function _M.get_scan_filter(reader)
+function _M.get_scan_filter(res)
+    local reader = res.body_reader
     return co_wrap(function(buffer_size)
         local prev_chunk = ""
         local tag_hint
@@ -848,8 +849,9 @@ function _M.get_scan_filter(reader)
 end
 
 
-function _M.get_process_filter(reader, pre_include_callback, recursion_limit)
+function _M.get_process_filter(res, pre_include_callback, recursion_limit)
     local recursion_count = tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
+    local reader = res.body_reader
 
     -- We use an outer coroutine to filter the processed output in case we have to
     -- abort recursive includes.
