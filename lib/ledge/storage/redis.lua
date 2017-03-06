@@ -19,8 +19,15 @@ local _M = {
     _VERSION = "1.28"
 }
 
+local _newindex = function(t, k, v)
+    -- error if object is modified externally
+    error("Attempt to modify redis storage object", 2)
+end
+
 local mt = {
     __index = _M,
+    __newindex = _newindex,
+    __metatable = false,
 }
 
 
@@ -29,17 +36,15 @@ local KEY_PREFIX = "ledge:entity:"
 
 
 --- Creates a new (disconnected) storage instance.
--- @param   ledge   Referenence to the ledge module
 -- @param   ctx     Request context
 -- @return  The module instance
-function _M.new(ledge, ctx)
+function _M.new(ctx)
     return setmetatable({
-        ledge = ledge,
         ctx = ctx,
-        redis = nil,
+        redis = {},
         reader_cursor = 0,
         -- TODO: max memory from config
---        body_max_memory = 2048, -- (KB) Max size for a cache body before we bail on trying to store.
+        body_max_memory = 2048, -- (KB) Max size for a cache body before we bail on trying to store.
     }, mt)
 end
 
@@ -144,12 +149,7 @@ function _M.get_reader(self, res)
             end
 
             if chunk == ngx_null or (process_esi and has_esi == ngx_null) then
-                ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
-                -- Jump out using the state machine
-                -- TODO: Is this necessary? Do we need to know why we're finished other than to log
-                -- it. Surely we just "exit" normally? Would be nice if drivers didn't need to program
-                -- the state machine
-                return self.ledge:e "entity_removed_during_read"
+                ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.body)
             end
 
             return chunk, nil, has_esi == "true"
@@ -213,7 +213,7 @@ function _M.get_writer(self, res, ttl)
 
                         if not esi_detected and has_esi then
                             ngx.log(ngx.DEBUG, "setting parser")
-                            esi_parser = self.ledge:ctx().esi_parser
+                            esi_parser = self.ctx.esi_parser
                             if not esi_parser or not esi_parser.token then
                                 ngx_log(ngx_ERR, "ESI detected but no parser identified")
                             else
