@@ -2493,11 +2493,10 @@ function _M.save_to_cache(self, res)
     -- We'll need to mark the old entity for expiration shortly, as reads could still
     -- be in progress. We need to know the previous entity keys and the size.
     local previous_entity_id = self:entity_id(key_chain)
-    local storage, err = self:ctx().storage
 
     local previous_entity_size, err
     if previous_entity_id then
-        previous_entity_size, err = storage:size(previous_entity_id)
+        previous_entity_size, err = redis:hget(key_chain.main, "size")
         if previous_entity_size == ngx_null then
             previous_entity_id = nil
             if err then

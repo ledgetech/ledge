@@ -106,15 +106,24 @@ function _M.exists(self, entity_id)
 end
 
 
-function _M.size(self, entity_id)
-    return self.redis:get(entity_keys(entity_id).size)
+function _M.delete(self, entity_id)
+    local key_chain = entity_keys(entity_id)
+    if key_chain then
+        local keys = {}
+        for k, v in pairs(key_chain) do
+            tbl_insert(keys, v)
+        end
+        return self.redis:del(unpack(keys))
+    end
 end
 
 
-function _M.has_esi(self, entity_id)
-    local res, err = self.redis:get(entity_keys(entity_id).has_esi)
-    if res and res ~= ngx_null then
-        return res
+function _M.expire(self, entity_id, ttl)
+    local key_chain = entity_keys(entity_id)
+    if key_chain then
+        for _,key in pairs(key_chain) do
+            self.redis:expire(key, ttl)
+        end
     end
 end
 
@@ -261,28 +270,6 @@ function _M.get_writer(self, res, ttl)
             -- to memory size, but simply fail for any other reason.
             -- How to notify outer transaction if this one failed??
             return nil, "body writer transaction aborted"
-        end
-    end
-end
-
-
-function _M.delete(self, entity_id)
-    local key_chain = entity_keys(entity_id)
-    if key_chain then
-        local keys = {}
-        for k, v in pairs(key_chain) do
-            tbl_insert(keys, v)
-        end
-        return self.redis:del(unpack(keys))
-    end
-end
-
-
-function _M.expire(self, entity_id, ttl)
-    local key_chain = entity_keys(entity_id)
-    if key_chain then
-        for _,key in pairs(key_chain) do
-            self.redis:expire(key, ttl)
         end
     end
 end
