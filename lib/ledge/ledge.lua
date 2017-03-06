@@ -1532,7 +1532,6 @@ _M.actions = {
     add_validators_from_cache = function(self)
         local cached_res = self:get_response()
 
-        -- TODO: Patch OpenResty to accept additional headers for subrequests.
         ngx_req_set_header("If-Modified-Since", cached_res.header["Last-Modified"])
         ngx_req_set_header("If-None-Match", cached_res.header["Etag"])
     end,
@@ -2526,11 +2525,11 @@ function _M.save_to_cache(self, res)
     end
 
 
-    res.uri = self:full_uri()
+    -- TODO: Is this supposed to be total ttl + keep_cache_for?
+    local keep_cache_for = self:config_get("keep_cache_for")
 
-    local ok, err = res:save(
-        self:config_get("keep_cache_for")
-    )
+    res.uri = self:full_uri()
+    local ok, err = res:save(keep_cache_for)
 
     -- Set revalidation parameters from this request
     local reval_params, reval_headers = self:revalidation_data()
@@ -2540,17 +2539,17 @@ function _M.save_to_cache(self, res)
     redis:hmset(key_chain.reval_req_headers, reval_headers)
 
     local ok, err
-    ok, err = redis:expire(key_chain.reval_params, self:config_get("keep_cache_for"))
+    ok, err = redis:expire(key_chain.reval_params, keep_cache_for)
     if not ok then ngx_log(ngx_ERR, err) end
 
-    ok, err = redis:expire(key_chain.reval_req_headers, self:config_get("keep_cache_for"))
+    ok, err = redis:expire(key_chain.reval_req_headers, keep_cache_for)
     if not ok then ngx_log(ngx_ERR, err) end
 
     if res.has_body then
         local storage = self:ctx().storage
         res:filter_body_reader(
             "cache_body_writer",
-            storage:get_writer(res, self:config_get("keep_cache_for")) -- TODO: repetition of conget get
+            storage:get_writer(res, keep_cache_for)
         )
     else
         -- Run transaction

@@ -28,7 +28,7 @@ local _M = {
 
 local _newindex = function(t, k, v)
     -- error if object is modified externally
-    error("Attempt to modify response object", 2)
+    error("Attempt to modify range object", 2)
 end
 
 local mt = {
