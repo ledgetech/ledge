@@ -1,5 +1,6 @@
 local http = require "resty.http"
 local cookie = require "resty.cookie"
+require "ledge.util"
 
 local   tostring, ipairs, pairs, type, tonumber, next, unpack, pcall =
         tostring, ipairs, pairs, type, tonumber, next, unpack, pcall
@@ -7,6 +8,16 @@ local   tostring, ipairs, pairs, type, tonumber, next, unpack, pcall =
 local str_sub = string.sub
 local str_find = string.find
 local str_len = string.len
+
+local tbl_concat = table.concat
+local tbl_insert = table.insert
+
+local co_yield = coroutine.yield
+local co_create = coroutine.create
+local co_status = coroutine.status
+local co_resume = coroutine.resume
+local co_wrap = coroutine.wrap
+
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub
 local ngx_re_match = ngx.re.match
@@ -21,26 +32,6 @@ local ngx_var = ngx.var
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_INFO = ngx.INFO
-local tbl_concat = table.concat
-local tbl_insert = table.insert
-local co_yield = coroutine.yield
-local co_create = coroutine.create
-local co_status = coroutine.status
-local co_resume = coroutine.resume
-local co_wrap = function(func)
-    local co = co_create(func)
-    if not co then
-        return nil, "could not create coroutine"
-    else
-        return function(...)
-            if co_status(co) == "suspended" then
-                return select(2, co_resume(co, ...))
-            else
-                return nil, "can't resume a " .. co_status(co) .. " coroutine"
-            end
-        end
-    end
-end
 
 
 local _M = {
@@ -793,6 +784,20 @@ function _M.get_scan_filter(res)
 
                         -- Yield the entire tag with has_esi=true
                         co_yield(tag.whole, nil, true)
+
+                        --[[
+                        -- On first time, set res:set_and_save("has_esi", parser)
+                        -- TODO: Need to get parser from somewhere?
+                        if not esi_detected and has_esi then
+                            ngx.log(ngx.DEBUG, "setting parser")
+                            esi_parser = self.ctx.esi_parser
+                            if not esi_parser or not esi_parser.token then
+                                ngx_log(ngx_ERR, "ESI detected but no parser identified")
+                            else
+                                esi_detected = true
+                            end
+                        end
+                        ]]--
 
                         -- Trim chunk to what's left
                         chunk = after
