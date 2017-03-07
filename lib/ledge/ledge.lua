@@ -1620,6 +1620,7 @@ _M.states = {
             if processor then
                 if esi.is_allowed_content_type(res, self:config_get("esi_content_types")) then
                     -- Store parser for processing
+                    -- TODO: Strictly this should be installed by the state machine
                     self:ctx().esi_processor = processor
                     return self:e "esi_scan_enabled"
                 end

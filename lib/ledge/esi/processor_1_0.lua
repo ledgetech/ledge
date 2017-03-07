@@ -591,6 +591,8 @@ end
 -- contains a full instruction safe to process on serve.
 function _M.get_scan_filter(self, res)
     local reader = res.body_reader
+    local esi_detected = false
+
     return co_wrap(function(buffer_size)
         local prev_chunk = ""
         local tag_hint
@@ -627,19 +629,12 @@ function _M.get_scan_filter(self, res)
                         -- Yield the entire tag with has_esi=true
                         co_yield(tag.whole, nil, true)
 
-                        --[[
                         -- On first time, set res:set_and_save("has_esi", parser)
                         -- TODO: Need to get parser from somewhere?
-                        if not esi_detected and has_esi then
-                            ngx.log(ngx.DEBUG, "setting parser")
-                            tag_parser = self.ctx.tag_parser
-                            if not tag_parser or not tag_parser.token then
-                                ngx_log(ngx_ERR, "ESI detected but no parser identified")
-                            else
-                                esi_detected = true
-                            end
+                        if not esi_detected then
+                            res:set_and_save("has_esi", self.token)
+                            esi_detected = true
                         end
-                        ]]--
 
                         -- Trim chunk to what's left
                         chunk = after

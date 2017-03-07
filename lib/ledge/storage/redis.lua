@@ -170,8 +170,6 @@ function _M.get_writer(self, res, ttl)
     local redis = self.redis
     local max_memory = (self.body_max_memory or 0) * 1024
     local transaction_aborted = false
-    local esi_detected = false
-    local esi_processor = nil
 
     -- new
     local entity_id = res.entity_id
@@ -214,16 +212,6 @@ function _M.get_writer(self, res, ttl)
                             transaction_aborted = true
                             ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
                         end
-
-                        if not esi_detected and has_esi then
-                            ngx.log(ngx.DEBUG, "setting parser")
-                            esi_processor = self.ctx.esi_processor
-                            if not esi_processor or not esi_processor.token then
-                                ngx_log(ngx_ERR, "ESI detected but no parser identified")
-                            else
-                                esi_detected = true
-                            end
-                        end
                     end
                 end
 
@@ -245,17 +233,13 @@ function _M.get_writer(self, res, ttl)
         until not chunk
 
         if not transaction_aborted then
-            -- Set size
+            -- Set size in main res object
             res:set_and_save("size", size)
-            if esi_processor then
-                res:set_and_save("has_esi", esi_processor.token)
-            end
 
             local res, err = redis:exec()
             if err then
                 ngx_log(ngx_ERR, "error executing cache transaction: ",  err)
             end
-
         else
             -- If the transaction was aborted make sure we discard
             -- May have been discarded cleanly due to memory so ignore errors
