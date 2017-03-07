@@ -106,7 +106,7 @@ end
 
 
 -- Returns true of res.header.Content-Type is in allowed_types
-function _M.allowed_content_type(res, allowed_types)
+function _M.is_allowed_content_type(res, allowed_types)
     if allowed_types and type(allowed_types) == "table" then
         local res_content_type = res.header["Content-Type"]
         if res_content_type then
@@ -122,7 +122,7 @@ end
 
 -- Returns true if we're allowed to delegate ESI processing to a downstream
 -- surrogate for the current request
-function _M.delegate_to_surrogate(surrogates, processor_token)
+function _M.can_delegate_to_surrogate(surrogates, processor_token)
     local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
 
     if surrogate_capability then

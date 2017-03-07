@@ -1618,7 +1618,7 @@ _M.states = {
             -- (Currently there is only the ESI/1.0 processor)
             local processor = esi.choose_esi_processor(res)
             if processor then
-                if esi.allowed_content_type(res, self:config_get("esi_content_types")) then
+                if esi.is_allowed_content_type(res, self:config_get("esi_content_types")) then
                     -- Store parser for processing
                     self:ctx().esi_processor = processor
                     return self:e "esi_scan_enabled"
@@ -1659,7 +1659,7 @@ _M.states = {
             end
         end
 
-        if esi.delegate_to_surrogate(
+        if esi.can_delegate_to_surrogate(
             self:config_get("esi_allow_surrogate_delegation"),
             self:ctx().esi_processor.token
         ) then
