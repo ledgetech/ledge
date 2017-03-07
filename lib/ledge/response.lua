@@ -44,11 +44,6 @@ local NOCACHE_HEADERS = {
 -- Const functions
 local _empty_body_reader = function() return nil end
 
-local _newindex = function(t, k, v)
-    -- error if object is modified externally
-    error("Attempt to modify response object", 2)
-end
-
 
 local _M = {
     _VERSION = '1.28',
@@ -57,7 +52,7 @@ local _M = {
 
 local mt = {
     __index = _M,
-    __newindex = _newindex,
+    __newindex = function() error("module fields are read only", 2) end,
     __metatable = false,
 }
 

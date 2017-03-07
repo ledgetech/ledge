@@ -26,14 +26,9 @@ local _M = {
     _VERSION = '1.28',
 }
 
-local _newindex = function(t, k, v)
-    -- error if object is modified externally
-    error("Attempt to modify range object", 2)
-end
-
 local mt = {
     __index = _M,
-    __newindex = _newindex,
+    __newindex = function() error("module fields are read only", 2) end,
     __metatable = false,
 }
 

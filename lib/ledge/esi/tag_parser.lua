@@ -9,16 +9,11 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 
 
-local _newindex = function(t, k, v)
-    -- error if object is modified externally
-    error("Attempt to modify esi tag parser object", 2)
-end
-
 local _M = {}
 
 local mt = {
     __index = _M,
-    __newindex = _newindex,
+    __newindex = function() error("module fields are read only", 2) end,
     __metatable = false,
 }
 

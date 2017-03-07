@@ -16,17 +16,12 @@ local tbl_insert = table.insert
 
 
 local _M = {
-    _VERSION = "1.28"
+    _VERSION = '1.28',
 }
-
-local _newindex = function(t, k, v)
-    -- error if object is modified externally
-    error("Attempt to modify redis storage object", 2)
-end
 
 local mt = {
     __index = _M,
-    __newindex = _newindex,
+    __newindex = function() error("module fields are read only", 2) end,
     __metatable = false,
 }
 
@@ -176,7 +171,7 @@ function _M.get_writer(self, res, ttl)
     local max_memory = (self.body_max_memory or 0) * 1024
     local transaction_aborted = false
     local esi_detected = false
-    local esi_parser = nil
+    local esi_processor = nil
 
     -- new
     local entity_id = res.entity_id
@@ -222,8 +217,8 @@ function _M.get_writer(self, res, ttl)
 
                         if not esi_detected and has_esi then
                             ngx.log(ngx.DEBUG, "setting parser")
-                            esi_parser = self.ctx.esi_parser
-                            if not esi_parser or not esi_parser.token then
+                            esi_processor = self.ctx.esi_processor
+                            if not esi_processor or not esi_processor.token then
                                 ngx_log(ngx_ERR, "ESI detected but no parser identified")
                             else
                                 esi_detected = true
@@ -252,8 +247,8 @@ function _M.get_writer(self, res, ttl)
         if not transaction_aborted then
             -- Set size
             res:set_and_save("size", size)
-            if esi_parser then
-                res:set_and_save("has_esi", esi_parser.token)
+            if esi_processor then
+                res:set_and_save("has_esi", esi_processor.token)
             end
 
             local res, err = redis:exec()

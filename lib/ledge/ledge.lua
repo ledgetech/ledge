@@ -5,6 +5,7 @@ local qless = require "resty.qless"
 local response = require "ledge.response"
 local range = require "ledge.range"
 local h_util = require "ledge.header_util"
+local esi = require "ledge.esi"
 require "ledge.util"
 
 local zlib = require "ffi-zlib"
@@ -90,45 +91,6 @@ local function _purge_mode()
         return "revalidate"
     else
         return "invalidate"
-    end
-end
-
-
-local esi_parsers = {
-    ["ESI"] = {
-        ["1.0"] = require "ledge.esi",
-        -- 2.0 = require ledge.esi_2", -- for example
-    },
-}
-
-
-local function esi_capabilities()
-    local capabilities = {}
-    for parser_type,parsers in pairs(esi_parsers) do
-        for version,_ in pairs(parsers) do
-            tbl_insert(capabilities, parser_type .. "/" .. version)
-        end
-    end
-    return tbl_concat(capabilities, " ")
-end
-
-
-local function split_esi_token(token)
-    return unpack(str_split(token, "/") or {})
-end
-
-
-local function choose_esi_parser(token)
-    local parser_token, version = split_esi_token(token)
-    if parser_token and version then
-        local parser_type = esi_parsers[parser_token]
-        if parser_type then
-            for v,parser in pairs(parser_type) do
-                if tonumber(version) <= tonumber(v) then
-                    return parser
-                end
-            end
-        end
     end
 end
 
@@ -667,19 +629,6 @@ function _M.key_chain(self, cache_key)
 end
 
 
--- Returns the key chain for a given entity
-function _M.entity_keys(entity_id)
-    local prefix = "ledge:entity:"
-    return setmetatable({
-        body = prefix .. entity_id .. ":body", -- list
-        body_esi = prefix .. entity_id .. ":body_esi", -- list
-    }, { __index = {
-        -- Hide the id from iterators
-        entity_id = entity_id,
-    }})
-end
-
-
 function _M.cache_key_chain(self)
     if not self:ctx().cache_key_chain then
         local cache_key = self:cache_key()
@@ -699,65 +648,6 @@ function _M.entity_id(self, key_chain)
     end
 
     return entity_id
-end
-
-
-function _M._entity_key_chain(self, verify)
-    local key_chain = self:cache_key_chain()
-    local redis = self:ctx().redis
-
-    local entity, err = redis:hget(key_chain.main, "entity")
-    if not entity or entity == ngx_null then
-        return nil, err
-    end
-
-    local keys = _M.entity_keys(entity)
-
-    if verify then
-        local cleanup = false
-
-        -- Check the body exists
-        local res, err = redis:exists(keys["body"])
-        if not res and err then
-            return nil, err
-        elseif res == ngx_null or res == 0 then
-            ngx_log(ngx_NOTICE, "entity body is missing. Will clean up.")
-            cleanup = true
-        end
-
-        -- If we have esi, check body_esi exists
-        local has_esi, err = redis:hget(key_chain.main, "has_esi")
-        if has_esi and has_esi ~= ngx_null then
-            local res, err = redis:exists(keys.body_esi)
-            if not res and err then
-                return nil, err
-            elseif res == ngx_null or res == 0 then
-                ngx_log(ngx_NOTICE, "body_esi is missing and required. Will clean up.")
-                cleanup = true
-            end
-        end
-
-        -- If anything required is missing, schedule collection of the remaining bits and trigger
-        -- return nil (cache MISS due to incomplete data).
-        if cleanup then
-            local size = redis:zscore(key_chain.entities, keys.entity_id)
-            if not size or size == ngx_null then
-                -- Entities set evicted too most likely. Collect immediately.
-                size = 0
-            end
-
-            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-                entity_id = keys.entity_id,
-            }, {
-                delay = self:gc_wait(size),
-                tags = { "collect_entity" },
-                priority = 10,
-            })
-            return nil
-        end
-    end
-
-    return keys
 end
 
 
@@ -1374,45 +1264,7 @@ _M.actions = {
     -- and stash them in the custom ESI variables table.
     filter_esi_args = function(self)
         if self:config_get("esi_enabled") then
-            local esi_args_prefix = self:config_get("esi_args_prefix")
-            if esi_args_prefix then
-                local args = ngx_req_get_uri_args()
-                local esi_args = {}
-                local has_esi_args = false
-                local non_esi_args = {}
-
-                for k,v in pairs(args) do
-                    -- If we have the prefix, extract the suffix
-                    local m, err = ngx_re_match(k, "^" .. esi_args_prefix .. "(\\S+)", "oj")
-                    if m and m[1] then
-                        has_esi_args = true
-                        esi_args[m[1]] = v
-                    else
-                        -- Otherwise, this is a normal arg
-                        non_esi_args[k] = v
-                    end
-                end
-
-                if has_esi_args then
-                    -- Add them to esi_custom_variables
-                    local custom_variables = ngx.ctx.ledge_esi_custom_variables
-                    if not custom_variables then custom_variables = {} end
-                    custom_variables["ESI_ARGS"] = esi_args
-                    ngx.ctx.ledge_esi_custom_variables = custom_variables
-
-                    -- Also keep them in encoded querystring form, so that $(ESI_ARGS) works
-                    -- as a string.
-                    ngx.ctx.ledge_esi_args_prefix = esi_args_prefix
-                    local args = {}
-                    for k,v in pairs(esi_args) do
-                        args[esi_args_prefix .. k] = v
-                    end
-                    ngx.ctx.ledge_esi_args_encoded = ngx_encode_args(args)
-
-                    -- Set the request args to the ones left over
-                    ngx_req_set_uri_args(non_esi_args)
-                end
-            end
+            esi.filter_esi_args(self:config_get("esi_args_prefix"))
         end
     end,
 
@@ -1454,11 +1306,11 @@ _M.actions = {
     install_esi_scan_filter = function(self)
         local res = self:get_response()
         local ctx = self:ctx()
-        local esi_parser = ctx.esi_parser
-        if esi_parser and esi_parser.parser then
+        local esi_processor = self:ctx().esi_processor
+        if esi_processor then
             res:filter_body_reader(
                 "esi_scan_filter",
-                esi_parser.parser.get_scan_filter(res)
+                esi_processor:get_scan_filter(res)
             )
         end
     end,
@@ -1471,11 +1323,11 @@ _M.actions = {
 
     install_esi_process_filter = function(self)
         local res = self:get_response()
-        local esi_parser = self:ctx().esi_parser
-        if esi_parser and esi_parser.parser then
+        local esi_processor = self:ctx().esi_processor
+        if esi_processor then
             res:filter_body_reader(
                 "esi_process_filter",
-                esi_parser.parser.get_process_filter(
+                esi_processor:get_process_filter(
                     res,
                     self:config_get("esi_pre_include_callback"),
                     self:config_get("esi_recursion_limit")
@@ -1762,28 +1614,14 @@ _M.states = {
                 return self:e "esi_scan_disabled"
             end
 
-            local res_surrogate_control = res.header["Surrogate-Control"]
-
-            if res_surrogate_control then
-                local content_token = h_util.get_header_token(res_surrogate_control, "content")
-                if content_token then
-                    local parser = choose_esi_parser(content_token)
-                    if parser then
-                        local res_content_type = res.header["Content-Type"]
-                        if res_content_type then
-                            local allowed_types = self:config_get("esi_content_types") or {}
-                            for _, content_type in ipairs(allowed_types) do
-                                if str_sub(res_content_type, 1, str_len(content_type)) == content_type then
-                                    -- Store parser for processing
-                                    self:ctx().esi_parser = {
-                                        parser = parser,
-                                        token = content_token,
-                                    }
-                                    return self:e "esi_scan_enabled"
-                                end
-                            end
-                        end
-                    end
+            -- Choose an ESI processor from the Surrogate-Control header
+            -- (Currently there is only the ESI/1.0 processor)
+            local processor = esi.choose_esi_processor(res)
+            if processor then
+                if esi.allowed_content_type(res, self:config_get("esi_content_types")) then
+                    -- Store parser for processing
+                    self:ctx().esi_processor = processor
+                    return self:e "esi_scan_enabled"
                 end
             end
         end
@@ -1805,67 +1643,29 @@ _M.states = {
 
         -- If we know there's no esi or it hasn't been scanned, don't process
         if not res.has_esi and res.esi_scanned == false then
-            ngx.log(ngx.DEBUG, "bail process, has_esi: ", res.has_esi, " esi_scanned: ", res.esi_scanned)
             return self:e "esi_process_disabled"
         end
 
-        if not self:ctx().esi_parser then
-            -- On the fast path with ESI already detected, the parser wont have been loaded
+        if not self:ctx().esi_processor then
+            -- On the fast path with ESI already detected, the processor wont have been loaded
             -- yet, so we must do that now
-            local token = res.has_esi
-            if token then
-                local parser = choose_esi_parser(token)
-                if parser then
-                    self:ctx().esi_parser = {
-                        parser = parser,
-                        token = token,
-                    }
-                end
+            -- TODO: Perhaps the state machine can load the processor to avoid this weird check
+            -- TODO: Should res.has_esi be esi_processor_token. Would help with chunk.has_esi ambiguity.
+            if res.has_esi then
+                self:ctx().esi_processor = esi.choose_esi_processor(res)
             else
                 -- We know there's nothing to do
                 return self:e "esi_process_not_required"
             end
         end
 
-        if self:ctx().esi_parser then
-            local token = self:ctx().esi_parser.token
-            local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
-
-            if surrogate_capability then
-                -- Surrogate-Capability: host.example.com="ESI/1.0"
-                local capability_token = h_util.get_header_token(
-                    surrogate_capability,
-                    "[!#\\$%&'\\*\\+\\-.\\^_`\\|~0-9a-zA-Z]+"
-                )
-                local capability_parser, capability_version = split_esi_token(capability_token)
-                capability_version = tonumber(capability_version)
-
-                if capability_parser and capability_version then
-                    local control_parser, control_version = split_esi_token(token)
-                    control_version = tonumber(control_version)
-
-                    if control_parser and control_version
-                        and control_parser == capability_parser
-                        and control_version <= capability_version then
-
-                        local surrogates = self:config_get("esi_allow_surrogate_delegation")
-                        if type(surrogates) == "boolean" then
-                            if surrogates == true then
-                                return self:e "esi_process_disabled"
-                            end
-                        elseif type(surrogates) == "table" then
-                            local remote_addr = ngx_var.remote_addr
-                            if remote_addr then
-                                for _, ip in ipairs(surrogates) do
-                                    if ip == remote_addr then
-                                        return self:e "esi_process_disabled"
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
+        if esi.delegate_to_surrogate(
+            self:config_get("esi_allow_surrogate_delegation"),
+            self:ctx().esi_processor.token
+        ) then
+            -- Disabled due to surrogate delegation
+            return self:e "esi_process_disabled"
+        else
             return self:e "esi_process_enabled"
         end
     end,
@@ -2302,7 +2102,7 @@ function _M.fetch_from_origin(self)
     -- Advertise ESI surrogate capabilities
     if self:config_get("esi_enabled") then
         local capability_entry =    (ngx_var.visible_hostname or ngx_var.hostname)
-                                    .. '="' .. esi_capabilities() .. '"'
+                                    .. '="' .. esi.esi_capabilities() .. '"'
         local sc = headers.surrogate_capability
 
         if not sc then
