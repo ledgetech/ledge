@@ -1126,13 +1126,16 @@ _M.events = {
     -- We've deduced we can serve a stale version of this URI. Ensure we add a warning to the
     -- response headers.
     can_serve_stale = {
-        { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
-        { begin = "considering_revalidation", but_first = { "add_stale_warning" } },
+        { after = "considering_stale_error", begin = "considering_esi_process",
+            but_first = "add_stale_warning" },
+        { begin = "considering_revalidation",
+            but_first = { "add_stale_warning" } },
     },
 
     -- We can serve stale, but also trigger a background revalidation
     can_serve_stale_while_revalidate = {
-        { begin = "considering_esi_process", but_first = { "add_stale_warning", "revalidate_in_background" } },
+        { begin = "considering_esi_process",
+            but_first = { "add_stale_warning", "revalidate_in_background" } },
     },
 
     -- We have a response we can use. If we've already served (we are doing background work) then
