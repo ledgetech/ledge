@@ -407,6 +407,7 @@ X-Cache: HIT from .*
 TEST 9
 --- error_code: 404
 
+
 === TEST 10: Cache key is the same with nil ngx.var.args and empty string
 --- http_config eval: $::HttpConfig
 --- config

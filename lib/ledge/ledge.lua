@@ -1654,7 +1654,6 @@ _M.states = {
             -- On the fast path with ESI already detected, the processor wont have been loaded
             -- yet, so we must do that now
             -- TODO: Perhaps the state machine can load the processor to avoid this weird check
-            -- TODO: Should res.has_esi be esi_processor_token. Would help with chunk.has_esi ambiguity.
             if res.has_esi then
                 self:ctx().esi_processor = esi.choose_esi_processor(res)
             else
@@ -2314,7 +2313,6 @@ function _M.save_to_cache(self, res)
     if not ok then ngx_log(ngx_ERR, err) end
 
     if previous_entity_id then
-        -- TODO: This will happen regardless of transaction failure
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
             entity_id = previous_entity_id,
         }, {
@@ -2352,7 +2350,13 @@ function _M.save_to_cache(self, res)
         local storage = self:ctx().storage
         res:filter_body_reader(
             "cache_body_writer",
-            storage:get_writer(res, keep_cache_for)
+            storage:get_writer(res, keep_cache_for, function(err)
+                -- Storage writer aborted, so we should discard our transaction
+                local ok, err = redis:discard()
+                if not ok then
+                    ngx_log(ngx_ERR, err)
+                end
+            end)
         )
     else
         -- Run transaction

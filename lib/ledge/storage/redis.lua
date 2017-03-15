@@ -166,7 +166,9 @@ end
 -- coroutine to be resumed which reads from the upstream socket.
 -- If we cross the body_max_memory boundary, we just keep yielding chunks to be served,
 -- after having removed the cache entry.
-function _M.get_writer(self, res, ttl)
+--
+-- on_abort is a callback to notify that the writing has failed, and cleanup attempted
+function _M.get_writer(self, res, ttl, on_abort)
     local redis = self.redis
     local max_memory = (self.body_max_memory or 0) * 1024
     local transaction_aborted = false
@@ -245,10 +247,12 @@ function _M.get_writer(self, res, ttl)
             -- May have been discarded cleanly due to memory so ignore errors
             redis:discard()
 
-            -- TODO: Previous behavior was to delete cache item if transaction aborted due
-            -- to memory size, but simply fail for any other reason.
-            -- How to notify outer transaction if this one failed??
-            return nil, "body writer transaction aborted"
+            local err = "body writer transaction aborted"
+            if type(on_abort) == "function" then
+                return nil, on_abort(err)
+            else
+                return nil, err
+            end
         end
     end
 end
