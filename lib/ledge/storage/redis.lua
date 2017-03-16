@@ -1,9 +1,6 @@
 local redis = require "resty.redis"
 local redis_connector = require "resty.redis.connector"
 
--- TODO: Storage drivers need unit tests
---       Including memory pressure tests for Redis
-
 local   tostring, ipairs, pairs, type, tonumber, next, unpack, setmetatable =
         tostring, ipairs, pairs, type, tonumber, next, unpack, setmetatable
 
@@ -38,8 +35,7 @@ function _M.new(ctx)
         ctx = ctx,
         redis = {},
         reader_cursor = 0,
-        -- TODO: max memory from config
-        body_max_memory = 2048, -- (KB) Max size for a cache body before we bail on trying to store.
+        body_max_memory = 1024, -- (KB) Max size for a cache body before we bail on trying to store.
     }, mt)
 end
 
@@ -66,6 +62,20 @@ function _M.connect(self, params)
     else
         self.redis = redis
         return true, nil
+    end
+end
+
+
+function _M.close(self)
+    local redis = self.redis
+    if redis then
+        local ok, err = redis:discard()
+        if ok then
+            -- TODO: How are keepalives configured?
+            return redis:set_keepalive()
+        else
+            return redis:close()
+        end
     end
 end
 
