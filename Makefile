@@ -92,7 +92,7 @@ start_redis_instances: check_ports create_sentinel_config
 		prefix=$(REDIS_PREFIX)$(port) && \
 	) true
 
-stop_redis_instances: delete_sentinel_config 
+stop_redis_instances: delete_sentinel_config
 	-@$(foreach port,$(TEST_LEDGE_REDIS_PORTS) $(TEST_LEDGE_SENTINEL_PORTS), \
 		$(MAKE) stop_redis_instance cleanup_redis_instance port=$(port) \
 		prefix=$(REDIS_PREFIX)$(port) && \
