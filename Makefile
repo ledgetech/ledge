@@ -122,7 +122,7 @@ cleanup_redis_instance: stop_redis_instance
 	-@rm -rf $(prefix)
 
 flush_db:
-	-@echo "Flushing Redis DB"
+	-@echo "Flushing Redis databases"
 	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_DATABASE) flushdb
 	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) flushdb
 
@@ -139,8 +139,8 @@ check_ports:
 	@$(foreach port,$(REDIS_PORTS),! lsof -i :$(port) &&) true 2>&1 > /dev/null
 
 test_ledge: flush_db
-	util/lua-releng
-	$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
+	@util/lua-releng
+	@$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
 	-@echo "Qless errors:"
 	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) llen ql:f:job-error
 
@@ -157,6 +157,6 @@ test_leak: flush_db
 coverage: flush_db
 	-@echo "Cleaning stats"
 	@rm -f luacov.stats.out
-	$(TEST_LEDGE_REDIS_VARS) TEST_COVERAGE=1 $(PROVE) $(TEST_FILE)
+	@$(TEST_LEDGE_REDIS_VARS) TEST_COVERAGE=1 $(PROVE) $(TEST_FILE)
 	@luacov
 	@tail -12 luacov.report.out
