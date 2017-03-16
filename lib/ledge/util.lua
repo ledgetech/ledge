@@ -15,6 +15,9 @@ local ffi_string = ffi.string
 local C = ffi.C
 
 
+local _VERSION = "1.28"
+
+
 ffi_cdef[[
 typedef unsigned char u_char;
 u_char * ngx_hex_dump(u_char *dst, const u_char *src, size_t len);

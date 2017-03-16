@@ -9,7 +9,9 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 
 
-local _M = {}
+local _M = {
+    _VERSION = '1.28',
+}
 
 local mt = {
     __index = _M,
@@ -108,7 +110,7 @@ function _M.find_whole_tag(self, tag)
     end
 
     -- We return a table with opening tag positions (absolute), as well as
-    -- tag contents etc. Blocl level tags will have "closing" data too.
+    -- tag contents etc. Block level tags will have "closing" data too.
     local ret = {
         opening = {
             from = opening_f + self.pos,
