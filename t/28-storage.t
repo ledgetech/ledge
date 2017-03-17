@@ -67,11 +67,8 @@ __DATA__
             local config = backends[ngx.req.get_uri_args()["backend"]]
             local storage = require(config.module).new()
 
-            local ok, err = storage:connect(config.params)
-            if not ok then error(err) end
-
-            local ok, err = storage:close()
-            if not ok then error(err) end
+            assert(storage:connect(config.params))
+            assert(storage:close())
 
             ngx.print(ngx.req.get_uri_args()["backend"], " OK")
         }
