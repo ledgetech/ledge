@@ -58,6 +58,14 @@ local mt = {
 
 
 function _M.new(ctx, key_chain)
+    if type(ctx) ~= "table" then
+        error("ctx table expected, got " .. type(ctx), 2)
+    end
+
+    if type(key_chain) ~= "table" then
+        error("key_chain table expected, got " .. type(ctx), 2)
+    end
+
     return setmetatable({
         ctx = ctx,  -- Request context
         key_chain = key_chain,  -- Cache key chain
