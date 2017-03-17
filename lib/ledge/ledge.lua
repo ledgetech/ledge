@@ -45,7 +45,6 @@ local ngx_timer_at = ngx.timer.at
 local ngx_sleep = ngx.sleep
 local ngx_md5 = ngx.md5
 local ngx_encode_args = ngx.encode_args
-local ngx_encode_args = ngx.encode_args
 local ngx_PARTIAL_CONTENT = 206
 local ngx_RANGE_NOT_SATISFIABLE = 416
 local ngx_HTTP_NOT_MODIFIED = 304
