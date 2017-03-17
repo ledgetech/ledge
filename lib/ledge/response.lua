@@ -112,7 +112,11 @@ function _M.filter_body_reader(self, filter_name, filter)
         local filters = self.ctx.body_filters
         if not filters then filters = {} end
 
-        ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")")
+        ngx_log(ngx_DEBUG,
+            filter_name, "(",
+            tbl_concat(filters, "("), "" , str_rep(")", #filters - 1)
+            , ")"
+        )
 
         tbl_insert(filters, 1, filter_name)
         self.ctx.body_filters = filters
@@ -146,7 +150,7 @@ end
 
 
 -- Calculates the TTL from response headers.
--- Header precedence is Cache-Control: s-maxage=NUM, Cache-Control: max-age=NUM,
+-- Header precedence is Cache-Control: s-maxage=NUM, Cache-Control: max-age=NUM
 -- and finally Expires: HTTP_TIMESTRING.
 function _M.ttl(self)
     local cc = self.header["Cache-Control"]
@@ -305,8 +309,8 @@ function _M.read(self)
 end
 
 
--- Takes headers from a HTTP response and returns a flat table of cacheable header
--- entries formatted for Redis.
+-- Takes headers from a HTTP response and returns a flat table of cacheable
+-- header entries formatted for Redis.
 local function prepare_cacheable_headers(headers)
     -- Don't cache any headers marked as
     -- Cache-Control: (no-cache|no-store|private)="header".
