@@ -37,7 +37,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             return function()
                 index = index + 1
                 if data[index] then
-                    return unpack(data[index])
+                    return data[index][1], data[index][2], data[index][3]
                 end
             end
         end
@@ -46,7 +46,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             repeat
                 local chunk, err, has_esi = iterator()
                 if chunk then
-                    ngx.print(chunk)
+                    ngx.say(chunk, ":", err, ":", tostring(has_esi))
                 end
             until not chunk
         end
@@ -90,7 +90,13 @@ __DATA__
     location /storage {
         content_by_lua_block {
             local config = backends[ngx.req.get_uri_args()["backend"]]
-            local storage = require(config.module).new({})
+
+            -- This flag is required for has_esi flags to be read
+            local ctx = {
+                esi_process_enabled = true
+            }
+
+            local storage = require(config.module).new(ctx)
 
             assert(storage:connect(config.params))
 
@@ -99,7 +105,8 @@ __DATA__
                 entity_id = "00001",
                 body_reader = get_source({
                     { "CHUNK 1", nil, false },
-                    { "CHUNK 2\n", nil, false },
+                    { "CHUNK 2", nil, true },
+                    { "CHUNK 3", nil, false },
                 }),
                 set_and_save = function(self, f, v)
                     ngx.say("saving ", f, " to ", v)
@@ -124,9 +131,13 @@ __DATA__
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
-["CHUNK 1CHUNK 2
-saving size to 15
-CHUNK 1CHUNK 2
+["CHUNK 1:nil:false
+CHUNK 2:nil:true
+CHUNK 3:nil:false
+saving size to 21
+CHUNK 1:nil:false
+CHUNK 2:nil:true
+CHUNK 3:nil:false
 "]
 --- no_error_log
 [error]
