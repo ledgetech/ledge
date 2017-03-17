@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2);
+plan tests => repeat_each() * (blocks() * 3);
 
 my $pwd = cwd();
 
@@ -36,7 +36,9 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             local index = 0
             return function()
                 index = index + 1
-                return unpack(data[index])
+                if data[index] then
+                    return unpack(data[index])
+                end
             end
         end
 
@@ -55,6 +57,7 @@ no_long_string();
 no_diff();
 run_tests();
 
+
 __DATA__
 === TEST 1: Load connect and close without errors.
 --- http_config eval: $::HttpConfig
@@ -69,10 +72,14 @@ __DATA__
 
             local ok, err = storage:close()
             if not ok then error(err) end
+
+            ngx.print(ngx.req.get_uri_args()["backend"], " OK")
         }
     }
 --- request eval
 ["GET /storage?backend=redis"]
+--- response_body eval
+["redis OK"]
 --- no_error_log
 [error]
 
@@ -83,29 +90,43 @@ __DATA__
     location /storage {
         content_by_lua_block {
             local config = backends[ngx.req.get_uri_args()["backend"]]
-            local storage = require(config.module).new()
+            local storage = require(config.module).new({})
 
-            local ok, err = storage:connect(config.params)
-            if not ok then error(err) end
+            assert(storage:connect(config.params))
 
-            local res = require("ledge.response").new()
-            res.entity_id = "00001"
-            res.body_reader = get_source({
-                "asd", nil, false
-            })
+            -- Fake response object stub
+            local res = {
+                entity_id = "00001",
+                body_reader = get_source({
+                    { "CHUNK 1", nil, false },
+                    { "CHUNK 2\n", nil, false },
+                }),
+                set_and_save = function(self, f, v)
+                    ngx.say("saving ", f, " to ", v)
+                end,
+            }
 
-            if storage:exists(res.entity_id) then
-                error("entity: ", res.entity_id, " already exists")
-            else
-                res.body_reader = storage:get_writer(res, 60, function() end)
-                sink(res.body_reader)
-            end
+            assert(not storage:exists(res.entity_id))
 
-            local ok, err = storage:close()
-            if not ok then error(err) end
+            -- Attach the writer, and run sink
+            res.body_reader = storage:get_writer(res, 60)
+            sink(res.body_reader)
+
+            assert(storage:exists(res.entity_id))
+
+            -- Attach the reader, and run sink
+            res.body_reader = storage:get_reader(res)
+            sink(res.body_reader)
+
+            assert(storage:close())
         }
     }
 --- request eval
 ["GET /storage?backend=redis"]
+--- response_body eval
+["CHUNK 1CHUNK 2
+saving size to 15
+CHUNK 1CHUNK 2
+"]
 --- no_error_log
 [error]
