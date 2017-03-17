@@ -35,21 +35,22 @@ function _M.new(ctx)
         ctx = ctx,
         redis = {},
         reader_cursor = 0,
-        body_max_memory = 1024, -- (KB) Max size for a cache body before we bail on trying to store.
+        body_max_memory = 1024, -- (KB) Max size for a cache body before
+                                -- we bail on trying to save.
     }, mt)
 end
 
 
 --- Connects to the Redis storage backend
--- @param   params  Redis connection parameters as per lua-resty-redis-connector
+-- @param   params  Redis connection params as per lua-resty-redis-connector
 -- @see     https://github.com/pintsized/lua-resty-redis-connector
 -- @usage   The params table can also include
 function _M.connect(self, params)
     local rc = redis_connector.new()
 
     -- Set timeout / connection options
-    local   connect_timeout, read_timeout, connection_options =
-            params.connect_timeout, params.read_timeout, params.connection_options
+    local connect_timeout, read_timeout, connection_options =
+          params.connect_timeout, params.read_timeout, params.connection_options
 
     if connect_timeout then rc:set_connect_timeout(connect_timeout) end
     if read_timeout then rc:set_read_timeout(read_timeout) end
@@ -154,8 +155,9 @@ function _M.get_reader(self, res)
             local chunk, err = redis:lindex(entity_keys.body, cursor)
             if not chunk then return nil, err, nil end
 
-            -- Only bother with the body_esi list if we know there are some chunks marked as true
-            -- The body server is responsible for deciding whether to actually call process_esi() or not.
+            -- Only bother with the body_esi list if we know there are some
+            -- chunks marked as true. The body server is responsible for
+            -- deciding whether to actually call process_esi() or not.
             local process_esi = self.ctx.esi_process_enabled
             if process_esi then
                 has_esi, err = redis:lindex(entity_keys.body_esi, cursor)
@@ -163,7 +165,10 @@ function _M.get_reader(self, res)
             end
 
             if chunk == ngx_null or (process_esi and has_esi == ngx_null) then
-                ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.body)
+                ngx_log(ngx_WARN,
+                    "entity removed during read, ",
+                    entity_keys.body
+                )
             end
 
             return chunk, nil, has_esi == "true"
@@ -174,10 +179,11 @@ end
 
 -- Returns a wrapped coroutine for writing chunks to cache, where reader is a
 -- coroutine to be resumed which reads from the upstream socket.
--- If we cross the body_max_memory boundary, we just keep yielding chunks to be served,
--- after having removed the cache entry.
+-- If we cross the body_max_memory boundary, we just keep yielding chunks to be
+-- served, after having removed the cache entry.
 --
--- on_abort is a callback to notify that the writing has failed, and cleanup attempted
+-- on_abort is a callback to notify that the writing has failed, and cleanup
+-- attempted
 function _M.get_writer(self, res, ttl, on_abort)
     local redis = self.redis
     local max_memory = (self.body_max_memory or 0) * 1024
@@ -210,8 +216,10 @@ function _M.get_writer(self, res, ttl, on_abort)
                         if err then
                             ngx_log(ngx_ERR, "error deleting body: ", err)
                         else
-                            ngx_log(ngx_NOTICE, "body could not be stored as it is larger than ",
-                                                max_memory, " bytes")
+                            ngx_log(ngx_NOTICE,
+                                "body could not be stored as it is larger ",
+                                "than ", max_memory, " bytes"
+                            )
                         end
                     else
                         local ok, err = redis:rpush(entity_keys.body, chunk)
@@ -219,10 +227,16 @@ function _M.get_writer(self, res, ttl, on_abort)
                             transaction_aborted = true
                             ngx_log(ngx_ERR, "error writing cache chunk: ", err)
                         end
-                        local ok, err = redis:rpush(entity_keys.body_esi, tostring(has_esi))
+                        local ok, err = redis:rpush(
+                            entity_keys.body_esi,
+                            tostring(has_esi)
+                        )
                         if not ok then
                             transaction_aborted = true
-                            ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
+                            ngx_log(ngx_ERR,
+                                "error writing chunk esi flag: ",
+                                err
+                            )
                         end
                     end
                 end
@@ -236,7 +250,12 @@ function _M.get_writer(self, res, ttl, on_abort)
                     transaction_aborted = true
                     ngx_log(ngx_ERR, "error writing blank cache chunk: ", err)
                 end
-                local ok, err = redis:rpush(entity_keys.body_esi, tostring(has_esi))
+
+                local ok, err = redis:rpush(
+                    entity_keys.body_esi,
+                    tostring(has_esi)
+                )
+
                 if not ok then
                     transaction_aborted = true
                     ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
