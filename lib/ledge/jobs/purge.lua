@@ -72,7 +72,7 @@ function _M.expire_pattern(cursor, job)
             ledge:ctx().storage = job.storage
             ledge:ctx().redis_params = job.redis_params
             ledge:ctx().cache_key = cache_key
-            ledge:set_response(response.new())
+            ledge:set_response(response.new(ledge:ctx(), ledge:cache_key_chain()))
 
             local ok, res, err = pcall(ledge.purge, ledge, job.data.purge_mode)
             if not ok then
