@@ -85,8 +85,9 @@ end
 local function entity_keys(entity_id)
     if entity_id then
         return {
-            body        = KEY_PREFIX .. entity_id .. ":body", -- list
-            body_esi    = KEY_PREFIX .. entity_id .. ":body_esi", -- list
+            -- Both keys are lists of chunks
+            body        = KEY_PREFIX .. "{" .. entity_id .. "}" .. ":body",
+            body_esi    = KEY_PREFIX .. "{" .. entity_id .. "}" .. ":body_esi",
         }
     end
 end
