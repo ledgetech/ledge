@@ -11,7 +11,10 @@ $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+    lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+
+    lua_socket_log_errors off;
+
     init_by_lua_block {
         if $ENV{TEST_COVERAGE} == 1 then
             jit.off()
@@ -40,6 +43,24 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             local index = 0
             return function()
                 index = index + 1
+                if data[index] then
+                    return data[index][1], data[index][2], data[index][3]
+                end
+            end
+        end
+
+
+        -- Utility returning an iterator over given chunked data, but which
+        -- fails (simulating connection failure) at fail_pos iteration.
+        function get_and_fail_source(data, fail_pos, storage)
+            local index = 0
+            return function()
+                index = index + 1
+
+                if index == fail_pos then
+                    storage.redis:close()
+                end
+
                 if data[index] then
                     return data[index][1], data[index][2], data[index][3]
                 end
@@ -246,3 +267,46 @@ body writer transaction aborted
 "]
 --- no_error_log
 [error]
+
+
+=== TEST 5: Test write fails and abort handler called if conn is interrupted
+--- http_config eval: $::HttpConfig
+--- config
+    location /storage {
+        content_by_lua_block {
+            local config = backends[ngx.req.get_uri_args()["backend"]]
+
+            -- This flag is required for has_esi flags to be read
+            local ctx = {
+                esi_process_enabled = true
+            }
+
+            local storage = require(config.module).new(ctx)
+            assert(storage:connect(config.params))
+
+            local res = _res.new("00005")
+            -- Load source but fail on second chunk
+            res.body_reader = get_and_fail_source({
+                { "123", nil, false },
+                { "456", nil, true },
+                { "789", nil, true },
+            }, 2, storage)
+
+            assert(not storage:exists(res.entity_id))
+
+            -- Attach the writer, and run sink
+            res.body_reader = storage:get_writer(res, 60, abort_handler)
+            sink(res.body_reader)
+
+            -- Prove entity wasn't written (rolled back)
+            assert(not storage:exists(res.entity_id))
+        }
+    }
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["123:nil:false
+body writer transaction aborted
+"]
+--- error_log eval
+["error writing cache chunk:"]
