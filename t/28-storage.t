@@ -196,3 +196,49 @@ body writer transaction aborted
 "]
 --- no_error_log
 [error]
+
+
+=== TEST 4: Test zero length bodies still "exist"
+--- http_config eval: $::HttpConfig
+--- config
+    location /storage {
+        content_by_lua_block {
+            local config = backends[ngx.req.get_uri_args()["backend"]]
+
+            -- This flag is required for has_esi flags to be read
+            local ctx = {
+                esi_process_enabled = true
+            }
+
+            local storage = require(config.module).new(ctx)
+
+            assert(storage:connect(config.params))
+
+            -- Fake response object stub
+            local res = {
+                entity_id = "00004",
+                body_reader = get_source({}),
+                set_and_save = function(self, f, v)
+                    ngx.say("saving ", f, " to ", v)
+                end,
+            }
+
+            assert(not storage:exists(res.entity_id))
+
+            -- Attach the writer, and run sink
+            res.body_reader = storage:get_writer(res, 60, abort_handler)
+            sink(res.body_reader)
+
+            -- Prove entity was written
+            assert(storage:exists(res.entity_id))
+
+            assert(storage:close())
+        }
+    }
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["saving size to 0
+"]
+--- no_error_log
+[error]
