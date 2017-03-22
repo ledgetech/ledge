@@ -50,6 +50,10 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
                 end
             until not chunk
         end
+
+        function abort_handler(reason)
+            ngx.say(reason)
+        end
     }
 };
 
@@ -99,7 +103,7 @@ __DATA__
 
             -- Fake response object stub
             local res = {
-                entity_id = "00001",
+                entity_id = "00002",
                 body_reader = get_source({
                     { "CHUNK 1", nil, false },
                     { "CHUNK 2", nil, true },
@@ -113,7 +117,7 @@ __DATA__
             assert(not storage:exists(res.entity_id))
 
             -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(res, 60)
+            res.body_reader = storage:get_writer(res, 60, abort_handler)
             sink(res.body_reader)
 
             assert(storage:exists(res.entity_id))
@@ -135,6 +139,60 @@ saving size to 21
 CHUNK 1:nil:false
 CHUNK 2:nil:true
 CHUNK 3:nil:false
+"]
+--- no_error_log
+[error]
+
+
+=== TEST 3: Fail to write entity larger than max_size
+--- http_config eval: $::HttpConfig
+--- config
+    location /storage {
+        content_by_lua_block {
+            local config = backends[ngx.req.get_uri_args()["backend"]]
+
+            -- This flag is required for has_esi flags to be read
+            local ctx = {
+                esi_process_enabled = true
+            }
+
+            local storage = require(config.module).new(ctx)
+            storage.body_max_memory = 8 / 1024 -- 8 bytes
+
+            assert(storage:connect(config.params))
+
+            -- Fake response object stub
+            local res = {
+                entity_id = "00003",
+                body_reader = get_source({
+                    { "123", nil, false },
+                    { "456", nil, true },
+                    { "789", nil, false },
+                }),
+                set_and_save = function(self, f, v)
+                    ngx.say("saving ", f, " to ", v)
+                end,
+            }
+
+            assert(not storage:exists(res.entity_id))
+
+            -- Attach the writer, and run sink
+            res.body_reader = storage:get_writer(res, 60, abort_handler)
+            sink(res.body_reader)
+
+            -- Prove entity wasn't written
+            assert(not storage:exists(res.entity_id))
+
+            assert(storage:close())
+        }
+    }
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["123:nil:false
+456:nil:true
+789:nil:false
+body writer transaction aborted
 "]
 --- no_error_log
 [error]
