@@ -6,7 +6,7 @@ local response = require "ledge.response"
 local range = require "ledge.range"
 local h_util = require "ledge.header_util"
 local esi = require "ledge.esi"
-require "ledge.util"
+local util = require "ledge.util"
 
 local zlib = require "ffi-zlib"
 local redis = require "resty.redis"
@@ -54,7 +54,7 @@ local tbl_concat = table.concat
 local tbl_remove = table.remove
 local tbl_getn = table.getn
 local tbl_sort = table.sort
-local tbl_copy = table.copy
+local tbl_copy = util.table.copy
 
 local str_lower = string.lower
 local str_sub = string.sub
@@ -64,15 +64,15 @@ local str_find = string.find
 local str_lower = string.lower
 local str_len = string.len
 local str_rep = string.rep
-local str_split = string.split
-local str_randomhex = string.randomhex
+local str_split = util.string.split
+local str_randomhex = util.string.randomhex
 
 local math_floor = math.floor
 local math_ceil = math.ceil
 local math_min = math.min
 
 local co_yield = coroutine.yield
-local co_wrap = coroutine.wrap
+local co_wrap = util.coroutine.wrap
 local cjson_encode = cjson.encode
 
 

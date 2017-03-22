@@ -1,13 +1,26 @@
 local h_util = require "ledge.header_util"
 local http_headers = require "resty.http_headers"
-require "ledge.util"
+local util = require "ledge.util"
 
 local pairs, ipairs, setmetatable, tonumber, unpack =
     pairs, ipairs, setmetatable, tonumber, unpack
 
+local tbl_getn = table.getn
+local tbl_insert = table.insert
 local tbl_concat = table.concat
+
 local str_lower = string.lower
 local str_gsub = string.gsub
+local str_find = string.find
+local str_sub = string.sub
+local str_rep = string.rep
+local str_randomhex = util.string.randomhex
+local str_split = util.string.split
+
+local ngx_null = ngx.null
+local ngx_log = ngx.log
+local ngx_ERR = ngx.ERR
+local ngx_DEBUG = ngx.DEBUG
 local ngx_re_gmatch = ngx.re.gmatch
 local ngx_re_match = ngx.re.match
 local ngx_parse_http_time = ngx.parse_http_time
@@ -15,17 +28,6 @@ local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
-local tbl_getn = table.getn
-local tbl_insert = table.insert
-local str_find = string.find
-local str_split = string.split
-local str_sub = string.sub
-local str_rep = string.rep
-local str_randomhex = string.randomhex
-local ngx_null = ngx.null
-local ngx_log = ngx.log
-local ngx_ERR = ngx.ERR
-local ngx_DEBUG = ngx.DEBUG
 
 local _M = {
     _VERSION = '1.28.3'

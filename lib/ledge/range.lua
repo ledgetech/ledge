@@ -1,21 +1,21 @@
 local h_util = require "ledge.header_util"
-require "ledge.util"
+local util = require "ledge.util"
 
 local setmetatable, tonumber, ipairs, type =
     setmetatable, tonumber, ipairs, type
 
-local str_split = string.split
 local str_match = string.match
-local str_randomhex = string.randomhex
 local str_sub = string.sub
+local str_randomhex = util.string.randomhex
+local str_split = util.string.split
 
 local tbl_insert = table.insert
 local tbl_sort = table.sort
 local tbl_remove = table.remove
 local tbl_concat = table.concat
 
-local co_wrap = coroutine.wrap
 local co_yield = coroutine.yield
+local co_wrap = util.coroutine.wrap
 
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_RANGE_NOT_SATISFIABLE = 416

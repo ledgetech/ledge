@@ -1,7 +1,7 @@
 local http = require "resty.http"
 local cookie = require "resty.cookie"
 local tag_parser = require "ledge.esi.tag_parser"
-require "ledge.util"
+local util = require "ledge.util"
 
 local   tostring, type, tonumber, next, unpack, pcall, setfenv =
         tostring, type, tonumber, next, unpack, pcall, setfenv
@@ -14,7 +14,7 @@ local tbl_concat = table.concat
 local tbl_insert = table.insert
 
 local co_yield = coroutine.yield
-local co_wrap = coroutine.wrap
+local co_wrap = util.coroutine.wrap
 
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub

@@ -15,14 +15,19 @@ local ffi_string = ffi.string
 local C = ffi.C
 
 
-local _VERSION = "1.28"
-
-
 ffi_cdef[[
 typedef unsigned char u_char;
 u_char * ngx_hex_dump(u_char *dst, const u_char *src, size_t len);
 int RAND_pseudo_bytes(u_char *buf, int num);
 ]]
+
+
+local _M = {
+    _VERSION = "1.28",
+    string = {},
+    table = {},
+    coroutine = {},
+}
 
 
 local function randomhex(len)
@@ -38,7 +43,7 @@ local function randomhex(len)
     C.ngx_hex_dump(hex, bytes, len)
     return ffi_string(hex, len * 2)
 end
-string.randomhex = randomhex
+_M.string.randomhex = randomhex
 
 
 local function tbl_copy(orig)
@@ -55,7 +60,7 @@ local function tbl_copy(orig)
     end
     return copy
 end
-table.copy = tbl_copy
+_M.table.copy = tbl_copy
 
 
 local function str_split(str, delim)
@@ -73,7 +78,7 @@ local function str_split(str, delim)
         return output
     end
 end
-string.split = str_split
+_M.string.split = str_split
 
 
 local function co_wrap(func)
@@ -90,4 +95,6 @@ local function co_wrap(func)
         end
     end
 end
-coroutine.wrap = co_wrap
+_M.coroutine.wrap = co_wrap
+
+return _M
