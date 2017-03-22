@@ -13,7 +13,6 @@ $ENV{TEST_COVERAGE} ||= 0;
 our $HttpConfig = qq{
     lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
 
-    lua_socket_log_errors off;
 
     init_by_lua_block {
         if $ENV{TEST_COVERAGE} == 1 then
@@ -273,6 +272,7 @@ body writer transaction aborted
 --- http_config eval: $::HttpConfig
 --- config
     location /storage {
+        lua_socket_log_errors off;
         content_by_lua_block {
             local config = backends[ngx.req.get_uri_args()["backend"]]
 
