@@ -23,6 +23,8 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             require "resty.core"
         end
 
+        -- Define storage backends here, and add requests to each test
+        -- with backend=<backend> params.
         backends = {
             redis = {
                 module = "ledge.storage.redis",
@@ -32,6 +34,8 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             },
         }
 
+
+        -- Utility returning an iterator over given chunked data
         function get_source(data)
             local index = 0
             return function()
@@ -42,6 +46,8 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             end
         end
 
+
+        -- Utility to read the body as is serving
         function sink(iterator)
             repeat
                 local chunk, err, has_esi = iterator()
@@ -51,8 +57,26 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             until not chunk
         end
 
+
+        -- Utility to report the abort handler was called
         function abort_handler(reason)
             ngx.say(reason)
+        end
+
+
+        -- Response object stub
+        _res = {}
+        local _mt = { __index = _res }
+
+        function _res.new(entity_id)
+            return setmetatable({
+                entity_id = entity_id,
+                body_reader = function() return nil end,
+            }, _mt)
+        end
+
+        function _res.set_and_save(self, f, v)
+            ngx.say("saving ", f, " to ", v)
         end
     }
 };
@@ -101,18 +125,12 @@ __DATA__
 
             assert(storage:connect(config.params))
 
-            -- Fake response object stub
-            local res = {
-                entity_id = "00002",
-                body_reader = get_source({
-                    { "CHUNK 1", nil, false },
-                    { "CHUNK 2", nil, true },
-                    { "CHUNK 3", nil, false },
-                }),
-                set_and_save = function(self, f, v)
-                    ngx.say("saving ", f, " to ", v)
-                end,
-            }
+            local res = _res.new("00002")
+            res.body_reader = get_source({
+                { "CHUNK 1", nil, false },
+                { "CHUNK 2", nil, true },
+                { "CHUNK 3", nil, false },
+            })
 
             assert(not storage:exists(res.entity_id))
 
@@ -161,18 +179,12 @@ CHUNK 3:nil:false
 
             assert(storage:connect(config.params))
 
-            -- Fake response object stub
-            local res = {
-                entity_id = "00003",
-                body_reader = get_source({
-                    { "123", nil, false },
-                    { "456", nil, true },
-                    { "789", nil, false },
-                }),
-                set_and_save = function(self, f, v)
-                    ngx.say("saving ", f, " to ", v)
-                end,
-            }
+            local res = _res.new("00003")
+            res.body_reader = get_source({
+                { "123", nil, false },
+                { "456", nil, true },
+                { "789", nil, false },
+            })
 
             assert(not storage:exists(res.entity_id))
 
@@ -211,17 +223,9 @@ body writer transaction aborted
             }
 
             local storage = require(config.module).new(ctx)
-
             assert(storage:connect(config.params))
 
-            -- Fake response object stub
-            local res = {
-                entity_id = "00004",
-                body_reader = get_source({}),
-                set_and_save = function(self, f, v)
-                    ngx.say("saving ", f, " to ", v)
-                end,
-            }
+            local res = _res.new("00004")
 
             assert(not storage:exists(res.entity_id))
 
