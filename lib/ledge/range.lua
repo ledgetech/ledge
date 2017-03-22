@@ -129,8 +129,11 @@ function _M.handle_range_request(self, res)
 
                 return res, false
             else
-                -- We'll need the content range header value for multipart boundaries
-                range.header = "bytes " .. range.from .. "-" .. range.to .. "/" .. res.size
+                -- We'll need the content range header value
+                -- for multipart boundaries: e.g. bytes 5-10/20
+                range.header = "bytes " .. range.from ..
+                                "-" .. range.to ..
+                                "/" .. res.size
                 tbl_insert(ranges, range)
             end
         end
@@ -150,8 +153,11 @@ function _M.handle_range_request(self, res)
                         -- extend previous range to encompass this one
                         previous_range.to = current_range.to
                         previous_range.header = "bytes " ..
-                                                previous_range.from .. "-" .. current_range.to
-                                                .. "/" .. res.size
+                                                previous_range.from ..
+                                                "-" ..
+                                                current_range.to ..
+                                                "/" ..
+                                                res.size
                         tbl_remove(ranges, i)
                     end
                 end
@@ -168,7 +174,9 @@ function _M.handle_range_request(self, res)
 
             res.status = ngx_PARTIAL_CONTENT
             ngx.header["Accept-Ranges"] = "bytes"
-            res.header["Content-Range"] = "bytes " .. range.from .. "-" .. range.to .. "/" .. size
+            res.header["Content-Range"] = "bytes " .. range.from ..
+                                            "-" .. range.to ..
+                                            "/" .. size
 
             return res, true
         else
@@ -180,7 +188,10 @@ function _M.handle_range_request(self, res)
             }
 
             if res.header["Content-Type"] then
-                tbl_insert(boundary, "Content-Type: " .. res.header["Content-Type"])
+                tbl_insert(
+                    boundary,
+                    "Content-Type: " .. res.header["Content-Type"]
+                )
                 tbl_insert(boundary, "")
             end
 
@@ -188,9 +199,10 @@ function _M.handle_range_request(self, res)
             self.boundary_end = "\n--" .. boundary_string .. "--"
 
             res.status = ngx_PARTIAL_CONTENT
-            --ngx.header["Accept-Ranges"] = "bytes" -- shouldn't this be res.header?
+            -- TODO: No test coverage for these headers
             res.header["Accept-Ranges"] = "bytes"
-            res.header["Content-Type"] = "multipart/byteranges; boundary=" .. boundary_string
+            res.header["Content-Type"] = "multipart/byteranges; boundary=" ..
+                                         boundary_string
 
             return res, true
         end
@@ -211,47 +223,55 @@ function _M.get_range_request_filter(self, reader)
             local playhead = 0
             local num_ranges = #ranges
 
-            repeat
+            while true do
                 local chunk, err = reader(buffer_size)
-                if chunk then
-                    local chunklen = #chunk
-                    local nextplayhead = playhead + chunklen
+                if not chunk then break end
 
-                    for i, range in ipairs(ranges) do
-                        if range.from >= nextplayhead or range.to < playhead then
-                            -- Skip over non matching ranges (this is algorithmically simpler)
-                        else
-                            -- Yield the multipart byterange boundary if required
-                            -- and only once per range.
-                            if num_ranges > 1 and not range.boundary_printed then
-                                co_yield(boundary)
-                                co_yield("Content-Range: " .. range.header .. "\n\n")
-                                range.boundary_printed = true
-                            end
+                local chunklen = #chunk
+                local nextplayhead = playhead + chunklen
 
-                            -- Trim range to within this chunk's context
-                            local yield_from = range.from
-                            local yield_to = range.to
-                            if range.from < playhead then
-                                yield_from = playhead
-                            end
-                            if range.to >= nextplayhead then
-                                yield_to = nextplayhead - 1
-                            end
-
-                            -- Find relative points for the range within this chunk
-                            local relative_yield_from = yield_from - playhead
-                            local relative_yield_to = yield_to - playhead
-
-                            -- Ranges are all 0 indexed, finally convert to 1 based Lua indexes.
-                            co_yield(str_sub(chunk, relative_yield_from + 1, relative_yield_to + 1))
+                for i, range in ipairs(ranges) do
+                    if range.from >= nextplayhead or range.to < playhead then
+                        -- Skip over non matching ranges (this is
+                        -- algorithmically simpler)
+                    else
+                        -- Yield the multipart byterange boundary if
+                        -- required and only once per range.
+                        if num_ranges > 1 and not range.boundary_printed then
+                            co_yield(boundary)
+                            co_yield("Content-Range: " .. range.header)
+                            co_yield("\n\n")
+                            range.boundary_printed = true
                         end
-                    end
 
-                    playhead = playhead + chunklen
+                        -- Trim range to within this chunk's context
+                        local yield_from = range.from
+                        local yield_to = range.to
+                        if range.from < playhead then
+                            yield_from = playhead
+                        end
+                        if range.to >= nextplayhead then
+                            yield_to = nextplayhead - 1
+                        end
+
+                        -- Find relative points for the range within this chunk
+                        local relative_yield_from = yield_from - playhead
+                        local relative_yield_to = yield_to - playhead
+
+                        -- Ranges are all 0 indexed, finally convert to 1 based
+                        -- Lua indexes, and yield the range.
+                        co_yield(
+                            str_sub(
+                                chunk,
+                                relative_yield_from + 1,
+                                relative_yield_to + 1
+                            )
+                        )
+                    end
                 end
 
-            until not chunk
+                playhead = playhead + chunklen
+            end
 
             -- Yield the multipart byterange end marker
             if num_ranges > 1 then
