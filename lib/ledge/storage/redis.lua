@@ -180,110 +180,94 @@ end
 
 -- Returns a wrapped coroutine for writing chunks to cache, where reader is a
 -- coroutine to be resumed which reads from the upstream socket.
--- If we cross the body_max_memory boundary, we just keep yielding chunks to be
--- served, after having removed the cache entry.
+-- If we cross the body_max_memory boundary, or error for any reason, we just
+-- keep yielding chunks to be served, after having removed the cache entry.
 --
 -- on_abort is a callback to notify that the writing has failed, and cleanup
 -- attempted
 function _M.get_writer(self, res, ttl, on_abort)
     local redis = self.redis
     local max_memory = (self.body_max_memory or 0) * 1024
-    local transaction_aborted = false
 
-    -- new
+    local failed = false
+    local failed_reason = ""
+
     local entity_id = res.entity_id
     local entity_keys = entity_keys(entity_id)
     local reader = res.body_reader
 
+    -- Start transaction when the writer is installed
+    -- TODO: Is this bad? You can't do anything else with storage after this
+    -- point. Do it on first iteration instead.
     redis:multi()
 
     local size = 0
     return function(buffer_size)
-        repeat
-            local chunk, err, has_esi = reader(buffer_size)
-            if chunk then
-                if not transaction_aborted then
-                    size = size + #chunk
+        local chunk, err, has_esi = reader(buffer_size)
 
-                    -- If we cannot store any more, delete everything.
-                    if size > max_memory then
-                        local res, err = redis:discard()
-                        if err then
-                            ngx_log(ngx_ERR, err)
-                        end
-                        transaction_aborted = true
+        if chunk and not failed then
+            size = size + #chunk
 
-                        local ok, err = self:delete()
-                        if err then
-                            ngx_log(ngx_ERR, "error deleting body: ", err)
-                        else
-                            ngx_log(ngx_NOTICE,
-                                "body could not be stored as it is larger ",
-                                "than ", max_memory, " bytes"
-                            )
-                        end
-                    else
-                        local ok, err = redis:rpush(entity_keys.body, chunk)
-                        if not ok then
-                            transaction_aborted = true
-                            ngx_log(ngx_ERR, "error writing cache chunk: ", err)
-                        end
-                        local ok, err = redis:rpush(
-                            entity_keys.body_esi,
-                            tostring(has_esi)
-                        )
-                        if not ok then
-                            transaction_aborted = true
-                            ngx_log(ngx_ERR,
-                                "error writing chunk esi flag: ",
-                                err
-                            )
-                        end
-                    end
+            if size > max_memory then
+                failed = true
+                failed_reason = "body is larger than " .. max_memory .. " bytes"
+            else
+                local ok, err = redis:rpush(entity_keys.body, chunk)
+                if not ok then
+                    failed = true
+                    failed_reason = "error writing: " .. err
                 end
 
-                -- Return the chunk
-                return chunk, nil, has_esi
+                local ok, err = redis:rpush(entity_keys.body_esi, has_esi)
+                if not ok then
+                    failed = true
+                    failed_reason = "error writing: " .. err
+                end
+            end
+        elseif not chunk then
+            -- We have nothing more to write (or possible an upstream error)
 
-            elseif size == 0 then
+            -- If we had no body at all, push an empty string into one
+            -- chunk, otherwise the entity won't exist.
+            -- TODO: Do we need to store? Can we not just allow entity-less cache
+            --       items which don't send a body?
+            if size == 0 then
                 local ok, err = redis:rpush(entity_keys.body, "")
                 if not ok then
-                    transaction_aborted = true
-                    ngx_log(ngx_ERR, "error writing blank cache chunk: ", err)
+                    failed = true
+                    failed_reason = "error writing blank cache chunk: " .. err
                 end
 
-                local ok, err = redis:rpush(
-                    entity_keys.body_esi,
-                    tostring(has_esi)
-                )
+                local ok, err = redis:rpush(entity_keys.body_esi, "false")
 
                 if not ok then
-                    transaction_aborted = true
-                    ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
+                    failed = true
+                    failed_reason = "error writing blank has_esi: " .. err
                 end
             end
-        until not chunk
 
-        if not transaction_aborted then
-            -- Set size in main res object
-            res:set_and_save("size", size)
+            if failed then
+                redis:discard()
 
-            local res, err = redis:exec()
-            if err then
-                ngx_log(ngx_ERR, "error executing cache transaction: ",  err)
-            end
-        else
-            -- If the transaction was aborted make sure we discard
-            -- May have been discarded cleanly due to memory so ignore errors
-            redis:discard()
-
-            local err = "body writer transaction aborted"
-            if type(on_abort) == "function" then
-                return nil, on_abort(err)
+                -- Report failure
+                if type(on_abort) == "function" then
+                    pcall(on_abort, failed_reason)
+                end
             else
-                return nil, err
+                -- Set size in main res object
+                res:set_and_save("size", size)
+
+                -- Commit transaction, report failure
+                local res, redis_e = redis:exec()
+                if redis_e and type(on_abort) == "function" then
+                    local reason = "error executing cache transaction: " ..  err
+                    pcall(on_abort, reason)
+                end
             end
         end
+
+        -- Always bubble up
+        return chunk, err, has_esi
     end
 end
 

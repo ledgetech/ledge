@@ -224,7 +224,7 @@ CHUNK 3:nil:false
 ["123:nil:false
 456:nil:true
 789:nil:false
-body writer transaction aborted
+body is larger than 8 bytes
 "]
 --- no_error_log
 [error]
@@ -306,7 +306,9 @@ body writer transaction aborted
 ["GET /storage?backend=redis"]
 --- response_body eval
 ["123:nil:false
-body writer transaction aborted
+456:nil:true
+789:nil:true
+error writing: closed
 "]
---- error_log eval
-["error writing cache chunk:"]
+--- no_error_log
+["error"]
