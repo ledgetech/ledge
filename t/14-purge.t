@@ -248,9 +248,8 @@ location /purge_cached {
         redis:select(ledge:config_get("redis_connection").db)
         local key_chain = ledge:cache_key_chain()
 
-        local res, err = redis:keys(key_chain.root .. "*")
-
-        ngx.say("keys: ", table.getn(res))
+        local num_entities, err = redis:scard(key_chain.entities)
+        ngx.say("entities: ", num_entities)
     ';
 }
 --- request
@@ -258,7 +257,7 @@ GET /purge_cached
 --- no_error_log
 [error]
 --- response_body
-keys: 0
+entities: 1
 
 
 === TEST 7a: Prime another key with args

@@ -2346,19 +2346,33 @@ function _M.save_to_cache(self, res)
     if not ok then ngx_log(ngx_ERR, err) end
 
     if res.has_body then
+        local onsuccess = function(bytes_written)
+            ngx.log(ngx.DEBUG, "on success called with: ", bytes_written, " bytes")
+            local ok, err = redis:hset(key_chain.main, "size", bytes_written)
+            if not ok then ngx_log(ngx_ERR, err) end
+
+            local ok, err = redis:exec()
+            if not ok or ok == ngx_null then
+                ngx_log(ngx_ERR, "Failed to save cache item: ", err)
+            end
+        end
+
+        local onfailure = function(reason)
+            ngx.log(ngx.DEBUG, "on failure called with: ", reason, " reason")
+            -- Storage writer aborted, so we should discard our transaction
+            local ok, err = redis:discard()
+            if not ok then
+                ngx_log(ngx_ERR, err)
+            end
+        end
+
         local storage = self:ctx().storage
         res:filter_body_reader(
             "cache_body_writer",
-            storage:get_writer(res, keep_cache_for, function(err)
-                -- Storage writer aborted, so we should discard our transaction
-                local ok, err = redis:discard()
-                if not ok then
-                    ngx_log(ngx_ERR, err)
-                end
-            end)
+            storage:get_writer(res, keep_cache_for, onsuccess, onfailure)
         )
     else
-        -- Run transaction
+        -- Run transaction now
         if redis:exec() == ngx_null then
             ngx_log(ngx_ERR, "Failed to save cache item")
         end
@@ -2592,7 +2606,6 @@ function _M.serve(self)
         end
 
         local cjson = require "cjson"
-        ngx.log(ngx.DEBUG, "Headers at serve: ", cjson.encode(res.header))
 
         if res.body_reader and ngx_req_get_method() ~= "HEAD" then
             local buffer_size = self:config_get("buffer_size")

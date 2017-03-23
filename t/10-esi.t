@@ -1360,7 +1360,7 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 a=1
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 --- error_log
-body could not be stored as it is larger than 16 bytes
+body is larger than 16 bytes
 
 
 === TEST 14: choose - when - otherwise, first when matched

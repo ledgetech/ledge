@@ -78,8 +78,14 @@ our $HttpConfig = qq{
         end
 
 
-        -- Utility to report the abort handler was called
-        function abort_handler(reason)
+        -- Utilitu to report success and the size written
+        function success_handler(bytes_written)
+            ngx.say("wrote ", bytes_written, " bytes")
+        end
+
+
+        -- Utility to report the onfailure event was called
+        function failure_handler(reason)
             ngx.say(reason)
         end
 
@@ -93,10 +99,6 @@ our $HttpConfig = qq{
                 entity_id = entity_id,
                 body_reader = function() return nil end,
             }, _mt)
-        end
-
-        function _res.set_and_save(self, f, v)
-            ngx.say("saving ", f, " to ", v)
         end
     }
 };
@@ -155,7 +157,11 @@ __DATA__
             assert(not storage:exists(res.entity_id))
 
             -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(res, 60, abort_handler)
+            res.body_reader = storage:get_writer(
+                res, 60,
+                success_handler,
+                failure_handler
+            )
             sink(res.body_reader)
 
             assert(storage:exists(res.entity_id))
@@ -173,7 +179,7 @@ __DATA__
 ["CHUNK 1:nil:false
 CHUNK 2:nil:true
 CHUNK 3:nil:false
-saving size to 21
+wrote 21 bytes
 CHUNK 1:nil:false
 CHUNK 2:nil:true
 CHUNK 3:nil:false
@@ -209,7 +215,11 @@ CHUNK 3:nil:false
             assert(not storage:exists(res.entity_id))
 
             -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(res, 60, abort_handler)
+            res.body_reader = storage:get_writer(
+                res, 60,
+                success_handler,
+                failure_handler
+            )
             sink(res.body_reader)
 
             -- Prove entity wasn't written
@@ -250,7 +260,11 @@ body is larger than 8 bytes
             assert(not storage:exists(res.entity_id))
 
             -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(res, 60, abort_handler)
+            res.body_reader = storage:get_writer(
+                res, 60,
+                success_handler,
+                failure_handler
+            )
             sink(res.body_reader)
 
             -- Prove entity was written
@@ -262,7 +276,7 @@ body is larger than 8 bytes
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
-["saving size to 0
+["wrote 0 bytes
 "]
 --- no_error_log
 [error]
@@ -295,7 +309,11 @@ body is larger than 8 bytes
             assert(not storage:exists(res.entity_id))
 
             -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(res, 60, abort_handler)
+            res.body_reader = storage:get_writer(
+                res, 60,
+                success_handler,
+                failure_handler
+            )
             sink(res.body_reader)
 
             -- Prove entity wasn't written (rolled back)

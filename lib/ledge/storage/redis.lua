@@ -185,7 +185,12 @@ end
 --
 -- on_abort is a callback to notify that the writing has failed, and cleanup
 -- attempted
-function _M.get_writer(self, res, ttl, on_abort)
+function _M.get_writer(self, res, ttl, onsuccess, onfailure)
+    assert(type(res) == "table")
+    assert(type(ttl) == "number")
+    assert(type(onsuccess) == "function")
+    assert(type(onfailure) == "function")
+
     local redis = self.redis
     local max_memory = (self.body_max_memory or 0) * 1024
 
@@ -218,7 +223,11 @@ function _M.get_writer(self, res, ttl, on_abort)
                     failed_reason = "error writing: " .. err
                 end
 
-                local ok, err = redis:rpush(entity_keys.body_esi, has_esi)
+                local ok, err = redis:rpush(
+                    entity_keys.body_esi,
+                    tostring(has_esi)
+                )
+
                 if not ok then
                     failed = true
                     failed_reason = "error writing: " .. err
@@ -250,18 +259,28 @@ function _M.get_writer(self, res, ttl, on_abort)
                 redis:discard()
 
                 -- Report failure
-                if type(on_abort) == "function" then
-                    pcall(on_abort, failed_reason)
-                end
+                local ok, e = pcall(onfailure, failed_reason)
+                if not ok then ngx_log(ngx_ERR, e) end
             else
-                -- Set size in main res object
-                res:set_and_save("size", size)
+                local ok, e = redis:expire(entity_keys.body, ttl)
+                if not ok or ok == ngx_null then failed = true end
+
+                local ok, e = redis:expire(entity_keys.body_esi, ttl)
+                if not ok or ok == ngx_null then failed = true end
 
                 -- Commit transaction, report failure
-                local res, redis_e = redis:exec()
-                if redis_e and type(on_abort) == "function" then
-                    local reason = "error executing cache transaction: " ..  err
-                    pcall(on_abort, reason)
+                local ok, redis_e = redis:exec()
+
+                if ok == ngx_null and redis_e then
+                    local ok, e = pcall(
+                        onfailure,
+                        "error executing cache transaction: " ..  err
+                    )
+                    if not ok then ngx_log(ngx_ERR, e) end
+                else
+                    -- All good, report success
+                    local ok, e = pcall(onsuccess, size)
+                    if not ok then ngx_log(ngx_ERR, e) end
                 end
             end
         end
