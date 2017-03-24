@@ -186,6 +186,7 @@ end
 -- on_abort is a callback to notify that the writing has failed, and cleanup
 -- attempted
 function _M.get_writer(self, res, ttl, onsuccess, onfailure)
+    -- TODO: How to safely do this?
     assert(type(res) == "table")
     assert(type(ttl) == "number")
     assert(type(onsuccess) == "function")
@@ -201,13 +202,16 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
     local entity_keys = entity_keys(entity_id)
     local reader = res.body_reader
 
-    -- Start transaction when the writer is installed
-    -- TODO: Is this bad? You can't do anything else with storage after this
-    -- point. Do it on first iteration instead.
-    redis:multi()
+    local transaction_open = false
 
     local size = 0
     return function(buffer_size)
+        -- Start the transaction the first time the iterator is called
+        if not transaction_open then
+            redis:multi()
+            transaction_open = true
+        end
+
         local chunk, err, has_esi = reader(buffer_size)
 
         if chunk and not failed then
@@ -256,22 +260,25 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
             end
 
             if failed then
+                -- Rollback
                 redis:discard()
 
                 -- Report failure
                 local ok, e = pcall(onfailure, failed_reason)
                 if not ok then ngx_log(ngx_ERR, e) end
             else
+                -- Set ttl expiries
                 local ok, e = redis:expire(entity_keys.body, ttl)
                 if not ok or ok == ngx_null then failed = true end
 
                 local ok, e = redis:expire(entity_keys.body_esi, ttl)
                 if not ok or ok == ngx_null then failed = true end
 
-                -- Commit transaction, report failure
+                -- Commit transaction
                 local ok, redis_e = redis:exec()
 
                 if ok == ngx_null and redis_e then
+                    -- Report failure
                     local ok, e = pcall(
                         onfailure,
                         "error executing cache transaction: " ..  err
