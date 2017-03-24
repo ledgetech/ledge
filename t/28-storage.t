@@ -240,7 +240,7 @@ body is larger than 8 bytes
 [error]
 
 
-=== TEST 4: Test zero length bodies aren't written
+=== TEST 4: Test zero length bodies are not written
 --- http_config eval: $::HttpConfig
 --- config
     location /storage {
@@ -329,7 +329,7 @@ body is larger than 8 bytes
 error writing: closed
 "]
 --- no_error_log
-["error"]
+[error]
 
 
 === TEST 6: Write entity with short exiry, test keys expire
@@ -384,3 +384,111 @@ wrote 9 bytes
 "]
 --- no_error_log
 [error]
+
+
+=== TEST 7: Test maxmem keys are cleaned up when transactions are not available
+--- http_config eval: $::HttpConfig
+--- config
+    location /storage {
+        content_by_lua_block {
+            local config = backends[ngx.req.get_uri_args()["backend"]]
+
+            -- This flag is required for has_esi flags to be read
+            local ctx = {
+                esi_process_enabled = true
+            }
+
+            local storage = require(config.module).new(ctx)
+            storage.body_max_memory = 8 / 1024 -- 8 bytes
+
+            -- Turn off atomicity
+            config.params.supports_transactions = false
+            assert(storage:connect(config.params))
+
+            local res = _res.new("00007")
+            -- Load source but fail on second chunk
+            res.body_reader = get_source({
+                { "123", nil, false },
+                { "456", nil, true },
+                { "789", nil, true },
+            }, storage)
+
+            assert(not storage:exists(res.entity_id))
+
+            -- Attach the writer, and run sink
+            res.body_reader = storage:get_writer(
+                res, 60,
+                success_handler,
+                failure_handler
+            )
+            sink(res.body_reader)
+
+            -- Prove entity wasn't written (rolled back)
+            assert(not storage:exists(res.entity_id))
+        }
+    }
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["123:nil:false
+456:nil:true
+789:nil:true
+body is larger than 8 bytes
+"]
+--- no_error_log
+[error]
+
+
+=== TEST 8: Keys will remain on failure when transactions aren not available
+--- http_config eval: $::HttpConfig
+--- config
+    location /storage {
+        lua_socket_log_errors off;
+        content_by_lua_block {
+            local config = backends[ngx.req.get_uri_args()["backend"]]
+
+            -- This flag is required for has_esi flags to be read
+            local ctx = {
+                esi_process_enabled = true
+            }
+
+            local storage = require(config.module).new(ctx)
+
+            config.params.supports_transactions = false
+            assert(storage:connect(config.params))
+
+            local res = _res.new("00008")
+            -- Load source but fail on second chunk
+            res.body_reader = get_and_fail_source({
+                { "123", nil, false },
+                { "456", nil, true },
+                { "789", nil, true },
+            }, 2, storage)
+
+            assert(not storage:exists(res.entity_id))
+
+            -- Attach the writer, and run sink
+            res.body_reader = storage:get_writer(
+                res, 60,
+                success_handler,
+                failure_handler
+            )
+            sink(res.body_reader)
+
+            -- Reconnect
+            assert(storage:connect(config.params))
+
+            -- Prove it still exists (could not be cleaned up)
+            assert(storage:exists(res.entity_id))
+        }
+    }
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["123:nil:false
+456:nil:true
+789:nil:true
+error writing: closed
+"]
+--- error_log eval
+["closed"]

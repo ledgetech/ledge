@@ -39,6 +39,7 @@ function _M.new(ctx)
                                 -- we bail on trying to save.
 
         _keys_created = false,
+        _supports_transactions = true,
     }, mt)
 end
 
@@ -57,6 +58,10 @@ function _M.connect(self, params)
     if connect_timeout then rc:set_connect_timeout(connect_timeout) end
     if read_timeout then rc:set_read_timeout(read_timeout) end
     if connection_options then rc:set_connection_options(connection_options) end
+
+    if params.supports_transactions == false then
+        self._supports_transactions = false
+    end
 
     -- Connect
     local redis, err = rc:connect(params)
@@ -233,7 +238,7 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
     local reader = res.body_reader
 
     return function(buffer_size)
-        if not transaction_open then
+        if not transaction_open and self._supports_transactions then
             redis:multi()
             transaction_open = true
         end
@@ -268,7 +273,16 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
             end
 
         elseif not chunk and failed then  -- We're finished, but failed
-            redis:discard() -- Rollback
+            if self._supports_transactions then
+                redis:discard() -- Rollback
+            else
+                -- Attempt to clean up manually (connection could be dead)
+                local ok, e = redis:del(
+                    entity_keys.body,
+                    entity_keys.body_esi
+                )
+                if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+            end
 
             local ok, e = pcall(onfailure, failed_reason)
             if not ok then ngx_log(ngx_ERR, e) end
