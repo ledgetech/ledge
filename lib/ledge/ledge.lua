@@ -2365,9 +2365,8 @@ function _M.save_to_cache(self, res)
                 ok, e = redis:srem(key_chain.entities, res.entity_id)
                 if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
 
-                ok, e = res:set_and_save("entity", "")
-
-
+                ok, e = redis:hdel(key_chain.main, "entity")
+                if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
             end
 
             ok, e = redis:exec()
