@@ -330,3 +330,57 @@ error writing: closed
 "]
 --- no_error_log
 ["error"]
+
+
+=== TEST 6: Write entity with short exiry, test keys expire
+--- http_config eval: $::HttpConfig
+--- config
+    location /storage {
+        content_by_lua_block {
+            local config = backends[ngx.req.get_uri_args()["backend"]]
+
+            -- This flag is required for has_esi flags to be read
+            local ctx = {
+                esi_process_enabled = true
+            }
+
+            local storage = require(config.module).new(ctx)
+
+            assert(storage:connect(config.params))
+
+            local res = _res.new("00006")
+            res.body_reader = get_source({
+                { "123", nil, false },
+                { "456", nil, true },
+                { "789", nil, false },
+            })
+
+            assert(not storage:exists(res.entity_id))
+
+            -- Attach the writer, and run sink
+            res.body_reader = storage:get_writer(
+                res, 1,
+                success_handler,
+                failure_handler
+            )
+            sink(res.body_reader)
+
+            assert(storage:exists(res.entity_id))
+
+            ngx.sleep(1)
+
+            assert(not storage:exists(res.entity_id))
+
+            assert(storage:close())
+        }
+    }
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["123:nil:false
+456:nil:true
+789:nil:false
+wrote 9 bytes
+"]
+--- no_error_log
+[error]
