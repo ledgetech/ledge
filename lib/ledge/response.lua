@@ -214,20 +214,6 @@ function _M.read(self)
         return nil
     end
 
-    -- "touch" other keys not needed for read, so that they are
-    -- less likely to be unfairly evicted ahead of time
-    -- TODO: From Redis 3.2.1 this can be one TOUCH command
-    local _ = redis:hlen(key_chain.reval_params)
-    local _ = redis:hlen(key_chain.reval_req_headers)
-    local entities, err = redis:scard(key_chain.entities)
-    if not entities or entities == ngx_null then
-        ngx_log(ngx_ERR, "could not read entities set: ", err)
-        return nil
-    elseif entities == 0 then
-        -- Entities set is perhaps evicted
-        return nil
-    end
-
     local ttl = nil
     local time_in_cache = 0
     local time_since_generated = 0
@@ -305,6 +291,20 @@ function _M.read(self)
     elseif self.header["Date"] then
         -- We have no advertised Age, use the generated timestamp.
         self.header["Age"] = time_since_generated
+    end
+
+    -- "touch" other keys not needed for read, so that they are
+    -- less likely to be unfairly evicted ahead of time
+    -- TODO: From Redis 3.2.1 this can be one TOUCH command
+    local _ = redis:hlen(key_chain.reval_params)
+    local _ = redis:hlen(key_chain.reval_req_headers)
+    if self.size > 0 then
+        local entities, err = redis:scard(key_chain.entities)
+        if not entities or entities == ngx_null then
+            return nil, "could not read entities set: " .. err
+        elseif entities == 0 then
+            return nil, "entities set is empty"
+        end
     end
 
     return true

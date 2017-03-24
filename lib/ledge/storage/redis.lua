@@ -37,6 +37,8 @@ function _M.new(ctx)
         reader_cursor = 0,
         body_max_memory = 1024, -- (KB) Max size for a cache body before
                                 -- we bail on trying to save.
+
+        _keys_created = false,
     }, mt)
 end
 
@@ -178,6 +180,31 @@ function _M.get_reader(self, res)
 end
 
 
+local function write_chunk(self, entity_keys, chunk, has_esi, ttl)
+    local redis = self.redis
+
+    -- Write chunks / has_esi onto lists
+    local ok, e = redis:rpush(entity_keys.body, chunk)
+    if not ok then return nil, e end
+
+    ok, e = redis:rpush(entity_keys.body_esi, tostring(has_esi))
+    if not ok then return nil, e end
+
+    -- If this is the first write, set expiration too
+    if not self._keys_created then
+        self._keys_created = true
+
+        ok, e = redis:expire(entity_keys.body, ttl)
+        if not ok then return nil, e end
+
+        ok, e = redis:expire(entity_keys.body_esi, ttl)
+        if not ok then return nil, e end
+    end
+
+    return true, nil
+end
+
+
 -- Returns a wrapped coroutine for writing chunks to cache, where reader is a
 -- coroutine to be resumed which reads from the upstream socket.
 -- If we cross the body_max_memory boundary, or error for any reason, we just
@@ -195,18 +222,17 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
     local redis = self.redis
     local max_memory = (self.body_max_memory or 0) * 1024
 
-    local failed = false
-    local failed_reason = ""
-
     local entity_id = res.entity_id
     local entity_keys = entity_keys(entity_id)
-    local reader = res.body_reader
 
+    local failed = false
+    local failed_reason = ""
     local transaction_open = false
 
     local size = 0
+    local reader = res.body_reader
+
     return function(buffer_size)
-        -- Start the transaction the first time the iterator is called
         if not transaction_open then
             redis:multi()
             transaction_open = true
@@ -214,82 +240,38 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
 
         local chunk, err, has_esi = reader(buffer_size)
 
-        if chunk and not failed then
+        if chunk and not failed then  -- We have something to write
             size = size + #chunk
 
             if size > max_memory then
                 failed = true
                 failed_reason = "body is larger than " .. max_memory .. " bytes"
             else
-                local ok, err = redis:rpush(entity_keys.body, chunk)
+                local ok, e = write_chunk(self, entity_keys, chunk, has_esi, ttl)
                 if not ok then
                     failed = true
-                    failed_reason = "error writing: " .. err
-                end
-
-                local ok, err = redis:rpush(
-                    entity_keys.body_esi,
-                    tostring(has_esi)
-                )
-
-                if not ok then
-                    failed = true
-                    failed_reason = "error writing: " .. err
-                end
-            end
-        elseif not chunk then
-            -- We have nothing more to write (or possible an upstream error)
-
-            -- If we had no body at all, push an empty string into one
-            -- chunk, otherwise the entity won't exist.
-            -- TODO: Do we need to store? Can we not just allow entity-less cache
-            --       items which don't send a body?
-            if size == 0 then
-                local ok, err = redis:rpush(entity_keys.body, "")
-                if not ok then
-                    failed = true
-                    failed_reason = "error writing blank cache chunk: " .. err
-                end
-
-                local ok, err = redis:rpush(entity_keys.body_esi, "false")
-
-                if not ok then
-                    failed = true
-                    failed_reason = "error writing blank has_esi: " .. err
+                    failed_reason = "error writing: " .. tostring(e)
                 end
             end
 
-            if failed then
-                -- Rollback
-                redis:discard()
+        elseif not chunk and not failed then  -- We're finished
+            local ok, e = redis:exec() -- Commit
 
-                -- Report failure
-                local ok, e = pcall(onfailure, failed_reason)
+            if not ok or ok == ngx_null then
+                -- Transaction failed
+                ok, e = pcall(onfailure, e)
                 if not ok then ngx_log(ngx_ERR, e) end
             else
-                -- Set ttl expiries
-                local ok, e = redis:expire(entity_keys.body, ttl)
-                if not ok or ok == ngx_null then failed = true end
-
-                local ok, e = redis:expire(entity_keys.body_esi, ttl)
-                if not ok or ok == ngx_null then failed = true end
-
-                -- Commit transaction
-                local ok, redis_e = redis:exec()
-
-                if ok == ngx_null and redis_e then
-                    -- Report failure
-                    local ok, e = pcall(
-                        onfailure,
-                        "error executing cache transaction: " ..  err
-                    )
-                    if not ok then ngx_log(ngx_ERR, e) end
-                else
-                    -- All good, report success
-                    local ok, e = pcall(onsuccess, size)
-                    if not ok then ngx_log(ngx_ERR, e) end
-                end
+                -- All good, report success
+                ok, e = pcall(onsuccess, size)
+                if not ok then ngx_log(ngx_ERR, e) end
             end
+
+        elseif not chunk and failed then  -- We're finished, but failed
+            redis:discard() -- Rollback
+
+            local ok, e = pcall(onfailure, failed_reason)
+            if not ok then ngx_log(ngx_ERR, e) end
         end
 
         -- Always bubble up

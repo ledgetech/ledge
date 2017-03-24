@@ -240,7 +240,7 @@ body is larger than 8 bytes
 [error]
 
 
-=== TEST 4: Test zero length bodies still "exist"
+=== TEST 4: Test zero length bodies aren't written
 --- http_config eval: $::HttpConfig
 --- config
     location /storage {
@@ -267,8 +267,8 @@ body is larger than 8 bytes
             )
             sink(res.body_reader)
 
-            -- Prove entity was written
-            assert(storage:exists(res.entity_id))
+            -- Prove entity wasn't written
+            assert(not storage:exists(res.entity_id))
 
             assert(storage:close())
         }

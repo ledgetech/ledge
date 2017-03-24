@@ -2021,29 +2021,33 @@ function _M.read_from_cache(self)
     local ok, err = res:read()
     if not ok then
         if err then
+            -- TODO: What conditions do we want this to happen? Surely we should
+            -- just MISS on failure?
             return self:e "http_internal_server_error"
         else
             return nil
         end
     end
 
-    local storage = ctx.storage
-    if not storage:exists(res.entity_id) then
-        ngx.log(ngx.DEBUG, res.entity_id, " doesn't exist in storage")
-        -- Should exist, so presumed evicted
+    if res.size > 0 then
+        local storage = ctx.storage
+        if not storage:exists(res.entity_id) then
+            ngx.log(ngx.DEBUG, res.entity_id, " doesn't exist in storage")
+            -- Should exist, so presumed evicted
 
-        local delay = self:gc_wait(res.size)
-        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-            entity_id = res.entity_id,
-        }, {
-            delay = res.size,
-            tags = { "collect_entity" },
-            priority = 10,
-        })
-        return nil -- MISS
+            local delay = self:gc_wait(res.size)
+            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+                entity_id = res.entity_id,
+            }, {
+                delay = res.size,
+                tags = { "collect_entity" },
+                priority = 10,
+            })
+            return nil -- MISS
+        end
+
+        res:filter_body_reader("cache_body_reader", storage:get_reader(res))
     end
-
-    res:filter_body_reader("cache_body_reader", storage:get_reader(res))
 
     self:emit("cache_accessed", res)
     return res
@@ -2330,54 +2334,66 @@ function _M.save_to_cache(self, res)
 
     res.uri = self:full_uri()
     local ok, err = res:save(keep_cache_for)
+    -- TODO: Do somethign with this err?
 
     -- Set revalidation parameters from this request
     local reval_params, reval_headers = self:revalidation_data()
+
+    -- TODO: Catch errors
     redis:del(key_chain.reval_params)
     redis:hmset(key_chain.reval_params, reval_params)
+    redis:expire(key_chain.reval_params, keep_cache_for)
+
+    -- TODO: Catch errors
     redis:del(key_chain.reval_req_headers)
     redis:hmset(key_chain.reval_req_headers, reval_headers)
+    redis:expire(key_chain.reval_req_headers, keep_cache_for)
 
-    local ok, err
-    ok, err = redis:expire(key_chain.reval_params, keep_cache_for)
-    if not ok then ngx_log(ngx_ERR, err) end
-
-    ok, err = redis:expire(key_chain.reval_req_headers, keep_cache_for)
-    if not ok then ngx_log(ngx_ERR, err) end
-
+    -- If we have a body, we need to attach the storage writer
+    -- NOTE: res.has_body is false for known bodyless repsonse types (e.g. HEAD)
+    -- but may be true and of zero length (commonly 301 etc).
     if res.has_body then
-        local onsuccess = function(bytes_written)
-            ngx.log(ngx.DEBUG, "on success called with: ", bytes_written, " bytes")
-            local ok, err = redis:hset(key_chain.main, "size", bytes_written)
-            if not ok then ngx_log(ngx_ERR, err) end
 
-            local ok, err = redis:exec()
-            if not ok or ok == ngx_null then
-                ngx_log(ngx_ERR, "Failed to save cache item: ", err)
+        -- Storage callback for write success
+        function onsuccess(bytes_written)
+            -- Update size in metadata
+            local ok, e = redis:hset(key_chain.main, "size", bytes_written)
+            if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+
+            if bytes_written == 0 then
+                -- Remove the entity as it wont exist
+                ok, e = redis:srem(key_chain.entities, res.entity_id)
+                if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+
+                ok, e = res:set_and_save("entity", "")
+
+
             end
+
+            ok, e = redis:exec()
+            if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
         end
 
-        local onfailure = function(reason)
-            ngx.log(ngx.DEBUG, "on failure called with: ", reason, " reason")
-            -- Storage writer aborted, so we should discard our transaction
-            local ok, err = redis:discard()
-            if not ok then
-                ngx_log(ngx_ERR, err)
-            end
+        -- Storage callback for write failure. We roll back our transaction.
+        function onfailure(reason)
+            ngx_log(ngx_ERR, "storage failed to write: ", reason)
+
+            local ok, e = redis:discard()
+            if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
         end
 
+        -- Attach storage writer
         local storage = self:ctx().storage
         res:filter_body_reader(
             "cache_body_writer",
             storage:get_writer(res, keep_cache_for, onsuccess, onfailure)
         )
     else
-        -- Run transaction now
-        if redis:exec() == ngx_null then
-            ngx_log(ngx_ERR, "Failed to save cache item")
-        end
+        -- No body and thus no storage filter
+        -- We can run our transaction immediately
+        local ok, e = redis:exec()
+        if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
     end
-
 end
 
 

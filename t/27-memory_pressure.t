@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => 24;
+plan tests => 21;
 
 my $pwd = cwd();
 
@@ -120,12 +120,10 @@ __DATA__
     }
 --- request eval
 ["GET /mem_pressure_1_prx?key=main",
-"GET /mem_pressure_1_prx?key=headers",
-"GET /mem_pressure_1_prx?key=entities"]
+"GET /mem_pressure_1_prx?key=headers"]
 --- response_body eval
 ["MISSED: main",
-"MISSED: headers",
-"MISSED: entities"]
+"MISSED: headers"]
 --- no_error_log
 [error]
 
