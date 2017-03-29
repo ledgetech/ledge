@@ -27,16 +27,30 @@ local mt = {
 local KEY_PREFIX = "ledge:entity:"
 
 
---- Creates a new (disconnected) storage instance.
--- @param   ctx     Request context
--- @return  The module instance
+-- Returns the Redis keys for entity_id
+local function entity_keys(entity_id)
+    if entity_id then
+        return {
+            -- Both keys are lists of chunks
+            body        = KEY_PREFIX .. "{" .. entity_id .. "}" .. ":body",
+            body_esi    = KEY_PREFIX .. "{" .. entity_id .. "}" .. ":body_esi",
+        }
+    end
+end
+
+
+--------------------------------------------------------------------------------
+-- Creates a new (disconnected) storage instance
+--------------------------------------------------------------------------------
+-- @param   table   The request context
+-- @return  table   The module instance
+--------------------------------------------------------------------------------
 function _M.new(ctx)
     return setmetatable({
         ctx = ctx,
         redis = {},
         reader_cursor = 0,
-        body_max_memory = 1024, -- (KB) Max size for a cache body before
-                                -- we bail on trying to save.
+        max_size = 2^20,  -- (1MB in bytes)
 
         _keys_created = false,
         _supports_transactions = true,
@@ -44,12 +58,17 @@ function _M.new(ctx)
 end
 
 
---- Connects to the Redis storage backend
--- @param   params  Redis connection params as per lua-resty-redis-connector
+--------------------------------------------------------------------------------
+-- Connects to the Redis storage backend
+--------------------------------------------------------------------------------
+-- @param   table   Module instance (self)
+-- @param   table   Redis connection params as per lua-resty-redis-connector
 -- @see     https://github.com/pintsized/lua-resty-redis-connector
--- @usage   The params table can also include
+--------------------------------------------------------------------------------
 function _M.connect(self, params)
     local rc = redis_connector.new()
+
+    -- TODO: Read max size from config
 
     -- Set timeout / connection options
     local connect_timeout, read_timeout, connection_options =
@@ -74,6 +93,11 @@ function _M.connect(self, params)
 end
 
 
+--------------------------------------------------------------------------------
+-- Closes the Redis connection
+--------------------------------------------------------------------------------
+-- @param   table   Module instance (self)
+--------------------------------------------------------------------------------
 function _M.close(self)
     local redis = self.redis
     if redis then
@@ -88,19 +112,25 @@ function _M.close(self)
 end
 
 
--- Return the Redis keys for the entity; entity_id
-local function entity_keys(entity_id)
-    if entity_id then
-        return {
-            -- Both keys are lists of chunks
-            body        = KEY_PREFIX .. "{" .. entity_id .. "}" .. ":body",
-            body_esi    = KEY_PREFIX .. "{" .. entity_id .. "}" .. ":body_esi",
-        }
-    end
+--------------------------------------------------------------------------------
+-- Returns the maximum size this connection is prepared to store.
+--------------------------------------------------------------------------------
+-- @param   table   Module instance (self)
+-- @return  number  Size (bytes)
+--------------------------------------------------------------------------------
+function _M.get_max_size(self)
+    return self.max_size
 end
 
 
--- Returns a boolean indicating if the entity exists, or nil, err
+--------------------------------------------------------------------------------
+-- Returns a boolean indicating if the entity exists.
+--------------------------------------------------------------------------------
+-- @param   table   Module instance (self)
+-- @param   string  The entity ID
+-- @return  boolean (exists)
+-- @return  string  err (or nil)
+--------------------------------------------------------------------------------
 function _M.exists(self, entity_id)
     local keys = entity_keys(entity_id)
     if not keys then
@@ -120,6 +150,14 @@ function _M.exists(self, entity_id)
 end
 
 
+--------------------------------------------------------------------------------
+-- Deletes an entity
+--------------------------------------------------------------------------------
+-- @param   table   Module instance (self)
+-- @param   string  The entity ID
+-- @return  boolean success
+-- @return  string  err (or nil)
+--------------------------------------------------------------------------------
 function _M.delete(self, entity_id)
     local key_chain = entity_keys(entity_id)
     if key_chain then
@@ -127,26 +165,52 @@ function _M.delete(self, entity_id)
         for k, v in pairs(key_chain) do
             tbl_insert(keys, v)
         end
+        -- TODO: return bool
         return self.redis:del(unpack(keys))
     end
 end
 
 
-function _M.expire(self, entity_id, ttl)
+--------------------------------------------------------------------------------
+-- Sets the time-to-live for an entity
+--------------------------------------------------------------------------------
+-- @param   table   Module instance (self)
+-- @param   string  The entity ID
+-- @param   number  TTL (seconds)
+-- @return  boolean success
+-- @return  string  err (or nil)
+--------------------------------------------------------------------------------
+function _M.set_ttl(self, entity_id, ttl)
     local key_chain = entity_keys(entity_id)
     if key_chain then
         for _,key in pairs(key_chain) do
+            -- TODO: Return bool
             self.redis:expire(key, ttl)
         end
     end
 end
 
 
---- Returns an iterator for reading the body chunks.
--- @param   entity_id   The entity ID
--- @return  chunk       The chunk data, or nil indicating error or end of stream
--- @return  err         Error message
--- @return  has_esi     Boolean to indicate presence of ESI instructions
+--------------------------------------------------------------------------------
+-- Gets the time-to-live for an entity
+--------------------------------------------------------------------------------
+-- @param   table   Module instance (self)
+-- @param   string  The entity ID
+-- @return  number  ttl
+-- @return  string  err (or nil)
+--------------------------------------------------------------------------------
+function _M.get_ttl(self, entity_id)
+    -- TODO: implement
+end
+
+
+--------------------------------------------------------------------------------
+-- Returns an iterator for reading the body chunks.
+--------------------------------------------------------------------------------
+-- @param   table       Module instance (self)
+-- @param   table       Response object
+-- @return  function    Iterator, returning chunk, err, has_esi for each call
+--------------------------------------------------------------------------------
 function _M.get_reader(self, res)
     local redis = self.redis
     local entity_id = res.entity_id
@@ -163,9 +227,6 @@ function _M.get_reader(self, res)
             local chunk, err = redis:lindex(entity_keys.body, cursor)
             if not chunk then return nil, err, nil end
 
-            -- Only bother with the body_esi list if we know there are some
-            -- chunks marked as true. The body server is responsible for
-            -- deciding whether to actually call process_esi() or not.
             local process_esi = self.ctx.esi_process_enabled
             if process_esi then
                 has_esi, err = redis:lindex(entity_keys.body_esi, cursor)
@@ -185,6 +246,7 @@ function _M.get_reader(self, res)
 end
 
 
+-- Writes a given chunk
 local function write_chunk(self, entity_keys, chunk, has_esi, ttl)
     local redis = self.redis
 
@@ -210,22 +272,27 @@ local function write_chunk(self, entity_keys, chunk, has_esi, ttl)
 end
 
 
--- Returns a wrapped coroutine for writing chunks to cache, where reader is a
--- coroutine to be resumed which reads from the upstream socket.
--- If we cross the body_max_memory boundary, or error for any reason, we just
+--------------------------------------------------------------------------------
+-- Returns an iterator which writes chunks to cache as they are read from
+-- reader belonging to the repsonse object.
+-- If we cross the maxsize boundary, or error for any reason, we just
 -- keep yielding chunks to be served, after having removed the cache entry.
---
--- on_abort is a callback to notify that the writing has failed, and cleanup
--- attempted
+--------------------------------------------------------------------------------
+-- @param   table       Module instance (self)
+-- @param   table       Response object
+-- @param   number      time-to-live
+-- @param   function    onsuccess callback
+-- @param   function    onfailure callback
+-- @return  function    Iterator, returning chunk, err, has_esi for each call
+--------------------------------------------------------------------------------
 function _M.get_writer(self, res, ttl, onsuccess, onfailure)
-    -- TODO: How to safely do this?
     assert(type(res) == "table")
     assert(type(ttl) == "number")
     assert(type(onsuccess) == "function")
     assert(type(onfailure) == "function")
 
     local redis = self.redis
-    local max_memory = (self.body_max_memory or 0) * 1024
+    local max_size = self.max_size
 
     local entity_id = res.entity_id
     local entity_keys = entity_keys(entity_id)
@@ -248,11 +315,16 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
         if chunk and not failed then  -- We have something to write
             size = size + #chunk
 
-            if size > max_memory then
+            if max_size and size > max_size then
                 failed = true
-                failed_reason = "body is larger than " .. max_memory .. " bytes"
+                failed_reason = "body is larger than " .. max_size .. " bytes"
             else
-                local ok, e = write_chunk(self, entity_keys, chunk, has_esi, ttl)
+                local ok, e = write_chunk(self,
+                    entity_keys,
+                    chunk,
+                    has_esi,
+                    ttl
+                )
                 if not ok then
                     failed = true
                     failed_reason = "error writing: " .. tostring(e)

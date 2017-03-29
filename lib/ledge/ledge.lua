@@ -94,6 +94,33 @@ local function _purge_mode()
 end
 
 
+-- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
+local HOP_BY_HOP_HEADERS = {
+    ["connection"]          = true,
+    ["keep-alive"]          = true,
+    ["proxy-authenticate"]  = true,
+    ["proxy-authorization"] = true,
+    ["te"]                  = true,
+    ["trailers"]            = true,
+    ["transfer-encoding"]   = true,
+    ["upgrade"]             = true,
+    ["content-length"]      = true,  -- Not strictly hop-by-hop, but we set
+                                     -- dynamically downstream.
+}
+
+
+local WARNINGS = {
+    ["110"] = "Response is stale",
+    ["214"] = "Transformation applied",
+    ["112"] = "Disconnected Operation",
+}
+
+
+-- ----------------------------------------------------------------------------
+-- Module set up
+-- ----------------------------------------------------------------------------
+
+
 local _M = {
     _VERSION = '1.28.3',
     DEBUG = false,
@@ -108,26 +135,7 @@ local mt = {
 }
 
 
--- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
-local HOP_BY_HOP_HEADERS = {
-    ["connection"]          = true,
-    ["keep-alive"]          = true,
-    ["proxy-authenticate"]  = true,
-    ["proxy-authorization"] = true,
-    ["te"]                  = true,
-    ["trailers"]            = true,
-    ["transfer-encoding"]   = true,
-    ["upgrade"]             = true,
-    ["content-length"]      = true, -- Not strictly hop-by-hop, but we set dynamically downstream.
-}
-
-local WARNINGS = {
-    ["110"] = "Response is stale",
-    ["214"] = "Transformation applied",
-    ["112"] = "Disconnected Operation",
-}
-
-
+-- Returns a new module instance
 function _M.new(self)
     local config = {
         origin_mode     = _M.ORIGIN_MODE_NORMAL,
@@ -149,8 +157,9 @@ function _M.new(self)
         -- Redis database for Qless jobs
         redis_qless_database = 1,
 
-        storage_connection = {
-            url = "redis://127.0.0.1:6379/0", -- DSN for data storage
+        storage_driver = require("ledge.storage.redis"),  -- default storage
+        storage_params = {
+            url = "redis://127.0.0.1:6379/0", -- Default Redis storage params
         },
 
         upstream_connect_timeout = 500,
@@ -166,9 +175,10 @@ function _M.new(self)
                                 -- upstream_* settings above.
 
         buffer_size = 2^16, -- 65536 (bytes) (64KB) Internal buffer size for data read/written/served.
+        -- TODO: Deprecate
         cache_max_memory = 2048, -- (KB) Max size for a cache item before we bail on trying to store.
 
-        advertise_ledge = true, -- Set this to false to omit (ledge/_VERSION) from the "Server" response header.
+        advertise_ledge = true, -- Set this to false to omit (ledge/_VERSION) from the "Via" response header.
 
 
         keep_cache_for  = 86400 * 30,   -- (sec) Max time to keep cache items past expiry + stale.
@@ -206,10 +216,11 @@ function _M.new(self)
         keyspace_scan_count = 10,   -- Limits the size of results returned from each keyspace scan command.
                                     -- A wildcard PURGE request will result in keyspace_size / keyspace_scan_count
                                     -- redis commands over the wire, but larger numbers block redis for longer.
-
     }
 
-    return setmetatable({ config = config }, mt)
+    return setmetatable({
+        config = config,
+    }, mt)
 end
 
 
@@ -219,6 +230,7 @@ function _M.ctx(self)
     local ctx = ngx.ctx[id]
     if not ctx then
         ctx = {
+            -- TODO: These are fragile and added ad hoc throughout
             events = {},
             config = {},
             state_history = {},
@@ -231,6 +243,11 @@ function _M.ctx(self)
     end
     return ctx
 end
+
+
+-- ----------------------------------------------------------------------------
+-- Config
+-- ----------------------------------------------------------------------------
 
 
 -- Set a config parameter
@@ -259,12 +276,9 @@ function _M.config_get(self, param)
 end
 
 
-function _M.handle_abort(self)
-    -- Use a closure to pass through the ledge instance
-    return function()
-        return self:e "aborted"
-    end
-end
+-- ----------------------------------------------------------------------------
+-- Events
+-- ----------------------------------------------------------------------------
 
 
 function _M.bind(self, event, callback)
@@ -285,6 +299,11 @@ function _M.emit(self, event, ...)
         end
     end
 end
+
+
+-- ----------------------------------------------------------------------------
+-- Runtime
+-- ----------------------------------------------------------------------------
 
 
 function _M.run(self)
@@ -345,6 +364,19 @@ function _M.run_workers(self, options)
         queues = { "ledge_revalidate" },
     })
 end
+
+
+function _M.handle_abort(self)
+    -- Use a closure to pass through the ledge instance
+    return function()
+        return self:e "aborted"
+    end
+end
+
+
+-- ----------------------------------------------------------------------------
+--
+-- ----------------------------------------------------------------------------
 
 
 function _M.relative_uri(self)
@@ -1513,11 +1545,12 @@ _M.states = {
     end,
 
     connecting_to_storage = function(self)
-        local storage_params = self:config_get("storage_connection")
+        local storage_driver = self:config_get("storage_driver")
+        local storage_params = self:config_get("storage_params")
 
-        -- TODO: For now we assume redis. The plan is to make the schema drive different backends.
-        local storage = require("ledge.storage.redis").new(self:ctx())
-        storage.body_max_memory = self:config_get("cache_max_memory")
+        -- TODO: Drivers only need ctx for esi process flags
+        local storage = storage_driver.new(self:ctx())
+        storage.max_size = self:config_get("cache_max_memory") * 1024
 
         local ok, err = storage:connect(storage_params)
         if not ok then
@@ -2283,10 +2316,11 @@ function _M.save_to_cache(self, res)
 
     -- Length is only set if there was a Content-Length header
     local length = res.length
-    local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
-    if length and length > max_memory then
+    local storage = self:ctx().storage
+    local max_size = storage:get_max_size()
+    if length and length > max_size then
         -- We'll carry on serving, just not saving.
-        return nil, "advertised length is greated than cache_max_memory"
+        return nil, "advertised length is greated than storage max size"
     end
 
 
@@ -2382,11 +2416,18 @@ function _M.save_to_cache(self, res)
         end
 
         -- Attach storage writer
-        local storage = self:ctx().storage
-        res:filter_body_reader(
-            "cache_body_writer",
-            storage:get_writer(res, keep_cache_for, onsuccess, onfailure)
+        local ok, writer = pcall(storage.get_writer, storage,
+            res,
+            keep_cache_for,
+            onsuccess,
+            onfailure
         )
+        if not ok then
+            ngx_log(ngx_ERR, writer)
+        else
+            res:filter_body_reader("cache_body_writer", writer)
+        end
+
     else
         -- No body and thus no storage filter
         -- We can run our transaction immediately
@@ -2557,7 +2598,7 @@ function _M.expire_keys(self, key_chain, entity_id)
             redis:expire(key, ttl - ttl_reduction)
         end
 
-        storage:expire(entity_id, ttl - ttl_reduction)
+        storage:set_ttl(entity_id, ttl - ttl_reduction)
 
         local ok, err = redis:exec()
         if err then

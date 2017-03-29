@@ -201,7 +201,7 @@ CHUNK 3:nil:false
             }
 
             local storage = require(config.module).new(ctx)
-            storage.body_max_memory = 8 / 1024 -- 8 bytes
+            storage.max_size = 8 -- 8 bytes
 
             assert(storage:connect(config.params))
 
@@ -399,7 +399,7 @@ wrote 9 bytes
             }
 
             local storage = require(config.module).new(ctx)
-            storage.body_max_memory = 8 / 1024 -- 8 bytes
+            storage.max_size = 8  -- 8 bytes
 
             -- Turn off atomicity
             config.params.supports_transactions = false

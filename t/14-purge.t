@@ -670,7 +670,7 @@ location /purge_cached_13_prx {
                 ngx.print("Sabotaged: uri")
             elseif sabotage == "body" then
                 local storage = require("ledge.storage.redis").new(ledge, ledge:ctx())
-                storage.body_max_memory = ledge:config_get("cache_max_memory")
+                storage.max_size = ledge:config_get("cache_max_memory") * 1024
 
                 local ok, err = storage:connect(ledge:config_get("storage_connection"))
                 ledge:ctx().storage = storage
