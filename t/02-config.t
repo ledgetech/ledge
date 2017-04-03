@@ -25,7 +25,6 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge_mod = require "ledge.ledge"
         ledge = ledge_mod:new()
         ledge:config_set("redis_connection", {
-            socket = "$ENV{TEST_LEDGE_REDIS_SOCKET}",
             db = $ENV{TEST_LEDGE_REDIS_DATABASE},
         })
         ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
