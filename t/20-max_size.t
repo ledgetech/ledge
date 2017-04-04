@@ -30,11 +30,14 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set("storage_connection", {
             db = $ENV{TEST_LEDGE_REDIS_DATABASE},
         })
+
+        ledge:config_set("storage_params", {
+            max_size = 8,
+        })
+
         ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
-        ledge:config_set('cache_max_memory', 8 / 1024)
-        redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
     }
 
     init_worker_by_lua_block {

@@ -1334,7 +1334,7 @@ GET /esi_12e_prx?a=1
 location /esi_13_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("cache_max_memory", 16 / 1024)
+        ledge:config_set("storage_params", { max_size = 16 })
         run()
     ';
 }

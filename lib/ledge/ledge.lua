@@ -158,9 +158,7 @@ function _M.new(self)
         redis_qless_database = 1,
 
         storage_driver = require("ledge.storage.redis"),  -- default storage
-        storage_params = {
-            url = "redis://127.0.0.1:6379/0", -- Default Redis storage params
-        },
+        storage_params = {},  -- use default storage params
 
         upstream_connect_timeout = 500,
         upstream_read_timeout = 5000,
@@ -1550,7 +1548,6 @@ _M.states = {
 
         -- TODO: Drivers only need ctx for esi process flags
         local storage = storage_driver.new(self:ctx())
-        storage.max_size = self:config_get("cache_max_memory") * 1024
 
         local ok, err = storage:connect(storage_params)
         if not ok then

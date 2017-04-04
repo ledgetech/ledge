@@ -18,8 +18,29 @@ local _M = {
 
 local mt = {
     __index = _M,
-    __newindex = function() error("module fields are read only", 2) end,
+    __newindex = function() error("attempt to create new module field", 2) end,
     __metatable = false,
+}
+
+
+-- Default parameters
+local defaults = {
+    connect_timeout = 500,
+    read_timeout = 5000,
+    connection_options = {},
+    keepalive_timeout = 60000,
+    keepalive_poolsize = 30,
+
+    -- lua-resty-redis-connector params
+    redis_connector = {
+        url = "redis://127.0.0.1:6379/0", -- Default Redis params
+    },
+
+    max_size = 1024 * 1024,  -- Max storable size, in bytes
+
+    -- Optional atomicity
+    -- e.g. for use with a Redis proxy which doesn't support transactions
+    supports_transactions = true,
 }
 
 
@@ -47,13 +68,12 @@ end
 --------------------------------------------------------------------------------
 function _M.new(ctx)
     return setmetatable({
-        ctx = ctx,
+        ctx = ctx, -- TODO: Make this go away
         redis = {},
-        reader_cursor = 0,
-        max_size = 2^20,  -- (1MB in bytes)
+        params = {},
 
+        _reader_cursor = 0,
         _keys_created = false,
-        _supports_transactions = true,
     }, mt)
 end
 
@@ -62,28 +82,22 @@ end
 -- Connects to the Redis storage backend
 --------------------------------------------------------------------------------
 -- @param   table   Module instance (self)
--- @param   table   Redis connection params as per lua-resty-redis-connector
--- @see     https://github.com/pintsized/lua-resty-redis-connector
+-- @param   table   Storage params
 --------------------------------------------------------------------------------
 function _M.connect(self, params)
+    -- Apply defaults to params
+    self.params = setmetatable(params, {
+        __index = defaults,
+        __newindex = function() error("attempt to create param field", 2) end,
+    })
+
     local rc = redis_connector.new()
-
-    -- TODO: Read max size from config
-
-    -- Set timeout / connection options
-    local connect_timeout, read_timeout, connection_options =
-          params.connect_timeout, params.read_timeout, params.connection_options
-
-    if connect_timeout then rc:set_connect_timeout(connect_timeout) end
-    if read_timeout then rc:set_read_timeout(read_timeout) end
-    if connection_options then rc:set_connection_options(connection_options) end
-
-    if params.supports_transactions == false then
-        self._supports_transactions = false
-    end
+    rc:set_connect_timeout(params.connect_timeout)
+    rc:set_read_timeout(params.read_timeout)
+    rc:set_connection_options(params.connection_options)
 
     -- Connect
-    local redis, err = rc:connect(params)
+    local redis, err = rc:connect(params.redis_connector)
     if not redis then
         return nil, err
     else
@@ -94,20 +108,34 @@ end
 
 
 --------------------------------------------------------------------------------
--- Closes the Redis connection
+-- Closes the Redis connection (placing back on the keepalive pool)
 --------------------------------------------------------------------------------
 -- @param   table   Module instance (self)
 --------------------------------------------------------------------------------
 function _M.close(self)
+    self._reader_cursor = 0
+    self._keys_created = false
+
     local redis = self.redis
     if redis then
-        local ok, err = redis:discard()
-        if ok then
-            -- TODO: How are keepalives configured?
-            return redis:set_keepalive()
-        else
+        local params = self.params
+        if params.supports_transactions then
+            -- Restore the connection to "NORMAL" before placing in the
+            -- keepalive pool
+            redis:discard()
+        end
+
+        local ok, err = redis:set_keepalive(
+            params.keepalive_timeout,
+            params.keepalive_pool_size
+        )
+
+        if not ok then
+            ngx_log(ngx_WARN, "couldn't set keepalive,, ", err)
             return redis:close()
         end
+
+        return ok
     end
 end
 
@@ -119,7 +147,7 @@ end
 -- @return  number  Size (bytes)
 --------------------------------------------------------------------------------
 function _M.get_max_size(self)
-    return self.max_size
+    return self.params.max_size
 end
 
 
@@ -218,8 +246,8 @@ function _M.get_reader(self, res)
     local num_chunks = redis:llen(entity_keys.body) or 0
 
     return function()
-        local cursor = self.reader_cursor
-        self.reader_cursor = cursor + 1
+        local cursor = self._reader_cursor
+        self._reader_cursor = cursor + 1
 
         local has_esi = false
 
@@ -292,7 +320,8 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
     assert(type(onfailure) == "function")
 
     local redis = self.redis
-    local max_size = self.max_size
+    local max_size = self.params.max_size
+    local supports_transactions = self.params.supports_transactions
 
     local entity_id = res.entity_id
     local entity_keys = entity_keys(entity_id)
@@ -305,7 +334,7 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
     local reader = res.body_reader
 
     return function(buffer_size)
-        if not transaction_open and self._supports_transactions then
+        if not transaction_open and supports_transactions then
             redis:multi()
             transaction_open = true
         end
@@ -345,7 +374,7 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
             end
 
         elseif not chunk and failed then  -- We're finished, but failed
-            if self._supports_transactions then
+            if supports_transactions then
                 redis:discard() -- Rollback
             else
                 -- Attempt to clean up manually (connection could be dead)

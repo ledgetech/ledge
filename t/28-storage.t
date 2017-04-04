@@ -31,7 +31,9 @@ our $HttpConfig = qq{
             redis = {
                 module = "ledge.storage.redis",
                 params = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    redis_connector = {
+                        db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    },
                 },
             },
         }
@@ -201,7 +203,7 @@ CHUNK 3:nil:false
             }
 
             local storage = require(config.module).new(ctx)
-            storage.max_size = 8 -- 8 bytes
+            config.params.max_size = 8
 
             assert(storage:connect(config.params))
 
@@ -399,7 +401,8 @@ wrote 9 bytes
             }
 
             local storage = require(config.module).new(ctx)
-            storage.max_size = 8  -- 8 bytes
+
+            config.params.max_size = 8
 
             -- Turn off atomicity
             config.params.supports_transactions = false
@@ -492,3 +495,65 @@ error writing: closed
 "]
 --- error_log eval
 ["closed"]
+
+
+=== TEST 9: Close connection and then reconnect and re-read
+--- http_config eval: $::HttpConfig
+--- config
+    location /storage {
+        content_by_lua_block {
+            local config = backends[ngx.req.get_uri_args()["backend"]]
+
+            -- This flag is required for has_esi flags to be read
+            local ctx = {
+                esi_process_enabled = true
+            }
+
+            local storage = require(config.module).new(ctx)
+
+            assert(storage:connect(config.params))
+
+            local res = _res.new("00009")
+            res.body_reader = get_source({
+                { "123", nil, false },
+                { "456", nil, true },
+                { "789", nil, false },
+            })
+
+            assert(not storage:exists(res.entity_id))
+
+            -- Attach the writer, and run sink
+            res.body_reader = storage:get_writer(
+                res, 60,
+                success_handler,
+                failure_handler
+            )
+            sink(res.body_reader)
+
+            assert(storage:exists(res.entity_id))
+
+            assert(storage:close())
+
+            assert(storage:connect(config.params))
+
+            assert(storage:exists(res.entity_id))
+
+            res.body_reader = storage:get_reader(res)
+            sink(res.body_reader)
+
+            assert(storage:close())
+        }
+    }
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["123:nil:false
+456:nil:true
+789:nil:false
+wrote 9 bytes
+123:nil:false
+456:nil:true
+789:nil:false
+"]
+--- no_error_log
+[error]
