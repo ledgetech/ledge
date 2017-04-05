@@ -48,7 +48,7 @@ local _empty_body_reader = function() return nil end
 
 
 local _M = {
-    _VERSION = '1.28',
+    _VERSION = '1.28.2',
     DEBUG = false,
 }
 

@@ -23,7 +23,7 @@ int RAND_pseudo_bytes(u_char *buf, int num);
 
 
 local _M = {
-    _VERSION = "1.28",
+    _VERSION = "1.28.2",
     string = {},
     table = {},
     coroutine = {},
