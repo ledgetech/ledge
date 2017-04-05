@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) - 10;
+plan tests => repeat_each() * (blocks() * 4) - 11;
 
 my $pwd = cwd();
 
@@ -67,6 +67,8 @@ GET /validation_prx
 TEST 1
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log
+[error]
 
 
 === TEST 2: Unspecified end-to-end revalidation (max-age=0 + no validator), upstream 200
@@ -95,6 +97,8 @@ GET /validation_prx
 TEST 2
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log
+[error]
 
 
 === TEST 2b: Unspecified end-to-end revalidation (max-age=0 + no validator), upstream 304
@@ -120,6 +124,8 @@ TEST 2
 --- error_code: 200
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log
+[error]
 
 
 === TEST 3: Revalidate against cache using IMS in the future. Check we still have headers
@@ -140,6 +146,8 @@ GET /validation_prx
 Cache-Control: max-age=3600
 Etag: test2
 --- response_body
+--- no_error_log
+[error]
 
 
 === TEST 3b: Revalidate against cache using IMS in the past. Return 200 fresh cache.
@@ -159,6 +167,8 @@ GET /validation_prx
 TEST 2
 --- response_headers_like
 X-Cache: HIT from .*
+--- no_error_log
+[error]
 
 
 === TEST 4: Revalidate against cache using Etag.
@@ -176,6 +186,8 @@ If-None-Match: test2
 GET /validation_prx
 --- error_code: 304
 --- response_body
+--- no_error_log
+[error]
 
 
 === TEST 4b: Revalidate against cache using LM and Etag.
@@ -194,6 +206,8 @@ If-None-Match: test2
 GET /validation_prx
 --- error_code: 304
 --- response_body
+--- no_error_log
+[error]
 
 
 === TEST 5: Specific end-to-end revalidation using IMS, upstream 304.
@@ -220,6 +234,8 @@ GET /validation_prx
 TEST 2
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log
+[error]
 
 
 === TEST 6: Specific end-to-end revalidation using INM (matching), upstream 304.
@@ -242,6 +258,8 @@ If-None-Match: test2
 --- request
 GET /validation_prx
 --- error_code: 304
+--- no_error_log
+[error]
 
 
 === TEST 6b: Specific end-to-end revalidation using INM (not matching), upstream 304.
@@ -268,6 +286,8 @@ GET /validation_prx
 TEST 2
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log
+[error]
 
 
 === TEST 7: Specific end-to-end revalidation using IMS, upstream 200.
@@ -295,6 +315,8 @@ GET /validation_prx
 --- error_code: 200
 --- response_body
 TEST 7
+--- no_error_log
+[error]
 
 
 === TEST 8: Specific end-to-end revalidation using INM, upstream 200.
@@ -323,6 +345,8 @@ GET /validation_prx
 TEST 8
 --- response_headers_like
 X-Cache: MISS from .*
+--- no_error_log
+[error]
 
 
 === TEST 8b: Unspecified end-to-end revalidation using INM, upstream 200, validators now match (so 304 to client).
@@ -348,9 +372,11 @@ If-None-Match: test8b
 GET /validation_prx
 --- error_code: 304
 --- response_body
+--- no_error_log
+[error]
 
 
-=== TEST 9: Check revalidation re-saved.
+=== TEST 8c: Check revalidation re-saved.
 --- http_config eval: $::HttpConfig
 --- config
 location /validation_prx {
@@ -366,6 +392,8 @@ GET /validation_prx
 TEST 8b
 --- response_headers_like
 X-Cache: HIT from .*
+--- no_error_log
+[error]
 
 
 === TEST 9: Validators on a cache miss (should never 304).
@@ -394,6 +422,8 @@ GET /validation_9_prx
 --- error_code: 200
 --- response_body
 TEST 9
+--- no_error_log
+[error]
 
 
 === TEST 10: Re-Validation on an a cache miss using INM. Upstream 200, but valid once cached (so 304 to client).
@@ -419,6 +449,8 @@ If-None-Match: test10
 GET /validation10_prx
 --- error_code: 304
 --- response_body
+--- no_error_log
+[error]
 
 
 === TEST 11: Test badly formatted IMS is ignored.
@@ -431,7 +463,7 @@ location /validation10_prx {
     ';
 }
 --- more_headers
-If-Modified-Since: 234qr12411224 
+If-Modified-Since: 234qr12411224
 --- request
 GET /validation10_prx
 --- error_code: 200
@@ -439,6 +471,9 @@ GET /validation10_prx
 TEST 10
 --- response_headers_like
 X-Cache: HIT from .*
+--- no_error_log
+[error]
+
 
 === TEST 12: Prime cache
 --- http_config eval: $::HttpConfig
@@ -460,6 +495,9 @@ GET /validation_12_prx
 --- error_code: 200
 --- response_body
 Test 12
+--- no_error_log
+[error]
+
 
 === TEST 12a: IMS in req and missing LM does not 304
 --- http_config eval: $::HttpConfig
@@ -482,6 +520,9 @@ GET /validation_12_prx
 --- error_code: 200
 --- response_body
 Test 12
+--- no_error_log
+[error]
+
 
 === TEST 12b: INM in req and missing etag does not 304
 --- http_config eval: $::HttpConfig
@@ -504,6 +545,9 @@ GET /validation_12_prx
 --- error_code: 200
 --- response_body
 Test 12
+--- no_error_log
+[error]
+
 
 === TEST 13: Allow pending qless jobs to run
 --- http_config eval: $::HttpConfig

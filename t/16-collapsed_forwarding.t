@@ -53,7 +53,7 @@ location /collapsed_prx {
         ledge:run()
     ';
 }
-location /collapsed { 
+location /collapsed {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("OK")
@@ -98,7 +98,7 @@ location /collapsed_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua 'ledge:run()';
 }
-location /collapsed { 
+location /collapsed {
     content_by_lua '
         ngx.sleep(0.1)
         ngx.header["Cache-Control"] = "max-age=3600"
@@ -147,7 +147,7 @@ location /collapsed_prx {
         ledge:run()'
     ;
 }
-location /collapsed { 
+location /collapsed {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("OK " .. ngx.shared.test:incr("test_3", 1))
@@ -195,7 +195,7 @@ location /collapsed_prx {
         ledge:run()'
     ;
 }
-location /collapsed { 
+location /collapsed {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("OK " .. ngx.shared.test:incr("test_4", 1))
@@ -245,7 +245,7 @@ location /collpased_prx {
         ledge:run()'
     ;
 }
-location /collapsed { 
+location /collapsed {
     content_by_lua '
         ngx.header["Cache-Control"] = "no-cache"
         ngx.say("OK " .. ngx.shared.test:incr("test_5", 1))
@@ -278,7 +278,7 @@ location /collapsed_6_prx {
         ledge:run()'
     ;
 }
-location /collapsed_6 { 
+location /collapsed_6 {
     content_by_lua '
         ngx.sleep(0.1)
         ngx.header["Cache-Control"] = "max-age=3600"
@@ -293,7 +293,7 @@ OK 1
 OK 2
 
 
-=== TEST 7a: Prime cache 
+=== TEST 7a: Prime cache
 --- http_config eval: $::HttpConfig
 --- config
 location /collapsed_prx {
@@ -302,7 +302,7 @@ location /collapsed_prx {
         ledge:run()
     ';
 }
-location /collapsed { 
+location /collapsed {
     content_by_lua '
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "test7a"
@@ -334,7 +334,7 @@ location /collapsed_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua 'ledge:run()';
 }
-location /collapsed { 
+location /collapsed {
     content_by_lua '
         ngx.sleep(0.1)
         ngx.header["Etag"] = "test7b"
@@ -349,8 +349,6 @@ If-None-Match: test7b
 GET /concurrent_collapsed
 --- error_code: 200
 --- response_body
-OK 1
-OK 1
 
 
 === TEST 9: Allow pending qless jobs to run

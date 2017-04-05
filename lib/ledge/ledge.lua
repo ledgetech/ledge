@@ -42,6 +42,7 @@ local ngx_sleep = ngx.sleep
 local ngx_md5 = ngx.md5
 local ngx_PARTIAL_CONTENT = 206
 local ngx_RANGE_NOT_SATISFIABLE = 416
+local ngx_HTTP_NOT_MODIFIED = 304
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 local tbl_remove = table.remove
@@ -180,7 +181,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.28.1',
+    _VERSION = '1.28.2',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -1347,8 +1348,11 @@ _M.events = {
         -- If we might ESI, then don't 304 downstream.
         { when = "preparing_response", in_case = "esi_process_enabled",
             begin = "serving", but_first = "set_http_status_from_response" },
-        { when = "preparing_response", in_case = "not_modified",
+        { when = "preparing_response", in_case = "not_modified", after = "fetching",
             begin = "serving", but_first = "set_http_not_modified" },
+        { when = "preparing_response", in_case = "not_modified",
+            begin = "serving", but_first = {    "set_http_not_modified",
+                                                "install_no_body_reader" } },
         { when = "preparing_response", begin = "serving",
             but_first = "set_http_status_from_response" },
         { begin = "preparing_response" },
@@ -1549,7 +1553,7 @@ _M.actions = {
 
     fetch = function(self)
         local res = self:fetch_from_origin()
-        if res.status ~= ngx.HTTP_NOT_MODIFIED then
+        if res.status ~= ngx_HTTP_NOT_MODIFIED then
             self:set_response(res)
         end
     end,
@@ -1637,7 +1641,7 @@ _M.actions = {
     end,
 
     set_http_not_modified = function(self)
-        ngx.status = ngx.HTTP_NOT_MODIFIED
+        ngx.status = ngx_HTTP_NOT_MODIFIED
     end,
 
     set_http_service_unavailable = function(self)
@@ -3089,8 +3093,13 @@ function _M.serve(self)
         end
 
         if res.body_reader and ngx_req_get_method() ~= "HEAD" then
-            -- Go!
-            self:body_server(res.body_reader)
+            -- If we have a body but are serving 304 Not Mofiied, we want to
+            -- read the body server but not send buffers to Nginx.
+            local send_buffers = true
+            if ngx.status == ngx_HTTP_NOT_MODIFIED then
+                send_buffers = false
+            end
+            self:body_server(res.body_reader, send_buffers)
         end
 
         ngx.eof()
@@ -3307,13 +3316,13 @@ end
 
 -- Resumes the reader coroutine and prints the data yielded. This could be
 -- via a cache read, or a save via a fetch... the interface is uniform.
-function _M.body_server(self, reader)
+function _M.body_server(self, reader, send_buffers)
     local buffer_size = self:config_get("buffer_size")
     local buffered = 0
 
     repeat
         local chunk, err = reader(buffer_size)
-        if chunk then
+        if chunk and send_buffers then
             local ok, err = ngx_print(chunk)
             if not ok then ngx_log(ngx_ERR, err) end
 
