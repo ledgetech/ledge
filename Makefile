@@ -1,6 +1,6 @@
 SHELL := /bin/bash # Cheat by using bash :)
 
-OPENRESTY_PREFIX    = /usr/local/openresty-debug
+OPENRESTY_PREFIX    = /usr/local/openresty
 
 TEST_FILE          ?= t
 SENTINEL_TEST_FILE ?= $(TEST_FILE)/sentinel
