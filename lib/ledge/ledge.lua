@@ -20,6 +20,7 @@ local ngx_NOTICE = ngx.NOTICE
 local ngx_INFO = ngx.INFO
 local ngx_null = ngx.null
 local ngx_print = ngx.print
+local ngx_flush = ngx.flush
 local ngx_get_phase = ngx.get_phase
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_req_set_header = ngx.req.set_header
@@ -179,7 +180,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.28',
+    _VERSION = '1.28.1',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -3308,11 +3309,21 @@ end
 -- via a cache read, or a save via a fetch... the interface is uniform.
 function _M.body_server(self, reader)
     local buffer_size = self:config_get("buffer_size")
+    local buffered = 0
 
     repeat
         local chunk, err = reader(buffer_size)
         if chunk then
-            ngx_print(chunk)
+            local ok, err = ngx_print(chunk)
+            if not ok then ngx_log(ngx_ERR, err) end
+
+            buffered = buffered + #chunk
+            if buffered >= buffer_size then
+                local ok, err = ngx_flush(true)
+                if not ok then ngx_log(ngx_ERR, err) end
+
+                buffered = 0
+            end
         end
 
     until not chunk
