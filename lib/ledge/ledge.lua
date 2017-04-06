@@ -1192,7 +1192,7 @@ _M.events = {
     served = {
         { in_case = "upstream_error", begin = "exiting" },
         { in_case = "collapsed_forwarding_upstream_error", begin = "exiting" },
-        { in_case = "response_cacheable", begin = "exiting", but_first = "commit_transaction" },
+        { in_case = "response_cacheable", begin = "exiting" },
         { begin = "exiting" },
     },
 
