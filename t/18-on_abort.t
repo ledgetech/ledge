@@ -28,6 +28,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
+        ledge:config_set("buffer_size", 2)
     }
 
     init_worker_by_lua_block {
@@ -48,6 +49,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
 no_long_string();
 no_diff();
 run_tests();
+
 
 __DATA__
 === TEST 1: Warning when unable to set client abort handler
@@ -244,6 +246,7 @@ FINISH
 --- error_code: 200
 --- no_error_log
 [error]
+
 
 === TEST 5: No error when keepalive_requests exceeded
 --- http_config eval: $::HttpConfig

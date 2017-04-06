@@ -28,6 +28,7 @@ local ngx_req_get_method = ngx.req.get_method
 local ngx_req_raw_header = ngx.req.raw_header
 local ngx_req_get_uri_args = ngx.req.get_uri_args
 local ngx_req_set_uri_args = ngx.req.set_uri_args
+local ngx_req_http_version = ngx.req.http_version
 local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
@@ -305,6 +306,7 @@ function _M.ctx(self)
             event_history = {},
             current_state = "",
             client_validators = {},
+            output_buffers_enabled = true,
         }
         ngx.ctx[id] = ctx
     end
@@ -1349,7 +1351,8 @@ _M.events = {
         { when = "preparing_response", in_case = "esi_process_enabled",
             begin = "serving", but_first = "set_http_status_from_response" },
         { when = "preparing_response", in_case = "not_modified", after = "fetching",
-            begin = "serving", but_first = "set_http_not_modified" },
+            begin = "serving", but_first = {    "set_http_not_modified",
+                                                "disable_output_buffers" } },
         { when = "preparing_response", in_case = "not_modified",
             begin = "serving", but_first = {    "set_http_not_modified",
                                                 "install_no_body_reader" } },
@@ -1372,7 +1375,7 @@ _M.events = {
     aborted = {
         { in_case = "response_cacheable", begin = "cancelling_abort_request" },
         { in_case = "obtained_collapsed_forwarding_lock", begin = "cancelling_abort_request" },
-        { begin = "exiting"},
+        { begin = "exiting" },
     },
 
     -- The cache body reader was reading from the list, but the entity was collected by a worker
@@ -1424,6 +1427,9 @@ _M.pre_transitions = {
     },
     serving_stale = {
         "set_http_status_from_response",
+    },
+    cancelling_abort_request = {
+        "disable_output_buffers"
     },
 }
 
@@ -1630,6 +1636,10 @@ _M.actions = {
 
     release_collapse_lock = function(self)
         self:ctx().redis:del(self:cache_key_chain().fetching_lock)
+    end,
+
+    disable_output_buffers = function(self)
+        self:ctx().output_buffers_enabled = false
     end,
 
     set_http_ok = function(self)
@@ -3093,13 +3103,8 @@ function _M.serve(self)
         end
 
         if res.body_reader and ngx_req_get_method() ~= "HEAD" then
-            -- If we have a body but are serving 304 Not Mofiied, we want to
-            -- read the body server but not send buffers to Nginx.
-            local send_buffers = true
-            if ngx.status == ngx_HTTP_NOT_MODIFIED then
-                send_buffers = false
-            end
-            self:body_server(res.body_reader, send_buffers)
+            local buffer_size = self:config_get("buffer_size")
+            self:serve_body(res, buffer_size)
         end
 
         ngx.eof()
@@ -3316,20 +3321,23 @@ end
 
 -- Resumes the reader coroutine and prints the data yielded. This could be
 -- via a cache read, or a save via a fetch... the interface is uniform.
-function _M.body_server(self, reader, send_buffers)
-    local buffer_size = self:config_get("buffer_size")
+function _M.serve_body(self, res, buffer_size)
     local buffered = 0
+    local reader = res.body_reader
+    local can_flush = ngx_req_http_version() >= 1.1
+    local ctx = self:ctx()
 
     repeat
         local chunk, err = reader(buffer_size)
-        if chunk and send_buffers then
+        if chunk and ctx.output_buffers_enabled then
             local ok, err = ngx_print(chunk)
             if not ok then ngx_log(ngx_ERR, err) end
 
+            -- Flush each full buffer, if we can
             buffered = buffered + #chunk
-            if buffered >= buffer_size then
+            if can_flush and buffered >= buffer_size then
                 local ok, err = ngx_flush(true)
-                if not ok then ngx_log(ngx_ERR, err) end
+                if not ok then ngx_log(ngx_ERR, chunk, " : ", err) end
 
                 buffered = 0
             end
