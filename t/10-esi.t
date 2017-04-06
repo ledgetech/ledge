@@ -28,7 +28,12 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         end
         ledge_mod = require "ledge.ledge"
         ledge = ledge_mod:new()
-        ledge:config_set("redis_database", $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set("redis_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
+        ledge:config_set("storage_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
         ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set("upstream_host", "127.0.0.1")
         ledge:config_set("upstream_port", 1984)
@@ -1329,7 +1334,7 @@ GET /esi_12e_prx?a=1
 location /esi_13_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
-        ledge:config_set("cache_max_memory", 16 / 1024)
+        ledge:config_set("storage_params", { max_size = 16 })
         run()
     ';
 }
@@ -1353,7 +1358,7 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 a=1
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 --- error_log
-cache item deleted as it is larger than 16 bytes
+body is larger than 16 bytes
 
 
 === TEST 14: choose - when - otherwise, first when matched

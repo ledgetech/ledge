@@ -1,6 +1,11 @@
 modules = {
-   ["ledge.ledge"] = "lib/ledge/ledge.lua",
-   ["ledge.esi"] = "lib/ledge/esi.lua",
-   ["ledge.response"] = "lib/ledge/response.lua",
-   ["ledge.header_util"] = "lib/ledge/header_util.lua",
+    ["ledge.ledge"] = "lib/ledge/ledge.lua",
+    ["ledge.esi"] = "lib/ledge/esi.lua",
+    ["ledge.esi"] = "lib/ledge/esi/tag_parser.lua",
+    ["ledge.esi.processor_1_0"] = "lib/ledge/esi/processor_1_0.lua",
+    ["ledge.response"] = "lib/ledge/response.lua",
+    ["ledge.range"] = "lib/ledge/range.lua",
+    ["ledge.header_util"] = "lib/ledge/header_util.lua",
+    ["ledge.util"] = "lib/ledge/util.lua",
+    ["ledge.storage.redis"] = "lib/ledge/storage/redis.lua",
 }

@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 4) - 10;
+plan tests => repeat_each() * (blocks() * 4) - 6;
 
 my $pwd = cwd();
 
@@ -24,8 +24,13 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         end
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
-        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
+        ledge:config_set("redis_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
+        ledge:config_set("storage_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
+        ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
     }
@@ -119,6 +124,7 @@ location /foobar {
 --- request
 PURGE /foobar
 --- no_error_log
+[error]
 --- response_body: {"result":"nothing to purge","purge_mode":"invalidate"}
 --- error_code: 404
 
@@ -160,7 +166,7 @@ PURGE /purge_cached*
 --- wait: 1
 --- no_error_log
 [error]
---- response_body_like: {"result":"scheduled","qless_job":{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
+--- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":\{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
 --- error_code: 200
 
 
@@ -224,7 +230,7 @@ location /purge_c {
 PURGE /purge_c*
 --- wait: 3
 --- error_code: 200
---- response_body_like: {"result":"scheduled","qless_job":{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
+--- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":\{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
 --- no_error_log
 [error]
 
@@ -237,12 +243,11 @@ location /purge_cached {
         local redis_mod = require "resty.redis"
         local redis = redis_mod.new()
         redis:connect("127.0.0.1", 6379)
-        redis:select(ledge:config_get("redis_database"))
+        redis:select(ledge:config_get("redis_connection").db)
         local key_chain = ledge:cache_key_chain()
 
-        local res, err = redis:keys(key_chain.root .. "*")
-
-        ngx.say("keys: ", table.getn(res))
+        local num_entities, err = redis:scard(key_chain.entities)
+        ngx.say("entities: ", num_entities)
     ';
 }
 --- request
@@ -250,7 +255,7 @@ GET /purge_cached
 --- no_error_log
 [error]
 --- response_body
-keys: 0
+entities: 1
 
 
 === TEST 7a: Prime another key with args
@@ -289,7 +294,7 @@ PURGE /purge_ca*ed
 --- wait: 1
 --- no_error_log
 [error]
---- response_body_like: {"result":"scheduled","qless_job":{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
+--- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":\{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
 --- error_code: 200
 
 
@@ -349,7 +354,7 @@ PURGE /purge_cached_8*
 --- wait: 1
 --- no_error_log
 [error]
---- response_body_like: {"result":"scheduled","qless_job":{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
+--- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":\{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
 --- error_code: 200
 
 
@@ -425,7 +430,7 @@ PURGE /purge_cached_9_prx
 --- wait: 2
 --- no_error_log
 [error]
---- response_body_like: {"result":"purged","qless_job":{"klass":"ledge\.jobs\.revalidate","jid":"[a-f0-9]{32}","options":{"tags":\["revalidate"\],"jid":"[a-z0-f]{32}","priority":4}},"purge_mode":"revalidate"}
+--- response_body_like: \{"result":"purged","qless_job":\{"klass":"ledge\.jobs\.revalidate","jid":"[a-f0-9]{32}","options":\{"tags":\["revalidate"\],"jid":"[a-z0-f]{32}","priority":4}},"purge_mode":"revalidate"}
 --- error_code: 200
 
 
@@ -495,7 +500,7 @@ PURGE /purge_cached_10_prx?*
 --- wait: 2
 --- no_error_log
 [error]
---- response_body: {"result":"scheduled","qless_job":{"klass":"ledge.jobs.purge","jid":"552add99bcfe22e69fa03446b664e0a4","options":{"tags":["purge"],"jid":"552add99bcfe22e69fa03446b664e0a4","priority":5}},"purge_mode":"revalidate"}
+--- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[0-9a-f]{32}","options":\{"tags":\["purge"\],"jid":"[0-9a-f]{32}","priority":5}},"purge_mode":"revalidate"}
 --- error_log eval
 ["TEST 10 Revalidated: 1 primed", "TEST 10 Revalidated: 2 primed"]
 --- error_code: 200
@@ -610,7 +615,7 @@ PURGE /purge_cached_12_prx?*
 --- wait: 2
 --- no_error_log
 [error]
---- response_body: {"result":"scheduled","qless_job":{"klass":"ledge.jobs.purge","jid":"bc2dbf12d53b08f676f09be39b4ad121","options":{"tags":["purge"],"jid":"bc2dbf12d53b08f676f09be39b4ad121","priority":5}},"purge_mode":"delete"}
+--- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[0-9a-f]{32}","options":\{"tags":\["purge"\],"jid":"[0-9a-f]{32}","priority":5}},"purge_mode":"delete"}
 --- error_code: 200
 
 
@@ -639,28 +644,38 @@ Cache-Control: max-stale=1000
 [ "ORIGIN: 1", "ORIGIN: 2" ]
 
 
-=== TEST 13a: Prime two keys
+=== TEST 13a: Prime two keys and break them
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_13_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        if ngx.req.get_uri_args()["sabotage"] then
+        local sabotage = ngx.req.get_uri_args()["sabotage"]
+        if sabotage then
             -- Set query string to match original request
             ngx.req.set_uri_args({a=1})
 
             -- Connect to redis
             local redis = require("resty.redis"):new()
             redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get('redis_database'))
+            redis:select(ledge:config_get("redis_connection").db)
             ledge:ctx().redis = redis
 
-            -- Get the subkeys
-            local entity_key_chain = ledge:entity_key_chain(false)
-            redis:del(entity_key_chain.body)
-            local cache_key_chain = ledge:cache_key_chain()
-            redis:hdel(cache_key_chain.main, "uri")
-            ngx.print("Sabotaged: ", entity_key_chain.body)
+            local key_chain = ledge:cache_key_chain()
+
+            if sabotage == "uri" then
+                redis:hdel(key_chain.main, "uri")
+                ngx.print("Sabotaged: uri")
+            elseif sabotage == "body" then
+                local storage = require("ledge.storage.redis").new(ledge, ledge:ctx())
+
+                local ok, err = storage:connect(ledge:config_get("storage_connection"))
+                ledge:ctx().storage = storage
+
+                storage:delete(redis:hget(key_chain.main, entity))
+
+                ngx.print("Sabotaged: body storage")
+            end
         else
             ledge:run()
         end
@@ -675,11 +690,17 @@ location /purge_cached_13 {
 --- more_headers
 Cookie: primed
 --- request eval
-[ "GET /purge_cached_13_prx?a=1", "GET /purge_cached_13_prx?a=2", "GET /purge_cached_13_prx?a=1&sabotage=true" ]
+[ "GET /purge_cached_13_prx?a=1",
+"GET /purge_cached_13_prx?a=2",
+"GET /purge_cached_13_prx?a=1&sabotage=body",
+"GET /purge_cached_13_prx?a=1&sabotage=uri" ]
 --- no_error_log
 [error]
 --- response_body_like eval
-[ "TEST 13: 1 primed", "TEST 13: 2 primed", "Sabotaged: ledge:entity:[a-f0-9]{32}:body" ]
+[ "TEST 13: 1 primed",
+ "TEST 13: 2 primed",
+ "Sabotaged: body storage",
+ "Sabotaged: uri" ]
 
 
 === TEST 13b: Wildcard purge broken entry with X-Purge: revalidate
@@ -705,5 +726,5 @@ PURGE /purge_cached_13_prx?*
 --- wait: 2
 --- error_log eval
 ["TEST 13 Revalidated: 2 primed"]
---- response_body: {"result":"scheduled","qless_job":{"klass":"ledge.jobs.purge","jid":"98fcbee1f37f4dba0b48b0bc49cd162e","options":{"tags":["purge"],"jid":"98fcbee1f37f4dba0b48b0bc49cd162e","priority":5}},"purge_mode":"revalidate"}
+--- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[0-9a-f]{32}","options":\{"tags":\["purge"\],"jid":"[0-9a-f]{32}","priority":5}},"purge_mode":"revalidate"}
 --- error_code: 200

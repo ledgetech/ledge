@@ -24,8 +24,13 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         end
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
-        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
+        ledge:config_set("redis_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
+        ledge:config_set("storage_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
+        ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('keep_cache_for', 0)
@@ -87,12 +92,10 @@ OK
            local redis_mod = require "resty.redis"
            local redis = redis_mod.new()
            redis:connect("127.0.0.1", 6379)
-           redis:select(ledge:config_get("redis_database"))
+           redis:select(ledge:config_get("redis_connection").db)
            local key_chain = ledge:cache_key_chain()
-           local num_entities, err = redis:zcard(key_chain.entities)
+           local num_entities, err = redis:scard(key_chain.entities)
            ngx.say(num_entities)
-           local memused  = redis:hget(key_chain.main, "memused")
-           ngx.say(memused)
         ';
     }
     location /gc {
@@ -105,140 +108,7 @@ Cache-Control: no-cache
 GET /gc_prx
 --- response_body
 UPDATED
-2
-11
-
-
-=== TEST 3: Check we now have just one entity, and memused is reduced by 3 bytes.
---- http_config eval: $::HttpConfig
---- config
-    location /gc {
-        content_by_lua '
-            ngx.sleep(1) -- Wait for qless to do the work
-
-            local redis_mod = require "resty.redis"
-            local redis = redis_mod.new()
-            redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_database"))
-            local key_chain = ledge:cache_key_chain()
-            local num_entities, err = redis:zcard(key_chain.entities)
-            ngx.say(num_entities)
-            local memused  = redis:hget(key_chain.main, "memused")
-            ngx.say(memused)
-        ';
-    }
---- request
-GET /gc
---- timeout: 4
---- no_error_log
-[error]
---- response_body
 1
-8
+--- wait: 1
 
 
-=== TEST 4: Entity will have expired, check Redis has cleaned up all keys.
---- http_config eval: $::HttpConfig
---- config
-    location /gc {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ngx.sleep(4)
-            local redis_mod = require "resty.redis"
-            local redis = redis_mod.new()
-            redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_database"))
-            local key_chain = ledge:cache_key_chain()
-
-            local res, err = redis:keys(key_chain.root .. "*")
-            if res then
-                for i,v in ipairs(res) do
-                    ngx.say(v)
-                end
-            end
-        ';
-    }
---- request
-GET /gc
---- timeout: 6
---- no_error_log
-[error]
---- response_body
-
-
-=== TEST 5: Prime cache
---- http_config eval: $::HttpConfig
---- config
-    location /gc_5_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:run()
-        ';
-    }
-    location /gc_5 {
-        more_set_headers "Cache-Control: public, max-age=60";
-        echo "OK";
-    }
---- request
-GET /gc_5_prx
---- no_error_log
-[error]
---- response_body
-OK
-
-
-=== TEST 5b: Delete one part of the key chain (simulate eviction under memory pressure). Will cause a MISS.
---- http_config eval: $::HttpConfig
---- config
-    location /gc_5_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            local redis_mod = require "resty.redis"
-            local redis = redis_mod.new()
-            redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_database"))
-
-            ledge:ctx().redis = redis 
-            local entity_key_chain = ledge:entity_key_chain()
-            redis:del(entity_key_chain.body)
-
-            ledge:run()
-        ';
-    }
-    location /gc_5 {
-        more_set_headers "Cache-Control: public, max-age=60";
-        echo "OK 2";
-    }
---- request
-GET /gc_5_prx
---- wait: 3
---- no_error_log
-[error]
---- response_body
-OK 2
-
-
-=== TEST 5c: Missing keys should cause colleciton of the old entity.
---- http_config eval: $::HttpConfig
---- config
-    location /gc_5 {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            local redis_mod = require "resty.redis"
-            local redis = redis_mod.new()
-            redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_database"))
-            local key_chain = ledge:cache_key_chain()
-
-            local res, err = redis:keys(key_chain.root .. "*")
-            if res then
-                ngx.say(#res)
-            end
-        ';
-    }
---- request
-GET /gc_5
---- no_error_log
-[error]
---- response_body
-5

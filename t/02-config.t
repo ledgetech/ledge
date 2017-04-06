@@ -24,7 +24,9 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         end
         ledge_mod = require "ledge.ledge"
         ledge = ledge_mod:new()
-        ledge:config_set("redis_database", $ENV{TEST_LEDGE_REDIS_DATABASE})
+        ledge:config_set("redis_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
         ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set("upstream_host", "127.0.0.1")
         ledge:config_set("upstream_port", 1984)
@@ -48,15 +50,15 @@ __DATA__
 --- config
 	location /config_1 {
         content_by_lua '
-            ngx.print(ledge:config_get("redis_database"))
-            ledge:config_set("redis_database", 2)
-            ngx.say(ledge:config_get("redis_database"))
+            ngx.print(ledge:config_get("redis_qless_database"))
+            ledge:config_set("redis_qless_database", 2)
+            ngx.say(ledge:config_get("redis_qless_database"))
         ';
     }
 --- request
 GET /config_1
 --- response_body
-22
+32
 
 === TEST 2: Module instance level config must not collide
 --- http_config eval: $::HttpConfig
@@ -64,14 +66,14 @@ GET /config_1
 location /config_2 {
     content_by_lua '
         local ledge2 = ledge_mod:new()
-        ledge:config_set("redis_database", 5)
-        ngx.say(ledge2:config_get("redis_database"))
-        ledge2:config_set("redis_database", 4)
-        ngx.say(ledge2:config_get("redis_database"))
+        ledge:config_set("redis_qless_database", 5)
+        ngx.say(ledge2:config_get("redis_qless_database"))
+        ledge2:config_set("redis_qless_database", 4)
+        ngx.say(ledge2:config_get("redis_qless_database"))
     ';
 }
 --- request
 GET /config_2
 --- response_body
-0
+1
 4

@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) + 1; 
+plan tests => repeat_each() * (blocks() * 3) + 4; 
 
 my $pwd = cwd();
 
@@ -24,12 +24,20 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         end
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
-        ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-        ledge:config_set('redis_qless_database', $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
+        ledge:config_set("redis_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
+        ledge:config_set("storage_connection", {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        })
+
+        ledge:config_set("storage_params", {
+            max_size = 8,
+        })
+
+        ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
         ledge:config_set('upstream_port', 1984)
-        ledge:config_set('cache_max_memory', 8 / 1024)
-        redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
     }
 
     init_worker_by_lua_block {
@@ -66,7 +74,7 @@ RESPONSE IS TOO LARGE TEST 1
 --- response_headers_like
 X-Cache: MISS from .*
 --- error_log
-cache item deleted as it is larger than 8 bytes
+larger than 8 bytes
 
 
 === TEST 2: Test we didn't store in previous test.
@@ -142,3 +150,74 @@ TEST 4
 --- response_headers_like
 X-Cache: MISS from .*
 --- no_error_log
+
+
+=== TEST 5a: Prime cache with ok size
+--- http_config eval: $::HttpConfig
+--- config
+location /max_memory_5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /max_memory_5 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("OK")
+    ';
+}
+--- request
+GET /max_memory_5_prx
+--- response_body
+OK
+--- response_headers_like
+X-Cache: MISS from .*
+--- no_error_log
+[error]
+
+
+=== TEST 5b: Try to replace with a large response
+--- http_config eval: $::HttpConfig
+--- config
+location /max_memory_5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+location /max_memory_5 {
+    content_by_lua '
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("RESPONSE IS TOO LARGE")
+    ';
+}
+--- more_headers
+Cache-Control: no-cache
+--- request
+GET /max_memory_5_prx
+--- response_body
+RESPONSE IS TOO LARGE
+--- response_headers_like
+X-Cache: MISS from .*
+--- error_log
+larger than 8 bytes
+
+
+=== TEST 5c: Confirm original cache is still ok
+--- http_config eval: $::HttpConfig
+--- config
+location /max_memory_5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:run()
+    ';
+}
+--- request
+GET /max_memory_5_prx
+--- response_body
+OK
+--- response_headers_like
+X-Cache: HIT from .*
+--- no_error_log
+[error]

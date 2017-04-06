@@ -66,11 +66,13 @@ function _M.expire_pattern(cursor, job)
             -- Create a Ledge instance and give it just enough scaffolding to run a headless PURGE.
             -- Remember there's no real request context here.
             local ledge = require("ledge.ledge").new()
-            ledge:config_set("redis_database", job.redis_params.db)
+            ledge:config_set("redis_connection", job.redis_params)
             ledge:config_set("redis_qless_database", job.redis_qless_database)
             ledge:ctx().redis = job.redis
+            ledge:ctx().storage = job.storage
+            ledge:ctx().redis_params = job.redis_params
             ledge:ctx().cache_key = cache_key
-            ledge:set_response(response.new())
+            ledge:set_response(response.new(ledge:ctx(), ledge:cache_key_chain()))
 
             local ok, res, err = pcall(ledge.purge, ledge, job.data.purge_mode)
             if not ok then

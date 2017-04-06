@@ -3,8 +3,11 @@ local http = require "resty.http"
 local http_headers = require "resty.http_headers"
 local qless = require "resty.qless"
 local response = require "ledge.response"
+local range = require "ledge.range"
 local h_util = require "ledge.header_util"
-local ffi = require "ffi"
+local esi = require "ledge.esi"
+local util = require "ledge.util"
+
 local zlib = require "ffi-zlib"
 local redis = require "resty.redis"
 local redis_connector = require "resty.redis.connector"
@@ -42,15 +45,17 @@ local ngx_timer_at = ngx.timer.at
 local ngx_sleep = ngx.sleep
 local ngx_md5 = ngx.md5
 local ngx_encode_args = ngx.encode_args
-local ngx_encode_args = ngx.encode_args
 local ngx_PARTIAL_CONTENT = 206
 local ngx_RANGE_NOT_SATISFIABLE = 416
 local ngx_HTTP_NOT_MODIFIED = 304
+
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 local tbl_remove = table.remove
 local tbl_getn = table.getn
 local tbl_sort = table.sort
+local tbl_copy = util.table.copy
+
 local str_lower = string.lower
 local str_sub = string.sub
 local str_match = string.match
@@ -59,71 +64,16 @@ local str_find = string.find
 local str_lower = string.lower
 local str_len = string.len
 local str_rep = string.rep
+local str_split = util.string.split
+local str_randomhex = util.string.randomhex
+
 local math_floor = math.floor
 local math_ceil = math.ceil
 local math_min = math.min
+
 local co_yield = coroutine.yield
-local co_create = coroutine.create
-local co_status = coroutine.status
-local co_resume = coroutine.resume
-local co_wrap = function(func)
-    local co = co_create(func)
-    if not co then
-        return nil, "could not create coroutine"
-    else
-        return function(...)
-            if co_status(co) == "suspended" then
-                return select(2, co_resume(co, ...))
-            else
-                return nil, "can't resume a " .. co_status(co) .. " coroutine"
-            end
-        end
-    end
-end
+local co_wrap = util.coroutine.wrap
 local cjson_encode = cjson.encode
-local ffi_cdef = ffi.cdef
-local ffi_new = ffi.new
-local ffi_string = ffi.string
-local C = ffi.C
-
-ffi_cdef[[
-typedef unsigned char u_char;
-u_char * ngx_hex_dump(u_char *dst, const u_char *src, size_t len);
-int RAND_pseudo_bytes(u_char *buf, int num);
-]]
-
-
-local function random_hex(len)
-    local len = math_floor(len / 2)
-
-    local bytes = ffi_new("uint8_t[?]", len)
-    C.RAND_pseudo_bytes(bytes, len)
-    if not bytes then
-        ngx_log(ngx_ERR, "error getting random bytes via FFI")
-        return nil
-    end
-
-    local hex = ffi_new("uint8_t[?]", len * 2)
-    C.ngx_hex_dump(hex, bytes, len)
-    return ffi_string(hex, len * 2)
-end
-
-
-local function str_split(str, delim)
-    if not str or not delim then return nil end
-    local it, err = str_gmatch(str, "([^"..delim.."]+)")
-    if it then
-        local output = {}
-        while true do
-            local m, err = it()
-            if not m then
-                break
-            end
-            tbl_insert(output, m)
-        end
-        return output
-    end
-end
 
 
 -- Body reader for when the response body is missing
@@ -144,47 +94,36 @@ local function _purge_mode()
 end
 
 
-local esi_parsers = {
-    ["ESI"] = {
-        ["1.0"] = require "ledge.esi",
-        -- 2.0 = require ledge.esi_2", -- for example
-    },
+-- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
+local HOP_BY_HOP_HEADERS = {
+    ["connection"]          = true,
+    ["keep-alive"]          = true,
+    ["proxy-authenticate"]  = true,
+    ["proxy-authorization"] = true,
+    ["te"]                  = true,
+    ["trailers"]            = true,
+    ["transfer-encoding"]   = true,
+    ["upgrade"]             = true,
+    ["content-length"]      = true,  -- Not strictly hop-by-hop, but we set
+                                     -- dynamically downstream.
 }
 
 
-local function esi_capabilities()
-    local capabilities = {}
-    for parser_type,parsers in pairs(esi_parsers) do
-        for version,_ in pairs(parsers) do
-            tbl_insert(capabilities, parser_type .. "/" .. version)
-        end
-    end
-    return tbl_concat(capabilities, " ")
-end
+local WARNINGS = {
+    ["110"] = "Response is stale",
+    ["214"] = "Transformation applied",
+    ["112"] = "Disconnected Operation",
+}
 
 
-local function split_esi_token(token)
-    return unpack(str_split(token, "/") or {})
-end
-
-
-local function choose_esi_parser(token)
-    local parser_token, version = split_esi_token(token)
-    if parser_token and version then
-        local parser_type = esi_parsers[parser_token]
-        if parser_type then
-            for v,parser in pairs(parser_type) do
-                if tonumber(version) <= tonumber(v) then
-                    return parser
-                end
-            end
-        end
-    end
-end
+-- ----------------------------------------------------------------------------
+-- Module set up
+-- ----------------------------------------------------------------------------
 
 
 local _M = {
     _VERSION = '1.28.3',
+    DEBUG = false,
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -196,29 +135,30 @@ local mt = {
 }
 
 
--- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
-local HOP_BY_HOP_HEADERS = {
-    ["connection"]          = true,
-    ["keep-alive"]          = true,
-    ["proxy-authenticate"]  = true,
-    ["proxy-authorization"] = true,
-    ["te"]                  = true,
-    ["trailers"]            = true,
-    ["transfer-encoding"]   = true,
-    ["upgrade"]             = true,
-    ["content-length"]      = true, -- Not strictly hop-by-hop, but we set dynamically downstream.
-}
-
-local WARNINGS = {
-    ["110"] = "Response is stale",
-    ["214"] = "Transformation applied",
-    ["112"] = "Disconnected Operation",
-}
-
-
+-- Returns a new module instance
 function _M.new(self)
     local config = {
         origin_mode     = _M.ORIGIN_MODE_NORMAL,
+
+        -- Redis connection settings
+        redis_connect_timeout = 500,    -- (ms) Connect timeout
+        redis_read_timeout = 5000,      -- (ms) Read/write timeout
+        redis_connection_options = nil, -- Additional options passed to tcpsock:connect
+
+        -- Redis keepalive settings
+        redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
+        redis_keepalive_poolsize = nil, -- (sec) Defaults to 30 or lua_socket_pool_size
+
+        -- Redis connection DSN (as supplied to lua-resty-redis-connector)
+        redis_connection = {
+            url = "redis://127.0.0.1:6379/0", -- The Redis DSN for cache metadata
+        },
+
+        -- Redis database for Qless jobs
+        redis_qless_database = 1,
+
+        storage_driver = require("ledge.storage.redis"),  -- default storage
+        storage_params = {},  -- use default storage params
 
         upstream_connect_timeout = 500,
         upstream_read_timeout = 5000,
@@ -233,26 +173,11 @@ function _M.new(self)
                                 -- upstream_* settings above.
 
         buffer_size = 2^16, -- 65536 (bytes) (64KB) Internal buffer size for data read/written/served.
+        -- TODO: Deprecate
         cache_max_memory = 2048, -- (KB) Max size for a cache item before we bail on trying to store.
 
-        advertise_ledge = true, -- Set this to false to omit (ledge/_VERSION) from the "Server" response header.
+        advertise_ledge = true, -- Set this to false to omit (ledge/_VERSION) from the "Via" response header.
 
-        redis_database  = 0,
-        redis_qless_database = 1,
-        redis_connect_timeout = 500,    -- (ms) Connect timeout
-        redis_read_timeout = 5000,      -- (ms) Read/write timeout
-        redis_keepalive_timeout = nil,  -- (sec) Defaults to 60s or lua_socket_keepalive_timeout
-        redis_keepalive_poolsize = nil, -- (sec) Defaults to 30 or lua_socket_pool_size
-        redis_host = { host = "127.0.0.1", port = 6379, socket = nil, password = nil },
-
-        redis_use_sentinel = false,
-        redis_sentinel_master_name = "mymaster",
-        redis_sentinels = {
-            -- e.g.
-            -- { host = "127.0.0.1", port = 6381 },
-            -- { host = "127.0.0.1", port = 6382 },
-            -- { host = "127.0.0.1", port = 6383 },
-        },
 
         keep_cache_for  = 86400 * 30,   -- (sec) Max time to keep cache items past expiry + stale.
                                         -- Items will be evicted when under memory pressure, so this
@@ -289,10 +214,11 @@ function _M.new(self)
         keyspace_scan_count = 10,   -- Limits the size of results returned from each keyspace scan command.
                                     -- A wildcard PURGE request will result in keyspace_size / keyspace_scan_count
                                     -- redis commands over the wire, but larger numbers block redis for longer.
-
     }
 
-    return setmetatable({ config = config }, mt)
+    return setmetatable({
+        config = config,
+    }, mt)
 end
 
 
@@ -302,6 +228,7 @@ function _M.ctx(self)
     local ctx = ngx.ctx[id]
     if not ctx then
         ctx = {
+            -- TODO: These are fragile and added ad hoc throughout
             events = {},
             config = {},
             state_history = {},
@@ -314,6 +241,11 @@ function _M.ctx(self)
     end
     return ctx
 end
+
+
+-- ----------------------------------------------------------------------------
+-- Config
+-- ----------------------------------------------------------------------------
 
 
 -- Set a config parameter
@@ -330,19 +262,21 @@ end
 function _M.config_get(self, param)
     local p = self:ctx().config[param]
     if p == nil then
-        return self.config[param]
+        local static = self.config[param]
+        if type(static) == "table" then
+            return tbl_copy(static)
+        else
+            return static
+        end
     else
         return p
     end
 end
 
 
-function _M.handle_abort(self)
-    -- Use a closure to pass through the ledge instance
-    return function()
-        return self:e "aborted"
-    end
-end
+-- ----------------------------------------------------------------------------
+-- Events
+-- ----------------------------------------------------------------------------
 
 
 function _M.bind(self, event, callback)
@@ -365,6 +299,11 @@ function _M.emit(self, event, ...)
 end
 
 
+-- ----------------------------------------------------------------------------
+-- Runtime
+-- ----------------------------------------------------------------------------
+
+
 function _M.run(self)
     local set, msg = ngx.on_abort(self:handle_abort())
     if set == nil then
@@ -378,19 +317,8 @@ function _M.run_workers(self, options)
     if not options then options = {} end
     local resty_qless_worker = require "resty.qless.worker"
 
-    local redis_params
-
-    if self:config_get("redis_use_sentinel") then
-        redis_params = {
-            sentinels = self:config_get("redis_sentinels"),
-            master_name = self:config_get("redis_sentinel_master_name"),
-            role = "master",
-            db = self:config_get("redis_qless_database")
-        }
-    else
-        redis_params = self:config_get("redis_host")
-        redis_params.db = self:config_get("redis_qless_database")
-    end
+    local redis_params = self:config_get("redis_connection")
+    redis_params.db = self:config_get("redis_qless_database")
 
     local connection_options = {
         connect_timeout = self:config_get("redis_connect_timeout"),
@@ -398,10 +326,10 @@ function _M.run_workers(self, options)
     }
 
     local worker = resty_qless_worker.new(redis_params, connection_options)
-
     worker.middleware = function(job)
         self:e "init_worker"
         job.redis = self:ctx().redis
+        job.storage = self:ctx().storage
         -- Pass though connection params in case jobs need to
         -- connect to a slave or anything of that nature.
         job.redis_params = self:ctx().redis_params
@@ -434,6 +362,19 @@ function _M.run_workers(self, options)
         queues = { "ledge_revalidate" },
     })
 end
+
+
+function _M.handle_abort(self)
+    -- Use a closure to pass through the ledge instance
+    return function()
+        return self:e "aborted"
+    end
+end
+
+
+-- ----------------------------------------------------------------------------
+--
+-- ----------------------------------------------------------------------------
 
 
 function _M.relative_uri(self)
@@ -584,39 +525,6 @@ function _M.can_serve_stale_if_error(self)
 end
 
 
--- returns a table of ranges, or nil
---
--- e.g.
--- {
---      { from = 0, to = 99 },
---      { from = 100, to = 199 },
--- }
-function _M.request_byte_range(self)
-    local bytes = h_util.get_header_token(ngx_req_get_headers().range, "bytes")
-    local ranges = nil
-
-    if bytes then
-        ranges = str_split(bytes, ",")
-        if not ranges then ranges = { bytes } end
-        for i,r in ipairs(ranges) do
-            local from, to = str_match(r, "(%d*)%-(%d*)")
-            ranges[i] = { from = tonumber(from), to = tonumber(to) }
-        end
-    end
-
-    return ranges
-end
-
-
-local function sort_byte_ranges(first, second)
-    if not first.from or not second.from then
-        ngx_log(ngx_ERR, "Attempt to compare invalid byteranges")
-        return true
-    end
-    return first.from <= second.from
-end
-
-
 function _M.must_revalidate(self)
     local req_cc = ngx_req_get_headers()["Cache-Control"]
     local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
@@ -700,20 +608,6 @@ function _M.get_response(self, name)
 end
 
 
-function _M.filter_body_reader(self, filter_name, filter)
-    -- Keep track of the filters by name, just for debugging
-    local filters = self:ctx().body_filters
-    if not filters then filters = {} end
-
-    ngx_log(ngx_DEBUG, filter_name, "(", tbl_concat(filters, "("), "" , str_rep(")", #filters - 1), ")")
-
-    tbl_insert(filters, 1, filter_name)
-    self:ctx().body_filters = filters
-
-    return filter
-end
-
-
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
@@ -747,6 +641,7 @@ function _M.cache_key(self)
     return self:ctx().cache_key
 end
 
+
 -- Returns the key chain for all cache keys, except the body entity
 function _M.key_chain(self, cache_key)
     return setmetatable({
@@ -763,19 +658,6 @@ function _M.key_chain(self, cache_key)
 end
 
 
--- Returns the key chain for a given entity
-function _M.entity_keys(entity_id)
-    local prefix = "ledge:entity:"
-    return setmetatable({
-        body = prefix .. entity_id .. ":body", -- list
-        body_esi = prefix .. entity_id .. ":body_esi", -- list
-    }, { __index = {
-        -- Hide the id from iterators
-        entity_id = entity_id,
-    }})
-end
-
-
 function _M.cache_key_chain(self)
     if not self:ctx().cache_key_chain then
         local cache_key = self:cache_key()
@@ -785,70 +667,22 @@ function _M.cache_key_chain(self)
 end
 
 
-function _M.entity_key_chain(self, verify)
-    local key_chain = self:cache_key_chain()
+function _M.entity_id(self, key_chain)
+    if not key_chain and key_chain.main then return nil end
     local redis = self:ctx().redis
 
-    local entity, err = redis:hget(key_chain.main, "entity")
-    if not entity or entity == ngx_null then
+    local entity_id, err = redis:hget(key_chain.main, "entity")
+    if not entity_id or entity_id == ngx_null then
         return nil, err
     end
 
-    local keys = _M.entity_keys(entity)
-
-    if verify then
-        local cleanup = false
-
-        -- Check the body exists
-        local res, err = redis:exists(keys["body"])
-        if not res and err then
-            return nil, err
-        elseif res == ngx_null or res == 0 then
-            ngx_log(ngx_NOTICE, "entity body is missing. Will clean up.")
-            cleanup = true
-        end
-
-        -- If we have esi, check body_esi exists
-        local has_esi, err = redis:hget(key_chain.main, "has_esi")
-        if has_esi and has_esi ~= ngx_null then
-            local res, err = redis:exists(keys.body_esi)
-            if not res and err then
-                return nil, err
-            elseif res == ngx_null or res == 0 then
-                ngx_log(ngx_NOTICE, "body_esi is missing and required. Will clean up.")
-                cleanup = true
-            end
-        end
-
-        -- If anything required is missing, schedule collection of the remaining bits and trigger
-        -- return nil (cache MISS due to incomplete data).
-        if cleanup then
-            local size = redis:zscore(key_chain.entities, keys.entity_id)
-            if not size or size == ngx_null then
-                -- Entities set evicted too most likely. Collect immediately.
-                size = 0
-            end
-
-            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-                cache_key_chain = key_chain,
-                entity_key_chain = keys,
-                entity_id = keys.entity_id,
-                size = size,
-            }, {
-                delay = self:gc_wait(size),
-                tags = { "collect_entity" },
-                priority = 10,
-            })
-            return nil
-        end
-    end
-
-    return keys
+    return entity_id
 end
 
 
 -- Calculate when to GC an entity based on its size and the minimum download rate setting,
 -- plus 1 second of arbitrary latency for good measure.
+-- TODO: Move to util
 function _M.gc_wait(self, entity_size)
     local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
     return math_ceil((entity_size / dl_rate_Bps)) + 1
@@ -857,6 +691,8 @@ end
 
 function _M.put_background_job(self, queue, klass, data, options)
     local redis = self:ctx().redis
+    local redis_params = self:ctx().redis_params
+    local redis_db = redis_params.db
     local qless_db = self:config_get("redis_qless_database") or 1
 
     redis:select(qless_db)
@@ -869,14 +705,14 @@ function _M.put_background_job(self, queue, klass, data, options)
         local existing = q.jobs:get(options.jid)
 
         if existing and existing.state == "running" then
-            redis:select(self:config_get("redis_database") or 0)
+            redis:select(redis_db or 0)
             return nil, "Job with the same jid is currently running"
         end
     end
 
     -- Put the job
     local res, err = q.queues[queue]:put(klass, data, options)
-    redis:select(self:config_get("redis_database") or 0)
+    redis:select(redis_db or 0)
 
     if res then
         return {
@@ -955,6 +791,15 @@ local function get_gzip_encoder(reader)
 end
 
 
+function _M.add_warning(self, code)
+    local res = self:get_response()
+    if not res.header["Warning"] then
+        res.header["Warning"] = {}
+    end
+
+    local header = code .. ' ' .. self:visible_hostname() .. ' "' .. WARNINGS[code] .. '"'
+    tbl_insert(res.header["Warning"], header)
+end
 
 
 ---------------------------------------------------------------------------------------------------
@@ -993,9 +838,18 @@ _M.events = {
         { begin = "exiting", but_first = "set_http_service_unavailable" },
     },
 
+    redis_connected = {
+        { begin = "connecting_to_storage" },
+    },
+
+    storage_connection_failed = {
+        { in_case = "init_worker", begin = "sleeping" },
+        { begin = "exiting", but_first = "set_http_service_unavailable" },
+    },
+
     -- We're connected! Let's get on with it then... First step, analyse the request.
     -- If we're a worker then we just start running tasks.
-    redis_connected = {
+    storage_connected = {
         { in_case = "init_worker", begin = "running_worker" },
         { begin = "checking_method", but_first = "filter_esi_args" },
     },
@@ -1301,13 +1155,16 @@ _M.events = {
     -- We've deduced we can serve a stale version of this URI. Ensure we add a warning to the
     -- response headers.
     can_serve_stale = {
-        { after = "considering_stale_error", begin = "considering_esi_process", but_first = "add_stale_warning" },
-        { begin = "considering_revalidation", but_first = { "add_stale_warning" } },
+        { after = "considering_stale_error", begin = "considering_esi_process",
+            but_first = "add_stale_warning" },
+        { begin = "considering_revalidation",
+            but_first = { "add_stale_warning" } },
     },
 
     -- We can serve stale, but also trigger a background revalidation
     can_serve_stale_while_revalidate = {
-        { begin = "considering_esi_process", but_first = { "add_stale_warning", "revalidate_in_background" } },
+        { begin = "considering_esi_process",
+            but_first = { "add_stale_warning", "revalidate_in_background" } },
     },
 
     -- We have a response we can use. If we've already served (we are doing background work) then
@@ -1335,6 +1192,7 @@ _M.events = {
     served = {
         { in_case = "upstream_error", begin = "exiting" },
         { in_case = "collapsed_forwarding_upstream_error", begin = "exiting" },
+        { in_case = "response_cacheable", begin = "exiting" },
         { begin = "exiting" },
     },
 
@@ -1349,9 +1207,9 @@ _M.events = {
 
     -- The cache body reader was reading from the list, but the entity was collected by a worker
     -- thread because it had been replaced, and the client was too slow.
-    entity_removed_during_read = {
+  --[[  entity_removed_during_read = {
         { begin = "exiting", but_first = "set_http_connection_timed_out" },
-    },
+    },]]--
 
     -- Useful events for exiting with a common status. If we've already served (perhaps we're doing
     -- background work, we just exit without re-setting the status (as this errors).
@@ -1407,10 +1265,6 @@ _M.pre_transitions = {
 -- Actions. Functions which can be called on transition.
 ---------------------------------------------------------------------------------------------------
 _M.actions = {
-    redis_connect = function(self)
-        return self:redis_connect()
-    end,
-
     redis_close = function(self)
         return self:redis_close()
     end,
@@ -1419,7 +1273,7 @@ _M.actions = {
         local res = self:get_response()
         if res then
             local httpc = res.conn
-            if httpc then
+            if httpc and type(httpc.set_keepalive) == "function" then
                 return httpc:set_keepalive()
             end
         end
@@ -1442,45 +1296,7 @@ _M.actions = {
     -- and stash them in the custom ESI variables table.
     filter_esi_args = function(self)
         if self:config_get("esi_enabled") then
-            local esi_args_prefix = self:config_get("esi_args_prefix")
-            if esi_args_prefix then
-                local args = ngx_req_get_uri_args()
-                local esi_args = {}
-                local has_esi_args = false
-                local non_esi_args = {}
-
-                for k,v in pairs(args) do
-                    -- If we have the prefix, extract the suffix
-                    local m, err = ngx_re_match(k, "^" .. esi_args_prefix .. "(\\S+)", "oj")
-                    if m and m[1] then
-                        has_esi_args = true
-                        esi_args[m[1]] = v
-                    else
-                        -- Otherwise, this is a normal arg
-                        non_esi_args[k] = v
-                    end
-                end
-
-                if has_esi_args then
-                    -- Add them to esi_custom_variables
-                    local custom_variables = ngx.ctx.ledge_esi_custom_variables
-                    if not custom_variables then custom_variables = {} end
-                    custom_variables["ESI_ARGS"] = esi_args
-                    ngx.ctx.ledge_esi_custom_variables = custom_variables
-
-                    -- Also keep them in encoded querystring form, so that $(ESI_ARGS) works
-                    -- as a string.
-                    ngx.ctx.ledge_esi_args_prefix = esi_args_prefix
-                    local args = {}
-                    for k,v in pairs(esi_args) do
-                        args[esi_args_prefix .. k] = v
-                    end
-                    ngx.ctx.ledge_esi_args_encoded = ngx_encode_args(args)
-
-                    -- Set the request args to the ones left over
-                    ngx_req_set_uri_args(non_esi_args)
-                end
-            end
+            esi.filter_esi_args(self:config_get("esi_args_prefix"))
         end
     end,
 
@@ -1497,7 +1313,7 @@ _M.actions = {
     install_gzip_decoder = function(self)
         local res = self:get_response()
         res.header["Content-Encoding"] = nil
-        res.body_reader = self:filter_body_reader(
+        res:filter_body_reader(
             "gzip_decoder",
             get_gzip_decoder(res.body_reader)
         )
@@ -1505,9 +1321,10 @@ _M.actions = {
 
     install_range_filter = function(self)
         local res = self:get_response()
-        res.body_reader = self:filter_body_reader(
+        local range = self:ctx().range
+        res:filter_body_reader(
             "range_request_filter",
-            self:get_range_request_filter(res.body_reader)
+            range:get_range_request_filter(res.body_reader)
         )
     end,
 
@@ -1521,11 +1338,11 @@ _M.actions = {
     install_esi_scan_filter = function(self)
         local res = self:get_response()
         local ctx = self:ctx()
-        local esi_parser = ctx.esi_parser
-        if esi_parser and esi_parser.parser then
-            res.body_reader = self:filter_body_reader(
+        local esi_processor = self:ctx().esi_processor
+        if esi_processor then
+            res:filter_body_reader(
                 "esi_scan_filter",
-                esi_parser.parser.get_scan_filter(res.body_reader)
+                esi_processor:get_scan_filter(res)
             )
         end
     end,
@@ -1538,12 +1355,12 @@ _M.actions = {
 
     install_esi_process_filter = function(self)
         local res = self:get_response()
-        local esi_parser = self:ctx().esi_parser
-        if esi_parser and esi_parser.parser then
-            res.body_reader = self:filter_body_reader(
+        local esi_processor = self:ctx().esi_processor
+        if esi_processor then
+            res:filter_body_reader(
                 "esi_process_filter",
-                esi_parser.parser.get_process_filter(
-                    res.body_reader,
+                esi_processor:get_process_filter(
+                    res,
                     self:config_get("esi_pre_include_callback"),
                     self:config_get("esi_recursion_limit")
                 )
@@ -1599,7 +1416,6 @@ _M.actions = {
     add_validators_from_cache = function(self)
         local cached_res = self:get_response()
 
-        -- TODO: Patch OpenResty to accept additional headers for subrequests.
         ngx_req_set_header("If-Modified-Since", cached_res.header["Last-Modified"])
         ngx_req_set_header("If-None-Match", cached_res.header["Etag"])
     end,
@@ -1622,7 +1438,7 @@ _M.actions = {
     end,
 
     set_json_response = function(self)
-        local res = response.new()
+        local res = response.new(self.ctx(), self:cache_key_chain())
         res.header["Content-Type"] = "application/json"
         self:set_response(res)
     end,
@@ -1706,31 +1522,14 @@ _M.actions = {
 ---------------------------------------------------------------------------------------------------
 _M.states = {
     connecting_to_redis = function(self)
-        local redis_params
-
-        if self:config_get("redis_use_sentinel") then
-            redis_params = {
-                sentinels = self:config_get("redis_sentinels"),
-                master_name = self:config_get("redis_sentinel_master_name"),
-                role = "any",
-                db = self:config_get("redis_database")
-            }
-        else
-            local host = self:config_get("redis_host")
-            redis_params = {
-                host = host.host,
-                port = host.port,
-                password = host.password,
-                db = self:config_get("redis_database")
-            }
-        end
-
         local rc = redis_connector.new()
+
         local connect_timeout = self:config_get("redis_connect_timeout")
         local read_timeout = self:config_get("redis_read_timeout")
-
         rc:set_connect_timeout(connect_timeout)
         rc:set_read_timeout(read_timeout)
+
+        local redis_params = self:config_get("redis_connection")
 
         local redis, err = rc:connect(redis_params)
         if not redis then
@@ -1740,6 +1539,23 @@ _M.states = {
             self:ctx().redis = redis
             self:ctx().redis_params = redis_params
             return self:e "redis_connected"
+        end
+    end,
+
+    connecting_to_storage = function(self)
+        local storage_driver = self:config_get("storage_driver")
+        local storage_params = self:config_get("storage_params")
+
+        -- TODO: Drivers only need ctx for esi process flags
+        local storage = storage_driver.new(self:ctx())
+
+        local ok, err = storage:connect(storage_params)
+        if not ok then
+            ngx_log(ngx_ERR, err)
+            return self:e "storage_connection_failed"
+        else
+            self:ctx().storage = storage
+            return self:e "storage_connected"
         end
     end,
 
@@ -1830,28 +1646,15 @@ _M.states = {
                 return self:e "esi_scan_disabled"
             end
 
-            local res_surrogate_control = res.header["Surrogate-Control"]
-
-            if res_surrogate_control then
-                local content_token = h_util.get_header_token(res_surrogate_control, "content")
-                if content_token then
-                    local parser = choose_esi_parser(content_token)
-                    if parser then
-                        local res_content_type = res.header["Content-Type"]
-                        if res_content_type then
-                            local allowed_types = self:config_get("esi_content_types") or {}
-                            for _, content_type in ipairs(allowed_types) do
-                                if str_sub(res_content_type, 1, str_len(content_type)) == content_type then
-                                    -- Store parser for processing
-                                    self:ctx().esi_parser = {
-                                        parser = parser,
-                                        token = content_token,
-                                    }
-                                    return self:e "esi_scan_enabled"
-                                end
-                            end
-                        end
-                    end
+            -- Choose an ESI processor from the Surrogate-Control header
+            -- (Currently there is only the ESI/1.0 processor)
+            local processor = esi.choose_esi_processor(res)
+            if processor then
+                if esi.is_allowed_content_type(res, self:config_get("esi_content_types")) then
+                    -- Store parser for processing
+                    -- TODO: Strictly this should be installed by the state machine
+                    self:ctx().esi_processor = processor
+                    return self:e "esi_scan_enabled"
                 end
             end
         end
@@ -1876,71 +1679,38 @@ _M.states = {
             return self:e "esi_process_disabled"
         end
 
-        if not self:ctx().esi_parser then
-            -- On the fast path with ESI already detected, the parser wont have been loaded
+        if not self:ctx().esi_processor then
+            -- On the fast path with ESI already detected, the processor wont have been loaded
             -- yet, so we must do that now
-            local token = res.has_esi
-            if token then
-                local parser = choose_esi_parser(token)
-                if parser then
-                    self:ctx().esi_parser = {
-                        parser = parser,
-                        token = token,
-                    }
-                end
+            -- TODO: Perhaps the state machine can load the processor to avoid this weird check
+            if res.has_esi then
+                self:ctx().esi_processor = esi.choose_esi_processor(res)
             else
                 -- We know there's nothing to do
                 return self:e "esi_process_not_required"
             end
         end
 
-        if self:ctx().esi_parser then
-            local token = self:ctx().esi_parser.token
-            local surrogate_capability = ngx_req_get_headers()["Surrogate-Capability"]
-
-            if surrogate_capability then
-                -- Surrogate-Capability: host.example.com="ESI/1.0"
-                local capability_token = h_util.get_header_token(
-                    surrogate_capability,
-                    "[!#\\$%&'\\*\\+\\-.\\^_`\\|~0-9a-zA-Z]+"
-                )
-                local capability_parser, capability_version = split_esi_token(capability_token)
-                capability_version = tonumber(capability_version)
-
-                if capability_parser and capability_version then
-                    local control_parser, control_version = split_esi_token(token)
-                    control_version = tonumber(control_version)
-
-                    if control_parser and control_version
-                        and control_parser == capability_parser
-                        and control_version <= capability_version then
-
-                        local surrogates = self:config_get("esi_allow_surrogate_delegation")
-                        if type(surrogates) == "boolean" then
-                            if surrogates == true then
-                                return self:e "esi_process_disabled"
-                            end
-                        elseif type(surrogates) == "table" then
-                            local remote_addr = ngx_var.remote_addr
-                            if remote_addr then
-                                for _, ip in ipairs(surrogates) do
-                                    if ip == remote_addr then
-                                        return self:e "esi_process_disabled"
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
+        if esi.can_delegate_to_surrogate(
+            self:config_get("esi_allow_surrogate_delegation"),
+            self:ctx().esi_processor.token
+        ) then
+            -- Disabled due to surrogate delegation
+            return self:e "esi_process_disabled"
+        else
             return self:e "esi_process_enabled"
         end
     end,
 
     checking_range_request = function(self)
         local res = self:get_response()
-        local res, partial_response = self:handle_range_request(res)
+
+        local range = range.new()
+        local res, partial_response = range:handle_range_request(res)
+        self:ctx().range = range
+
         self:set_response(res)
+
         if partial_response then
             return self:e "range_accepted"
         elseif partial_response == false then
@@ -2219,12 +1989,12 @@ function _M.t(self, state)
 
     if pre_t then
         for _,action in ipairs(pre_t) do
-            ngx_log(ngx_DEBUG, "#a: ", action)
+            if _M.DEBUG then ngx_log(ngx_DEBUG, "#a: ", action) end
             self.actions[action](self)
         end
     end
 
-    ngx_log(ngx_DEBUG, "#t: ", state)
+    if _M.DEBUG then ngx_log(ngx_DEBUG, "#t: ", state) end
 
     ctx.state_history[state] = true
     ctx.current_state = state
@@ -2234,7 +2004,7 @@ end
 
 -- Process state transitions and actions based on the event fired.
 function _M.e(self, event)
-    ngx_log(ngx_DEBUG, "#e: ", event)
+    if _M.DEBUG then ngx_log(ngx_DEBUG, "#e: ", event) end
 
     local ctx = self:ctx()
     ctx.event_history[event] = true
@@ -2257,11 +2027,11 @@ function _M.e(self, event)
                     if t_but_first then
                         if type(t_but_first) == "table" then
                             for _,action in ipairs(t_but_first) do
-                                ngx_log(ngx_DEBUG, "#a: ", action)
+                                if _M.DEBUG then ngx_log(ngx_DEBUG, "#a: ", action) end
                                 self.actions[action](self)
                             end
                         else
-                            ngx_log(ngx_DEBUG, "#a: ", t_but_first)
+                            if _M.DEBUG then ngx_log(ngx_DEBUG, "#a: ", t_but_first) end
                             self.actions[t_but_first](self)
                         end
                     end
@@ -2275,257 +2045,48 @@ end
 
 
 function _M.read_from_cache(self)
-    local redis = self:ctx().redis
-    local res = response.new()
+    local ctx = self:ctx()
 
-    local key_chain = self:cache_key_chain()
-    local entity_key_chain, err = self:entity_key_chain(true)
-    if not entity_key_chain then
+    local res = response.new(ctx, self:cache_key_chain())
+    local ok, err = res:read()
+    if not ok then
         if err then
-            return self:e "http_internal_server_error"
-        else
-            return nil -- MISS
-        end
-    end
-
-    -- Get our body reader coroutine for later
-    res.body_reader = self:filter_body_reader(
-        "cache_body_reader",
-        self:get_cache_body_reader(entity_key_chain)
-    )
-
-    -- Read main metdata
-    local cache_parts, err = redis:hgetall(key_chain.main)
-    if not cache_parts then
-        if err then
+            -- TODO: What conditions do we want this to happen? Surely we should
+            -- just MISS on failure?
             return self:e "http_internal_server_error"
         else
             return nil
         end
     end
 
-    -- No cache entry for this key
-    local cache_parts_len = #cache_parts
-    if not cache_parts_len then
-        ngx_log(ngx_ERR, "live entity has no data")
-        return nil
-    end
+    if res.size > 0 then
+        local storage = ctx.storage
+        if not storage:exists(res.entity_id) then
+            ngx.log(ngx.DEBUG, res.entity_id, " doesn't exist in storage")
+            -- Should exist, so presumed evicted
 
-    -- "touch" other keys not needed for read, so that they are
-    -- less likely to be unfairly evicted ahead of time
-    -- TODO: From Redis 3.2.1 this can be one TOUCH command
-    local _ = redis:hlen(key_chain.reval_params)
-    local _ = redis:hlen(key_chain.reval_req_headers)
-    local entities, err = redis:zcard(key_chain.entities)
-    if not entities or entities == ngx_null then
-        ngx_log(ngx_ERR, "could not read entities set: ", err)
-        return nil
-    elseif entities == 0 then
-        -- Entities set is perhaps evicted
-        return nil
-    end
-
-    local ttl = nil
-    local time_in_cache = 0
-    local time_since_generated = 0
-
-    -- The Redis replies is a sequence of messages, so we iterate over pairs
-    -- to get hash key/values.
-    for i = 1, cache_parts_len, 2 do
-        if cache_parts[i] == "uri" then
-            res.uri = cache_parts[i + 1]
-        elseif cache_parts[i] == "status" then
-            res.status = tonumber(cache_parts[i + 1])
-        elseif cache_parts[i] == "expires" then
-            res.remaining_ttl = tonumber(cache_parts[i + 1]) - ngx_time()
-        elseif cache_parts[i] == "saved_ts" then
-            time_in_cache = ngx_time() - tonumber(cache_parts[i + 1])
-        elseif cache_parts[i] == "generated_ts" then
-            time_since_generated = ngx_time() - tonumber(cache_parts[i + 1])
-        elseif cache_parts[i] == "has_esi" then
-            res.has_esi = cache_parts[i + 1]
-        elseif cache_parts[i] == "esi_scanned" then
-            local scanned = cache_parts[i + 1]
-            if scanned == "false" then
-                res.esi_scanned = false
-            else
-                res.esi_scanned = true
-            end
-        elseif cache_parts[i] == "size" then
-            res.size = tonumber(cache_parts[i + 1])
+            local delay = self:gc_wait(res.size)
+            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+                entity_id = res.entity_id,
+            }, {
+                delay = res.size,
+                tags = { "collect_entity" },
+                priority = 10,
+            })
+            return nil -- MISS
         end
-    end
 
-    -- Read headers
-    local headers = redis:hgetall(key_chain.headers)
-    if not headers or headers == ngx_null then
-        ngx_log(ngx_ERR, "could not read headers: ", err)
-        return nil
-    end
-
-    local headers_len = tbl_getn(headers)
-    if headers_len == 0 then
-        -- Headers have likely been evicted
-        return nil
-    end
-
-    for i = 1, headers_len, 2 do
-        local header = headers[i]
-        if str_find(header, ":") then
-            -- We have multiple headers with the same field name
-            local index, key = unpack(str_split(header, ":"))
-            if not res.header[key] then
-                res.header[key] = {}
-            end
-            tbl_insert(res.header[key], headers[i + 1])
-        else
-            res.header[header] = headers[i + 1]
-        end
-    end
-
-    -- Calculate the Age header
-    if res.header["Age"] then
-        -- We have end-to-end Age headers, add our time_in_cache.
-        res.header["Age"] = tonumber(res.header["Age"]) + time_in_cache
-    elseif res.header["Date"] then
-        -- We have no advertised Age, use the generated timestamp.
-        res.header["Age"] = time_since_generated
+        res:filter_body_reader("cache_body_reader", storage:get_reader(res))
     end
 
     self:emit("cache_accessed", res)
-
     return res
-end
-
-
--- Modifies the response based on range request headers.
--- Returns the response and a flag, which if true indicates a partial response
--- should be expected, if false indicates the range could not be applied, and if
--- nil indicates no range was requested.
-function _M.handle_range_request(self, res)
-    local range_request = self:request_byte_range()
-
-    if range_request and type(range_request) == "table" and res.size then
-        -- Don't attempt range filtering on non 200 responses
-        if res.status ~= 200 then
-            return res, false
-        end
-
-        local ranges = {}
-
-        for i,range in ipairs(range_request) do
-            local range_satisfiable = true
-
-            if not range.to and not range.from then
-                range_satisfiable = false
-            end
-
-            -- A missing "to" means to the "end".
-            if not range.to then
-                range.to = res.size - 1
-            end
-
-            -- A missing "from" means "to" is an offset from the end.
-            if not range.from then
-                range.from = res.size - (range.to)
-                range.to = res.size - 1
-
-                if range.from < 0 then
-                    range_satisfiable = false
-                end
-            end
-
-            -- A "to" greater than size should be "end"
-            if range.to > (res.size - 1) then
-                range.to = res.size - 1
-            end
-
-            -- Check the range is satisfiable
-            if range.from > range.to then
-                range_satisfiable = false
-            end
-
-            if not range_satisfiable then
-                -- We'll return 416
-                res.status = ngx_RANGE_NOT_SATISFIABLE
-                res.body_reader = nil
-                res.header.content_range = "bytes */" .. res.size
-
-                return res, false
-            else
-                -- We'll need the content range header value for multipart boundaries
-                range.header = "bytes " .. range.from .. "-" .. range.to .. "/" .. res.size
-                tbl_insert(ranges, range)
-            end
-        end
-
-        local numranges = #ranges
-        if numranges > 1 then
-            -- Sort ranges as we cannot serve unordered.
-            tbl_sort(ranges, sort_byte_ranges)
-
-            -- Coalesce overlapping ranges.
-            for i = numranges,1,-1 do
-                if i > 1 then
-                    local current_range = ranges[i]
-                    local previous_range = ranges[i - 1]
-
-                    if current_range.from <= previous_range.to then
-                        -- extend previous range to encompass this one
-                        previous_range.to = current_range.to
-                        previous_range.header = "bytes " ..
-                                                previous_range.from .. "-" .. current_range.to
-                                                .. "/" .. res.size
-                        tbl_remove(ranges, i)
-                    end
-                end
-            end
-        end
-
-        self:ctx().byterange_request_ranges = ranges
-
-        if #ranges == 1 then
-            -- We have a single range to serve.
-            local range = ranges[1]
-
-            local size = res.size
-
-            res.status = ngx_PARTIAL_CONTENT
-            ngx.header["Accept-Ranges"] = "bytes"
-            res.header["Content-Range"] = "bytes " .. range.from .. "-" .. range.to .. "/" .. size
-
-            return res, true
-        else
-            -- Generate boundary and store it in ctx
-            local boundary_string = random_hex(32)
-            local boundary = {
-                "",
-                "--" .. boundary_string,
-            }
-
-            if res.header["Content-Type"] then
-                tbl_insert(boundary, "Content-Type: " .. res.header["Content-Type"])
-                tbl_insert(boundary, "")
-            end
-
-            self:ctx().byterange_boundary = tbl_concat(boundary, "\n")
-            self:ctx().byterange_boundary_end = "\n--" .. boundary_string .. "--"
-
-            res.status = ngx_PARTIAL_CONTENT
-            ngx.header["Accept-Ranges"] = "bytes"
-            res.header["Content-Type"] = "multipart/byteranges; boundary=" .. boundary_string
-
-            return res, true
-        end
-    end
-
-    return res, nil
 end
 
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response.new()
+    local res = response.new(self:ctx(), self:cache_key_chain())
     self:emit("origin_required")
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
@@ -2566,6 +2127,8 @@ function _M.fetch_from_origin(self)
         end
     end
 
+    res.conn = httpc
+
     -- Case insensitve headers so that we can safely manipulate them
     local headers = http_headers.new()
     for k,v in pairs(ngx_req_get_headers()) do
@@ -2575,7 +2138,7 @@ function _M.fetch_from_origin(self)
     -- Advertise ESI surrogate capabilities
     if self:config_get("esi_enabled") then
         local capability_entry =    (ngx_var.visible_hostname or ngx_var.hostname)
-                                    .. '="' .. esi_capabilities() .. '"'
+                                    .. '="' .. esi.esi_capabilities() .. '"'
         local sc = headers.surrogate_capability
 
         if not sc then
@@ -2608,7 +2171,6 @@ function _M.fetch_from_origin(self)
         return res
     end
 
-    res.conn = httpc
     res.status = origin.status
 
     -- Merge end-to-end headers
@@ -2623,7 +2185,10 @@ function _M.fetch_from_origin(self)
     res.length = tonumber(origin.headers["Content-Length"])
 
     res.has_body = origin.has_body
-    res.body_reader = self:filter_body_reader("upstream_body_reader", origin.body_reader)
+    res:filter_body_reader(
+        "upstream_body_reader",
+        origin.body_reader
+    )
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
@@ -2744,78 +2309,33 @@ end
 
 
 function _M.save_to_cache(self, res)
-    local reval_params, reval_headers = self:revalidation_data()
     self:emit("before_save", res)
 
-    local uncacheable_headers = {}
-
+    -- Length is only set if there was a Content-Length header
     local length = res.length
-    local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
-
-    if length and length > max_memory then
+    local storage = self:ctx().storage
+    local max_size = storage:get_max_size()
+    if length and length > max_size then
         -- We'll carry on serving, just not saving.
-        return nil
+        return nil, "advertised length is greated than storage max size"
     end
 
-    -- Also don't cache any headers marked as Cache-Control: (no-cache|no-store|private)="header".
-    local cc = res.header["Cache-Control"]
-    if cc then
-        if type(cc) == "table" then cc = tbl_concat(cc, ", ") end
-        cc = str_lower(cc)
-        if str_find(cc, "=", 1, true) then
-            local pattern = '(?:no-cache|private)="?([0-9a-z-]+)"?'
-            local re_ctx = {}
-            repeat
-                local from, to, err = ngx_re_find(cc, pattern, "jo", re_ctx, 1)
-                if from then
-                    uncacheable_headers[str_sub(cc, from, to)] = true
-                end
-            until not from
-        end
-    end
 
-    -- Turn the headers into a flat list of pairs for the Redis query.
-    local h = {}
-    for header,header_value in pairs(res.header) do
-        if not uncacheable_headers[str_lower(header)] then
-            if type(header_value) == 'table' then
-                -- Multiple headers are represented as a table of values
-                local header_value_len = tbl_getn(header_value)
-                for i = 1, header_value_len do
-                    tbl_insert(h, i..':'..header)
-                    tbl_insert(h, header_value[i])
-                end
-            else
-                tbl_insert(h, header)
-                tbl_insert(h, header_value)
-            end
-        end
-    end
-
-    local ttl = res:ttl()
-    local expires = ttl + ngx_time()
-    local uri = self:full_uri()
-
-    local redis = self:ctx().redis
+    -- Watch the main key pointer. We abort the transaction if another request
+    -- updates this key before we finish.
     local key_chain = self:cache_key_chain()
-
-    -- Watch the main key pointer. We abort the transaction if another request updates
-    -- this key before we finish.
+    local redis = self:ctx().redis
     redis:watch(key_chain.main)
-
-    -- Create new entity keys
-    local entity = random_hex(32)
-    local entity_key_chain = _M.entity_keys(entity)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
     -- be in progress. We need to know the previous entity keys and the size.
-    local previous_entity_key_chain = self:entity_key_chain()
+    local previous_entity_id = self:entity_id(key_chain)
 
     local previous_entity_size, err
-    if previous_entity_key_chain then
+    if previous_entity_id then
         previous_entity_size, err = redis:hget(key_chain.main, "size")
         if previous_entity_size == ngx_null then
-            previous_entity_key_chain = nil
+            previous_entity_id = nil
             if err then
                 ngx_log(ngx_ERR, err)
             end
@@ -2823,60 +2343,93 @@ function _M.save_to_cache(self, res)
     end
 
     -- Start the transaction
-    redis:multi()
+    local ok, err = redis:multi()
+    if not ok then ngx_log(ngx_ERR, err) end
 
-    if previous_entity_key_chain then
-        -- Place this job on the queue
+    if previous_entity_id then
         self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-            cache_key_chain = key_chain,
-            entity_key_chain = previous_entity_key_chain,
-            entity_id = previous_entity_key_chain.entity_id,
-            size = previous_entity_size,
+            entity_id = previous_entity_id,
         }, {
-            delay = self:gc_wait(previous_entity_size),
+            delay = previous_entity_size,
             tags = { "collect_entity" },
             priority = 10,
         })
+
+        local ok, err = redis:srem(key_chain.entities, previous_entity_id)
+        if not ok then ngx_log(ngx_ERR, err) end
     end
 
-    redis:hmset(key_chain.main,
-        'entity', entity,
-        'status', res.status,
-        'uri', uri,
-        'expires', expires,
-        'generated_ts', ngx_parse_http_time(res.header["Date"]),
-        'saved_ts', ngx_time(),
-        'esi_scanned', tostring(res.esi_scanned)
-    )
 
-    redis:del(key_chain.headers)
-    redis:hmset(key_chain.headers, unpack(h))
+    -- TODO: Is this supposed to be total ttl + keep_cache_for?
+    local keep_cache_for = self:config_get("keep_cache_for")
+
+    res.uri = self:full_uri()
+    local ok, err = res:save(keep_cache_for)
+    -- TODO: Do somethign with this err?
 
     -- Set revalidation parameters from this request
+    local reval_params, reval_headers = self:revalidation_data()
+
+    -- TODO: Catch errors
     redis:del(key_chain.reval_params)
     redis:hmset(key_chain.reval_params, reval_params)
+    redis:expire(key_chain.reval_params, keep_cache_for)
+
+    -- TODO: Catch errors
     redis:del(key_chain.reval_req_headers)
     redis:hmset(key_chain.reval_req_headers, reval_headers)
-
-    -- Mark the keys as eventually volatile (the body is set by the body writer)
-    local keep_cache_for = ttl + tonumber(self:config_get("keep_cache_for"))
-    redis:expire(key_chain.main, keep_cache_for)
-    redis:expire(key_chain.headers, keep_cache_for)
-    redis:expire(key_chain.reval_params, keep_cache_for)
     redis:expire(key_chain.reval_req_headers, keep_cache_for)
 
-    -- Instantiate writer coroutine with the entity key set.
-    -- The writer will commit the transaction later.
+    -- If we have a body, we need to attach the storage writer
+    -- NOTE: res.has_body is false for known bodyless repsonse types (e.g. HEAD)
+    -- but may be true and of zero length (commonly 301 etc).
     if res.has_body then
-        res.body_reader = self:filter_body_reader(
-            "cache_body_writer",
-            self:get_cache_body_writer(res.body_reader, entity_key_chain, keep_cache_for)
-        )
-    else
-        -- Run transaction
-        if redis:exec() == ngx_null then
-            ngx_log(ngx_ERR, "Failed to save cache item")
+
+        -- Storage callback for write success
+        function onsuccess(bytes_written)
+            -- Update size in metadata
+            local ok, e = redis:hset(key_chain.main, "size", bytes_written)
+            if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+
+            if bytes_written == 0 then
+                -- Remove the entity as it wont exist
+                ok, e = redis:srem(key_chain.entities, res.entity_id)
+                if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+
+                ok, e = redis:hdel(key_chain.main, "entity")
+                if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+            end
+
+            ok, e = redis:exec()
+            if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
         end
+
+        -- Storage callback for write failure. We roll back our transaction.
+        function onfailure(reason)
+            ngx_log(ngx_ERR, "storage failed to write: ", reason)
+
+            local ok, e = redis:discard()
+            if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+        end
+
+        -- Attach storage writer
+        local ok, writer = pcall(storage.get_writer, storage,
+            res,
+            keep_cache_for,
+            onsuccess,
+            onfailure
+        )
+        if not ok then
+            ngx_log(ngx_ERR, writer)
+        else
+            res:filter_body_reader("cache_body_writer", writer)
+        end
+
+    else
+        -- No body and thus no storage filter
+        -- We can run our transaction immediately
+        local ok, e = redis:exec()
+        if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
     end
 end
 
@@ -2893,33 +2446,18 @@ end
 function _M.delete_from_cache(self)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
-    local entity_key_chain = self:entity_key_chain()
 
-    if entity_key_chain then
-        -- Check we haven't already been deleted by another request
-        local res = redis:exists(key_chain.entities)
-        if res then
-            -- Set a gc job for the current entity, delayed for current reads
-            local size, err = redis:zscore(key_chain.entities, entity_key_chain.entity_id)
-            if not size or size == ngx_null then
-                size = 60
-                ngx_log(ngx_ERR,
-                    "could not determine entity size for scheduling GC, "
-                    .. "will collect in 60 seconds: " .. (err or "")
-                )
-            end
+    local entity_id = self:entity_id(key_chain)
 
-            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
-                cache_key_chain = key_chain,
-                entity_key_chain = entity_key_chain,
-                entity_id = entity_key_chain.entity_id,
-                size = size,
-            }, {
-                delay = self:gc_wait(size),
-                tags = { "collect_entity" },
-                priority = 10,
-            })
-        end
+    if entity_id then
+        local size = redis:hget(key_chain.main, "size")
+        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+            entity_id = entity_id,
+        }, {
+            delay = self:gc_wait(size),
+            tags = { "collect_entity" },
+            priority = 10,
+        })
     end
 
     -- Delete everything else immediately
@@ -2932,12 +2470,13 @@ end
 function _M.purge(self, purge_mode)
     local redis = self:ctx().redis
     local key_chain = self:cache_key_chain()
-    local entity_key_chain = self:entity_key_chain()
+    local entity_id, err = redis:hget(key_chain.main, "entity")
+    local storage = self:ctx().storage
 
     local resp = self:get_response()
 
     -- We 404 if we have nothing
-    if not entity_key_chain then
+    if not entity_id or entity_id == ngx_null or not storage:exists(entity_id) then
         local json = cjson_encode({ purge_mode = purge_mode, result = "nothing to purge" })
         resp:set_body(json)
         self:set_response(resp)
@@ -2965,7 +2504,8 @@ function _M.purge(self, purge_mode)
     end
 
     -- Invalidate the keys
-    local ok, err = _M.expire_keys(redis, key_chain, entity_key_chain)
+    local entity_id = self:entity_id(key_chain)
+    local ok, err = self:expire_keys(key_chain, entity_id)
 
     local result
     if not ok and err then
@@ -3018,7 +2558,10 @@ end
 
 
 -- Expires the keys in key_chain and the entity provided by entity_keys
-function _M.expire_keys(redis, key_chain, entity_key_chain)
+function _M.expire_keys(self, key_chain, entity_id)
+    local redis = self:ctx().redis
+    local storage = self:ctx().storage
+
     local exists, err =  redis:exists(key_chain.main)
     if exists == 1 then
         local time = ngx_time()
@@ -3052,10 +2595,7 @@ function _M.expire_keys(redis, key_chain, entity_key_chain)
             redis:expire(key, ttl - ttl_reduction)
         end
 
-        -- Set new TTLs for all entity keys
-        for _,key in pairs(entity_key_chain) do
-            redis:expire(key, ttl - ttl_reduction)
-        end
+        storage:set_ttl(entity_id, ttl - ttl_reduction)
 
         local ok, err = redis:exec()
         if err then
@@ -3118,6 +2658,8 @@ function _M.serve(self)
             end
         end
 
+        local cjson = require "cjson"
+
         if res.body_reader and ngx_req_get_method() ~= "HEAD" then
             local buffer_size = self:config_get("buffer_size")
             self:serve_body(res, buffer_size)
@@ -3125,213 +2667,6 @@ function _M.serve(self)
 
         ngx.eof()
     end
-end
-
-
--- Returns a wrapped coroutine to be resumed for each body chunk.
-function _M.get_cache_body_reader(self, entity_keys)
-    local redis = self:ctx().redis
-
-    local num_chunks = redis:llen(entity_keys.body) - 1
-    if num_chunks < 0 then return nil end
-
-    local has_esi = false
-
-    return co_wrap(function()
-        local process_esi = self:ctx().esi_process_enabled
-
-        for i = 0, num_chunks do
-            local chunk, err = redis:lindex(entity_keys.body, i)
-
-            -- Just for efficiency, we avoid the lookup. The body server is responsible
-            -- for deciding whether to call process_esi() or not.
-            if process_esi == true then
-                has_esi, err = redis:lindex(entity_keys.body_esi, i)
-            end
-
-            if chunk == ngx_null then
-                ngx_log(ngx_WARN, "entity removed during read, ", entity_keys.main)
-                return self:e "entity_removed_during_read"
-            end
-
-            co_yield(chunk, nil, has_esi == "true")
-        end
-    end)
-end
-
-
--- Returns a wrapped coroutine for writing chunks to cache, where reader is a
--- coroutine to be resumed which reads from the upstream socket.
--- If we cross the max_memory boundary, we just keep yielding chunks to be served,
--- after having removed the cache entry.
-function _M.get_cache_body_writer(self, reader, entity_keys, ttl)
-    local redis = self:ctx().redis
-    local max_memory = (self:config_get("cache_max_memory") or 0) * 1024
-    local transaction_aborted = false
-    local esi_detected = false
-    local key_chain = self:cache_key_chain()
-
-    return co_wrap(function(buffer_size)
-        local size = 0
-        repeat
-            local chunk, err, has_esi = reader(buffer_size)
-            if chunk then
-                if not transaction_aborted then
-                    size = size + #chunk
-
-                    -- If we cannot store any more, delete everything.
-                    -- TODO: Options for persistent storage and retaining metadata etc.
-                    if size > max_memory then
-                        local res, err = redis:discard()
-                        if err then
-                            ngx_log(ngx_ERR, err)
-                        end
-                        transaction_aborted = true
-
-                        local ok, err = self:delete_from_cache()
-                        if err then
-                            ngx_log(ngx_ERR, "error deleting from cache: ", err)
-                        else
-                            ngx_log(ngx_NOTICE, "cache item deleted as it is larger than ",
-                                                max_memory, " bytes")
-                        end
-                    else
-                        local ok, err = redis:rpush(entity_keys.body, chunk)
-                        if not ok then
-                            transaction_aborted = true
-                            ngx_log(ngx_ERR, "error writing cache chunk: ", err)
-                        end
-                        local ok, err = redis:rpush(entity_keys.body_esi, tostring(has_esi))
-                        if not ok then
-                            transaction_aborted = true
-                            ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
-                        end
-
-                        if not esi_detected and has_esi then
-                            local esi_parser = self:ctx().esi_parser
-                            if not esi_parser or not esi_parser.token then
-                                ngx_log(ngx.ERR, "ESI detected but no parser identified")
-                            else
-                                -- Flag this in the main key
-                                local ok, err = redis:hset(key_chain.main, "has_esi", esi_parser.token)
-                                if not ok then
-                                    transaction_aborted = true
-                                    ngx_log(ngx_ERR, "error setting esi flag: ", err)
-                                end
-                                esi_detected = true
-                            end
-                        end
-                    end
-                end
-                co_yield(chunk, nil, has_esi)
-            elseif size == 0 then
-                local ok, err = redis:rpush(entity_keys.body, "")
-                if not ok then
-                    transaction_aborted = true
-                    ngx_log(ngx_ERR, "error writing blank cache chunk: ", err)
-                end
-                local ok, err = redis:rpush(entity_keys.body_esi, tostring(has_esi))
-                if not ok then
-                    transaction_aborted = true
-                    ngx_log(ngx_ERR, "error writing chunk esi flag: ", err)
-                end
-            end
-        until not chunk
-
-        if not transaction_aborted then
-            local ok, err = redis:hset(key_chain.main, "size", size)
-            if not ok then
-                ngx_log(ngx_ERR, "error setting size: ", err)
-            end
-
-            local key_chain = self:cache_key_chain()
-            local ok, err = redis:hincrby(key_chain.main, "memused", size)
-            if not ok then
-                ngx_log(ngx_ERR, "error incrementing memused: ", err)
-            end
-            local ok, err = redis:zadd(key_chain.entities, size, entity_keys.entity_id)
-            if not ok then
-                ngx_log(ngx_ERR, "error adding entity to set: ", err)
-            end
-
-            redis:expire(key_chain.entities, ttl)
-            redis:expire(entity_keys.body, ttl)
-            redis:expire(entity_keys.body_esi, ttl)
-
-            local res, err = redis:exec()
-            if err then
-                ngx_log(ngx_ERR, "error executing cache transaction: ",  err)
-            end
-        else
-            -- If the transaction was aborted make sure we discard
-            -- May have been discarded cleanly due to memory so ignore errors
-            redis:discard()
-        end
-    end)
-end
-
-
--- Filters the body reader, only yielding bytes specified in a range request.
-function _M.get_range_request_filter(self, reader)
-    local ranges = self:ctx().byterange_request_ranges
-    local boundary_end = self:ctx().byterange_boundary_end
-    local boundary = self:ctx().byterange_boundary
-
-    if ranges then
-        return co_wrap(function(buffer_size)
-            local playhead = 0
-            local num_ranges = #ranges
-
-            repeat
-                local chunk, err = reader(buffer_size)
-                if chunk then
-                    local chunklen = #chunk
-                    local nextplayhead = playhead + chunklen
-
-                    for i, range in ipairs(ranges) do
-                        if range.from >= nextplayhead or range.to < playhead then
-                            -- Skip over non matching ranges (this is algorithmically simpler)
-                        else
-                            -- Yield the multipart byterange boundary if required
-                            -- and only once per range.
-                            if num_ranges > 1 and not range.boundary_printed then
-                                co_yield(boundary)
-                                co_yield("Content-Range: " .. range.header .. "\n\n")
-                                range.boundary_printed = true
-                            end
-
-                            -- Trim range to within this chunk's context
-                            local yield_from = range.from
-                            local yield_to = range.to
-                            if range.from < playhead then
-                                yield_from = playhead
-                            end
-                            if range.to >= nextplayhead then
-                                yield_to = nextplayhead - 1
-                            end
-
-                            -- Find relative points for the range within this chunk
-                            local relative_yield_from = yield_from - playhead
-                            local relative_yield_to = yield_to - playhead
-
-                            -- Ranges are all 0 indexed, finally convert to 1 based Lua indexes.
-                            co_yield(str_sub(chunk, relative_yield_from + 1, relative_yield_to + 1))
-                        end
-                    end
-
-                    playhead = playhead + chunklen
-                end
-
-            until not chunk
-
-            -- Yield the multipart byterange end marker
-            if num_ranges > 1 then
-                co_yield(boundary_end)
-            end
-        end)
-    end
-
-    return reader
 end
 
 
@@ -3353,7 +2688,7 @@ function _M.serve_body(self, res, buffer_size)
             buffered = buffered + #chunk
             if can_flush and buffered >= buffer_size then
                 local ok, err = ngx_flush(true)
-                if not ok then ngx_log(ngx_ERR, err) end
+                if not ok then ngx_log(ngx_ERR, chunk, " : ", err) end
 
                 buffered = 0
             end
@@ -3363,16 +2698,4 @@ function _M.serve_body(self, res, buffer_size)
 end
 
 
-function _M.add_warning(self, code)
-    local res = self:get_response()
-    if not res.header["Warning"] then
-        res.header["Warning"] = {}
-    end
-
-    local header = code .. ' ' .. self:visible_hostname() .. ' "' .. WARNINGS[code] .. '"'
-    tbl_insert(res.header["Warning"], header)
-end
-
-
 return _M
-
