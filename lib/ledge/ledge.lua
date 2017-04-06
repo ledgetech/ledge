@@ -182,7 +182,7 @@ end
 
 
 local _M = {
-    _VERSION = '1.28.2',
+    _VERSION = '1.28.3',
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible.
@@ -3337,7 +3337,7 @@ function _M.serve_body(self, res, buffer_size)
             buffered = buffered + #chunk
             if can_flush and buffered >= buffer_size then
                 local ok, err = ngx_flush(true)
-                if not ok then ngx_log(ngx_ERR, chunk, " : ", err) end
+                if not ok then ngx_log(ngx_ERR, err) end
 
                 buffered = 0
             end
