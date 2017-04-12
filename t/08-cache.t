@@ -417,11 +417,10 @@ TEST 9
             local key1 = key_chain.key
 
             ngx.req.set_uri_args({})
-            ledge:ctx().cache_key = nil
-            ledge:ctx().cache_key_chain = nil
+            local ledge2 = ledge_mod.new()
 
             ngx.say(type(ngx.var.args))
-            key_chain = ledge:cache_key_chain()
+            key_chain = ledge2:cache_key_chain()
             local key2 = key_chain.key
 
             if key1 == key2 then

@@ -222,25 +222,81 @@ function _M.new(self)
 end
 
 
--- A safe place in ngx.ctx for the current module instance (self).
-function _M.ctx(self)
+-- Request context members (data / flags etc).
+-- No other fields are permitted in the ctx table.
+local ctx_members = {
+    -- Backends
+    redis = true,
+    redis_params = true,
+    storage = true,
+
+    -- User config
+    config = true,
+    events = true,
+
+    -- Cache keys
+    cache_key = true,
+    cache_key_chain = true,
+
+    -- Responses
+    response = true,
+    error = true, -- also a 'response'
+    body_filters = true,  -- Output filter chain (for debug loggin)
+    output_buffers_enabled = true,  -- Disabled when client disconnected
+
+    -- Range requests
+    range = true,
+
+    -- For upstream validation against *stored* validators must stash the client
+    -- validators here
+    client_validators = true,
+
+    -- State machine
+    state_history = true,
+    event_history = true,
+    current_state = true,
+
+    -- ESI
+    esi_scan_disabled = true,
+    esi_scan_enabled = true, -- TODO: errrr, both?
+    esi_process_enabled = true,
+    esi_processor = true,
+}
+
+
+-- Returns the request context with respect to the current module instance.
+local function get_ctx(self)
     local id = tostring(self)
-    local ctx = ngx.ctx[id]
-    if not ctx then
-        ctx = {
-            -- TODO: These are fragile and added ad hoc throughout
-            events = {},
+    if not ngx.ctx[id] then
+
+        -- Fields requiring default values...
+        local ctx_defaults = {
             config = {},
-            state_history = {},
             event_history = {},
-            current_state = "",
+            state_history = {},
+            cache_key = "",
             client_validators = {},
+            events = {},
             output_buffers_enabled = true,
+            esi_scan_disabled = true,
+            esi_scan_enabled = false, -- TODO: errrr, both?
+            esi_process_enabled = false,
         }
-        ngx.ctx[id] = ctx
+
+        ngx.ctx[id] = setmetatable(ctx_defaults, {
+            __newindex = function(t, k, v)
+                if not ctx_members[k] then
+                    error("attempt to add field " .. k .. " to ctx", 2)
+                else
+                    rawset(t, k, v)
+                end
+            end,
+        })
     end
-    return ctx
+    return ngx.ctx[id]
 end
+-- TODO: Remove (Still required by some tests and wildcard purge)
+_M.ctx = get_ctx
 
 
 -- ----------------------------------------------------------------------------
@@ -253,14 +309,14 @@ function _M.config_set(self, param, value)
     if ngx_get_phase() == "init" then
         self.config[param] = value
     else
-        self:ctx().config[param] = value
+        get_ctx(self).config[param] = value
     end
 end
 
 
 -- Gets a config parameter.
 function _M.config_get(self, param)
-    local p = self:ctx().config[param]
+    local p = get_ctx(self).config[param]
     if p == nil then
         local static = self.config[param]
         if type(static) == "table" then
@@ -280,14 +336,14 @@ end
 
 
 function _M.bind(self, event, callback)
-    local events = self:ctx().events
+    local events = get_ctx(self).events
     if not events[event] then events[event] = {} end
     tbl_insert(events[event], callback)
 end
 
 
 function _M.emit(self, event, ...)
-    local events = self:ctx().events
+    local events = get_ctx(self).events
     for _, handler in ipairs(events[event] or {}) do
         if type(handler) == "function" then
             local ok, err = pcall(handler, ...)
@@ -328,11 +384,11 @@ function _M.run_workers(self, options)
     local worker = resty_qless_worker.new(redis_params, connection_options)
     worker.middleware = function(job)
         self:e "init_worker"
-        job.redis = self:ctx().redis
-        job.storage = self:ctx().storage
+        job.redis = get_ctx(self).redis
+        job.storage = get_ctx(self).storage
         -- Pass though connection params in case jobs need to
         -- connect to a slave or anything of that nature.
-        job.redis_params = self:ctx().redis_params
+        job.redis_params = get_ctx(self).redis_params
         job.redis_connection_options = connection_options
         job.redis_qless_database = redis_params.db
 
@@ -405,7 +461,7 @@ end
 
 -- Close and optionally keepalive the redis connection
 function _M.redis_close(self)
-    local redis = self:ctx().redis
+    local redis = get_ctx(self).redis
     if redis then
         -- We should only be able to close outside of the transactional
         -- code (as abort gets suspended on write), but just in case we
@@ -598,20 +654,20 @@ end
 
 function _M.set_response(self, res, name)
     local name = name or "response"
-    self:ctx()[name] = res
+    get_ctx(self)[name] = res
 end
 
 
 function _M.get_response(self, name)
     local name = name or "response"
-    return self:ctx()[name]
+    return get_ctx(self)[name]
 end
 
 
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
-    if not self:ctx().cache_key then
+    if get_ctx(self).cache_key == "" then
 
         -- If there is is a wildcard PURGE request with an asterisk placed
         -- at the end of the path, and we have no args, use * as the args.
@@ -636,9 +692,9 @@ function _M.cache_key(self)
         }
         tbl_insert(key_spec, 1, "cache")
         tbl_insert(key_spec, 1, "ledge")
-        self:ctx().cache_key = tbl_concat(key_spec, ":")
+        get_ctx(self).cache_key = tbl_concat(key_spec, ":")
     end
-    return self:ctx().cache_key
+    return get_ctx(self).cache_key
 end
 
 
@@ -659,17 +715,17 @@ end
 
 
 function _M.cache_key_chain(self)
-    if not self:ctx().cache_key_chain then
+    if not get_ctx(self).cache_key_chain then
         local cache_key = self:cache_key()
-        self:ctx().cache_key_chain = self:key_chain(cache_key)
+        get_ctx(self).cache_key_chain = self:key_chain(cache_key)
     end
-    return self:ctx().cache_key_chain
+    return get_ctx(self).cache_key_chain
 end
 
 
 function _M.entity_id(self, key_chain)
     if not key_chain and key_chain.main then return nil end
-    local redis = self:ctx().redis
+    local redis = get_ctx(self).redis
 
     local entity_id, err = redis:hget(key_chain.main, "entity")
     if not entity_id or entity_id == ngx_null then
@@ -690,8 +746,8 @@ end
 
 
 function _M.put_background_job(self, queue, klass, data, options)
-    local redis = self:ctx().redis
-    local redis_params = self:ctx().redis_params
+    local redis = get_ctx(self).redis
+    local redis_params = get_ctx(self).redis_params
     local redis_db = redis_params.db
     local qless_db = self:config_get("redis_qless_database") or 1
 
@@ -731,7 +787,7 @@ end
 -- Returns true if the lock was acquired, false if the lock already
 -- exists, and nil, err in case of failure.
 function _M.acquire_lock(self, lock_key, timeout)
-    local redis = self:ctx().redis
+    local redis = get_ctx(self).redis
 
     -- We use a Lua script to emulate SETNEX (set if not exists with expiry).
     -- This avoids a race window between the GET / SETEX.
@@ -1321,7 +1377,7 @@ _M.actions = {
 
     install_range_filter = function(self)
         local res = self:get_response()
-        local range = self:ctx().range
+        local range = get_ctx(self).range
         res:filter_body_reader(
             "range_request_filter",
             range:get_range_request_filter(res.body_reader)
@@ -1329,16 +1385,15 @@ _M.actions = {
     end,
 
     set_esi_scan_enabled = function(self)
-        local res = self:get_response()
-        local ctx = self:ctx()
-        ctx.esi_scan_enabled = true
-        res.esi_scanned = true
+        get_ctx(self).esi_scan_enabled = true
+        get_ctx(self).esi_scan_disabled = false
+        self:get_response().esi_scanned = true
     end,
 
     install_esi_scan_filter = function(self)
         local res = self:get_response()
-        local ctx = self:ctx()
-        local esi_processor = self:ctx().esi_processor
+        local ctx = get_ctx(self)
+        local esi_processor = get_ctx(self).esi_processor
         if esi_processor then
             res:filter_body_reader(
                 "esi_scan_filter",
@@ -1349,13 +1404,14 @@ _M.actions = {
 
     set_esi_scan_disabled = function(self)
         local res = self:get_response()
-        self:ctx().esi_scan_disabled = true
+        get_ctx(self).esi_scan_disabled = true
+        get_ctx(self).esi_scan_enabled = false
         res.esi_scanned = false
     end,
 
     install_esi_process_filter = function(self)
         local res = self:get_response()
-        local esi_processor = self:ctx().esi_processor
+        local esi_processor = get_ctx(self).esi_processor
         if esi_processor then
             res:filter_body_reader(
                 "esi_process_filter",
@@ -1369,11 +1425,11 @@ _M.actions = {
     end,
 
     set_esi_process_enabled = function(self)
-        self:ctx().esi_process_enabled = true
+        get_ctx(self).esi_process_enabled = true
     end,
 
     set_esi_process_disabled = function(self)
-        self:ctx().esi_process_enabled = false
+        get_ctx(self).esi_process_enabled = false
     end,
 
     zero_downstream_lifetime = function(self)
@@ -1399,7 +1455,7 @@ _M.actions = {
 
     remove_client_validators = function(self)
         -- Keep these in case we need to restore them (after revalidating upstream)
-        local client_validators = self:ctx().client_validators
+        local client_validators = get_ctx(self).client_validators
         client_validators["If-Modified-Since"] = ngx_var.http_if_modified_since
         client_validators["If-None-Match"] = ngx_var.http_if_none_match
 
@@ -1408,7 +1464,7 @@ _M.actions = {
     end,
 
     restore_client_validators = function(self)
-        local client_validators = self:ctx().client_validators
+        local client_validators = get_ctx(self).client_validators
         ngx_req_set_header("If-Modified-Since", client_validators["If-Modified-Since"])
         ngx_req_set_header("If-None-Match", client_validators["If-None-Match"])
     end,
@@ -1438,7 +1494,7 @@ _M.actions = {
     end,
 
     set_json_response = function(self)
-        local res = response.new(self.ctx(), self:cache_key_chain())
+        local res = response.new(get_ctx(self), self:cache_key_chain())
         res.header["Content-Type"] = "application/json"
         self:set_response(res)
     end,
@@ -1467,11 +1523,11 @@ _M.actions = {
     end,
 
     release_collapse_lock = function(self)
-        self:ctx().redis:del(self:cache_key_chain().fetching_lock)
+        get_ctx(self).redis:del(self:cache_key_chain().fetching_lock)
     end,
 
     disable_output_buffers = function(self)
-        self:ctx().output_buffers_enabled = false
+        get_ctx(self).output_buffers_enabled = false
     end,
 
     set_http_ok = function(self)
@@ -1536,8 +1592,8 @@ _M.states = {
             ngx_log(ngx_ERR, err)
             return self:e "redis_connection_failed"
         else
-            self:ctx().redis = redis
-            self:ctx().redis_params = redis_params
+            get_ctx(self).redis = redis
+            get_ctx(self).redis_params = redis_params
             return self:e "redis_connected"
         end
     end,
@@ -1547,24 +1603,24 @@ _M.states = {
         local storage_params = self:config_get("storage_params")
 
         -- TODO: Drivers only need ctx for esi process flags
-        local storage = storage_driver.new(self:ctx())
+        local storage = storage_driver.new(get_ctx(self))
 
         local ok, err = storage:connect(storage_params)
         if not ok then
             ngx_log(ngx_ERR, err)
             return self:e "storage_connection_failed"
         else
-            self:ctx().storage = storage
+            get_ctx(self).storage = storage
             return self:e "storage_connected"
         end
     end,
 
     sleeping = function(self)
-        local last_sleep = self:ctx().last_sleep or 0
+        local last_sleep = get_ctx(self).last_sleep or 0
         local sleep = last_sleep + 5
         ngx_log(ngx_ERR, "sleeping for ", sleep, "s before reconnecting...")
         ngx_sleep(sleep)
-        self:ctx().last_sleep = sleep
+        get_ctx(self).last_sleep = sleep
         return self:e "woken"
     end,
 
@@ -1630,7 +1686,7 @@ _M.states = {
         if res.header["Content-Encoding"] == "gzip" then
             local accepts_gzip = h_util.header_has_directive(accept_encoding, "gzip")
 
-            if self:ctx().esi_scan_enabled or
+            if get_ctx(self).esi_scan_enabled or
                 (self:config_get("gunzip_enabled") and accepts_gzip == false) then
                 return self:e "gzip_inflate_enabled"
             end
@@ -1653,7 +1709,7 @@ _M.states = {
                 if esi.is_allowed_content_type(res, self:config_get("esi_content_types")) then
                     -- Store parser for processing
                     -- TODO: Strictly this should be installed by the state machine
-                    self:ctx().esi_processor = processor
+                    get_ctx(self).esi_processor = processor
                     return self:e "esi_scan_enabled"
                 end
             end
@@ -1679,12 +1735,12 @@ _M.states = {
             return self:e "esi_process_disabled"
         end
 
-        if not self:ctx().esi_processor then
+        if not get_ctx(self).esi_processor then
             -- On the fast path with ESI already detected, the processor wont have been loaded
             -- yet, so we must do that now
             -- TODO: Perhaps the state machine can load the processor to avoid this weird check
             if res.has_esi then
-                self:ctx().esi_processor = esi.choose_esi_processor(res)
+                get_ctx(self).esi_processor = esi.choose_esi_processor(res)
             else
                 -- We know there's nothing to do
                 return self:e "esi_process_not_required"
@@ -1693,7 +1749,7 @@ _M.states = {
 
         if esi.can_delegate_to_surrogate(
             self:config_get("esi_allow_surrogate_delegation"),
-            self:ctx().esi_processor.token
+            get_ctx(self).esi_processor.token
         ) then
             -- Disabled due to surrogate delegation
             return self:e "esi_process_disabled"
@@ -1707,7 +1763,7 @@ _M.states = {
 
         local range = range.new()
         local res, partial_response = range:handle_range_request(res)
-        self:ctx().range = range
+        get_ctx(self).range = range
 
         self:set_response(res)
 
@@ -1739,7 +1795,7 @@ _M.states = {
     end,
 
     requesting_collapse_lock = function(self)
-        local redis = self:ctx().redis
+        local redis = get_ctx(self).redis
         local key_chain = self:cache_key_chain()
         local lock_key = key_chain.fetching_lock
 
@@ -1779,7 +1835,7 @@ _M.states = {
     end,
 
     publishing_collapse_success = function(self)
-        local redis = self:ctx().redis
+        local redis = get_ctx(self).redis
         local key_chain = self:cache_key_chain()
         redis:del(key_chain.fetching_lock) -- Clear the lock
         redis:publish(key_chain.root, "collapsed_response_ready")
@@ -1787,7 +1843,7 @@ _M.states = {
     end,
 
     publishing_collapse_failure = function(self)
-        local redis = self:ctx().redis
+        local redis = get_ctx(self).redis
         local key_chain = self:cache_key_chain()
         redis:del(key_chain.fetching_lock) -- Clear the lock
         redis:publish(key_chain.root, "collapsed_forwarding_failed")
@@ -1795,7 +1851,7 @@ _M.states = {
     end,
 
     publishing_collapse_upstream_error = function(self)
-        local redis = self:ctx().redis
+        local redis = get_ctx(self).redis
         local key_chain = self:cache_key_chain()
         redis:del(key_chain.fetching_lock) -- Clear the lock
         redis:publish(key_chain.root, "collapsed_forwarding_upstream_error")
@@ -1807,7 +1863,7 @@ _M.states = {
     end,
 
     waiting_on_collapsed_forwarding_channel = function(self)
-        local redis = self:ctx().redis
+        local redis = get_ctx(self).redis
 
         -- Extend the timeout to the size of the window
         redis:set_timeout(self:config_get("collapsed_forwarding_window"))
@@ -1982,7 +2038,7 @@ _M.states = {
 
 -- Transition to a new state.
 function _M.t(self, state)
-    local ctx = self:ctx()
+    local ctx = get_ctx(self)
 
     -- Check for any transition pre-tasks
     local pre_t = self.pre_transitions[state]
@@ -2006,7 +2062,7 @@ end
 function _M.e(self, event)
     if _M.DEBUG then ngx_log(ngx_DEBUG, "#e: ", event) end
 
-    local ctx = self:ctx()
+    local ctx = get_ctx(self)
     ctx.event_history[event] = true
 
     -- It's possible for states to call undefined events at run time. Try to handle this nicely.
@@ -2045,7 +2101,7 @@ end
 
 
 function _M.read_from_cache(self)
-    local ctx = self:ctx()
+    local ctx = get_ctx(self)
 
     local res = response.new(ctx, self:cache_key_chain())
     local ok, err = res:read()
@@ -2053,6 +2109,7 @@ function _M.read_from_cache(self)
         if err then
             -- TODO: What conditions do we want this to happen? Surely we should
             -- just MISS on failure?
+            error(err)
             return self:e "http_internal_server_error"
         else
             return nil
@@ -2086,7 +2143,7 @@ end
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response.new(self:ctx(), self:cache_key_chain())
+    local res = response.new(get_ctx(self), self:cache_key_chain())
     self:emit("origin_required")
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
@@ -2242,7 +2299,7 @@ end
 
 
 function _M.revalidate_in_background(self, update_revalidation_data)
-    local redis = self:ctx().redis
+    local redis = get_ctx(self).redis
     local key_chain = self:cache_key_chain()
 
     -- Revalidation data is updated if this is a proper request, but not if it's a purge request.
@@ -2313,7 +2370,7 @@ function _M.save_to_cache(self, res)
 
     -- Length is only set if there was a Content-Length header
     local length = res.length
-    local storage = self:ctx().storage
+    local storage = get_ctx(self).storage
     local max_size = storage:get_max_size()
     if length and length > max_size then
         -- We'll carry on serving, just not saving.
@@ -2324,7 +2381,7 @@ function _M.save_to_cache(self, res)
     -- Watch the main key pointer. We abort the transaction if another request
     -- updates this key before we finish.
     local key_chain = self:cache_key_chain()
-    local redis = self:ctx().redis
+    local redis = get_ctx(self).redis
     redis:watch(key_chain.main)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
@@ -2444,7 +2501,7 @@ end
 
 
 function _M.delete_from_cache(self)
-    local redis = self:ctx().redis
+    local redis = get_ctx(self).redis
     local key_chain = self:cache_key_chain()
 
     local entity_id = self:entity_id(key_chain)
@@ -2468,10 +2525,10 @@ end
 -- Purges the cache item according to X-Purge instructions, which defaults to "invalidate".
 -- If there's nothing to do we return false which results in a 404.
 function _M.purge(self, purge_mode)
-    local redis = self:ctx().redis
+    local redis = get_ctx(self).redis
     local key_chain = self:cache_key_chain()
     local entity_id, err = redis:hget(key_chain.main, "entity")
-    local storage = self:ctx().storage
+    local storage = get_ctx(self).storage
 
     local resp = self:get_response()
 
@@ -2559,8 +2616,8 @@ end
 
 -- Expires the keys in key_chain and the entity provided by entity_keys
 function _M.expire_keys(self, key_chain, entity_id)
-    local redis = self:ctx().redis
-    local storage = self:ctx().storage
+    local redis = get_ctx(self).redis
+    local storage = get_ctx(self).storage
 
     local exists, err =  redis:exists(key_chain.main)
     if exists == 1 then
@@ -2628,7 +2685,7 @@ function _M.serve(self)
 
         -- X-Cache header
         -- Don't set if this isn't a cacheable response. Set to MISS is we fetched.
-        local ctx = self:ctx()
+        local ctx = get_ctx(self)
         local state_history = ctx.state_history
         local event_history = ctx.event_history
 
@@ -2676,7 +2733,7 @@ function _M.serve_body(self, res, buffer_size)
     local buffered = 0
     local reader = res.body_reader
     local can_flush = ngx_req_http_version() >= 1.1
-    local ctx = self:ctx()
+    local ctx = get_ctx(self)
 
     repeat
         local chunk, err = reader(buffer_size)
