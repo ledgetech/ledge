@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2); 
+plan tests => repeat_each() * (blocks() * 2);
 
 my $pwd = cwd();
 
@@ -48,13 +48,13 @@ __DATA__
 === TEST 1: Read and override globals from init
 --- http_config eval: $::HttpConfig
 --- config
-	location /config_1 {
-        content_by_lua '
-            ngx.print(ledge:config_get("redis_qless_database"))
-            ledge:config_set("redis_qless_database", 2)
-            ngx.say(ledge:config_get("redis_qless_database"))
-        ';
-    }
+location /config_1 {
+    content_by_lua '
+        ngx.print(ledge:config_get("redis_qless_database"))
+        ledge:config_set("redis_qless_database", 2)
+        ngx.say(ledge:config_get("redis_qless_database"))
+    ';
+}
 --- request
 GET /config_1
 --- response_body
