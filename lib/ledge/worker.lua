@@ -16,7 +16,9 @@ local _M = {
 local function new(config)
     local defaults = {
         interval = 1,
-        concurrency = 10,
+        gc_queue_concurrency = 1,
+        purge_queue_concurrency = 1,
+        revalidate_queue_concurrency = 1,
     }
 
     if config then
