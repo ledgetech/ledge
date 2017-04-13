@@ -1,4 +1,3 @@
-local worker = require("ledge.worker")
 local util = require("ledge.util")
 
 local setmetatable, require, error =
@@ -58,7 +57,7 @@ _M.get = get
 
 
 local function create_worker(config)
-    return worker.new(config)
+    return require("ledge.worker").new(config)
 end
 _M.create_worker = create_worker
 
@@ -84,7 +83,7 @@ end
 _M.create_storage_connection = create_storage_connection
 
 
-local function close_storage_connection()
+local function close_storage_connection(storage)
 end
 _M.close_storage_connection = close_storage_connection
 
