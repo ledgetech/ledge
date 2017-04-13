@@ -63,6 +63,20 @@ end
 _M.table.copy = tbl_copy
 
 
+-- A metatable which prevents undefined fields from being create / accessed
+local tbl_fixed_structure_metatable = {
+    __index =
+        function(t, k)
+            error("field " .. tostring(k) .. " does not exist", 2)
+        end,
+    __newindex =
+        function(t, k, v)
+            error("attempt to create new field " .. tostring(k), 2)
+        end,
+}
+_M.table.fixed_structure_metatable = tbl_fixed_structure_metatable
+
+
 local function str_split(str, delim)
     if not str or not delim then return nil end
     local it, err = str_gmatch(str, "([^"..delim.."]+)")
@@ -96,5 +110,6 @@ local function co_wrap(func)
     end
 end
 _M.coroutine.wrap = co_wrap
+
 
 return _M
