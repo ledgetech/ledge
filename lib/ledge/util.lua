@@ -64,7 +64,7 @@ _M.table.copy = tbl_copy
 
 
 -- A metatable which prevents undefined fields from being create / accessed
-local tbl_fixed_structure_metatable = {
+local tbl_fixed_field_metatable = {
     __index =
         function(t, k)
             error("field " .. tostring(k) .. " does not exist", 3)
@@ -74,7 +74,27 @@ local tbl_fixed_structure_metatable = {
             error("attempt to create new field " .. tostring(k), 3)
         end,
 }
-_M.table.fixed_structure_metatable = tbl_fixed_structure_metatable
+_M.table.fixed_field_metatable = tbl_fixed_field_metatable
+
+
+local function get_fixed_field_metatable_proxy(proxy)
+    return {
+        __index =
+            function(t, k)
+                local proxy_v = proxy[k]
+                if not proxy_v then
+                    error("field " .. tostring(k) .. " does not exist", 3)
+                else
+                    return proxy_v
+                end
+            end,
+        __newindex =
+            function(t, k, v)
+                error("attempt to create new field " .. tostring(k), 3)
+            end,
+    }
+end
+_M.table.get_fixed_field_metatable_proxy = get_fixed_field_metatable_proxy
 
 
 local function str_split(str, delim)

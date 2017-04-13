@@ -30,7 +30,7 @@ init_by_lua_block {
 }
 
 init_worker_by_lua_block {
-    require("ledge").create_worker().run()
+    require("ledge").create_worker():run()
 }
 
 }; # HttpConfig

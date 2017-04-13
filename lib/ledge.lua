@@ -1,11 +1,12 @@
+local worker = require("ledge.worker")
 local util = require("ledge.util")
 
-local setmetatable, require =
-    setmetatable, require
+local setmetatable, require, error =
+    setmetatable, require, error
 
 local ngx_get_phase = ngx.get_phase
 
-local fixed_structure_metatable = util.table.fixed_structure_metatable
+local fixed_field_metatable = util.table.fixed_field_metatable
 
 
 local _M = {
@@ -24,7 +25,7 @@ local params = setmetatable({
             url = "redis://127.0.0.1:6379/0",
         },
         qless_db = 2,
-    }, fixed_structure_metatable),
+    }, fixed_field_metatable),
 
     -- Default storage driver params
     storage_driver = require("ledge.storage.redis"),
@@ -36,8 +37,8 @@ local params = setmetatable({
         redis_connector = {
             url = "redis://127.0.0.1:6379/3",
         },
-    }, fixed_structure_metatable),
-}, fixed_structure_metatable)
+    }, fixed_field_metatable),
+}, fixed_field_metatable)
 
 
 local function set(param, value)
@@ -57,7 +58,7 @@ _M.get = get
 
 
 local function create_worker(config)
-    return { run = function() return nil end }
+    return worker.new(config)
 end
 _M.create_worker = create_worker
 
@@ -68,4 +69,4 @@ end
 _M.create_handler = create_handler
 
 
-return setmetatable(_M, fixed_structure_metatable)
+return setmetatable(_M, fixed_field_metatable)
