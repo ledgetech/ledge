@@ -1,8 +1,9 @@
 local util = require("ledge.util")
 
-
 local setmetatable, pairs, type, tostring, error =
     setmetatable, pairs, type, tostring, error
+
+local co_yield = coroutine.yield
 
 local get_fixed_field_metatable_proxy =
     util.table.get_fixed_field_metatable_proxy
@@ -57,7 +58,49 @@ _M.get = get
 
 
 local function run(self)
-    return true
+    local ledge = require("ledge")
+
+    local redis_params = ledge.get("redis_params")
+    local connection_params = {
+        connect_timeout = redis_params.connect_timeout,
+        read_timeout = redis_params.read_timeout,
+    }
+
+    local ql_worker = require("resty.qless.worker").new(
+        redis_params.redis_connector,
+        connection_params
+    )
+
+    ql_worker.middleware = function(job)
+        job.redis = ledge.create_redis_connection()
+        job.storage = ledge.create_storage_connection()
+
+        co_yield()  -- Perform the job
+
+        ledge.close_redis_connection(job.redis)
+        ledge.close_storage_connection(job.storage)
+    end
+
+    assert(ql_worker:start({
+        interval = self.config.interval,
+        concurrency = self.config.gc_queue_concurrency,
+        reserver = "ordered",
+        queues = { "ledge_gc" },
+    }))
+
+    assert(ql_worker:start({
+        interval = self.config.interval,
+        concurrency = self.config.purge_queue_concurrency,
+        reserver = "ordered",
+        queues = { "ledge_purge" },
+    }))
+
+    assert(ql_worker:start({
+        interval = self.config.interval or 1,
+        concurrency = self.config.revalidate_queue_concurrency,
+        reserver = "ordered",
+        queues = { "ledge_revalidate" },
+    }))
 end
 _M.run = run
 

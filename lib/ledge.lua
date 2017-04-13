@@ -69,4 +69,24 @@ end
 _M.create_handler = create_handler
 
 
+local function create_redis_connection()
+end
+_M.create_redis_connection = create_redis_connection
+
+
+local function close_redis_connection(redis)
+end
+_M.close_redis_connection = close_redis_connection
+
+
+local function create_storage_connection()
+end
+_M.create_storage_connection = create_storage_connection
+
+
+local function close_storage_connection()
+end
+_M.close_storage_connection = close_storage_connection
+
+
 return setmetatable(_M, fixed_field_metatable)
