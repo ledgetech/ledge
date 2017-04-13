@@ -1,10 +1,12 @@
 local util = require("ledge.util")
 
+
 local setmetatable, pairs, type, tostring, error =
     setmetatable, pairs, type, tostring, error
 
 local get_fixed_field_metatable_proxy =
     util.table.get_fixed_field_metatable_proxy
+
 
 local _M = {
     _VERSION = "1.28.3",
@@ -20,9 +22,9 @@ local function new(config)
     if config then
         -- Validate config has matching defaults
         for k, v in pairs(config) do
-            default_v = defaults[k]
-            if not defaults_v or type(defaults_v) ~= type(v) then
-                error("invalid config item: " .. tostring(k), 3)
+            local default_v = defaults[k]
+            if not default_v or type(default_v) ~= type(v) then
+                error("invalid config item or value type: " .. tostring(k), 3)
             end
         end
     end

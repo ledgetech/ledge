@@ -2443,7 +2443,7 @@ function _M.save_to_cache(self, res)
     if res.has_body then
 
         -- Storage callback for write success
-        function onsuccess(bytes_written)
+        local function onsuccess(bytes_written)
             -- Update size in metadata
             local ok, e = redis:hset(key_chain.main, "size", bytes_written)
             if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
@@ -2462,7 +2462,7 @@ function _M.save_to_cache(self, res)
         end
 
         -- Storage callback for write failure. We roll back our transaction.
-        function onfailure(reason)
+        local function onfailure(reason)
             ngx_log(ngx_ERR, "storage failed to write: ", reason)
 
             local ok, e = redis:discard()
