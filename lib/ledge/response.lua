@@ -29,9 +29,6 @@ local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 
-local _M = {
-    _VERSION = '1.28.3'
-}
 
 local NOCACHE_HEADERS = {
     ["Pragma"] = { "no-cache" },
@@ -48,7 +45,7 @@ local _empty_body_reader = function() return nil end
 
 
 local _M = {
-    _VERSION = '1.28.2',
+    _VERSION = '1.28.3'
     DEBUG = false,
 }
 
