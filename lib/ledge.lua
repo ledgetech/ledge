@@ -3,6 +3,8 @@ local util = require("ledge.util")
 local setmetatable, require =
     setmetatable, require
 
+local ngx_get_phase = ngx.get_phase
+
 local fixed_structure_metatable = util.table.fixed_structure_metatable
 
 
@@ -39,7 +41,11 @@ local params = setmetatable({
 
 
 local function set(param, value)
-    params[param] = value
+    if ngx_get_phase() ~= "init" then
+        error("attempt to set params outside of the 'init' phase", 2)
+    else
+        params[param] = value
+    end
 end
 _M.set = set
 

@@ -67,11 +67,11 @@ _M.table.copy = tbl_copy
 local tbl_fixed_structure_metatable = {
     __index =
         function(t, k)
-            error("field " .. tostring(k) .. " does not exist", 2)
+            error("field " .. tostring(k) .. " does not exist", 3)
         end,
     __newindex =
         function(t, k, v)
-            error("attempt to create new field " .. tostring(k), 2)
+            error("attempt to create new field " .. tostring(k), 3)
         end,
 }
 _M.table.fixed_structure_metatable = tbl_fixed_structure_metatable

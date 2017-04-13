@@ -36,6 +36,21 @@ init_worker_by_lua_block {
 }; # HttpConfig
 
 
+our $HttpConfigTest3 = qq{
+lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+        require("luacov.runner").init()
+    end
+
+    -- Set the error so we can trap it later
+    local ledge = require("ledge")
+    ok, err = pcall(ledge.set, "foo", "bar")
+}
+
+}; # HttpConfigTest3
+
 no_long_string();
 no_diff();
 run_tests();
@@ -73,16 +88,31 @@ attempt to create new field foo
 
 
 === TEST 3: Non existent params cannot be set
+--- http_config eval: $::HttpConfigTest3
+--- config
+location /sanity_4 {
+    content_by_lua_block {
+        error(err)
+    }
+}
+--- request
+GET /sanity_4
+--- error_log
+attempt to create new field foo
+--- error_code: 500
+
+
+=== TEST 4: Params cannot be set outside of init
 --- http_config eval: $::HttpConfig
 --- config
-location /sanity_3 {
+location /sanity_4 {
     content_by_lua_block {
         local ledge = require("ledge")
         ledge.set("foo", bar)
     }
 }
 --- request
-GET /sanity_3
+GET /sanity_4
 --- error_log
-attempt to create new field foo
+attempt to set params outside of the 'init' phase
 --- error_code: 500
