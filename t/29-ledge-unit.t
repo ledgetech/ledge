@@ -90,13 +90,13 @@ attempt to create new field foo
 === TEST 3: Non existent params cannot be set
 --- http_config eval: $::HttpConfigTest3
 --- config
-location /ledge_4 {
+location /ledge_3 {
     content_by_lua_block {
         error(err)
     }
 }
 --- request
-GET /ledge_4
+GET /ledge_3
 --- error_log
 attempt to create new field foo
 --- error_code: 500
