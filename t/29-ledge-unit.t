@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2);
+plan tests => repeat_each() * (blocks() * 2) + 1;
 
 my $pwd = cwd();
 
@@ -60,13 +60,13 @@ __DATA__
 === TEST 1: Load module without errors.
 --- http_config eval: $::HttpConfig
 --- config
-location /sanity_1 {
+location /ledge_1 {
     content_by_lua_block {
         assert(require("ledge"))
     }
 }
 --- request
-GET /sanity_1
+GET /ledge_1
 --- no_error_log
 [error]
 
@@ -74,14 +74,14 @@ GET /sanity_1
 === TEST 2: Module cannot be externally modified
 --- http_config eval: $::HttpConfig
 --- config
-location /sanity_2 {
+location /ledge_2 {
     content_by_lua_block {
         local ledge = require("ledge")
         ledge.foo = "bar"
     }
 }
 --- request
-GET /sanity_2
+GET /ledge_2
 --- error_log
 attempt to create new field foo
 --- error_code: 500
@@ -90,13 +90,13 @@ attempt to create new field foo
 === TEST 3: Non existent params cannot be set
 --- http_config eval: $::HttpConfigTest3
 --- config
-location /sanity_4 {
+location /ledge_4 {
     content_by_lua_block {
         error(err)
     }
 }
 --- request
-GET /sanity_4
+GET /ledge_4
 --- error_log
 attempt to create new field foo
 --- error_code: 500
@@ -105,14 +105,41 @@ attempt to create new field foo
 === TEST 4: Params cannot be set outside of init
 --- http_config eval: $::HttpConfig
 --- config
-location /sanity_4 {
+location /ledge_4 {
     content_by_lua_block {
         local ledge = require("ledge")
         ledge.set("foo", bar)
     }
 }
 --- request
-GET /sanity_4
+GET /ledge_4
 --- error_log
 attempt to set params outside of the 'init' phase
 --- error_code: 500
+
+
+=== TEST 5: Table param values are returned by value
+--- http_config eval: $::HttpConfig
+--- config
+location /ledge_5 {
+    content_by_lua_block {
+        local redis_params = require("ledge").get("redis_params")
+        ngx.say(redis_params.connect_timeout)
+
+        -- Change by value
+        redis_params.connect_timeout = 10
+        ngx.say(redis_params.connect_timeout)
+
+        -- Original is unmodified
+        ngx.say(require("ledge").get("redis_params").connect_timeout)
+    }
+}
+--- request
+GET /ledge_5
+--- response_body
+500
+10
+500
+--- no_error_log
+[error]
+--- error_code: 200

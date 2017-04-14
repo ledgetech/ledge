@@ -6,7 +6,7 @@ local setmetatable, pairs, type, tostring, error =
 local co_yield = coroutine.yield
 
 local get_fixed_field_metatable_proxy =
-    util.table.get_fixed_field_metatable_proxy
+    util.mt.get_fixed_field_metatable_proxy
 
 
 local _M = {
@@ -60,16 +60,23 @@ _M.get = get
 local function run(self)
     local ledge = require("ledge")
 
+    -- TODO: Should qless accept the same parameter syntax as ledge?
+    -- TODO: Or move all this repeated logic to lua-resty-redis-connector?
     local redis_params = ledge.get("redis_params")
+    local redis_connector = redis_params.redis_connector
+    redis_connector.db = redis_params.qless_db
+
+
     local connection_params = {
         connect_timeout = redis_params.connect_timeout,
         read_timeout = redis_params.read_timeout,
     }
 
-    local ql_worker = require("resty.qless.worker").new(
-        redis_params.redis_connector,
+    local ql_worker, err = require("resty.qless.worker").new(
+        redis_connector,
         connection_params
     )
+    if not ql_worker then error(err) end
 
     ql_worker.middleware = function(job)
         job.redis = ledge.create_redis_connection()
@@ -101,6 +108,8 @@ local function run(self)
         reserver = "ordered",
         queues = { "ledge_revalidate" },
     }))
+
+    return true
 end
 _M.run = run
 

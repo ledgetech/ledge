@@ -1,11 +1,12 @@
-local util = require("ledge.util")
-
 local setmetatable, require, error =
     setmetatable, require, error
 
 local ngx_get_phase = ngx.get_phase
 
-local fixed_field_metatable = util.table.fixed_field_metatable
+local tbl_copy = require("ledge.util").table.copy
+
+local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
+local get_fixed_field_metatable_proxy = require("ledge.util").mt.get_fixed_field_metatable_proxy
 
 
 local _M = {
@@ -44,14 +45,29 @@ local function set(param, value)
     if ngx_get_phase() ~= "init" then
         error("attempt to set params outside of the 'init' phase", 2)
     else
-        params[param] = value
+        if type(value) == "table" then
+            -- Apply defaults to this table, in case of gaps in the user
+            -- supplied value
+            params[param] = setmetatable(
+                value,
+                get_fixed_field_metatable_proxy(params[param])
+            )
+        else
+            params[param] = value
+        end
     end
 end
 _M.set = set
 
 
 local function get(param)
-    return params[param]
+    local v = params[param]
+    -- Config is immutable directly, so always return by value
+    if type(v) == "table" then
+        return tbl_copy(v)
+    else
+        return v
+    end
 end
 _M.get = get
 
