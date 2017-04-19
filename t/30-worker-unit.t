@@ -52,7 +52,7 @@ GET /worker_1
 [error]
 
 
-=== TEST 2: Create worker with default config 
+=== TEST 2: Create worker with default config
 --- http_config eval: $::HttpConfig
 --- config
 location /worker_2 {
@@ -66,7 +66,7 @@ GET /worker_2
 [error]
 
 
-=== TEST 3: Create worker with bad config value 
+=== TEST 3: Create worker with bad config value
 --- http_config eval: $::HttpConfig
 --- config
 location /worker_3 {
@@ -83,7 +83,7 @@ GET /worker_3
 invalid config item or value type: interval
 
 
-=== TEST 4: Create worker with bad config key 
+=== TEST 4: Create worker with bad config key
 --- http_config eval: $::HttpConfig
 --- config
 location /worker_4 {
