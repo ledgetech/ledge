@@ -5,6 +5,8 @@ local setmetatable, pairs, type, tostring, error =
 
 local co_yield = coroutine.yield
 
+local ngx_get_phase = ngx.get_phase
+
 local get_fixed_field_metatable_proxy =
     util.mt.get_fixed_field_metatable_proxy
 
@@ -15,6 +17,9 @@ local _M = {
 
 
 local function new(config)
+    assert(ngx_get_phase() == "init_worker",
+        "attempt to create ledge worker outside of the init_worker phase")
+
     local defaults = {
         interval = 1,
         gc_queue_concurrency = 1,
@@ -46,6 +51,9 @@ _M.new = new
 
 
 local function run(self)
+    assert(ngx_get_phase() == "init_worker",
+        "attempt to run ledge worker outside of the init_worker phase")
+
     local ledge = require("ledge")
 
     -- TODO: Should qless accept the same parameter syntax as ledge?
