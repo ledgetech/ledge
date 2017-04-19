@@ -45,27 +45,15 @@ end
 _M.new = new
 
 
-local function set(self, param, value)
-    self.config[param] = value
-end
-_M.set = set
-
-
-local function get(self, param)
-    return self.config[param]
-end
-_M.get = get
-
-
 local function run(self)
     local ledge = require("ledge")
 
     -- TODO: Should qless accept the same parameter syntax as ledge?
     -- TODO: Or move all this repeated logic to lua-resty-redis-connector?
+    -- TODO: OR. ledge.create_qless_connection() ?
     local redis_params = ledge.get("redis_params")
     local redis_connector = redis_params.redis_connector
     redis_connector.db = redis_params.qless_db
-
 
     local connection_params = {
         connect_timeout = redis_params.connect_timeout,
