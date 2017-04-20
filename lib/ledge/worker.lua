@@ -56,24 +56,11 @@ local function run(self)
 
     local ledge = require("ledge")
 
-    -- TODO: Should qless accept the same parameter syntax as ledge?
-    -- TODO: Or move all this repeated logic to lua-resty-redis-connector?
-    -- TODO: OR. ledge.create_qless_connection() ?
-    local redis_params = ledge.get("redis_params")
-    local redis_connector = redis_params.redis_connector
-    redis_connector.db = redis_params.qless_db
+    local ql_worker = assert(require("resty.qless.worker").new({
+        connector = ledge.create_qless_connection
+    }))
 
-    local connection_params = {
-        connect_timeout = redis_params.connect_timeout,
-        read_timeout = redis_params.read_timeout,
-    }
-
-    local ql_worker, err = require("resty.qless.worker").new(
-        redis_connector,
-        connection_params
-    )
-    if not ql_worker then error(err) end
-
+    -- Runs around job exectution, to instantiate necessary connections
     ql_worker.middleware = function(job)
         job.redis = ledge.create_redis_connection()
         job.storage = ledge.create_storage_connection()
@@ -83,6 +70,8 @@ local function run(self)
         ledge.close_redis_connection(job.redis)
         ledge.close_storage_connection(job.storage)
     end
+
+    -- Start a worker for each fo the queues
 
     assert(ql_worker:start({
         interval = self.config.interval,

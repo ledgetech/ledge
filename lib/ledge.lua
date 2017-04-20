@@ -2,8 +2,7 @@ local setmetatable, require, error =
     setmetatable, require, error
 
 local ngx_get_phase = ngx.get_phase
-
-local tbl_copy = require("ledge.util").table.copy
+local ngx_null = ngx.null
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local get_fixed_field_metatable_proxy = require("ledge.util").mt.get_fixed_field_metatable_proxy
@@ -60,18 +59,6 @@ end
 _M.set = set
 
 
-local function get(param)
-    local v = params[param]
-    -- Config is immutable directly, so always return by value
-    if type(v) == "table" then
-        return tbl_copy(v)
-    else
-        return v
-    end
-end
-_M.get = get
-
-
 local function create_worker(config)
     return require("ledge.worker").new(config)
 end
@@ -85,13 +72,33 @@ _M.create_handler = create_handler
 
 
 local function create_redis_connection()
+    local redis_params = params.redis_params
+
+    local rc = require("resty.redis.connector").new()
+    rc:set_connect_timeout(redis_params.connect_timeout)
+    rc:set_read_timeout(redis_params.read_timeout)
+
+    return rc:connect(redis_params.redis_connector)
 end
 _M.create_redis_connection = create_redis_connection
 
 
 local function close_redis_connection(redis)
+    return true
 end
 _M.close_redis_connection = close_redis_connection
+
+
+local function create_qless_connection()
+	local redis, err = create_redis_connection()
+    if not redis then return nil, err end
+
+    local ok, err = redis:select(params.redis_params.qless_db)
+    if not ok or ok == ngx_null then return nil, err end
+
+    return redis
+end
+_M.create_qless_connection = create_qless_connection
 
 
 local function create_storage_connection()
