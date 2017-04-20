@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) + 1;
+plan tests => repeat_each() * (blocks() * 2);
 
 my $pwd = cwd();
 
@@ -112,30 +112,3 @@ GET /ledge_4
 --- error_log
 attempt to set params outside of the 'init' phase
 --- error_code: 500
-
-
-=== TEST 5: Table param values are returned by value
---- http_config eval: $::HttpConfig
---- config
-location /ledge_5 {
-    content_by_lua_block {
-        local redis_params = require("ledge").get("redis_params")
-        ngx.say(redis_params.connect_timeout)
-
-        -- Change by value
-        redis_params.connect_timeout = 10
-        ngx.say(redis_params.connect_timeout)
-
-        -- Original is unmodified
-        ngx.say(require("ledge").get("redis_params").connect_timeout)
-    }
-}
---- request
-GET /ledge_5
---- response_body
-500
-10
-500
---- no_error_log
-[error]
---- error_code: 200
