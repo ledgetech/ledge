@@ -23,17 +23,13 @@ init_by_lua_block {
 
     ledge.set("redis_params", {
         redis_connector = {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+            url = "redis://127.0.0.1:6379/$ENV{TEST_LEDGE_REDIS_DATABASE}",
         },
         qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
     })
 }
 
 }; # HttpConfig
-
-
-our $HttpConfigTest3 = qq{
-}; # HttpConfigTest3
 
 no_long_string();
 no_diff();
@@ -72,7 +68,6 @@ attempt to create new field foo
 
 
 === TEST 3: Non existent params cannot be set
---- http_config eval: $::HttpConfigTest3
 --- http_config
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 init_by_lua_block {
@@ -90,7 +85,6 @@ attempt to create new field foo
 
 
 === TEST 3b: Non existent sub-params cannot be set
---- http_config eval: $::HttpConfigTest3
 --- http_config
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 init_by_lua_block {
@@ -103,7 +97,7 @@ location /ledge_3 {
 --- request
 GET /ledge_3
 --- error_log
-field foo does not exist
+attempt to create new field foo
 --- must_die
 
 

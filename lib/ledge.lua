@@ -41,19 +41,10 @@ local function set(param, value)
             assert(type(params[param]) == "table",
                 "wrong parameter type, expected table")
 
+            -- Apply values one by one, so that metamethods catch bad keys
             for k,v in pairs(value) do
-                assert(params[param][k],
-                    "attempt to create field " .. k)
+                params[param][k] = value
             end
-
-            -- Apply defaults to this table, in case of gaps in the user
-            -- supplied value
-            -- TODO: Table fields here should be checked against existing
-            -- fields? Otherwise new ones are added
-            params[param] = setmetatable(
-                value,
-                get_fixed_field_metatable_proxy(params[param])
-            )
         else
             params[param] = value
         end
