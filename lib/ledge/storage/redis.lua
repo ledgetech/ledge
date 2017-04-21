@@ -97,12 +97,12 @@ function _M.connect(self, params)
     rc:set_connection_options(params.connection_options)
 
     -- Connect
-    local redis, err = rc:connect(params.redis_connector)
+    local redis, err = rc:connect({ redis_connector = params.redis_connector })
     if not redis then
         return nil, err
     else
         self.redis = redis
-        return true, nil
+        return redis, nil
     end
 end
 

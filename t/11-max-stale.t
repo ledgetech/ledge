@@ -41,7 +41,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         if $ENV{TEST_COVERAGE} == 1 then
             jit.off()
         end
-        ledge:run_workers()
+        require("ledge").create_worker():run()
     }
 };
 

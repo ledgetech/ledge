@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 6) - 6;
+plan tests => repeat_each() * (blocks() * 6);# - 6;
 
 my $pwd = cwd();
 
@@ -22,15 +22,16 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         if use_resty_core then
             require "resty.core"
         end
+
+        require("ledge").set("redis_params", {
+            redis_connector = {
+                db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+            },
+            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE}
+        })
+
         ledge_mod = require "ledge.ledge"
         ledge = ledge_mod:new()
-        ledge:config_set("redis_connection", {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-        })
-        ledge:config_set("storage_connection", {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-        })
-        ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set("upstream_host", "127.0.0.1")
         ledge:config_set("upstream_port", 1984)
     }
@@ -39,7 +40,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         if $ENV{TEST_COVERAGE} == 1 then
             jit.off()
         end
-        ledge:run_workers()
+        require("ledge").create_worker():run()
     }
 };
 
@@ -51,19 +52,19 @@ __DATA__
 === TEST 1: ORIGIN_MODE_NORMAL
 --- http_config eval: $::HttpConfig
 --- config
-	location /origin_mode_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            ledge:config_set("origin_mode", ledge.ORIGIN_MODE_NORMAL)
-            ledge:run()
-        }
+location /origin_mode_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("origin_mode", ledge.ORIGIN_MODE_NORMAL)
+        ledge:run()
     }
-    location /origin_mode {
-        content_by_lua_block {
-            ngx.header["Cache-Control"] = "public, max-age=60"
-            ngx.print("OK")
-        }
+}
+location /origin_mode {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "public, max-age=60"
+        ngx.print("OK")
     }
+}
 --- request eval
 ["GET /origin_mode_prx", "GET /origin_mode_prx"]
 --- response_body eval
@@ -72,18 +73,19 @@ __DATA__
 ["X-Cache: MISS from .*", "X-Cache: HIT from .*"]
 --- no_error_log
 [error]
+--- LAST
 
 
 === TEST 2: ORIGIN_MODE_AVOID (no-cache request)
 --- http_config eval: $::HttpConfig
 --- config
-	location /origin_mode_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            ledge:config_set("origin_mode", ledge.ORIGIN_MODE_AVOID)
-            ledge:run()
-        }
+location /origin_mode_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("origin_mode", ledge.ORIGIN_MODE_AVOID)
+        ledge:run()
     }
+}
 --- more_headers
 Cache-Control: no-cache
 --- request
@@ -98,13 +100,13 @@ X-Cache: HIT from .*
 === TEST 2a: ORIGIN_MODE_AVOID (max-age=0 request)
 --- http_config eval: $::HttpConfig
 --- config
-    location /origin_mode_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            ledge:config_set("origin_mode", ledge.ORIGIN_MODE_AVOID)
-            ledge:run()
-        }
+location /origin_mode_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("origin_mode", ledge.ORIGIN_MODE_AVOID)
+        ledge:run()
     }
+}
 --- more_headers
 Cache-Control: max-age=0
 --- request
@@ -118,23 +120,23 @@ X-Cache: HIT from .*
 === TEST 2b: ORIGIN_MODE_AVOID (expired cache)
 --- http_config eval: $::HttpConfig
 --- config
-	location /origin_mode_2b_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            ledge:config_set("origin_mode", ledge.ORIGIN_MODE_AVOID)
-            ledge:bind("before_save", function(res)
-                -- immediately expire
-                res.header["Cache-Control"] = "max-age=0"
-            end)
-            ledge:run()
-        }
+location /origin_mode_2b_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ledge:config_set("origin_mode", ledge.ORIGIN_MODE_AVOID)
+        ledge:bind("before_save", function(res)
+            -- immediately expire
+            res.header["Cache-Control"] = "max-age=0"
+        end)
+        ledge:run()
     }
-    location /origin_mode_2b {
-        content_by_lua_block {
-            ngx.header["Cache-Control"] = "public, max-age=60"
-            ngx.print("OK")
-        }
+}
+location /origin_mode_2b {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "public, max-age=60"
+        ngx.print("OK")
     }
+}
 --- request eval
 ["GET /origin_mode_2b_prx", "GET /origin_mode_2b_prx"]
 --- response_body eval
@@ -148,13 +150,13 @@ X-Cache: HIT from .*
 === TEST 3: ORIGIN_MODE_BYPASS when cached with 112 warning
 --- http_config eval: $::HttpConfig
 --- config
-	location /origin_mode_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:config_set("origin_mode", ledge.ORIGIN_MODE_BYPASS)
-            ledge:run()
-        ';
-    }
+location /origin_mode_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("origin_mode", ledge.ORIGIN_MODE_BYPASS)
+        ledge:run()
+    ';
+}
 --- more_headers
 Cache-Control: no-cache
 --- request
@@ -169,13 +171,13 @@ Warning: 112 .*
 === TEST 4: ORIGIN_MODE_BYPASS when we have nothing
 --- http_config eval: $::HttpConfig
 --- config
-	location /origin_mode_bypass_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:config_set("origin_mode", ledge.ORIGIN_MODE_BYPASS)
-            ledge:run()
-        ';
-    }
+location /origin_mode_bypass_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua '
+        ledge:config_set("origin_mode", ledge.ORIGIN_MODE_BYPASS)
+        ledge:run()
+    ';
+}
 --- more_headers
 Cache-Control: no-cache
 --- request

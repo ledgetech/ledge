@@ -11,7 +11,7 @@ $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
@@ -22,7 +22,7 @@ init_by_lua_block {
     local ledge = require("ledge")
 
     ledge.set("redis_params", {
-        redis_connection = {
+        redis_connector = {
             db = $ENV{TEST_LEDGE_REDIS_DATABASE},
         },
         qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
@@ -33,18 +33,6 @@ init_by_lua_block {
 
 
 our $HttpConfigTest3 = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        jit.off()
-        require("luacov.runner").init()
-    end
-
-    -- Set the error so we can trap it later
-    local ledge = require("ledge")
-    ok, err = pcall(ledge.set, "foo", "bar")
-}
-
 }; # HttpConfigTest3
 
 no_long_string();
@@ -85,17 +73,38 @@ attempt to create new field foo
 
 === TEST 3: Non existent params cannot be set
 --- http_config eval: $::HttpConfigTest3
+--- http_config
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+init_by_lua_block {
+    require("ledge").set("foo", "bar")
+}
 --- config
 location /ledge_3 {
-    content_by_lua_block {
-        error(err)
-    }
+    echo "OK";
 }
 --- request
 GET /ledge_3
 --- error_log
 attempt to create new field foo
---- error_code: 500
+--- must_die
+
+
+=== TEST 3b: Non existent sub-params cannot be set
+--- http_config eval: $::HttpConfigTest3
+--- http_config
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+init_by_lua_block {
+    require("ledge").set("redis_params", { foo = "bar" })
+}
+--- config
+location /ledge_3 {
+    echo "OK";
+}
+--- request
+GET /ledge_3
+--- error_log
+field foo does not exist
+--- must_die
 
 
 === TEST 4: Params cannot be set outside of init

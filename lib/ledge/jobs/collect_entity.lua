@@ -12,15 +12,16 @@ local _M = {
 
 -- Cleans up expired items and keeps track of memory usage.
 function _M.perform(job)
-    ngx.log(ngx.DEBUG, "going to collect: ", job.data.entity_id)
     local storage = job.storage
     if not storage then
         return nil, "job-error", "no storage driver provided"
     end
 
-    local ok, err = storage:delete(job.data.entity_id)
+    local ok, err = storage:del(job.data.entity_id)
     if not ok or ok == ngx_null then
-        return nil, "job-error", "could not collect entity: " .. job.data.entity_id
+        return nil, "job-error",
+            "could not collect entity: " .. job.data.entity_id ..
+            " because: " .. err
     end
 end
 

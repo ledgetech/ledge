@@ -23,20 +23,13 @@ local params = setmetatable({
         redis_connector = {
             url = "redis://127.0.0.1:6379/0",
         },
-        qless_db = 2,
+        qless_db = 3,
     }, fixed_field_metatable),
 
     -- Default storage driver params
     storage_driver = require("ledge.storage.redis"),
-    storage_params = setmetatable({
-        connect_timeout = 500,      -- (ms)
-        read_timeout = 5000,        -- (ms)
-        keeapalive_timeout = 60000, -- (ms)
-        keepalive_poolsize = 30,
-        redis_connector = {
-            url = "redis://127.0.0.1:6379/3",
-        },
-    }, fixed_field_metatable),
+    storage_params = {},
+
 }, fixed_field_metatable)
 
 
@@ -45,8 +38,18 @@ local function set(param, value)
         error("attempt to set params outside of the 'init' phase", 2)
     else
         if type(value) == "table" then
+            assert(type(params[param]) == "table",
+                "wrong parameter type, expected table")
+
+            for k,v in pairs(value) do
+                assert(params[param][k],
+                    "attempt to create field " .. k)
+            end
+
             -- Apply defaults to this table, in case of gaps in the user
             -- supplied value
+            -- TODO: Table fields here should be checked against existing
+            -- fields? Otherwise new ones are added
             params[param] = setmetatable(
                 value,
                 get_fixed_field_metatable_proxy(params[param])
@@ -90,7 +93,7 @@ _M.close_redis_connection = close_redis_connection
 
 
 local function create_qless_connection()
-	local redis, err = create_redis_connection()
+    local redis, err = create_redis_connection()
     if not redis then return nil, err end
 
     local ok, err = redis:select(params.redis_params.qless_db)
@@ -102,6 +105,7 @@ _M.create_qless_connection = create_qless_connection
 
 
 local function create_storage_connection()
+    return params.storage_driver.new():connect(params.storage_params)
 end
 _M.create_storage_connection = create_storage_connection
 

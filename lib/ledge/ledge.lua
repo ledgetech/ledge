@@ -746,13 +746,9 @@ end
 
 
 function _M.put_background_job(self, queue, klass, data, options)
-    local redis = get_ctx(self).redis
-    local redis_params = get_ctx(self).redis_params
-    local redis_db = redis_params.db
-    local qless_db = self:config_get("redis_qless_database") or 1
-
-    redis:select(qless_db)
-    local q = qless.new({ redis_client = redis })
+    local q = qless.new({ 
+        connector = require("ledge").create_qless_connection
+    })
 
     -- If we've been specified a jid (i.e. a non random jid), putting this
     -- job will overwrite any existing job with the same jid.
@@ -761,14 +757,14 @@ function _M.put_background_job(self, queue, klass, data, options)
         local existing = q.jobs:get(options.jid)
 
         if existing and existing.state == "running" then
-            redis:select(redis_db or 0)
             return nil, "Job with the same jid is currently running"
         end
     end
 
     -- Put the job
     local res, err = q.queues[queue]:put(klass, data, options)
-    redis:select(redis_db or 0)
+
+    q:redis_close()
 
     if res then
         return {
@@ -1578,35 +1574,21 @@ _M.actions = {
 ---------------------------------------------------------------------------------------------------
 _M.states = {
     connecting_to_redis = function(self)
-        local rc = redis_connector.new()
+        local redis, err = require("ledge").create_redis_connection()
 
-        local connect_timeout = self:config_get("redis_connect_timeout")
-        local read_timeout = self:config_get("redis_read_timeout")
-        rc:set_connect_timeout(connect_timeout)
-        rc:set_read_timeout(read_timeout)
-
-        local redis_params = self:config_get("redis_connection")
-
-        local redis, err = rc:connect(redis_params)
         if not redis then
             ngx_log(ngx_ERR, err)
             return self:e "redis_connection_failed"
         else
             get_ctx(self).redis = redis
-            get_ctx(self).redis_params = redis_params
+            get_ctx(self).redis_params = self:config_get("redis_connection")
             return self:e "redis_connected"
         end
     end,
 
     connecting_to_storage = function(self)
-        local storage_driver = self:config_get("storage_driver")
-        local storage_params = self:config_get("storage_params")
-
-        -- TODO: Drivers only need ctx for esi process flags
-        local storage = storage_driver.new(get_ctx(self))
-
-        local ok, err = storage:connect(storage_params)
-        if not ok then
+        local storage, err = require("ledge").create_storage_connection()
+        if not storage then
             ngx_log(ngx_ERR, err)
             return self:e "storage_connection_failed"
         else
@@ -2123,7 +2105,7 @@ function _M.read_from_cache(self)
             -- Should exist, so presumed evicted
 
             local delay = self:gc_wait(res.size)
-            self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+            self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
                 entity_id = res.entity_id,
             }, {
                 delay = res.size,
@@ -2404,7 +2386,7 @@ function _M.save_to_cache(self, res)
     if not ok then ngx_log(ngx_ERR, err) end
 
     if previous_entity_id then
-        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+        self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
             entity_id = previous_entity_id,
         }, {
             delay = previous_entity_size,
@@ -2508,7 +2490,7 @@ function _M.delete_from_cache(self)
 
     if entity_id then
         local size = redis:hget(key_chain.main, "size")
-        self:put_background_job("ledge", "ledge.jobs.collect_entity", {
+        self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
             entity_id = entity_id,
         }, {
             delay = self:gc_wait(size),

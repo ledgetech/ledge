@@ -125,7 +125,7 @@ location /worker_6 {
 
         local jid = assert(qless.queues["ledge_gc"]:put("ledge.job.test"))
 
-        ngx.sleep(2)
+        ngx.sleep(1)
         ngx.say(foo)
         local job = qless.jobs:get(jid)
         ngx.say(job.state)

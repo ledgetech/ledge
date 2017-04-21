@@ -42,7 +42,7 @@ init_worker_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
         jit.off()
     end
-    ledge:run_workers()
+    require("ledge").create_worker():run()
 }
 
 }; # HttpConfig
