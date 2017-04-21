@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2);
+plan tests => repeat_each() * (blocks() * 2) + 1;
 
 my $pwd = cwd();
 
@@ -114,4 +114,48 @@ location /ledge_4 {
 GET /ledge_4
 --- error_log
 attempt to set params outside of the 'init' phase
+--- error_code: 500
+
+
+=== TEST 5: Create redis connection
+--- http_config eval: $::HttpConfig
+--- config
+location /ledge_5 {
+    content_by_lua_block {
+        local redis = assert(require("ledge").create_redis_connection())
+        assert(redis:set("ledge_5:cat", "dog"))
+        ngx.say(redis:get("ledge_5:cat"))
+        assert(redis:close())
+    }
+}
+--- request
+GET /ledge_5
+--- response_body
+dog
+--- no_error_log
+[error]
+--- error_code: 200
+
+
+=== TEST 6: Create bad redis connection
+--- http_config
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+
+init_by_lua_block {
+    require("ledge").set("redis_params", {
+        redis_connector = {
+            port = 0, -- bad port
+        },
+    })
+}
+--- config
+location /ledge_6 {
+    content_by_lua_block {
+        assert(require("ledge").create_redis_connection())
+    }
+}
+--- request
+GET /ledge_6
+--- error_log
+Connection refused
 --- error_code: 500
