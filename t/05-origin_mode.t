@@ -73,7 +73,6 @@ location /origin_mode {
 ["X-Cache: MISS from .*", "X-Cache: HIT from .*"]
 --- no_error_log
 [error]
---- LAST
 
 
 === TEST 2: ORIGIN_MODE_AVOID (no-cache request)
