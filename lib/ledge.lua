@@ -43,7 +43,7 @@ local function set(param, value)
 
             -- Apply values one by one, so that metamethods catch bad keys
             for k,v in pairs(value) do
-                params[param][k] = value
+                params[param][k] = v
             end
         else
             params[param] = value
