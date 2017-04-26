@@ -17,7 +17,7 @@ function _M.perform(job)
         return nil, "job-error", "no storage driver provided"
     end
 
-    local ok, err = storage:del(job.data.entity_id)
+    local ok, err = storage:delete(job.data.entity_id)
     if not ok or ok == ngx_null then
         return nil, "job-error",
             "could not collect entity: " .. job.data.entity_id ..

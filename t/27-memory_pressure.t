@@ -36,6 +36,20 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set('upstream_port', 1984)
         ledge:config_set("esi_enabled", true)
         redis_socket = '$ENV{TEST_LEDGE_REDIS_SOCKET}'
+
+
+        require("ledge").set("redis_params", {
+            redis_connector = {
+                db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+            },
+            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+        })
+
+        require("ledge").set("storage_params", {
+            redis_connector = {
+                db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+            },
+        })
     }
 
     init_worker_by_lua_block {

@@ -68,7 +68,7 @@ end
 --------------------------------------------------------------------------------
 function _M.new(ctx)
     return setmetatable({
-        ctx = ctx, -- TODO: Make this go away
+        ctx = { esi_process_enabled = false }, --ctx, -- TODO: Make this go away
         redis = {},
         params = {},
 
@@ -97,12 +97,12 @@ function _M.connect(self, params)
     rc:set_connection_options(params.connection_options)
 
     -- Connect
-    local redis, err = rc:connect({ redis_connector = params.redis_connector })
+    local redis, err = rc:connect(params.redis_connector)
     if not redis then
         return nil, err
     else
         self.redis = redis
-        return redis, nil
+        return self, nil
     end
 end
 

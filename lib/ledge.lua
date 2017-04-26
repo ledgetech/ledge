@@ -1,6 +1,8 @@
 local setmetatable, require, error =
     setmetatable, require, error
 
+local tbl_copy = require("ledge.util").table.copy
+
 local ngx_get_phase = ngx.get_phase
 local ngx_null = ngx.null
 
@@ -41,10 +43,24 @@ local function set(param, value)
             assert(type(params[param]) == "table",
                 "wrong parameter type, expected table")
 
-            -- Apply values one by one, so that metamethods catch bad keys
-            for k,v in pairs(value) do
-                params[param][k] = v
+            -- If we are of type fixed_field_metadata, validate the params
+            -- TODO: This is ugly, but necessary if some table vars are empty
+            -- placeholders (i.e. not fixed field tables), such as storage_params
+            local mt = getmetatable(params[param])
+
+            if mt == fixed_field_metatable then
+                for k,v in pairs(value) do
+                    if not params[param][k] then
+                        error("attempt to create new field " .. tostring(k))
+                    end
+                end
             end
+
+            -- Apply original value as a proxy (for gaps)
+            params[param] = setmetatable(
+                tbl_copy(value),
+                get_fixed_field_metatable_proxy(params[param])
+            )
         else
             params[param] = value
         end
@@ -102,6 +118,7 @@ _M.create_storage_connection = create_storage_connection
 
 
 local function close_storage_connection(storage)
+    return storage:close()
 end
 _M.close_storage_connection = close_storage_connection
 

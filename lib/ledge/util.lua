@@ -92,26 +92,28 @@ local function get_fixed_field_metatable_proxy(proxy)
     return {
         __index =
             function(t, k)
-                local proxy_v = proxy[k]
-                if not proxy_v then
+                return proxy[k] or
                     error("field " .. tostring(k) .. " does not exist", 3)
-                else
-                    return proxy_v
-                end
             end,
         __newindex =
             function(t, k, v)
-                local proxy_v = proxy[k]
-                if not proxy_v then
-                    error("attempt to create new field " .. tostring(k), 3)
-                else
+                if proxy[k] then
                     return rawset(t, k, v)
+                else
+                    error("attempt to create new field " .. tostring(k), 3)
                 end
             end,
     }
 end
 _M.mt.get_fixed_field_metatable_proxy = get_fixed_field_metatable_proxy
 
+
+--[[
+local function get_opaque_fixed_field_metatable_proxy(proxy)
+
+end
+_M.mt.get_opaque_fixed_field_metatable_proxy = get_opaque_fixed_field_metatable_proxy
+]]--
 
 local function str_split(str, delim)
     if not str or not delim then return nil end

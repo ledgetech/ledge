@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 2) + 1;
+plan tests => repeat_each() * (blocks() * 2) + 2;
 
 my $pwd = cwd();
 
@@ -97,7 +97,7 @@ location /ledge_3 {
 --- request
 GET /ledge_3
 --- error_log
-attempt to create new field foo
+field foo does not exist
 --- must_die
 
 
@@ -125,7 +125,7 @@ location /ledge_5 {
         local redis = assert(require("ledge").create_redis_connection())
         assert(redis:set("ledge_5:cat", "dog"))
         ngx.say(redis:get("ledge_5:cat"))
-        assert(redis:close())
+        assert(require("ledge").close_redis_connection(redis))
     }
 }
 --- request
@@ -156,6 +156,50 @@ location /ledge_6 {
 }
 --- request
 GET /ledge_6
+--- error_log
+Connection refused
+--- error_code: 500
+
+
+=== TEST 7: Create storage connection
+--- http_config eval: $::HttpConfig
+--- config
+location /ledge_7 {
+    content_by_lua_block {
+        local storage = assert(require("ledge").create_storage_connection())
+        ngx.say(storage:exists("ledge_7:123456"))
+        assert(require("ledge").close_storage_connection(storage))
+    }
+}
+--- request
+GET /ledge_7
+--- response_body
+false
+--- no_error_log
+[error]
+--- error_code: 200
+
+
+=== TEST 8: Create bad storage connection
+--- http_config
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+
+init_by_lua_block {
+    require("ledge").set("storage_params", {
+        redis_connector = {
+            port = 0,
+        }
+    })
+}
+--- config
+location /ledge_8 {
+    content_by_lua_block {
+        local storage = assert(require("ledge").create_storage_connection())
+        ngx.say(storage:exists("ledge_7:123456"))
+    }
+}
+--- request
+GET /ledge_8
 --- error_log
 Connection refused
 --- error_code: 500
