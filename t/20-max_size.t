@@ -1,7 +1,7 @@
 use Test::Nginx::Socket;
 use Cwd qw(cwd);
 
-plan tests => repeat_each() * (blocks() * 3) + 4; 
+plan tests => repeat_each() * (blocks() * 3) + 4;
 
 my $pwd = cwd();
 
@@ -24,16 +24,6 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         end
         ledge_mod = require 'ledge.ledge'
         ledge = ledge_mod:new()
-        ledge:config_set("redis_connection", {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-        })
-        ledge:config_set("storage_connection", {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-        })
-
-        ledge:config_set("storage_params", {
-            max_size = 8,
-        })
 
         ledge:config_set("redis_qless_database", $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE})
         ledge:config_set('upstream_host', '127.0.0.1')
@@ -51,6 +41,7 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
             redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
+            max_size = 8,
         })
     }
 
