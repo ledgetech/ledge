@@ -746,7 +746,7 @@ end
 
 
 function _M.put_background_job(self, queue, klass, data, options)
-    local q = qless.new({ 
+    local q = qless.new({
         connector = require("ledge").create_qless_connection
     })
 
