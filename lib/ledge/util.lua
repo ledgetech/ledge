@@ -1,7 +1,7 @@
 local ffi = require "ffi"
 
-local type, next, setmetatable, getmetatable =
-        type, next, setmetatable, getmetatable
+local type, next, setmetatable, getmetatable, error, tostring, select =
+        type, next, setmetatable, getmetatable, error, tostring, select
 
 local str_gmatch = string.gmatch
 local tbl_insert = table.insert
@@ -45,23 +45,6 @@ local function randomhex(len)
     return ffi_string(hex, len * 2)
 end
 _M.string.randomhex = randomhex
-
-
-local function tbl_copy(orig)
-    local orig_type = type(orig)
-    local copy
-    if orig_type == "table" then
-        copy = {}
-        for orig_key, orig_value in next, orig, nil do
-            copy[tbl_copy(orig_key)] = tbl_copy(orig_value)
-        end
-        setmetatable(copy, tbl_copy(getmetatable(orig)))
-    else -- number, string, boolean, etc
-        copy = orig
-    end
-    return copy
-end
-_M.table.copy = tbl_copy
 
 
 -- A metatable which prevents undefined fields from being created / accessed
@@ -108,12 +91,87 @@ end
 _M.mt.get_fixed_field_metatable_proxy = get_fixed_field_metatable_proxy
 
 
---[[
-local function get_opaque_fixed_field_metatable_proxy(proxy)
-
+-- Returns a metatable with fixed fields (as above), which when invoked as a
+-- function will call the supplied `func`. E.g.:
+--
+-- t = setmetatable(
+--      { a = 1, b = 2, c = 3 },
+--      get_callable_fixed_field_metatable(
+--          function(t, field)
+--              print(t[field])
+--          end
+--      )
+-- )
+-- t("a")  -- 1
+-- t("b")  -- 2
+--
+-- @param   function
+-- @return  table   callable metatable
+local function get_callable_fixed_field_metatable(func)
+    local mt = fixed_field_metatable
+    mt.__call = func
+    return mt
 end
-_M.mt.get_opaque_fixed_field_metatable_proxy = get_opaque_fixed_field_metatable_proxy
-]]--
+_M.mt.get_callable_fixed_field_metatable = get_callable_fixed_field_metatable
+
+
+-- Returns a new table, recursively copied from the one given, retaining
+-- metatable assignment.
+--
+-- @param   table   table to be copied
+-- @return  table
+local function tbl_copy(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == "table" then
+        copy = {}
+        for orig_key, orig_value in next, orig, nil do
+            copy[tbl_copy(orig_key)] = tbl_copy(orig_value)
+        end
+        setmetatable(copy, tbl_copy(getmetatable(orig)))
+    else -- number, string, boolean, etc
+        copy = orig
+    end
+    return copy
+end
+_M.table.copy = tbl_copy
+
+
+
+-- Returns a new table, recursively copied from the combination of the given
+-- table `t1`, with any missing fields copied from `defaults`.
+--
+-- If `defaults` has a metatable of type `fixed_field_metatable`, field names in
+-- `t1` are "touched" in `defaults` to trigger metamethod validation. That is,
+-- if `defaults` is "fixed field" and `t1` contains a field name not present,
+-- an error will be thrown.
+--
+-- @param   table   t1
+-- @param   table   defaults
+-- @return  table   a new table, recursively copied and merged with no metatable
+local function tbl_copy_merge_defaults(t1, defaults)
+    if type(t1) == "table" and type(defaults) == "table" then
+        local mt = getmetatable(defaults)
+        local copy = {}
+        for t1_key, t1_value in next, t1, nil do
+            -- If t1 is a fixed_field_metatable, then touch each key
+            -- in defaults to trigger metatable validation
+            if mt == fixed_field_metatable then
+                local _ = defaults[t1_key]
+            end
+
+            copy[tbl_copy(t1_key)] = tbl_copy(t1_value)
+        end
+        for defaults_key, defaults_value in next, defaults, nil do
+            if not t1[defaults_key] then
+                copy[tbl_copy(defaults_key)] = tbl_copy(defaults_value)
+            end
+        end
+        return setmetatable(copy, nil)
+    end
+end
+_M.table.copy_merge_defaults = tbl_copy_merge_defaults
+
 
 local function str_split(str, delim)
     if not str or not delim then return nil end
