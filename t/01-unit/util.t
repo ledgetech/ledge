@@ -52,7 +52,8 @@ GET /t
 --- config
 location /t {
     content_by_lua_block {
-        local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
+        local fixed_field_metatable =
+            require("ledge.util").mt.fixed_field_metatable
 
         -- Error if new field creation attempted
         local t = setmetatable({ a = 1, c = 3 }, fixed_field_metatable)
@@ -69,6 +70,33 @@ location /t {
             "attempt to create new field b"
         )
         assert(err == "field b does not exist")
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
+
+
+=== TEST 3: mt.get_fixed_field_metatable_proxy
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local get_fixed_field_metatable_proxy =
+            require("ledge.util").mt.get_fixed_field_metatable_proxy
+
+        local defaults = { a = 1, b = 2, c = 3 }
+
+        -- Error if new field creation attempted
+        local t = setmetatable(
+            { b = 4 },
+            get_fixed_field_metatable_proxy(defaults)
+        )
+
+        assert(t.a == 1, "t.a should be 1")
+        assert(t.b == 4, "t.b should be 4")
+        assert(t.c == 3, "t.c should be 3")
     }
 }
 --- request
