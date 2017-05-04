@@ -103,3 +103,33 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 4: mt.get_callable_fixed_field_metatable
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local get_callable_fixed_field_metatable =
+            require("ledge.util").mt.get_callable_fixed_field_metatable
+
+        local func =
+            function(t, field)
+                return t[field]
+            end
+
+        -- Error if new field creation attempted
+        local t = setmetatable(
+            { a = 1, b = 2, c = 3 },
+            get_callable_fixed_field_metatable(func)
+        )
+
+        assert(t("a") == 1, "t('a') should return 1")
+        assert(t("b") == 2, "t('b') should return 2")
+        assert(t("c") == 3, "t('c') should return 3")
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
