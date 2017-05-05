@@ -47,6 +47,24 @@ end
 _M.string.randomhex = randomhex
 
 
+local function str_split(str, delim)
+    if not str or not delim then return nil end
+    local it, err = str_gmatch(str, "([^"..delim.."]+)")
+    if it then
+        local output = {}
+        while true do
+            local m, err = it()
+            if not m then
+                break
+            end
+            tbl_insert(output, m)
+        end
+        return output
+    end
+end
+_M.string.split = str_split
+
+
 -- A metatable which prevents undefined fields from being created / accessed
 local fixed_field_metatable = {
     __index =
@@ -166,24 +184,6 @@ local function tbl_copy_merge_defaults(t1, defaults)
     end
 end
 _M.table.copy_merge_defaults = tbl_copy_merge_defaults
-
-
-local function str_split(str, delim)
-    if not str or not delim then return nil end
-    local it, err = str_gmatch(str, "([^"..delim.."]+)")
-    if it then
-        local output = {}
-        while true do
-            local m, err = it()
-            if not m then
-                break
-            end
-            tbl_insert(output, m)
-        end
-        return output
-    end
-end
-_M.string.split = str_split
 
 
 local function co_wrap(func)
