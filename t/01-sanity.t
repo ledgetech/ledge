@@ -22,24 +22,24 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         if use_resty_core then
             require "resty.core"
         end
-        ledge_mod = require "ledge.ledge"
-        ledge = ledge_mod:new()
-        ledge:config_set("upstream_host", "127.0.0.1")
-        ledge:config_set("upstream_port", 1984)
+
         pwd = '$pwd'
 
-
-        require("ledge").set("redis_params", {
-            redis_connector = {
+        require("ledge").configure({
+            redis_connector_params = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
             qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
         })
 
-        require("ledge").set("storage_params", {
-            redis_connector = {
-                db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-            },
+        require("ledge").set_handler_defaults({
+            upstream_host = "127.0.0.1",
+            upstream_port = 1984,
+            storage_driver_config = {
+                redis_connector = {
+                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                },
+            }
         })
     }
 
@@ -73,6 +73,8 @@ GET /sanity_1
 --- config
     location /sanity_2 {
         content_by_lua_block {
+            local ledge = require("ledge.ledge"):new()
+
             for ev,t in pairs(ledge.events) do
                 for _,trans in ipairs(t) do
                     -- Check states
@@ -182,9 +184,9 @@ OK
 --- config
     location /sanity_2_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:run()
-        ';
+        content_by_lua_block {
+            require("ledge").create_handler():run()
+        }
     }
     location /sanity_2 {
         echo "OK";
@@ -195,29 +197,7 @@ GET /sanity_2_prx
 [error]
 --- response_body
 OK
-
-
-=== TEST 4: Run module against Redis on a Unix socket without errors.
---- http_config eval: $::HttpConfig
---- config
-    location /sanity_4_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:config_set("redis_hosts", {
-                { socket = redis_socket },
-            })
-            ledge:run()
-        ';
-    }
-    location /sanity_4 {
-        echo "OK";
-    }
---- request
-GET /sanity_4_prx
---- no_error_log
-[error]
---- response_body
-OK
+--- SKIP
 
 
 === TEST 4: Request with encoded spaces, without errors.
@@ -225,9 +205,9 @@ OK
 --- config
     location "/sanity _4_prx" {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:run()
-        ';
+        content_by_lua_block {
+            require("ledge").create_handler():run()
+        }
     }
     location "/sanity _4" {
         echo "OK";
@@ -238,3 +218,4 @@ GET /sanity%20_4_prx
 [error]
 --- response_body
 OK
+--- SKIP
