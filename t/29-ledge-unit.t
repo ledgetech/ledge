@@ -19,10 +19,8 @@ init_by_lua_block {
         require("luacov.runner").init()
     end
 
-    local ledge = require("ledge")
-
-    ledge.set("redis_params", {
-        redis_connector = {
+    require("ledge").configure({
+        redis_connector_params = {
             url = "redis://127.0.0.1:6379/$ENV{TEST_LEDGE_REDIS_DATABASE}",
         },
         qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
@@ -42,7 +40,7 @@ __DATA__
 --- config
 location /ledge_1 {
     content_by_lua_block {
-        assert(require("ledge"))
+        assert(require("ledge"), "module should load without errors")
     }
 }
 --- request
@@ -71,24 +69,7 @@ attempt to create new field foo
 --- http_config
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 init_by_lua_block {
-    require("ledge").set("foo", "bar")
-}
---- config
-location /ledge_3 {
-    echo "OK";
-}
---- request
-GET /ledge_3
---- error_log
-attempt to create new field foo
---- must_die
-
-
-=== TEST 3b: Non existent sub-params cannot be set
---- http_config
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
-init_by_lua_block {
-    require("ledge").set("redis_params", { foo = "bar" })
+    require("ledge").configure({ foo = "bar" })
 }
 --- config
 location /ledge_3 {
@@ -106,15 +87,14 @@ field foo does not exist
 --- config
 location /ledge_4 {
     content_by_lua_block {
-        local ledge = require("ledge")
-        ledge.set("foo", bar)
+        require("ledge").configure({ qless_db = 4 })
     }
 }
 --- request
 GET /ledge_4
---- error_log
-attempt to set params outside of the 'init' phase
 --- error_code: 500
+--- error_log
+attempt to call configure outside the 'init' phase
 
 
 === TEST 5: Create redis connection
@@ -122,10 +102,16 @@ attempt to set params outside of the 'init' phase
 --- config
 location /ledge_5 {
     content_by_lua_block {
-        local redis = assert(require("ledge").create_redis_connection())
-        assert(redis:set("ledge_5:cat", "dog"))
+        local redis = assert(require("ledge").create_redis_connection(),
+            "create_redis_connection() should return positively")
+
+        assert(redis:set("ledge_5:cat", "dog"),
+            "redis:set() should return positively")
+
         ngx.say(redis:get("ledge_5:cat"))
-        assert(require("ledge").close_redis_connection(redis))
+
+        assert(require("ledge").close_redis_connection(redis),
+            "close_redis_connection() should return positively")
     }
 }
 --- request
@@ -134,7 +120,6 @@ GET /ledge_5
 dog
 --- no_error_log
 [error]
---- error_code: 200
 
 
 === TEST 6: Create bad redis connection
@@ -142,8 +127,8 @@ dog
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
-    require("ledge").set("redis_params", {
-        redis_connector = {
+    require("ledge").configure({
+        redis_connector_params = {
             port = 0, -- bad port
         },
     })
@@ -151,14 +136,14 @@ init_by_lua_block {
 --- config
 location /ledge_6 {
     content_by_lua_block {
-        assert(require("ledge").create_redis_connection())
+        assert(not require("ledge").create_redis_connection(),
+            "create_redis_connection() should return negatively")
     }
 }
 --- request
 GET /ledge_6
 --- error_log
 Connection refused
---- error_code: 500
 
 
 === TEST 7: Create storage connection
@@ -166,9 +151,13 @@ Connection refused
 --- config
 location /ledge_7 {
     content_by_lua_block {
-        local storage = assert(require("ledge").create_storage_connection())
+        local storage = assert(require("ledge").create_storage_connection(),
+            "create_storage_connection should return positively")
+
         ngx.say(storage:exists("ledge_7:123456"))
-        assert(require("ledge").close_storage_connection(storage))
+
+        assert(require("ledge").close_storage_connection(storage),
+            "close_storage_connection() should return positively")
     }
 }
 --- request
@@ -177,7 +166,6 @@ GET /ledge_7
 false
 --- no_error_log
 [error]
---- error_code: 200
 
 
 === TEST 8: Create bad storage connection
@@ -185,21 +173,22 @@ false
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
-    require("ledge").set("storage_params", {
-        redis_connector = {
-            port = 0,
+    require("ledge").set_handler_defaults({
+        storage_driver_config = {
+            redis_connector = {
+                port = 0,
+            },
         }
     })
 }
 --- config
 location /ledge_8 {
     content_by_lua_block {
-        local storage = assert(require("ledge").create_storage_connection())
-        ngx.say(storage:exists("ledge_7:123456"))
+        assert(not require("ledge").create_storage_connection(),
+            "create_storage_connection() should return negatively")
     }
 }
 --- request
 GET /ledge_8
 --- error_log
 Connection refused
---- error_code: 500
