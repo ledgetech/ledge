@@ -9,7 +9,11 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_NOTICE = ngx.NOTICE
 local ngx_WARN = ngx.WARN
+
 local tbl_insert = table.insert
+local tbl_copy = require("ledge.util").table.copy
+local tbl_copy_merge_defaults = require("ledge.util").table.copy_merge_defaults
+local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 
 
 local _M = {
@@ -24,7 +28,7 @@ local mt = {
 
 
 -- Default parameters
-local defaults = {
+local defaults = setmetatable({
     connect_timeout = 500,
     read_timeout = 5000,
     connection_options = {},
@@ -32,16 +36,15 @@ local defaults = {
     keepalive_poolsize = 30,
 
     -- lua-resty-redis-connector params
-    redis_connector = {
-        url = "redis://127.0.0.1:6379/0", -- Default Redis params
-    },
+    -- TODO: Rename connector_params for consistency
+    redis_connector = {},
 
     max_size = 1024 * 1024,  -- Max storable size, in bytes
 
     -- Optional atomicity
     -- e.g. for use with a Redis proxy which doesn't support transactions
     supports_transactions = true,
-}
+}, fixed_field_metatable)
 
 
 -- Redis key namespace
@@ -68,7 +71,7 @@ end
 --------------------------------------------------------------------------------
 function _M.new(ctx)
     return setmetatable({
-        ctx = { esi_process_enabled = false }, --ctx, -- TODO: Make this go away
+        ctx = ctx, -- TODO: Make this go away
         redis = {},
         params = {},
 
@@ -84,20 +87,18 @@ end
 -- @param   table   Module instance (self)
 -- @param   table   Storage params
 --------------------------------------------------------------------------------
-function _M.connect(self, params)
-    -- Apply defaults to params
-    self.params = setmetatable(params, {
-        __index = defaults,
-        __newindex = function() error("attempt to create param field", 2) end,
-    })
+function _M.connect(self, user_params)
+    -- take user_params by value and merge with defaults
+    user_params = tbl_copy_merge_defaults(user_params, defaults)
+    self.params = user_params
 
     local rc = redis_connector.new()
-    rc:set_connect_timeout(params.connect_timeout)
-    rc:set_read_timeout(params.read_timeout)
-    rc:set_connection_options(params.connection_options)
+    rc:set_connect_timeout(user_params.connect_timeout)
+    rc:set_read_timeout(user_params.read_timeout)
+    rc:set_connection_options(user_params.connection_options)
 
     -- Connect
-    local redis, err = rc:connect(params.redis_connector)
+    local redis, err = rc:connect(user_params.redis_connector)
     if not redis then
         return nil, err
     else
@@ -127,11 +128,11 @@ function _M.close(self)
 
         local ok, err = redis:set_keepalive(
             params.keepalive_timeout,
-            params.keepalive_pool_size
+            params.keepalive_poolsize
         )
 
         if not ok then
-            ngx_log(ngx_WARN, "couldn't set keepalive,, ", err)
+            ngx_log(ngx_WARN, "couldn't set keepalive, ", err)
             return redis:close()
         end
 
