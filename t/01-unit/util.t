@@ -171,8 +171,126 @@ location /t {
         assert(getmetatable(copy.c.z) ~= getmetatable(t.c.z),
             "copy.c.z metatable should not equal t.c.z metatable")
         assert(getmetatable(copy.c.z).__index == getmetatable(t.c.z).__index,
-            "copy.c.z __index metamethod should  equal t.c.z __index metamethod")
+            "copy.c.z __index metamethod should equal t.c.z __index metamethod")
         assert(copy.c.z[4] == "no index", "copy.c.z[3] should be 'no index'")
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
+
+
+=== TEST 6: table.copy_merge_defaults
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local tbl_copy_merge_defaults =
+            require("ledge.util").table.copy_merge_defaults
+        local fixed_field_metatable =
+            require("ledge.util").mt.fixed_field_metatable
+
+        local defaults = {
+            a = 1,
+            c = 3,
+            d = {
+                x = 10,
+                z = 12,
+            },
+            e = {
+                a = 1,
+                c = 3,
+            },
+        }
+
+        local t = {
+            b = 2,
+            e = {
+                b = 2,
+            },
+        }
+
+        local copy = tbl_copy_merge_defaults(t, defaults)
+
+        -- Basic copy merge
+        assert(copy ~= t, "copy should not equal t")
+        assert(getmetatable(copy) == nil, "copy should not have a metatable")
+        assert(copy.a == 1, "copy.a should be 1")
+        assert(copy.b == 2, "copy.b should be 2")
+        assert(copy.c == 3, "copy.c should be 3")
+
+        -- Child table in defaults is merged
+        assert(copy.d ~= defaults.d, "copy.d should not equal defaults d")
+        assert(copy.d.x == 10, "copy.d.x should be 10")
+        assert(copy.d.z == 12, "copy.d.z should be 12")
+
+        -- Child table in both is merged
+        assert(copy.e ~= defaults.e, "copy.e should not equal defaults e")
+        assert(copy.e.a == 1, "copy.e.a should be 1")
+        assert(copy.e.b == 2, "copy.e.b should be 2")
+        assert(copy.e.c == 3, "copy.e.c should be 3")
+
+
+        -- Same again, but with defaults being "fixed field"
+        local defaults = setmetatable({
+            a = 1,
+            b = 2,
+            c = 3,
+            d = setmetatable({
+                x = 10,
+                y = 11,
+                z = 12,
+            }, fixed_field_metatable)
+        }, fixed_field_metatable)
+
+        local t_good = {
+            b = 6,
+            d = {
+                z = 42,
+            },
+        }
+
+        -- Copy is merged properly
+        local copy = tbl_copy_merge_defaults(t_good, defaults)
+
+        assert(copy.a == 1, "copy.a should be 1")
+        assert(copy.b == 6, "copy.b should be 6")
+        assert(copy.c == 3, "copy.c should be 3")
+        assert(copy.d ~= defaults.d and copy.d ~= t_good.d,
+            "copy.d should not equal defaults.d or t_good.d")
+        assert(getmetatable(copy) == nil, "getmetatable(copy) should be nil")
+
+
+        -- Copy merge should fail
+        local t_bad_1 = {
+            a = 4,
+            foo = "bar",
+        }
+
+        local ok, err = pcall(function()
+            tbl_copy_merge_defaults(t_bad_1, defaults)
+        end)
+
+        assert(string.find(err, "field foo does not exist"),
+            "error 'field foo does not exist' should be thrown")
+
+
+        -- Copy merge should fail on inner table
+        local t_bad_2 = {
+            a = 4,
+            d = {
+                x = 10,
+                foo = "bar",
+            },
+        }
+
+        local ok, err = pcall(function()
+            tbl_copy_merge_defaults(t_bad_1, defaults)
+        end)
+
+        assert(string.find(err, "field foo does not exist"),
+            "error 'field foo does not exist' should be thrown")
     }
 }
 --- request
