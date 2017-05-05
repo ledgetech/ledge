@@ -137,14 +137,11 @@ end
 _M.table.copy = tbl_copy
 
 
-
 -- Returns a new table, recursively copied from the combination of the given
 -- table `t1`, with any missing fields copied from `defaults`.
 --
--- If `defaults` has a metatable of type `fixed_field_metatable`, field names in
--- `t1` are "touched" in `defaults` to trigger metamethod validation. That is,
--- if `defaults` is "fixed field" and `t1` contains a field name not present,
--- an error will be thrown.
+-- If `defaults` is of type "fixed field" and `t1` contains a field name not
+-- present in the defults, an error will be thrown.
 --
 -- @param   table   t1
 -- @param   table   defaults
@@ -154,13 +151,9 @@ local function tbl_copy_merge_defaults(t1, defaults)
         local mt = getmetatable(defaults)
         local copy = {}
         for t1_key, t1_value in next, t1, nil do
-            -- If t1 is a fixed_field_metatable, then touch each key
-            -- in defaults to trigger metatable validation
-            if mt == fixed_field_metatable then
-                local _ = defaults[t1_key]
-            end
-
-            copy[tbl_copy(t1_key)] = tbl_copy(t1_value)
+            copy[tbl_copy(t1_key)] = tbl_copy_merge_defaults(
+                t1_value, tbl_copy(defaults[t1_key])
+            )
         end
         for defaults_key, defaults_value in next, defaults, nil do
             if not t1[defaults_key] then
@@ -168,6 +161,8 @@ local function tbl_copy_merge_defaults(t1, defaults)
             end
         end
         return setmetatable(copy, nil)
+    else
+        return t1 -- not a table
     end
 end
 _M.table.copy_merge_defaults = tbl_copy_merge_defaults
