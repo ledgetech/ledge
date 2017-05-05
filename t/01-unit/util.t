@@ -297,3 +297,32 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 7: string.split
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local str_split = require("ledge.util").string.split
+
+        local str1 = "comma, separated, string, "
+        local t = str_split(str1, ",")
+
+        assert(#t == 4, "#t should be 4")
+        assert(t[1] == "comma", "t[1] should be 'comma'")
+        assert(t[2] == " separated", "t[2] should be ' separated'")
+        assert(t[3] == " string", "t[3] should be ' string'")
+        assert(t[4] == " ", "t[4] should be ' '")
+
+        local t = str_split(str1, ", ")
+        assert(#t == 3, "#t should be 4")
+        assert(t[1] == "comma", "t[1] should be 'comma'")
+        assert(t[2] == "separated", "t[2] should be ' separated'")
+        assert(t[3] == "string", "t[3] should be ' string'")
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
