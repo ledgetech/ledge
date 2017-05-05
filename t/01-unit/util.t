@@ -133,3 +133,49 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 5: table.copy
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local tbl_copy = require("ledge.util").table.copy
+
+        local mt = { __index = function(t, k) return "no index" end }
+        local t = {
+            a = 1,
+            b = 2,
+            c = {
+                x = 10,
+                y = 11,
+                z = setmetatable({ 1, 2, 3 }, mt),
+            }
+        }
+
+        local copy = tbl_copy(t)
+
+        -- Values copied
+        assert(t ~= copy, "copy should not equal t")
+        assert(copy.a == 1, "copy.a should be 1")
+        assert(type(copy.c) == "table", "copy.c should be a table")
+        assert(copy.c ~= t.c, "copy.c should not equal t.c")
+        assert(copy.c.x == 10, "copy.c.x should be 10")
+        assert(type(copy.c.z) == "table", "copy.c.z should be a table")
+        assert(copy.c.z ~= t.c.z, "copy.z.a. should not equal t.c.z")
+        assert(copy.c.z[1] == 1, "copy.c.z[1] should be 1")
+        assert(copy.c.z[3] == 3, "copy.c.z[3] should be 3")
+
+        -- Metatables copied
+        assert(getmetatable(copy) == nil, "getmetatable(copy) should be nil")
+        assert(getmetatable(copy.c.z) ~= getmetatable(t.c.z),
+            "copy.c.z metatable should not equal t.c.z metatable")
+        assert(getmetatable(copy.c.z).__index == getmetatable(t.c.z).__index,
+            "copy.c.z __index metamethod should  equal t.c.z __index metamethod")
+        assert(copy.c.z[4] == "no index", "copy.c.z[3] should be 'no index'")
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
