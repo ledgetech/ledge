@@ -205,6 +205,7 @@ location /t {
         }
 
         local t = {
+            a = false,
             b = 2,
             e = {
                 b = 2,
@@ -216,7 +217,7 @@ location /t {
         -- Basic copy merge
         assert(copy ~= t, "copy should not equal t")
         assert(getmetatable(copy) == nil, "copy should not have a metatable")
-        assert(copy.a == 1, "copy.a should be 1")
+        assert(copy.a == false, "copy.a should be false")
         assert(copy.b == 2, "copy.b should be 2")
         assert(copy.c == 3, "copy.c should be 3")
 

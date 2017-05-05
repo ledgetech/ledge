@@ -174,7 +174,7 @@ local function tbl_copy_merge_defaults(t1, defaults)
             )
         end
         for defaults_key, defaults_value in next, defaults, nil do
-            if not t1[defaults_key] then
+            if t1[defaults_key] == nil then
                 copy[tbl_copy(defaults_key)] = tbl_copy(defaults_value)
             end
         end
