@@ -55,21 +55,26 @@ GET /ledge_1
 location /ledge_2 {
     content_by_lua_block {
         local ledge = require("ledge")
-        ledge.foo = "bar"
+        local ok, err = pcall(function()
+            ledge.foo = "bar"
+        end)
+        assert(err == "attempt to create new field foo",
+            "error 'field foo does not exist' should be thrown")
     }
 }
 --- request
 GET /ledge_2
---- error_log
-attempt to create new field foo
---- error_code: 500
+--- no_error_log
+[error]
 
 
 === TEST 3: Non existent params cannot be set
 --- http_config
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 init_by_lua_block {
-    require("ledge").configure({ foo = "bar" })
+    local ok, err = pcall(require("ledge").configure, { foo = "bar" })
+    assert(string.find(err, "field foo does not exist"),
+        "error 'field foo does not exist' should be thrown")
 }
 --- config
 location /ledge_3 {
@@ -77,9 +82,8 @@ location /ledge_3 {
 }
 --- request
 GET /ledge_3
---- error_log
-field foo does not exist
---- must_die
+--- no_error_log
+[error]
 
 
 === TEST 4: Params cannot be set outside of init
