@@ -326,3 +326,40 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 8: coroutine.wrap
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local co_wrap = require("ledge.util").coroutine.wrap
+
+        local co = co_wrap(
+            function()
+                for i = 1, 10 do
+                    coroutine.yield(i)
+                end
+            end
+        )
+
+        function run()
+            local res = ""
+            repeat
+                local num = co()
+                if num then
+                    res = res .. num .. "-"
+                end
+            until not num
+            res = res .. "finished"
+            return res
+        end
+
+        assert(run() == "1-2-3-4-5-6-7-8-9-10-finished",
+            "run() should return 1-2-3-4-5-6-7-8-9-10-finished")
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
