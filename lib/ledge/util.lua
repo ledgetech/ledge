@@ -163,8 +163,10 @@ _M.table.copy = tbl_copy
 --
 -- @param   table   t1
 -- @param   table   defaults
--- @return  table   a new table, recursively copied and merged with no metatable
+-- @return  table   a new table, recursively copied and merged
 local function tbl_copy_merge_defaults(t1, defaults)
+    if t1 == nil then t1 = {} end
+    if defaults == nil then defaults = {} end
     if type(t1) == "table" and type(defaults) == "table" then
         local mt = getmetatable(defaults)
         local copy = {}
@@ -178,7 +180,7 @@ local function tbl_copy_merge_defaults(t1, defaults)
                 copy[tbl_copy(defaults_key)] = tbl_copy(defaults_value)
             end
         end
-        return setmetatable(copy, nil)
+        return copy
     else
         return t1 -- not a table
     end

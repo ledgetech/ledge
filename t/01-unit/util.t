@@ -292,6 +292,21 @@ location /t {
 
         assert(string.find(err, "field foo does not exist"),
             "error 'field foo does not exist' should be thrown")
+
+
+        -- Copy merge with a nil user table gives us a copy of defaults
+        local t, err = tbl_copy_merge_defaults(nil, defaults)
+
+        assert(t ~= nil and t.a == 1,
+            "merging a nil user table should still return defaults")
+        assert(t ~= defaults, "defaults should be copied by value")
+
+
+        local t, err = tbl_copy_merge_defaults(t_good, nil)
+        assert(t ~= nil and t.b == 6,
+            "merging with nil defaults should still return user t")
+        assert(t ~= t_good, "user t should be copied by value")
+
     }
 }
 --- request
