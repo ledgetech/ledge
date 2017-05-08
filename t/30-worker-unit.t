@@ -48,24 +48,6 @@ GET /worker_2
 [error]
 
 
-=== TEST 3: Create worker with bad config value
---- http_config
-lua_package_path "./lib/?.lua;;";
-init_worker_by_lua_block {
-    require("ledge.worker").new({
-        interval = "one",
-    })
-}
---- config
-location /worker_3 {
-    echo "OK";
-}
---- request
-GET /worker_3
---- error_log
-invalid config item or value type: interval
-
-
 === TEST 4: Create worker with bad config key
 --- http_config
 lua_package_path "./lib/?.lua;;";
@@ -81,7 +63,7 @@ location /worker_4 {
 --- request
 GET /worker_4
 --- error_log
-invalid config item or value type: foo
+field foo does not exist
 
 
 === TEST 5: Run workers without errors

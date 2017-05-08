@@ -1,5 +1,3 @@
-local util = require("ledge.util")
-
 local setmetatable, pairs, type, tostring, error =
     setmetatable, pairs, type, tostring, error
 
@@ -7,8 +5,8 @@ local co_yield = coroutine.yield
 
 local ngx_get_phase = ngx.get_phase
 
-local get_fixed_field_metatable_proxy =
-    util.mt.get_fixed_field_metatable_proxy
+local tbl_copy_merge_defaults = require("ledge.util").table.copy_merge_defaults
+local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 
 
 local _M = {
@@ -16,33 +14,20 @@ local _M = {
 }
 
 
+local defaults = setmetatable({
+    interval = 1,
+    gc_queue_concurrency = 1,
+    purge_queue_concurrency = 1,
+    revalidate_queue_concurrency = 1,
+}, fixed_field_metatable)
+
+
 local function new(config)
     assert(ngx_get_phase() == "init_worker",
         "attempt to create ledge worker outside of the init_worker phase")
 
-    local defaults = {
-        interval = 1,
-        gc_queue_concurrency = 1,
-        purge_queue_concurrency = 1,
-        revalidate_queue_concurrency = 1,
-    }
-
-    if config then
-        -- Validate config has matching defaults
-        for k, v in pairs(config) do
-            local default_v = defaults[k]
-            if not default_v or type(default_v) ~= type(v) then
-                error("invalid config item or value type: " .. tostring(k), 3)
-            end
-        end
-    end
-
-    -- Apply defaults to config
-    config = setmetatable(
-        config or {},
-        get_fixed_field_metatable_proxy(defaults)
-    )
-
+    -- Take config by value and merge with defaults
+    local config = tbl_copy_merge_defaults(config, defaults)
     return setmetatable({ config = config }, {
         __index = _M,
     })
@@ -63,6 +48,8 @@ local function run(self)
     -- Runs around job exectution, to instantiate necessary connections
     ql_worker.middleware = function(job)
         job.redis = ledge.create_redis_connection()
+        -- TODO This needs to be dynamic based on the storage used.
+        --      Maybe it need not be middleware either?
         job.storage = ledge.create_storage_connection()
 
         co_yield()  -- Perform the job
