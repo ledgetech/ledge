@@ -71,7 +71,7 @@ end
 --------------------------------------------------------------------------------
 function _M.new(ctx)
     return setmetatable({
-        ctx = ctx, -- TODO: Make this go away
+        ctx = ctx or { esi_process_enabled = false }, -- TODO: Make this go away
         redis = {},
         params = {},
 

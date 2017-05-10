@@ -33,7 +33,6 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         })
 
         require("ledge").set_handler_defaults({
-            upstream_host = "127.0.0.1",
             upstream_port = 1984,
             storage_driver_config = {
                 redis_connector = {

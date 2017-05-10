@@ -28,18 +28,20 @@ lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connect
         ledge:config_set('upstream_port', 1984)
         ledge:config_set('keep_cache_for', 0)
 
-
-        require("ledge").set("redis_params", {
-            redis_connector = {
+        require("ledge").configure({
+            redis_connector_params = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
             qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
         })
 
-        require("ledge").set("storage_params", {
-            redis_connector = {
-                db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-            },
+        require("ledge").set_handler_defaults({
+            upstream_port = 1984,
+            storage_driver_config = {
+                redis_connector = {
+                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                },
+            }
         })
     }
 

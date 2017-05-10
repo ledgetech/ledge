@@ -13,6 +13,8 @@ local tbl_copy_merge_defaults = util.table.copy_merge_defaults
 local fixed_field_metatable = util.mt.fixed_field_metatable
 local get_fixed_field_metatable_proxy = util.mt.get_fixed_field_metatable_proxy
 
+local redis_connector = require("resty.redis.connector")
+
 
 local _M = {
     _VERSION = '1.29.3',
@@ -20,11 +22,13 @@ local _M = {
 
 
 local config = setmetatable({
-    connect_timeout = 500,      -- (ms)
-    read_timeout = 5000,        -- (ms)
-    keepalive_timeout = 60000,  -- (ms)
-    keepalive_poolsize = 30,
-    redis_connector_params = {},
+    redis_connector_params = {
+        connect_timeout = 500,      -- (ms)
+        read_timeout = 5000,        -- (ms)
+        keepalive_timeout = 60000,  -- (ms)
+        keepalive_poolsize = 30,
+    },
+
     qless_db = 1,
 }, fixed_field_metatable)
 
@@ -103,30 +107,17 @@ _M.create_handler = create_handler
 
 
 local function create_redis_connection()
-    local rc = require("resty.redis.connector").new()
-    rc:set_connect_timeout(config.connect_timeout)
-    rc:set_read_timeout(config.read_timeout)
-
-    return rc:connect(config.redis_connector_params)
+    return redis_connector.new(
+        config.redis_connector_params
+    ):connect()
 end
 _M.create_redis_connection = create_redis_connection
 
 
 local function close_redis_connection(redis)
-    if not redis then return nil, "no redis connection provided" end
-
-    -- Restore connection to "NORMAL" before putting into keepalive pool
-    local ok, err = pcall(redis.discard, redis)
-    if not ok then return ok, err end
-
-    -- Set keepalive
-    local ok, err = pcall(
-        redis.set_keepalive, redis,
-        config.keepalive_timeout, config.keepalive_poolsize
-    )
-    if not ok then return ok, err end
-
-    return true, nil
+    return redis_connector.new(
+        config.redis_connector_params
+    ):set_keepalive(redis)
 end
 _M.close_redis_connection = close_redis_connection
 
