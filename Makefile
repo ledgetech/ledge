@@ -60,7 +60,7 @@ SENTINEL_CONFIG_FILE = /tmp/sentinel-test-config
 PREFIX          ?= /usr/local
 LUA_INCLUDE_DIR ?= $(PREFIX)/include
 LUA_LIB_DIR     ?= $(PREFIX)/lib/lua/$(LUA_VERSION)
-PROVE           ?= prove -I ../test-nginx/lib
+PROVE           ?= prove -rI ../test-nginx/lib
 INSTALL         ?= install
 
 .PHONY: all install test test_all start_redis_instances stop_redis_instances \
