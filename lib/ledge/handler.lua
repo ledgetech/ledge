@@ -1,5 +1,14 @@
 local setmetatable = setmetatable
 
+local ngx_req_get_method = ngx.req.get_method
+
+local ngx_re_find = ngx.re.find
+
+local ngx_var = ngx.var
+
+local tbl_insert = table.insert
+local tbl_concat = table.concat
+
 local util = require("ledge.util")
 local fixed_field_metatable = util.mt.fixed_field_metatable
 
@@ -12,9 +21,8 @@ local function new(config)
     if not config then return nil, "config table expected" end
 
     config = setmetatable(config, fixed_field_metatable)
-    return setmetatable({ 
-        config = config 
-
+    return setmetatable({
+        config = config,
     }, {
         __index = _M,
     })
