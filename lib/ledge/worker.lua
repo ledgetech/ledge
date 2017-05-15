@@ -86,4 +86,4 @@ end
 _M.run = run
 
 
-return _M
+return setmetatable(_M, fixed_field_metatable)
