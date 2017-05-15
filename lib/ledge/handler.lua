@@ -12,24 +12,14 @@ local function new(config)
     if not config then return nil, "config table expected" end
 
     config = setmetatable(config, fixed_field_metatable)
-    return setmetatable({ config = config }, {
+    return setmetatable({ 
+        config = config 
+
+    }, {
         __index = _M,
     })
 end
 _M.new = new
-
-
-local function get(self, k)
-    return self.config[k]
-end
-_M.get = get
-
-
-local function set(self, k, v)
-    self.config[k] = v
-    return true
-end
-_M.set = set
 
 
 local function run(self)
@@ -38,4 +28,4 @@ end
 _M.run = run
 
 
-return _M
+return setmetatable(_M, fixed_field_metatable)

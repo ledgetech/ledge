@@ -37,6 +37,14 @@ location /t {
         assert(not ok, "new with empty config should return negatively")
         assert(err == "config table expected",
             "err should be 'config table expected'")
+
+        local handler = require("ledge.handler")
+        local ok, err = pcall(function()
+            handler.foo = "bar"
+        end)
+        assert(not ok, "setting unknown field should error")
+        assert(string.find(err, "attempt to create new field foo"),
+            "err should be 'attempt to create new field foo'")
     }
 }
 --- request
@@ -54,26 +62,26 @@ location /t {
             upstream_host = "example.com",
         }), "create_handler should return positively")
 
-        assert(handler:get("upstream_host") == "example.com",
+        assert(handler.config.upstream_host == "example.com",
             "upstream_host should be example.com")
 
-        assert(handler:get("upstream_port") == 80,
+        assert(handler.config.upstream_port == 80,
             "upstream_port should default to 80")
 
 
         -- Change config
 
-        assert(handler:set("upstream_port", 81),
-            "set upstream_port should return positively")
-
-        assert(handler:get("upstream_port") == 81,
+        handler.config.upstream_port = 81
+        assert(handler.config.upstream_port == 81,
             "upstream_port should be 81")
 
 
         -- Unknown config field
 
-        local ok, err = pcall(handler.set, handler, "foo", "bar")
-        assert(not ok, "set should error")
+        local ok, err = pcall(function()
+            handler.config.foo = "bar"
+        end)
+        assert(not ok, "setting unknown config should error")
         assert(string.find(err, "attempt to create new field foo"),
             "err should be 'attempt to create new field foo'")
     }
@@ -82,3 +90,25 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 3: Run handler
+--- http_config eval: $::HttpConfig
+--- config
+location /t_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        assert(require("ledge").create_handler():run(),
+            "run should return positively")
+    }
+}
+location /t {
+    echo "OK";
+}
+--- request
+GET /t_prx
+--- response_body
+OK
+--- no_error_log
+[error]
+--- SKIP: wont work yet
