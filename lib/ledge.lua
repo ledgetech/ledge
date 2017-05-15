@@ -51,7 +51,7 @@ local handler_defaults = setmetatable({
 
     upstream_connect_timeout = 500,  -- (ms)
     upstream_read_timeout = 5000,    -- (ms)
-    upstream_host = "",
+    upstream_host = "127.0.0.1",
     upstream_port = 80,
     upstream_use_ssl = false,
     upstream_ssl_server_name = nil,
@@ -101,7 +101,8 @@ _M.create_worker = create_worker
 
 
 local function create_handler(config)
-    return { run = function() return nil end }
+    local config = tbl_copy_merge_defaults(config, handler_defaults)
+    return require("ledge.handler").new(config)
 end
 _M.create_handler = create_handler
 
