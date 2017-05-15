@@ -100,7 +100,7 @@ init_worker_by_lua_block {
 location /worker_6 {
     content_by_lua_block {
         local qless = assert(require("resty.qless").new({
-            connector = require("ledge").create_qless_connection
+            get_redis_client = require("ledge").create_qless_connection
         }))
 
         local jid = assert(qless.queues["ledge_gc"]:put("ledge.job.test"))

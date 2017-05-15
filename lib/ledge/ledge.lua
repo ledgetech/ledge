@@ -1592,6 +1592,7 @@ _M.states = {
             ngx_log(ngx_ERR, err)
             return self:e "storage_connection_failed"
         else
+            storage.ctx = self:ctx()  -- TODO this needs to go away
             get_ctx(self).storage = storage
             return self:e "storage_connected"
         end
