@@ -747,7 +747,7 @@ end
 
 function _M.put_background_job(self, queue, klass, data, options)
     local q = qless.new({
-        connector = require("ledge").create_qless_connection
+        get_redis_client = require("ledge").create_qless_connection
     })
 
     -- If we've been specified a jid (i.e. a non random jid), putting this
