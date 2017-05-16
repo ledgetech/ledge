@@ -10,7 +10,7 @@ local _M = {
 -- event "in_case", and run actions using "but_first". Transitions are processed
 -- in the order found, so place more specific entries for a given event before
 -- more generic ones.
-local events = {
+_M.events = {
     -- Initial transition (entry point). Connect to redis.
     init = {
         { begin = "connecting_to_redis" },
@@ -525,7 +525,7 @@ local events = {
 
 -- Pre-transitions. These actions will *always* be performed before
 -- transitioning.
-local pre_transitions = {
+_M.pre_transitions = {
     exiting = { "redis_close", "httpc_close" },
     exiting_worker = { "redis_close", "httpc_close" },
     checking_cache = { "read_cache" },
