@@ -30,8 +30,9 @@ __DATA__
 --- config
 location /t {
     content_by_lua_block {
-        assert(require("ledge.handler").new({}),
-            "handler.new should return postively")
+        local handler, err = require("ledge").create_handler()
+        assert(handler,
+            "create_handler() should return postively, got: " .. tostring(err))
 
         local ok, err = require("ledge.handler").new()
         assert(not ok, "new with empty config should return negatively")
