@@ -4,8 +4,14 @@ local util = require("ledge.util")
 local setmetatable = setmetatable
 
 local ngx_req_get_method = ngx.req.get_method
+local ngx_req_http_version = ngx.req.http_version
 
 local ngx_re_find = ngx.re.find
+
+local ngx_flush = ngx.flush
+
+local ngx_log = ngx.log
+local ngx_INFO = ngx.INFO
 
 local ngx_var = ngx.var
 
@@ -14,6 +20,29 @@ local tbl_concat = table.concat
 
 local fixed_field_metatable = util.mt.fixed_field_metatable
 local get_fixed_field_metatable_proxy = util.mt.get_fixed_field_metatable_proxy
+
+
+-- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
+local HOP_BY_HOP_HEADERS = {
+    ["connection"]          = true,
+    ["keep-alive"]          = true,
+    ["proxy-authenticate"]  = true,
+    ["proxy-authorization"] = true,
+    ["te"]                  = true,
+    ["trailers"]            = true,
+    ["transfer-encoding"]   = true,
+    ["upgrade"]             = true,
+    ["content-length"]      = true,  -- Not strictly hop-by-hop, but we set
+                                     -- dynamically downstream.
+}
+
+
+local WARNINGS = {
+    ["110"] = "Response is stale",
+    ["214"] = "Transformation applied",
+    ["112"] = "Disconnected Operation",
+}
+
 
 local _M = {
     _VERSION = "1.28.3",
@@ -26,7 +55,7 @@ local _M = {
 -- should always be created with ledge.create_handler(), not directly.
 --
 -- @param   table   The complete config table
--- @return  table   Handler instance or nil, err if not Redis is available
+-- @return  table   Handler instance or nil, err if no Redis is available
 local function new(config)
     if not config then return nil, "config table expected" end
 
