@@ -6,7 +6,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 
 our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;;";
 
 init_by_lua_block {
     require("ledge").configure({
@@ -30,7 +30,13 @@ __DATA__
 --- config
 location /t {
     content_by_lua_block {
+        assert(require("ledge.state_machine"),
+            "state machine module should include without error")
+
         assert(require("ledge.state_machine.events"),
+            "events module should include without error")
+        
+        assert(require("ledge.state_machine.states"),
             "events module should include without error")
     }
 }
