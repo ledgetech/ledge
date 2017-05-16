@@ -30,7 +30,8 @@ __DATA__
 --- config
 location /t {
     content_by_lua_block {
-        assert(require("ledge.sm"), "module should include without error")
+        assert(require("ledge.state_machine.events"),
+            "events module should include without error")
     }
 }
 --- request
