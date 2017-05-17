@@ -84,6 +84,8 @@ local handler_defaults = setmetatable({
     gunzip_enabled = true,
     keyspace_scan_count = 10,
 
+    cache_key_spec = {},
+
 }, fixed_field_metatable)
 
 

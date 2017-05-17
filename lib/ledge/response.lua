@@ -62,7 +62,7 @@ function _M.new(ctx, key_chain)
     end
 
     if type(key_chain) ~= "table" then
-        error("key_chain table expected, got " .. type(ctx), 2)
+        error("key_chain table expected, got " .. type(key_chain), 2)
     end
 
     return setmetatable({

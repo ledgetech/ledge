@@ -89,7 +89,9 @@ return {
     checking_cache = function(sm, handler)
         local res = handler:get_response()
 
-        if not res then
+        -- TODO this type check is because res might be bool
+        -- because of fixed field metatables. Hmm
+        if not res or type(res) ~= "table" then
             return sm:e "cache_missing"
         elseif res:has_expired() then
             return sm:e "cache_expired"

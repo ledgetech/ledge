@@ -6,7 +6,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 
 our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
 init_by_lua_block {
     require("ledge").configure({
@@ -15,6 +15,12 @@ init_by_lua_block {
         },
         qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
     })
+
+    require("ledge").set_handler_defaults({
+        upstream_port = 1984,
+    })
+
+    require("ledge.state_machine").set_debug(true)
 }
 
 }; # HttpConfig
@@ -66,8 +72,8 @@ location /t {
         assert(handler.config.upstream_host == "example.com",
             "upstream_host should be example.com")
 
-        assert(handler.config.upstream_port == 80,
-            "upstream_port should default to 80")
+        assert(handler.config.upstream_port == 1984,
+            "upstream_port should default to 1984")
 
 
         -- Change config

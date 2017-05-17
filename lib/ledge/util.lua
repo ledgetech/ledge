@@ -69,11 +69,11 @@ _M.string.split = str_split
 local fixed_field_metatable = {
     __index =
         function(t, k)
-            error("field " .. tostring(k) .. " does not exist", 2)
+            error("field " .. tostring(k) .. " does not exist", 3)
         end,
     __newindex =
         function(t, k, v)
-            error("attempt to create new field " .. tostring(k), 2)
+            error("attempt to create new field " .. tostring(k), 3)
         end,
 }
 _M.mt.fixed_field_metatable = fixed_field_metatable
