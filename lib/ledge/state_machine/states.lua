@@ -25,7 +25,7 @@ local _M = {
 -- Represented as functions which should simply make a decision, and return
 -- calling state_machine:e(ev) with the event that has occurred. Place any
 -- further logic in actions triggered by the transition table.
-_M.states = {
+return {
     checking_method = function(sm, handler)
         local method = ngx_req_get_method()
         if method == "PURGE" then
@@ -436,6 +436,3 @@ _M.states = {
         return true
     end,
 }
-
-
-return setmetatable(_M, fixed_field_metatable)

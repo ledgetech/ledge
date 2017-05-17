@@ -19,7 +19,7 @@ local _M = {
 
 
 -- Actions. Functions which can be called on transition.
-_M.actions = {
+return {
     redis_close = function(handler)
         return handler:redis_close()
     end,
@@ -266,6 +266,3 @@ _M.actions = {
         end
     end,
 }
-
-
-return setmetatable(_M, fixed_field_metatable)
