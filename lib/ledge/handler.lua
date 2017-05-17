@@ -52,24 +52,8 @@ local co_wrap = util.coroutine.wrap
 local cjson_encode = require("cjson").encode
 local cjson_decode = require("cjson").decode
 
-
 local fixed_field_metatable = util.mt.fixed_field_metatable
 local get_fixed_field_metatable_proxy = util.mt.get_fixed_field_metatable_proxy
-
-
--- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
-local HOP_BY_HOP_HEADERS = {
-    ["connection"]          = true,
-    ["keep-alive"]          = true,
-    ["proxy-authenticate"]  = true,
-    ["proxy-authorization"] = true,
-    ["te"]                  = true,
-    ["trailers"]            = true,
-    ["transfer-encoding"]   = true,
-    ["upgrade"]             = true,
-    ["content-length"]      = true,  -- Not strictly hop-by-hop, but we set
-                                     -- dynamically downstream.
-}
 
 
 local WARNINGS = {
@@ -77,24 +61,6 @@ local WARNINGS = {
     ["214"] = "Transformation applied",
     ["112"] = "Disconnected Operation",
 }
-
--- Body reader for when the response body is missing
-local function _no_body_reader()
-    return nil
-end
-
-
-local function _purge_mode()
-    local x_purge = ngx_req_get_headers()["X-Purge"]
-    if h_util.header_has_directive(x_purge, "delete") then
-        return "delete"
-    elseif h_util.header_has_directive(x_purge, "revalidate") then
-        return "revalidate"
-    else
-        return "invalidate"
-    end
-end
-
 
 
 local _M = {
@@ -231,6 +197,29 @@ local function emit(self, event, ...)
                     "error in user callback for '", event, "': ", err)
             end
         end
+    end
+end
+
+
+
+
+
+
+
+-- Body reader for when the response body is missing
+local function _no_body_reader()
+    return nil
+end
+
+
+local function _purge_mode()
+    local x_purge = ngx_req_get_headers()["X-Purge"]
+    if h_util.header_has_directive(x_purge, "delete") then
+        return "delete"
+    elseif h_util.header_has_directive(x_purge, "revalidate") then
+        return "revalidate"
+    else
+        return "invalidate"
     end
 end
 
@@ -485,11 +474,21 @@ end
 -- Returns the key chain for all cache keys, except the body entity
 function _M.key_chain(self, cache_key)
     return setmetatable({
-        main = cache_key .. "::main", -- hash: cache key metadata
-        entities = cache_key .. "::entities", -- sorted set: current entities score with sizes
-        headers = cache_key .. "::headers", -- hash: response headers
-        reval_params = cache_key .. "::reval_params", -- hash: request headers for revalidation
-        reval_req_headers = cache_key .. "::reval_req_headers", -- hash: request params for revalidation
+        -- hash: cache key metadata
+        main = cache_key .. "::main",
+
+        -- sorted set: current entities score with sizes
+        entities = cache_key .. "::entities",
+
+        -- hash: response headers
+        headers = cache_key .. "::headers",
+
+        -- hash: request headers for revalidation
+        reval_params = cache_key .. "::reval_params",
+
+        -- hash: request params for revalidation
+        reval_req_headers = cache_key .. "::reval_req_headers",
+
     }, { __index = {
         -- Hide "root" and "fetching_lock" from iterators.
         root = cache_key,
@@ -520,11 +519,11 @@ function _M.entity_id(self, key_chain)
 end
 
 
--- Calculate when to GC an entity based on its size and the minimum download rate setting,
--- plus 1 second of arbitrary latency for good measure.
--- TODO: Move to util
+-- Calculate when to GC an entity based on its size and the minimum download
+-- rate setting, plus 1 second of arbitrary latency for good measure.
+-- TODO Move to util
 function _M.gc_wait(self, entity_size)
-    local dl_rate_Bps = self:config_get("minimum_old_entity_download_rate") * 128 -- Bytes in a kb
+    local dl_rate_Bps = self.config.minimum_old_entity_download_rate * 128
     return math_ceil((entity_size / dl_rate_Bps)) + 1
 end
 
@@ -620,8 +619,8 @@ local function get_gzip_encoder(reader)
             ngx_log(ngx_ERR, err)
         end
 
-        -- zlib decides it is done when the stream is complete. Call reader() one more time
-        -- to resume the next coroutine in the chain.
+        -- zlib decides it is done when the stream is complete.
+        -- Call reader() one more time to resume the next coroutine in the chain
         reader(buffer_size)
     end)
 end
@@ -633,7 +632,8 @@ function _M.add_warning(self, code)
         res.header["Warning"] = {}
     end
 
-    local header = code .. ' ' .. self:visible_hostname() .. ' "' .. WARNINGS[code] .. '"'
+    local header = code .. ' ' .. self:visible_hostname()
+    header = header .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(res.header["Warning"], header)
 end
 
@@ -768,8 +768,22 @@ function _M.fetch_from_origin(self)
     res.status = origin.status
 
     -- Merge end-to-end headers
+    -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
+    local hop_by_hop_headers = {
+        ["connection"]          = true,
+        ["keep-alive"]          = true,
+        ["proxy-authenticate"]  = true,
+        ["proxy-authorization"] = true,
+        ["te"]                  = true,
+        ["trailers"]            = true,
+        ["transfer-encoding"]   = true,
+        ["upgrade"]             = true,
+        ["content-length"]      = true,  -- Not strictly hop-by-hop, but we
+                                         -- set dynamically downstream.
+    }
+
     for k,v in pairs(origin.headers) do
-        if not HOP_BY_HOP_HEADERS[str_lower(k)] then
+        if not hop_by_hop_headers[str_lower(k)] then
             res.header[k] = v
         end
     end
