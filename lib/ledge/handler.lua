@@ -52,6 +52,10 @@ local co_wrap = util.coroutine.wrap
 local cjson_encode = require("cjson").encode
 local cjson_decode = require("cjson").decode
 
+local req_purge_mode = require("ledge.request").purge_mode
+local req_relative_uri = require("ledge.request").relative_uri
+local req_visible_hostname = require("ledge.request").visible_hostname
+
 local fixed_field_metatable = util.mt.fixed_field_metatable
 local get_fixed_field_metatable_proxy = util.mt.get_fixed_field_metatable_proxy
 
@@ -207,68 +211,22 @@ end
 
 
 -- Body reader for when the response body is missing
+--
+-- TODO response
 local function _no_body_reader()
     return nil
 end
 
 
-local function _purge_mode()
-    local x_purge = ngx_req_get_headers()["X-Purge"]
-    if h_util.header_has_directive(x_purge, "delete") then
-        return "delete"
-    elseif h_util.header_has_directive(x_purge, "revalidate") then
-        return "revalidate"
-    else
-        return "invalidate"
-    end
-end
-
-
-function _M.relative_uri(self)
-    local uri = ngx_re_gsub(ngx_var.uri, "\\s", "%20", "jo") -- encode spaces
-
-    -- encode percentages if an encoded CRLF is in the URI
-    --: see http://resources.infosecinstitute.com/http-response-splitting-attack
-    uri = ngx_re_gsub(uri, "%0D%0A", "%250D%250A", "ijo")
-
-    return uri .. ngx_var.is_args .. (ngx_var.query_string or "")
-end
-
-
-function _M.full_uri(self)
-    return ngx_var.scheme .. '://' .. ngx_var.host .. self:relative_uri()
-end
-
-
-function _M.visible_hostname(self)
-    local name = ngx_var.visible_hostname or ngx_var.hostname
-    local server_port = ngx_var.server_port
-    if server_port ~= "80" and server_port ~= "443" then
-        name = name .. ":" .. server_port
-    end
-    return name
-end
-
-
 -- Close and optionally keepalive the redis connection
+-- TODO either in state machine or something
 function _M.redis_close(self)
     return ledge.close_redis_connection(self.redis)
 end
 
 
-function _M.request_accepts_cache(self)
-    -- Check for no-cache
-    local h = ngx_req_get_headers()
-    if h_util.header_has_directive(h["Pragma"], "no-cache")
-       or h_util.header_has_directive(h["Cache-Control"], "no-cache")
-       or h_util.header_has_directive(h["Cache-Control"], "no-store") then
-        return false
-    end
-
-    return true
-end
-
-
+-- TODO request and response, but mostly request. Or stale?
+--
 -- True if the request specifically asks for stale (req.cc.max-stale) and the response
 -- doesn't explicitly forbid this res.cc.(must|proxy)-revalidate.
 function _M.can_serve_stale(self)
@@ -291,7 +249,8 @@ function _M.can_serve_stale(self)
     return false
 end
 
-
+-- TODO request and response. Stale?
+--
 -- Returns true if stale-while-revalidate or stale-if-error is specified, valid
 -- and not constrained by other factors such as max-stale.
 -- @param   token  "stale-while-revalidate" | "stale-if-error"
@@ -337,16 +296,19 @@ function _M.verify_stale_conditions(self, token)
 end
 
 
+-- TODO stale
 function _M.can_serve_stale_while_revalidate(self)
     return self:verify_stale_conditions("stale-while-revalidate")
 end
 
 
+-- TODO stale
 function _M.can_serve_stale_if_error(self)
     return self:verify_stale_conditions("stale-if-error")
 end
 
 
+-- TODO validation
 function _M.must_revalidate(self)
     local req_cc = ngx_req_get_headers()["Cache-Control"]
     local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
@@ -369,6 +331,7 @@ function _M.must_revalidate(self)
 end
 
 
+-- TODO validation
 function _M.can_revalidate_locally(self)
     local req_h = ngx_req_get_headers()
     local req_ims = req_h["If-Modified-Since"]
@@ -390,6 +353,7 @@ function _M.can_revalidate_locally(self)
 end
 
 
+-- TODO validation
 function _M.is_valid_locally(self)
     local req_h = ngx_req_get_headers()
     local res = self:get_response()
@@ -418,6 +382,7 @@ function _M.is_valid_locally(self)
 end
 
 
+-- TODO deprecated. Err response needs its own space
 function _M.set_response(self, res, name)
   --  local name = name or "response"
   --  get_ctx(self)[name] = res
@@ -429,6 +394,7 @@ function _M.set_response(self, res, name)
 end
 
 
+-- TODO deprecated. Err response needs its own space
 function _M.get_response(self, name)
     return self.response
   --  local name = name or "response"
@@ -506,6 +472,7 @@ function _M.cache_key_chain(self)
 end
 
 
+-- TODO response?
 function _M.entity_id(self, key_chain)
     if not key_chain and key_chain.main then return nil end
     local redis = get_ctx(self).redis
@@ -519,15 +486,16 @@ function _M.entity_id(self, key_chain)
 end
 
 
+-- TODO background? jobs?
 -- Calculate when to GC an entity based on its size and the minimum download
 -- rate setting, plus 1 second of arbitrary latency for good measure.
--- TODO Move to util
 function _M.gc_wait(self, entity_size)
     local dl_rate_Bps = self.config.minimum_old_entity_download_rate * 128
     return math_ceil((entity_size / dl_rate_Bps)) + 1
 end
 
 
+-- TODO background
 function _M.put_background_job(self, queue, klass, data, options)
     local q = qless.new({
         get_redis_client = require("ledge").create_qless_connection
@@ -593,11 +561,13 @@ function _M.acquire_lock(self, lock_key, timeout)
 end
 
 
+-- TODO gzip
 local zlib_output = function(data)
     co_yield(data)
 end
 
 
+-- TODO gzip
 local function get_gzip_decoder(reader)
     return co_wrap(function(buffer_size)
         local ok, err = zlib.inflateGzip(reader, zlib_output, buffer_size)
@@ -612,6 +582,7 @@ local function get_gzip_decoder(reader)
 end
 
 
+-- TODO gzip
 local function get_gzip_encoder(reader)
     return co_wrap(function(buffer_size)
         local ok, err = zlib.deflateGzip(reader, zlib_output, buffer_size)
@@ -626,13 +597,14 @@ local function get_gzip_encoder(reader)
 end
 
 
+-- TODO response? This is called from state machine
 function _M.add_warning(self, code)
     local res = self:get_response()
     if not res.header["Warning"] then
         res.header["Warning"] = {}
     end
 
-    local header = code .. ' ' .. self:visible_hostname()
+    local header = code .. ' ' .. req_visible_hostname()
     header = header .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(res.header["Warning"], header)
 end
@@ -749,7 +721,7 @@ function _M.fetch_from_origin(self)
 
     local req_params = {
         method = ngx_req_get_method(),
-        path = self:relative_uri(),
+        path = req_relative_uri(),
         body = client_body_reader,
         headers = headers,
     }
@@ -815,6 +787,8 @@ function _M.fetch_from_origin(self)
 end
 
 
+-- TODO background?
+--
 -- Returns data required to perform a background revalidation for this current
 -- request, as two tables; reval_params and reval_headers.
 function _M.revalidation_data(self)
@@ -849,6 +823,7 @@ function _M.revalidation_data(self)
 end
 
 
+-- TODO background
 function _M.revalidate_in_background(self, update_revalidation_data)
     local redis = get_ctx(self).redis
     local key_chain = self:cache_key_chain()
@@ -898,6 +873,8 @@ function _M.revalidate_in_background(self, update_revalidation_data)
 end
 
 
+-- TODO background
+--
 -- Starts a "revalidation" job but maybe for brand new cache. We pass the current
 -- request's revalidation data through so that the job has meaningul parameters to
 -- work with (rather than using stored metadata).
@@ -1073,6 +1050,8 @@ function _M.delete_from_cache(self)
 end
 
 
+-- TODO purge
+--
 -- Purges the cache item according to X-Purge instructions, which defaults to "invalidate".
 -- If there's nothing to do we return false which results in a 404.
 function _M.purge(self, purge_mode)
@@ -1137,9 +1116,10 @@ function _M.purge(self, purge_mode)
 end
 
 
+-- TODO purge or background?
 function _M.purge_in_background(self)
     local key_chain = self:cache_key_chain()
-    local purge_mode = _purge_mode()
+    local purge_mode = req_purge_mode()
 
     local job, err = self:put_background_job("ledge_purge", "ledge.jobs.purge", {
         key_chain = key_chain,
@@ -1220,7 +1200,7 @@ end
 function _M.serve(self)
     if not ngx.headers_sent then
         local res = self:get_response()
-        local visible_hostname = self:visible_hostname()
+        local visible_hostname = req_visible_hostname()
 
         -- Via header
         local via = "1.1 " .. visible_hostname

@@ -53,7 +53,7 @@ end
 _M.visible_hostname = visible_hostname
 
 
-local function request_accepts_cache()
+local function accepts_cache()
     -- Check for no-cache
     local h = ngx_req_get_headers()
     if hdr_has_directive(h["Pragma"], "no-cache")
@@ -64,7 +64,7 @@ local function request_accepts_cache()
 
     return true
 end
-_M.request_accepts_cache = request_accepts_cache
+_M.accepts_cache = accepts_cache
 
 
 return _M

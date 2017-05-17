@@ -14,6 +14,8 @@ local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 local ngx_re_match = ngx.re.match
 
+local req_accepts_cache = require("ledge.request").accepts_cache
+
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 
 
@@ -70,7 +72,7 @@ return {
     end,
 
     checking_request = function(sm, handler)
-        if handler:request_accepts_cache() then
+        if req_accepts_cache then
             return sm:e "cache_accepted"
         else
             return sm:e "cache_not_accepted"
