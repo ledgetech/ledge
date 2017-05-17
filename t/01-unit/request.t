@@ -42,3 +42,19 @@ location /t {
 "GET /t?p=invalidate"]
 --- no_error_log
 [error]
+
+
+=== TEST 2: Relative uri
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local req_relative_uri = require("ledge.request").relative_uri
+        assert(req_relative_uri() == "/t")
+    }
+}
+--- request eval
+["GET /t",
+]
+--- no_error_log
+[error]
