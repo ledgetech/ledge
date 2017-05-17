@@ -101,7 +101,7 @@ GET /t
 [error]
 
 
-=== TEST 3: Run handler
+=== TEST 3: Call run on simple request without errors
 --- http_config eval: $::HttpConfig
 --- config
 location /t_prx {
@@ -120,3 +120,45 @@ GET /t_prx
 OK
 --- no_error_log
 [error]
+
+
+=== TEST 4: Bind / emit
+--- http_config eval: $::HttpConfig
+--- config
+location /t_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        function add_header(res)
+            res.header["X-Foo"] = "bar"
+        end
+
+        -- Bind succeeds
+        local ok, err = assert(handler:bind("before_serve", add_header),
+            "bind should return positively")
+
+        -- Bad event name
+        local ok, err = handler:bind("foo", add_header)
+        assert(not ok, "bind should return negatively")
+        assert(err == "no such event: foo",
+            "err should be 'no such event: foo'")
+
+        -- Bad user event
+        handler:bind("before_serve", function(res) error("oops", 2) end)
+
+        handler:run()
+    }
+}
+location /t {
+    echo "OK";
+}
+--- request
+GET /t_prx
+--- response_body
+OK
+--- response_headers
+X-Foo: bar
+--- error_log
+no such event: foo
+error in user callback for 'before_serve': oops

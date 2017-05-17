@@ -115,10 +115,11 @@ local function new(config)
 
     return setmetatable({
         config = config,
+
+        -- Slots for composed objects
         redis = {},
         storage = {},
         state_machine = {},
-
         response = true,
 
         -- TODO These fields were in ctx, now in self, collided with function
@@ -126,9 +127,19 @@ local function new(config)
         t_cache_key = "",
         t_cache_key_chain = true, -- hmm
 
-        -- TODO ported directly, check
         client_validators = {},
-        events = {},
+
+        -- Events not listed here cannot be bound / emitted
+        events = {
+            after_cache_read = {},
+            before_upstream_request = {},
+            after_upstream_request = {},
+            before_save = {},
+            before_serve_revalidation_data = {},
+            before_serve = {},
+            before_esi_include_request = {},
+        },
+
         output_buffers_enabled = true,
         esi_scan_disabled = true,
         esi_scan_enabled = false, -- TODO: errrr, both?
@@ -184,32 +195,51 @@ local function get_ctx(self)
 end
 
 
-function _M.bind(self, event, callback)
-    local events = get_ctx(self).events
-    if not events[event] then events[event] = {} end
-    tbl_insert(events[event], callback)
+-- Bind a user callback to an event
+--
+-- Callbacks will be called in the order they are bound
+--
+-- @param   table           self
+-- @param   string          event name
+-- @param   function        callback
+-- @return  bool, string    success, error
+local function bind(self, event, callback)
+    local ev = self.events[event]
+    if not ev then
+        local err = "no such event: " .. tostring(event)
+        ngx_log(ngx_ERR, err)
+        return nil, err
+    else
+        tbl_insert(self.events[event], callback)
+    end
+    return true, nil
 end
+_M.bind = bind
 
 
-function _M.emit(self, event, ...)
-    local events = get_ctx(self).events
-    for _, handler in ipairs(events[event] or {}) do
+-- Calls any registered callbacks for event, in the order they were bound
+-- Hard errors if event is not specified in self.events
+local function emit(self, event, ...)
+    local ev = self.events[event]
+    assert(ev, "attempt to emit non existent event: " .. tostring(event))
+
+    for _, handler in ipairs(ev) do
         if type(handler) == "function" then
             local ok, err = pcall(handler, ...)
             if not ok then
-                ngx_log(ngx_ERR, "Error in user callback for '", event, "': ", err)
+                ngx_log(ngx_ERR,
+                    "error in user callback for '", event, "': ", err)
             end
         end
     end
 end
 
 
-
 function _M.relative_uri(self)
     local uri = ngx_re_gsub(ngx_var.uri, "\\s", "%20", "jo") -- encode spaces
 
     -- encode percentages if an encoded CRLF is in the URI
-    -- see: http://resources.infosecinstitute.com/http-response-splitting-attack/
+    --: see http://resources.infosecinstitute.com/http-response-splitting-attack
     uri = ngx_re_gsub(uri, "%0D%0A", "%250D%250A", "ijo")
 
     return uri .. ngx_var.is_args .. (ngx_var.query_string or "")
@@ -644,7 +674,7 @@ function _M.read_from_cache(self)
         res:filter_body_reader("cache_body_reader", storage:get_reader(res))
     end
 
-    self:emit("cache_accessed", res)
+    emit(self, "cache_accessed", res)
     return res
 end
 
@@ -652,7 +682,6 @@ end
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
     local res = response.new(get_ctx(self), self:cache_key_chain())
-    self:emit("origin_required")
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
     if not method then
@@ -726,7 +755,7 @@ function _M.fetch_from_origin(self)
     }
 
     -- allow request params to be customised
-    self:emit("before_request", req_params)
+    emit(self, "before_upstream_request", req_params)
 
     local origin, err = httpc:request(req_params)
 
@@ -766,7 +795,7 @@ function _M.fetch_from_origin(self)
     end
 
     -- A nice opportunity for post-fetch / pre-save work.
-    self:emit("origin_fetched", res)
+    emit(self, "after_upstream_request", res)
 
     return res
 end
@@ -800,7 +829,7 @@ function _M.revalidation_data(self)
         reval_headers["Cookie"] = h["Cookie"]
     end
 
-    self:emit("before_save_revalidation_data", reval_params, reval_headers)
+    emit(self, "before_save_revalidation_data", reval_params, reval_headers)
 
     return reval_params, reval_headers
 end
@@ -874,7 +903,7 @@ end
 
 
 function _M.save_to_cache(self, res)
-    self:emit("before_save", res)
+    emit(self, "before_save", res)
 
     -- Length is only set if there was a Content-Length header
     local length = res.length
@@ -1215,7 +1244,7 @@ function _M.serve(self)
             end
         end
 
-        self:emit("response_ready", res)
+        emit(self, "before_serve", res)
 
         if res.header then
             for k,v in pairs(res.header) do
