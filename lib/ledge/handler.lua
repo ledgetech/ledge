@@ -55,20 +55,14 @@ local _M = {
 -- should always be created with ledge.create_handler(), not directly.
 --
 -- @param   table   The complete config table
--- @return  table   Handler instance or nil, err if no Redis is available
+-- @return  table   Handler instance, or nil if no config table is provided
 local function new(config)
     if not config then return nil, "config table expected" end
-
     config = setmetatable(config, fixed_field_metatable)
-
-    local redis, err = ledge.create_redis_connection()
-    if not redis then
-        return nil, "could not connect to redis, " .. tostring(err)
-    end
 
     return setmetatable({
         config = config,
-        redis = redis,
+        redis = {},
         storage = {},
     }, get_fixed_field_metatable_proxy(_M))
 end
@@ -76,9 +70,15 @@ _M.new = new
 
 
 local function run(self)
-    local config = self.config
+    local redis, err = ledge.create_redis_connection()
+    if not redis then
+        return nil, "could not connect to redis, " .. tostring(err)
+    else
+        self.redis = redis
+    end
 
     -- Create storage connection
+    local config = self.config
     local storage, err = ledge.create_storage_connection(
         config.storage_driver,
         config.storage_driver_config
