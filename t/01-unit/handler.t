@@ -4,6 +4,7 @@ my $pwd = cwd();
 
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
+$ENV{TEST_NGINX_PORT} |= 1984;
 
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
@@ -16,8 +17,9 @@ init_by_lua_block {
         qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
     })
 
+    TEST_NGINX_PORT = $ENV{TEST_NGINX_PORT}
     require("ledge").set_handler_defaults({
-        upstream_port = 1984,
+        upstream_port = TEST_NGINX_PORT,
     })
 
     require("ledge.state_machine").set_debug(true)
@@ -72,8 +74,8 @@ location /t {
         assert(handler.config.upstream_host == "example.com",
             "upstream_host should be example.com")
 
-        assert(handler.config.upstream_port == 1984,
-            "upstream_port should default to 1984")
+        assert(handler.config.upstream_port == TEST_NGINX_PORT,
+            "upstream_port should default to " .. TEST_NGINX_PORT)
 
 
         -- Change config
