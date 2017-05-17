@@ -35,15 +35,6 @@ return {
         return sm:e "storage_connected"
     end,
 
-    sleeping = function(sm, handler)
-        local last_sleep = handler.last_sleep or 0
-        local sleep = last_sleep + 5
-        ngx_log(ngx_ERR, "sleeping for ", sleep, "s before reconnecting...")
-        ngx.sleep(sleep)
-        handler.last_sleep = sleep
-        return sm:e "woken"
-    end,
-
     checking_method = function(sm, handler)
         local method = ngx_req_get_method()
         if method == "PURGE" then
@@ -442,14 +433,6 @@ return {
 
     exiting = function(sm, handler)
         ngx.exit(ngx.status)
-    end,
-
-    running_worker = function(sm, handler)
-        return true
-    end,
-
-    exiting_worker = function(sm, handler)
-        return true
     end,
 
     cancelling_abort_request = function(sm, handler)

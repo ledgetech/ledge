@@ -354,7 +354,6 @@ return {
     -- valid, so just serve it. If we've been upstream, re-compare against
     -- client validators.
     modified = {
-        { in_case = "init_worker", begin = "considering_local_revalidation" },
         { when = "revalidating_locally", begin = "considering_esi_process" },
     },
 
