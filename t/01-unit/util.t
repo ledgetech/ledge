@@ -61,7 +61,8 @@ location /t {
             function() t.b = 2 end,
             "attempt to create new field b"
         )
-        assert(err == "attempt to create new field b")
+        assert(string.find(err,  "attempt to create new field b"),
+            "err should contain 'attempt to create new field b'")
 
         -- Error if non existent field dereferenced
         local t = setmetatable({ a = 1, c = 3 }, fixed_field_metatable)
@@ -69,7 +70,8 @@ location /t {
             function() local a = t.b end,
             "attempt to create new field b"
         )
-        assert(err == "field b does not exist")
+        assert(string.find(err, "field b does not exist"),
+            "err should contain 'field b does not exist'")
     }
 }
 --- request

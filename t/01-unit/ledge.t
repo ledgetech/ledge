@@ -58,7 +58,7 @@ location /ledge_2 {
         local ok, err = pcall(function()
             ledge.foo = "bar"
         end)
-        assert(err == "attempt to create new field foo",
+        assert(string.find(err,  "attempt to create new field foo"),
             "error 'field foo does not exist' should be thrown")
     }
 }
