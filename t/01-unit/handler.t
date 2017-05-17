@@ -6,7 +6,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 
 our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;;";
 
 init_by_lua_block {
     require("ledge").configure({
@@ -112,4 +112,3 @@ GET /t_prx
 OK
 --- no_error_log
 [error]
---- SKIP: wont work yet

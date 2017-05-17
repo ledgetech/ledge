@@ -18,6 +18,10 @@ local redis_connector = require("resty.redis.connector")
 
 local _M = {
     _VERSION = '1.29.3',
+
+    ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503
+    ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible
+    ORIGIN_MODE_NORMAL = 4, -- Assume the origin is happy, use at will
 }
 
 
@@ -49,6 +53,7 @@ local handler_defaults = setmetatable({
     storage_driver = "ledge.storage.redis",
     storage_driver_config = {},
 
+    origin_mode = _M.ORIGIN_MODE_NORMAL,  -- TODO rename upstream mode?
     upstream_connect_timeout = 500,  -- (ms)
     upstream_read_timeout = 5000,    -- (ms)
     upstream_host = "127.0.0.1",

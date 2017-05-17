@@ -1,3 +1,4 @@
+local ledge = require("ledge")
 local h_util = require("ledge.header_util") -- TODO pull in functions needed?
 local esi = require("ledge.esi")
 local range = require("ledge.range")
@@ -26,6 +27,23 @@ local _M = {
 -- calling state_machine:e(ev) with the event that has occurred. Place any
 -- further logic in actions triggered by the transition table.
 return {
+    connecting_to_redis = function(sm, handler)
+        return sm:e "redis_connected"
+    end,
+
+    connecting_to_storage = function(sm, handler)
+        return sm:e "storage_connected"
+    end,
+
+    sleeping = function(sm, handler)
+        local last_sleep = handler.last_sleep or 0
+        local sleep = last_sleep + 5
+        ngx_log(ngx_ERR, "sleeping for ", sleep, "s before reconnecting...")
+        ngx.sleep(sleep)
+        handler.last_sleep = sleep
+        return sm:e "woken"
+    end,
+
     checking_method = function(sm, handler)
         local method = ngx_req_get_method()
         if method == "PURGE" then
@@ -49,7 +67,7 @@ return {
 
     checking_origin_mode = function(sm, handler)
         -- Ignore the client requirements if we're not in "NORMAL" mode.
-        if handler:config_get("origin_mode") < _M.ORIGIN_MODE_NORMAL then
+        if handler:config_get("origin_mode") < ledge.ORIGIN_MODE_NORMAL then
             return sm:e "forced_cache"
         else
             return sm:e "cacheable_method"
@@ -179,7 +197,7 @@ return {
     end,
 
     checking_can_fetch = function(sm, handler)
-        if handler:config_get("origin_mode") == _M.ORIGIN_MODE_BYPASS then
+        if handler:config_get("origin_mode") == ledge.ORIGIN_MODE_BYPASS then
            return sm:e "http_service_unavailable"
         end
 

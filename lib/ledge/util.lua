@@ -69,11 +69,11 @@ _M.string.split = str_split
 local fixed_field_metatable = {
     __index =
         function(t, k)
-            error("field " .. tostring(k) .. " does not exist", 3)
+            error("field " .. tostring(k) .. " does not exist", 2)
         end,
     __newindex =
         function(t, k, v)
-            error("attempt to create new field " .. tostring(k), 3)
+            error("attempt to create new field " .. tostring(k), 2)
         end,
 }
 _M.mt.fixed_field_metatable = fixed_field_metatable
@@ -94,14 +94,14 @@ local function get_fixed_field_metatable_proxy(proxy)
         __index =
             function(t, k)
                 return proxy[k] or
-                    error("field " .. tostring(k) .. " does not exist", 3)
+                    error("field " .. tostring(k) .. " does not exist", 2)
             end,
         __newindex =
             function(t, k, v)
                 if proxy[k] then
                     return rawset(t, k, v)
                 else
-                    error("attempt to create new field " .. tostring(k), 3)
+                    error("attempt to create new field " .. tostring(k), 2)
                 end
             end,
     }

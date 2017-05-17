@@ -1,5 +1,6 @@
 local ledge = require("ledge")
 local util = require("ledge.util")
+local state_machine = require("ledge.state_machine")
 
 local setmetatable = setmetatable
 
@@ -64,12 +65,14 @@ local function new(config)
         config = config,
         redis = {},
         storage = {},
+        state_machine = {}
     }, get_fixed_field_metatable_proxy(_M))
 end
 _M.new = new
 
 
 local function run(self)
+    -- Create Redis connection
     local redis, err = ledge.create_redis_connection()
     if not redis then
         return nil, "could not connect to redis, " .. tostring(err)
@@ -89,9 +92,21 @@ local function run(self)
         self.storage = storage
     end
 
-    return true
+    -- Instantiate state machine
+    local sm = state_machine.new(self)
+    self.state_machine = sm
+
+    return sm:e "init"
 end
 _M.run = run
+
+
+-- DEPRECATED
+-- Use handler.config directly
+local function config_get(self, k)
+    return self.config[k]
+end
+_M.config_get = config_get
 
 
 return setmetatable(_M, fixed_field_metatable)
