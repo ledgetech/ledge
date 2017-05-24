@@ -154,3 +154,41 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 6: accepts_cache
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local accepts_cache = require("ledge.request").accepts_cache
+        assert(tostring(accepts_cache()) == ngx.req.get_uri_args().c,
+            "accepts_cache should be " .. ngx.req.get_uri_args().c)
+    }
+
+}
+--- more_headers eval
+["Cache-Control: no-cache",
+"Cache-Control: no-store",
+"Pragma: no-cache",
+"Cache-Control: no-cache, max-age=60",
+"Cache-Control: s-maxage=20, no-cache",
+"",
+"Cache-Control: max-age=60",
+"Cache-Control: max-age=0",
+"Pragma: cache",
+"Cache-Control: no-cachey",
+]
+--- request eval
+["GET /t?c=false",
+"GET /t?c=false",
+"GET /t?c=false",
+"GET /t?c=false",
+"GET /t?c=false",
+"GET /t?c=true",
+"GET /t?c=true",
+"GET /t?c=true",
+"GET /t?c=true",
+"GET /t?c=true"]
+--- no_error_log
+[error]
