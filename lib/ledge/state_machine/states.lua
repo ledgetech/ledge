@@ -14,9 +14,15 @@ local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 local ngx_re_match = ngx.re.match
 
+local can_serve_stale = require("ledge.stale").can_serve_stale
+local can_serve_stale_if_error = require("ledge.stale").can_serve_stale_if_error
+local can_serve_stale_while_revalidate =
+    require("ledge.stale").can_serve_stale_while_revalidate
+
 local req_accepts_cache = require("ledge.request").accepts_cache
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
+
 
 
 local _M = {
@@ -356,7 +362,8 @@ return {
     end,
 
     considering_stale_error = function(sm, handler)
-        if handler:can_serve_stale_if_error() then
+        local res = handler:get_response()
+        if can_serve_stale_if_error(res) then
             return sm:e "can_serve_disconnected"
         else
             return sm:e "can_serve_upstream_error"
@@ -395,11 +402,12 @@ return {
     end,
 
     checking_can_serve_stale = function(sm, handler)
+        local res = handler:get_response()
         if handler:config_get("origin_mode") < handler.ORIGIN_MODE_NORMAL then
             return sm:e "can_serve_stale"
-        elseif handler:can_serve_stale_while_revalidate() then
+        elseif can_serve_stale_while_revalidate(res) then
             return sm:e "can_serve_stale_while_revalidate"
-        elseif handler:can_serve_stale() then
+        elseif can_serve_stale(res) then
             return sm:e "can_serve_stale"
         else
             return sm:e "cache_expired"

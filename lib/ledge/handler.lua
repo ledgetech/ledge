@@ -4,7 +4,6 @@ local qless = require("resty.qless")
 local zlib = require("ffi-zlib")
 
 local ledge = require("ledge")
-local util = require("ledge.util")
 local h_util = require("ledge.header_util")
 local state_machine = require("ledge.state_machine")
 local response = require("ledge.response")
@@ -47,7 +46,7 @@ local tbl_insert = table.insert
 local tbl_concat = table.concat
 
 local co_yield = coroutine.yield
-local co_wrap = util.coroutine.wrap
+local co_wrap = require("ledge.util").coroutine.wrap
 
 local cjson_encode = require("cjson").encode
 local cjson_decode = require("cjson").decode
@@ -56,8 +55,9 @@ local req_purge_mode = require("ledge.request").purge_mode
 local req_relative_uri = require("ledge.request").relative_uri
 local req_visible_hostname = require("ledge.request").visible_hostname
 
-local fixed_field_metatable = util.mt.fixed_field_metatable
-local get_fixed_field_metatable_proxy = util.mt.get_fixed_field_metatable_proxy
+local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
+local get_fixed_field_metatable_proxy =
+    require("ledge.util").mt.get_fixed_field_metatable_proxy
 
 
 local WARNINGS = {
@@ -224,88 +224,6 @@ function _M.redis_close(self)
     return ledge.close_redis_connection(self.redis)
 end
 
-
--- TODO request and response, but mostly request. Or stale?
---
--- True if the request specifically asks for stale (req.cc.max-stale) and the response
--- doesn't explicitly forbid this res.cc.(must|proxy)-revalidate.
-function _M.can_serve_stale(self)
-    local req_cc = ngx_req_get_headers()["Cache-Control"]
-    local req_cc_max_stale = h_util.get_numeric_header_token(req_cc, "max-stale")
-    if req_cc_max_stale then
-        local res = self:get_response()
-        local res_cc = res.header["Cache-Control"]
-
-        -- Check the response permits this at all
-        if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
-            return false
-        else
-            if (req_cc_max_stale * -1) <= res.remaining_ttl then
-                return true
-            else
-            end
-        end
-    end
-    return false
-end
-
--- TODO request and response. Stale?
---
--- Returns true if stale-while-revalidate or stale-if-error is specified, valid
--- and not constrained by other factors such as max-stale.
--- @param   token  "stale-while-revalidate" | "stale-if-error"
-function _M.verify_stale_conditions(self, token)
-    local res = self:get_response()
-    local res_cc = res.header["Cache-Control"]
-    local res_cc_stale = h_util.get_numeric_header_token(res_cc, token)
-
-    -- Check the response permits this at all
-    if h_util.header_has_directive(res_cc, "(must|proxy)-revalidate") then
-        return false
-    end
-
-    -- Get request header tokens
-    local req_cc = ngx_req_get_headers()["Cache-Control"]
-    local req_cc_stale = h_util.get_numeric_header_token(req_cc, token)
-    local req_cc_max_age = h_util.get_numeric_header_token(req_cc, "max-age")
-    local req_cc_max_stale = h_util.get_numeric_header_token(req_cc, "max-stale")
-
-    local stale_ttl = 0
-    -- If we have both req and res stale-" .. reason, use the lower value
-    if req_cc_stale and res_cc_stale then
-        stale_ttl = math_min(req_cc_stale, res_cc_stale)
-    -- Otherwise return the req or res value
-    elseif req_cc_stale then
-        stale_ttl = req_cc_stale
-    elseif res_cc_stale then
-        stale_ttl = res_cc_stale
-    end
-
-    if stale_ttl <= 0 then
-        return false -- No stale policy defined
-    elseif h_util.header_has_directive(req_cc, "min-fresh") then
-        return false -- Cannot serve stale as request demands freshness
-    elseif req_cc_max_age and req_cc_max_age < (res.header["Age"] or 0) then
-        return false -- Cannot serve stale as req max-age is less than res Age
-    elseif req_cc_max_stale and req_cc_max_stale < stale_ttl then
-        return false -- Cannot serve stale as req max-stale is less than S-W-R policy
-    else
-        -- We can return stale
-        return true
-    end
-end
-
-
--- TODO stale
-function _M.can_serve_stale_while_revalidate(self)
-    return self:verify_stale_conditions("stale-while-revalidate")
-end
-
-
--- TODO stale
-function _M.can_serve_stale_if_error(self)
-    return self:verify_stale_conditions("stale-if-error")
-end
 
 
 -- TODO validation
