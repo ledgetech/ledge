@@ -36,15 +36,19 @@ location /t {
     }
 }
 --- more_headers eval
-["X-Purge: delete",
-"X-Purge: revalidate",
-"X-Purge: invalidate",
-""]
+[
+    "X-Purge: delete",
+    "X-Purge: revalidate",
+    "X-Purge: invalidate",
+    ""
+]
 --- request eval
-["GET /t?p=delete",
-"GET /t?p=revalidate",
-"GET /t?p=invalidate",
-"GET /t?p=invalidate"]
+[
+    "GET /t?p=delete",
+    "GET /t?p=revalidate",
+    "GET /t?p=invalidate",
+    "GET /t?p=invalidate"
+]
 --- no_error_log
 [error]
 
@@ -168,27 +172,30 @@ location /t {
 
 }
 --- more_headers eval
-["Cache-Control: no-cache",
-"Cache-Control: no-store",
-"Pragma: no-cache",
-"Cache-Control: no-cache, max-age=60",
-"Cache-Control: s-maxage=20, no-cache",
-"",
-"Cache-Control: max-age=60",
-"Cache-Control: max-age=0",
-"Pragma: cache",
-"Cache-Control: no-cachey",
+[
+    "Cache-Control: no-cache",
+    "Cache-Control: no-store",
+    "Pragma: no-cache",
+    "Cache-Control: no-cache, max-age=60",
+    "Cache-Control: s-maxage=20, no-cache",
+    "",
+    "Cache-Control: max-age=60",
+    "Cache-Control: max-age=0",
+    "Pragma: cache",
+    "Cache-Control: no-cachey",
 ]
 --- request eval
-["GET /t?c=false",
-"GET /t?c=false",
-"GET /t?c=false",
-"GET /t?c=false",
-"GET /t?c=false",
-"GET /t?c=true",
-"GET /t?c=true",
-"GET /t?c=true",
-"GET /t?c=true",
-"GET /t?c=true"]
+[
+    "GET /t?c=false",
+    "GET /t?c=false",
+    "GET /t?c=false",
+    "GET /t?c=false",
+    "GET /t?c=false",
+    "GET /t?c=true",
+    "GET /t?c=true",
+    "GET /t?c=true",
+    "GET /t?c=true",
+    "GET /t?c=true"
+]
 --- no_error_log
 [error]
