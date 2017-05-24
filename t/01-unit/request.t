@@ -49,7 +49,7 @@ location /t {
 [error]
 
 
-=== TEST 2: Relative uri - spaces encoded
+=== TEST 2: relative_uri - spaces encoded
 --- http_config eval: $::HttpConfig
 --- config
 location /t {
@@ -81,7 +81,7 @@ GET /t
 [error]
 
 
-=== TEST 3: Relative uri - Percent encode encoded CRLF
+=== TEST 3: relative_uri - Percent encode encoded CRLF
 http://resources.infosecinstitute.com/http-response-splitting-attack
 --- http_config eval: $::HttpConfig
 --- config
@@ -107,6 +107,23 @@ location /t_crlf_encoded_ {
         assert(req_relative_uri() == "/t_crlf_encoded_%250D%250A",
             "encoded crlf in uri should be escaped")
     }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
+
+
+=== TEST 4: full_uri
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local full_uri = require("ledge.request").full_uri
+        assert(full_uri() == "http://localhost/t",
+            "full_uri should be http://localhost/t")
+    }
+
 }
 --- request
 GET /t
