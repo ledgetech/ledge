@@ -26,7 +26,6 @@ local function can_serve_stale(res)
         else
             if (req_cc_max_stale * -1) <= res.remaining_ttl then
                 return true
-            else
             end
         end
     end

@@ -21,8 +21,13 @@ __DATA__
 location /t {
     content_by_lua_block {
         local can_serve_stale = require("ledge.stale").can_serve_stale
+
+        local args =  ngx.req.get_uri_args()
         local res = {
-            header = {}
+            header = {
+                ["Cache-Control"] = args.rescc,
+            },
+            remaining_ttl = tonumber(args.ttl),
         }
 
         assert(tostring(can_serve_stale(res)) == ngx.req.get_uri_args().stale,
@@ -33,10 +38,18 @@ location /t {
 --- more_headers eval
 [
     "",
+    "Cache-Control: max-stale=60",
+    "Cache-Control: max-stale=60",
+    "Cache-Control: max-stale=60",
+    "Cache-Control: max-stale=9",
 ]
 --- request eval
 [
-    "GET /t?stale=false",
+    "GET /t?rescc=&ttl=0&stale=false",
+    "GET /t?rescc=&ttl=0&stale=true",
+    "GET /t?rescc=must-revalidate&ttl=0&stale=false",
+    "GET /t?rescc=proxy-revalidate&ttl=0&stale=false",
+    "GET /t?rescc=&ttl=-10&stale=false",
 ]
 --- no_error_log
 [error]
