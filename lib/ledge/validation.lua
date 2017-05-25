@@ -33,7 +33,7 @@ local function must_revalidate(res)
 end
 _M.must_revalidate = must_revalidate
 
-
+-- Indicates a valid conditional request
 local function can_revalidate_locally()
     local req_h = ngx_req_get_headers()
     local req_ims = req_h["If-Modified-Since"]
@@ -47,7 +47,7 @@ local function can_revalidate_locally()
         end
     end
 
-    if req_h["If-None-Match"] then
+    if req_h["If-None-Match"] and req_h["If-None-Match"] ~= "" then
         return true
     end
 

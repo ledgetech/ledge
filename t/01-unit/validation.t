@@ -57,3 +57,39 @@ X-Res-Age: 2",
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 2: can_revalidate_locally
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local can_revalidate_locally =
+            require("ledge.validation").can_revalidate_locally
+
+        local result = ngx.req.get_uri_args().result
+        assert(tostring(can_revalidate_locally()) == result,
+            "can_serve_stale should be " .. result)
+
+    }
+}
+--- more_headers eval
+[
+    "",
+    "If-None-Match:" ,
+    "If-None-Match: foo",
+    "If-Modified-Since: Sun, 06 Nov 1994 08:49:37 GMT",
+    "If-Modified-Since:",
+    "If-Modified-Since: foo",
+]
+--- request eval
+[
+    "GET /t?&result=false",
+    "GET /t?&result=false",
+    "GET /t?&result=true",
+    "GET /t?&result=true",
+    "GET /t?&result=false",
+    "GET /t?&result=false",
+]
+--- no_error_log
+[error]
