@@ -80,13 +80,15 @@ function _M.expire_pattern(cursor, job)
             end
         end
 
+        collectgarbage()
+
         local cursor = tonumber(res[1])
-        if cursor > 0 then
-            -- If we have a valid cursor, recurse to move on.
-            return _M.expire_pattern(cursor, job)
+        if cursor <= 0 then
+            return true
         end
 
-        return true
+        -- If we have a valid cursor, recurse to move on.
+        return _M.expire_pattern(cursor, job)
     end
 end
 
