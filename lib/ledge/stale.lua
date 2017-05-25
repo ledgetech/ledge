@@ -38,6 +38,9 @@ _M.can_serve_stale = can_serve_stale
 -- and not constrained by other factors such as max-stale.
 -- @param   token  "stale-while-revalidate" | "stale-if-error"
 local function verify_stale_conditions(res, token)
+    assert(token == "stale-while-revalidate" or token == "stale-if-error",
+        "unknown token: " .. tostring(token))
+
     local res_cc = res.header["Cache-Control"]
     local res_cc_stale = get_numeric_header_token(res_cc, token)
 
@@ -67,7 +70,8 @@ local function verify_stale_conditions(res, token)
         return false -- No stale policy defined
     elseif header_has_directive(req_cc, "min-fresh") then
         return false -- Cannot serve stale as request demands freshness
-    elseif req_cc_max_age and req_cc_max_age < (res.header["Age"] or 0) then
+    elseif req_cc_max_age and
+        req_cc_max_age < (tonumber(res.header["Age"] or 0) or 0) then
         return false -- Cannot serve stale as req max-age is less than res Age
     elseif req_cc_max_stale and req_cc_max_stale < stale_ttl then
         return false -- Cannot serve stale as req max-stale is less than S-W-R

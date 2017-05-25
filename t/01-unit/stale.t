@@ -53,3 +53,57 @@ location /t {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 2: verify_stale_conditions
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local verify_stale_conditions =
+            require("ledge.stale").verify_stale_conditions
+
+        local args =  ngx.req.get_uri_args()
+
+        local res = {
+            header = {
+                ["Cache-Control"] = ngx.req.get_headers().x_res_cache_control,
+                ["Age"] = ngx.req.get_headers().x_res_age,
+            },
+            remaining_ttl = tonumber(args.ttl),
+        }
+
+        local token = ngx.req.get_uri_args().token
+        local stale = ngx.req.get_uri_args().stale
+        assert(tostring(verify_stale_conditions(res, token)) == stale,
+            "verify_stale_conditions should be " .. stale)
+
+    }
+}
+--- more_headers eval
+[
+    "",
+    "Cache-Control: stale-while-revalidate=60",
+    "X-Res-Cache-Control: stale-while-revalidate=60",
+    "Cache-Control: min-fresh=10
+X-Res-Cache-Control: stale-while-revalidate=60",
+    "Cache-Control: max-age=10, stale-while-revalidate=60
+X-Res-Age: 5",
+    "Cache-Control: max-age=4, stale-while-revalidate=60
+X-Res-Age: 5",
+    "Cache-Control: max-stale=10, stale-while-revalidate=60",
+    "Cache-Control: max-stale=60, stale-while-revalidate=60",
+]
+--- request eval
+[
+    "GET /t?token=stale-while-revalidate&stale=false",
+    "GET /t?token=stale-while-revalidate&stale=true",
+    "GET /t?token=stale-while-revalidate&stale=true",
+    "GET /t?token=stale-while-revalidate&stale=false",
+    "GET /t?token=stale-while-revalidate&stale=true",
+    "GET /t?token=stale-while-revalidate&stale=false",
+    "GET /t?token=stale-while-revalidate&stale=false",
+    "GET /t?token=stale-while-revalidate&stale=true",
+]
+--- no_error_log
+[error]
