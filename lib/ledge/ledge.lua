@@ -3331,13 +3331,13 @@ function _M.serve_body(self, res, buffer_size)
         local chunk, err = reader(buffer_size)
         if chunk and ctx.output_buffers_enabled then
             local ok, err = ngx_print(chunk)
-            if not ok then ngx_log(ngx_ERR, err) end
+            if not ok then ngx_log(ngx_INFO, err) end
 
             -- Flush each full buffer, if we can
             buffered = buffered + #chunk
             if can_flush and buffered >= buffer_size then
                 local ok, err = ngx_flush(true)
-                if not ok then ngx_log(ngx_ERR, err) end
+                if not ok then ngx_log(ngx_INFO, err) end
 
                 buffered = 0
             end
