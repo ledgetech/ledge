@@ -13,27 +13,7 @@ local _M = {
 return {
     -- Initial transition (entry point). Connect to redis.
     init = {
-        { begin = "connecting_to_redis" },
-    },
-
-    -- We failed to connect to redis. Bail.
-    redis_connection_failed = {
-        { begin = "exiting", but_first = "set_http_service_unavailable" },
-    },
-
-    redis_connected = {
-        { begin = "connecting_to_storage" },
-    },
-
-    -- We failed to connect to storage. Bail.
-    storage_connection_failed = {
-        { begin = "exiting", but_first = "set_http_service_unavailable" },
-    },
-
-    -- We're connected!
-    storage_connected = {
-        -- Filter ESI ARGS from the request URI, and check request method
-        { begin = "checking_method", but_first = "filter_esi_args" },
+        { begin = "checking_method" },
     },
 
     cacheable_method = {

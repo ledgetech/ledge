@@ -35,14 +35,6 @@ local _M = {
 -- calling state_machine:e(ev) with the event that has occurred. Place any
 -- further logic in actions triggered by the transition table.
 return {
-    connecting_to_redis = function(sm, handler)
-        return sm:e "redis_connected"
-    end,
-
-    connecting_to_storage = function(sm, handler)
-        return sm:e "storage_connected"
-    end,
-
     checking_method = function(sm, handler)
         local method = ngx_req_get_method()
         if method == "PURGE" then

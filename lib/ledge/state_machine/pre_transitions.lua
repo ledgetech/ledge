@@ -7,7 +7,6 @@ local _M = {
 -- transitioning.
 return {
     exiting = { "redis_close", "httpc_close" },
-    exiting_worker = { "redis_close", "httpc_close" },
     checking_cache = { "read_cache" },
 
     -- Never fetch with client validators, but put them back afterwards.
