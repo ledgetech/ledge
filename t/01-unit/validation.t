@@ -31,7 +31,7 @@ location /t {
 
         local result = ngx.req.get_uri_args().result
         assert(tostring(must_revalidate(res)) == result,
-            "can_serve_stale should be " .. result)
+            "must_revalidate should be " .. result)
 
     }
 }
@@ -69,7 +69,7 @@ location /t {
 
         local result = ngx.req.get_uri_args().result
         assert(tostring(can_revalidate_locally()) == result,
-            "can_serve_stale should be " .. result)
+            "can_revalidate_locally should be " .. result)
 
     }
 }
@@ -88,6 +88,60 @@ location /t {
     "GET /t?&result=false",
     "GET /t?&result=true",
     "GET /t?&result=true",
+    "GET /t?&result=false",
+    "GET /t?&result=false",
+]
+--- no_error_log
+[error]
+
+
+=== TEST 3: is_valid_locally
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local is_valid_locally = require("ledge.validation").is_valid_locally
+
+        local res = {
+            header = {
+                ["Last-Modified"] = ngx.req.get_headers().x_res_last_modified,
+                ["Etag"] = ngx.req.get_headers().x_res_etag,
+            },
+        }
+
+        local result = ngx.req.get_uri_args().result
+        assert(tostring(is_valid_locally(res)) == result,
+            "is_valid_locally should be " .. result)
+
+    }
+}
+--- more_headers eval
+[
+    "",
+    "If-Modified-Since: Sun, 05 Nov 1994 08:49:37 GMT
+X-Res-Last-Modified: Sun, 06 Nov 1994 08:48:37 GMT",
+    "If-Modified-Since: Sun, 06 Nov 1994 08:49:37 GMT
+X-Res-Last-Modified: Sun, 06 Nov 1994 08:48:37 GMT",
+    "If-Modified-Since: Sun, 06 Nov 1994 08:49:38 GMT
+X-Res-Last-Modified: Sun, 06 Nov 1994 08:48:37 GMT",
+    "If-Modified-Since: Sun, 06 Nov 1994 08:49:36 GMT
+X-Res-Last-Modified: Sun, 06 Nov 1994 08:49:37 GMT",
+    "If-None-Match: foo
+X-Res-Etag: foo",
+    "If-None-Match: foo
+X-Res-Etag: bar",
+    "If-None-Match: foo",
+    "X-Res-Etag: bar",
+]
+--- request eval
+[
+    "GET /t?&result=false",
+    "GET /t?&result=false",
+    "GET /t?&result=true",
+    "GET /t?&result=true",
+    "GET /t?&result=false",
+    "GET /t?&result=true",
+    "GET /t?&result=false",
     "GET /t?&result=false",
     "GET /t?&result=false",
 ]

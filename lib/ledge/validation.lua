@@ -12,6 +12,7 @@ local _M = {
 }
 
 
+-- True if the request or response (res) demand revalidation.
 local function must_revalidate(res)
     local req_cc = ngx_req_get_headers()["Cache-Control"]
     local req_cc_max_age = get_numeric_header_token(req_cc, "max-age")
@@ -33,7 +34,8 @@ local function must_revalidate(res)
 end
 _M.must_revalidate = must_revalidate
 
--- Indicates a valid conditional request
+
+-- True if the request contains valid conditional headers.
 local function can_revalidate_locally()
     local req_h = ngx_req_get_headers()
     local req_ims = req_h["If-Modified-Since"]
@@ -56,6 +58,7 @@ end
 _M.can_revalidate_locally = can_revalidate_locally
 
 
+-- True if the request conditions indicate that the response (res) can be served
 local function is_valid_locally(res)
     local req_h = ngx_req_get_headers()
 
