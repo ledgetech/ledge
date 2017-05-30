@@ -1,8 +1,8 @@
 package = "ledge"
-version = "1.28-1"
+version = "1.28-4"
 source = {
    url = "git://github.com/pintsized/ledge",
-   tag = "v1.28"
+   tag = "v1.28.4"
 }
 description = {
    summary = "An ESI capable HTTP cache module for OpenResty",
