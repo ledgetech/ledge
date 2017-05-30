@@ -5,7 +5,7 @@ local ngx_ERR = ngx.ERR
 
 
 local _M = {
-    _VERSION = '1.28.3',
+    _VERSION = '1.28.4',
 }
 
 

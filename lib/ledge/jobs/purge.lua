@@ -11,7 +11,7 @@ local ngx_null = ngx.null
 local ngx_md5 = ngx.md5
 
 local _M = {
-    _VERSION = '1.28.3',
+    _VERSION = '1.28.4',
 }
 
 
@@ -80,7 +80,7 @@ function _M.expire_pattern(cursor, job)
             end
         end
 
-        collectgarbage()
+        ---collectgarbage()
 
         local cursor = tonumber(res[1])
         if cursor <= 0 then
