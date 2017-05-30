@@ -80,7 +80,7 @@ function _M.expire_pattern(cursor, job)
             end
         end
 
-        ---collectgarbage()
+        collectgarbage()
 
         local cursor = tonumber(res[1])
         if cursor <= 0 then
