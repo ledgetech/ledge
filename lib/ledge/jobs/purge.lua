@@ -59,18 +59,18 @@ function _M.expire_pattern(cursor, job)
     if not res or res == ngx_null then
         return nil, "SCAN error: " .. tostring(err)
     else
+        -- Create a Ledge instance and give it just enough scaffolding to run
+        -- a headless PURGE. Remember there's no real request context here.
+        local ledge = require("ledge.ledge").new()
+        ledge:config_set("redis_database", job.redis_params.db)
+        ledge:config_set("redis_qless_database", job.redis_qless_database)
+        ledge:ctx().redis = job.redis
+        ledge:set_response(response.new())
+
         for _,key in ipairs(res[2]) do
             -- Strip the "main" suffix to find the cache key
             local cache_key = str_sub(key, 1, -(str_len("::main") + 1))
-
-            -- Create a Ledge instance and give it just enough scaffolding to run a headless PURGE.
-            -- Remember there's no real request context here.
-            local ledge = require("ledge.ledge").new()
-            ledge:config_set("redis_database", job.redis_params.db)
-            ledge:config_set("redis_qless_database", job.redis_qless_database)
-            ledge:ctx().redis = job.redis
             ledge:ctx().cache_key = cache_key
-            ledge:set_response(response.new())
 
             local ok, res, err = pcall(ledge.purge, ledge, job.data.purge_mode)
             if not ok then
@@ -80,10 +80,8 @@ function _M.expire_pattern(cursor, job)
             end
         end
 
-        collectgarbage()
-
         local cursor = tonumber(res[1])
-        if cursor <= 0 then
+        if cursor == 0 then
             return true
         end
 
