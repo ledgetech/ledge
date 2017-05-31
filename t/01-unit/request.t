@@ -4,6 +4,7 @@ use Cwd qw(cwd);
 my $pwd = cwd();
 
 $ENV{TEST_NGINX_PORT} |= 1984;
+$ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;../lua-resty-http/lib/?.lua;;";
