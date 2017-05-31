@@ -54,6 +54,7 @@ local cjson_decode = require("cjson").decode
 
 local req_purge_mode = require("ledge.request").purge_mode
 local req_relative_uri = require("ledge.request").relative_uri
+local req_full_uri = require("ledge.request").full_uri
 local req_visible_hostname = require("ledge.request").visible_hostname
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
@@ -742,7 +743,7 @@ function _M.fetch_in_background(self)
         reval_params = reval_params,
         reval_headers = reval_headers,
     }, {
-        jid = ngx_md5("revalidate:" .. self:full_uri()),
+        jid = ngx_md5("revalidate:" .. req_full_uri()),
         tags = { "revalidate" },
         priority = 4,
     })
@@ -804,7 +805,7 @@ function _M.save_to_cache(self, res)
     -- TODO: Is this supposed to be total ttl + keep_cache_for?
     local keep_cache_for = self:config_get("keep_cache_for")
 
-    res.uri = self:full_uri()
+    res.uri = req_full_uri()
     local ok, err = res:save(keep_cache_for)
     -- TODO: Do somethign with this err?
 
