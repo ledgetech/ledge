@@ -26,6 +26,7 @@ local ngx_re_gsub = ngx.re.gsub
 
 local ngx_print = ngx.print
 local ngx_flush = ngx.flush
+local ngx_on_abort = ngx.on_abort
 
 local ngx_log = ngx.log
 local ngx_INFO = ngx.INFO
@@ -83,7 +84,7 @@ local function new(config)
     if not config then return nil, "config table expected" end
     config = setmetatable(config, fixed_field_metatable)
 
-    return setmetatable({
+    local self = setmetatable({
         config = config,
 
         -- Slots for composed objects
@@ -116,6 +117,17 @@ local function new(config)
         esi_process_enabled = false,
 
     }, get_fixed_field_metatable_proxy(_M))
+
+    -- Install the client abort handler
+    local ok, err = ngx_on_abort(function()
+        return self:e "aborted"
+    end)
+
+    if not ok then
+       ngx_log(ngx_WARN, "on_abort handler could not be set: " .. err)
+    end
+
+    return self
 end
 _M.new = new
 
