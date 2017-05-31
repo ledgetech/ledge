@@ -59,7 +59,7 @@ local handler_defaults = setmetatable({
     upstream_host = "127.0.0.1",
     upstream_port = 80,
     upstream_use_ssl = false,
-    upstream_ssl_server_name = nil,
+    upstream_ssl_server_name = "",
     upstream_ssl_verify = true,
 
     use_resty_upstream = false,
