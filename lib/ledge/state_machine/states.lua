@@ -400,7 +400,7 @@ return {
 
     checking_can_serve_stale = function(sm, handler)
         local res = handler:get_response()
-        if handler:config_get("origin_mode") < handler.ORIGIN_MODE_NORMAL then
+        if handler:config_get("origin_mode") < ledge.ORIGIN_MODE_NORMAL then
             return sm:e "can_serve_stale"
         elseif can_serve_stale_while_revalidate(res) then
             return sm:e "can_serve_stale_while_revalidate"

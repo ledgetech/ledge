@@ -26,7 +26,8 @@ return {
 
     httpc_close = function(handler)
         local res = handler:get_response()
-        if res then
+        -- TODO fix ambiguous "res is a boolean" issue
+        if type(res) == "table" then
             local httpc = res.conn
             if httpc and type(httpc.set_keepalive) == "function" then
                 return httpc:set_keepalive()

@@ -92,6 +92,7 @@ local function new(config)
         redis = {},
         storage = {},
         state_machine = {},
+        range = {},
         response = true,
 
         -- TODO These fields were in ctx, now in self, collided with function
@@ -204,7 +205,9 @@ _M.bind = bind
 -- Hard errors if event is not specified in self.events
 local function emit(self, event, ...)
     local ev = self.events[event]
-    assert(ev, "attempt to emit non existent event: " .. tostring(event))
+    if not ev then
+        error("attempt to emit non existent event: " .. tostring(event), 2)
+    end
 
     for _, handler in ipairs(ev) do
         if type(handler) == "function" then
@@ -503,7 +506,7 @@ function _M.read_from_cache(self)
         res:filter_body_reader("cache_body_reader", storage:get_reader(res))
     end
 
-    emit(self, "cache_accessed", res)
+    emit(self, "after_cache_read", res)
     return res
 end
 
