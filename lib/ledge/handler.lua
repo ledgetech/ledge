@@ -107,7 +107,7 @@ local function new(config)
             before_upstream_request = {},
             after_upstream_request = {},
             before_save = {},
-            before_serve_revalidation_data = {},
+            before_save_revalidation_data = {},
             before_serve = {},
             before_esi_include_request = {},
         },
