@@ -9,7 +9,7 @@ local tbl_concat = table.concat
 
 
 local _M = {
-    _VERSION = '1.28.3'
+    _VERSION = '1.28.4'
 }
 
 local mt = {
