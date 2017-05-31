@@ -30,7 +30,7 @@ local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 
 local _M = {
-    _VERSION = '1.28.3'
+    _VERSION = '1.28.4'
 }
 
 local NOCACHE_HEADERS = {

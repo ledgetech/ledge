@@ -11,7 +11,7 @@ local ngx_null = ngx.null
 local ngx_md5 = ngx.md5
 
 local _M = {
-    _VERSION = '1.28.3',
+    _VERSION = '1.28.4',
 }
 
 
@@ -59,20 +59,18 @@ function _M.expire_pattern(cursor, job)
     if not res or res == ngx_null then
         return nil, "SCAN error: " .. tostring(err)
     else
+        -- Create a Ledge instance and give it just enough scaffolding to run
+        -- a headless PURGE. Remember there's no real request context here.
+        local ledge = require("ledge.ledge").new()
+        ledge:config_set("redis_database", job.redis_params.db)
+        ledge:config_set("redis_qless_database", job.redis_qless_database)
+        ledge:ctx().redis = job.redis
+        ledge:set_response(response.new())
+
         for _,key in ipairs(res[2]) do
             -- Strip the "main" suffix to find the cache key
             local cache_key = str_sub(key, 1, -(str_len("::main") + 1))
-
-            -- Create a Ledge instance and give it just enough scaffolding to run a headless PURGE.
-            -- Remember there's no real request context here.
-            local ledge = require("ledge.ledge").new()
-            ledge:config_set("redis_connection", job.redis_params)
-            ledge:config_set("redis_qless_database", job.redis_qless_database)
-            ledge:ctx().redis = job.redis
-            ledge:ctx().storage = job.storage
-            ledge:ctx().redis_params = job.redis_params
             ledge:ctx().cache_key = cache_key
-            ledge:set_response(response.new(ledge:ctx(), ledge:cache_key_chain()))
 
             local ok, res, err = pcall(ledge.purge, ledge, job.data.purge_mode)
             if not ok then
@@ -83,12 +81,12 @@ function _M.expire_pattern(cursor, job)
         end
 
         local cursor = tonumber(res[1])
-        if cursor > 0 then
-            -- If we have a valid cursor, recurse to move on.
-            return _M.expire_pattern(cursor, job)
+        if cursor == 0 then
+            return true
         end
 
-        return true
+        -- If we have a valid cursor, recurse to move on.
+        return _M.expire_pattern(cursor, job)
     end
 end
 
