@@ -35,7 +35,7 @@ location /t {
 
         assert(require("ledge.state_machine.events"),
             "events module should include without error")
-        
+
         assert(require("ledge.state_machine.pre_transitions"),
             "pre_transitions module should include without error")
 
@@ -132,37 +132,40 @@ location /t {
 
 
         local states_file = "lib/ledge/state_machine/states.lua"
-        assert(io.open(states_file, "r"),
-            "Could not find states.lua (are you running from the root dir?")
+        local handler_file = "lib/ledge/handler.lua"
 
-        -- Run luac to extract self:e(event) calls by event name
-        local cmd = "luac -p -l " .. states_file
-        cmd = cmd .. [[ | grep -A2 'SELF .* "e"' | awk '{print $7}']]
-        cmd = cmd .. [[ | grep "\".*\""]]
-        local f, err = io.popen(cmd, "r")
-
-
-        -- For each call, check the event being triggered exists, and place the
         -- event in a table
         local events_called = {}
-        repeat
-            local event = f:read('*l')
-            if event then
-                event = ngx.re.gsub(event, "\"", "") -- remove quotes
-                events_called[event] = true
-                if not events[event] then
-                    ngx.say("Event '", event, "' is called but does not exist")
+        for _, file in ipairs({ states_file, handler_file }) do
+            assert(io.open(file, "r"),
+                "Could not find states.lua (are you running from the root dir?")
+
+            -- Run luac to extract self:e(event) calls by event name
+            local cmd = "luac -p -l " .. file
+            cmd = cmd .. [[ | grep -A2 'SELF .* "e"' | awk '{print $7}']]
+            cmd = cmd .. [[ | grep "\".*\""]]
+            local f, err = io.popen(cmd, "r")
+
+            -- For each call, check the event being triggered exists, and place the
+            repeat
+                local event = f:read('*l')
+                if event then
+                    event = ngx.re.gsub(event, "\"", "") -- remove quotes
+                    events_called[event] = true
+                    if not events[event] then
+                        ngx.say("Event '", event, "' is called but does not exist")
+                    end
                 end
-            end
-        until not event
+            until not event
+
+            f:close()
+        end
 
         for event, t_table in pairs(events) do
             if not events_called[event] then
                 ngx.say("Event '", event, "' exits but is never called")
             end
         end
-
-        f:close()
 
         ngx.say("OK")
     }
