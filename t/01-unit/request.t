@@ -9,6 +9,11 @@ our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;../lua-resty-http/lib/?.lua;;";
 
 init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+        require("luacov.runner").init()
+    end
+
     TEST_NGINX_PORT = $ENV{TEST_NGINX_PORT}
 }
 

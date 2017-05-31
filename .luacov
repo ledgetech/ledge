@@ -1,11 +1,27 @@
 modules = {
-    ["ledge.ledge"] = "lib/ledge/ledge.lua",
     ["ledge.esi"] = "lib/ledge/esi.lua",
-    ["ledge.esi"] = "lib/ledge/esi/tag_parser.lua",
     ["ledge.esi.processor_1_0"] = "lib/ledge/esi/processor_1_0.lua",
-    ["ledge.response"] = "lib/ledge/response.lua",
-    ["ledge.range"] = "lib/ledge/range.lua",
-    ["ledge.header_util"] = "lib/ledge/header_util.lua",
-    ["ledge.util"] = "lib/ledge/util.lua",
+    ["ledge.esi.tag_parser"] = "lib/ledge/esi/tag_parser.lua",
+
+    ["ledge.jobs.collect_entity"] = "lib/ledge/jobs/collect_entity.lua",
+    ["ledge.jobs.purge"] = "lib/ledge/jobs/purge.lua",
+    ["ledge.jobs.revalidate"] = "lib/ledge/jobs/revalidate.lua",
+
+    ["ledge.state_machine"] = "lib/ledge/state_machine.lua",
+    ["ledge.state_machine.actions"] = "lib/ledge/state_machine/actions.lua",
+    ["ledge.state_machine.events"] = "lib/ledge/state_machine/events.lua",
+    ["ledge.state_machine.pre_transitions"] = "lib/ledge/state_machine/pre_transitions.lua",
+    ["ledge.state_machines.states"] = "lib/ledge/state_machine/states.lua",
+
     ["ledge.storage.redis"] = "lib/ledge/storage/redis.lua",
+
+    ["ledge.handler"] = "lib/ledge/handler.lua",
+    ["ledge.header_util"] = "lib/ledge/header_util.lua",
+    ["ledge.range"] = "lib/ledge/range.lua",
+    ["ledge.request"] = "lib/ledge/request.lua",
+    ["ledge.response"] = "lib/ledge/response.lua",
+    ["ledge.stale"] = "lib/ledge/stale.lua",
+    ["ledge.util"] = "lib/ledge/util.lua",
+    ["ledge.validation"] = "lib/ledge/validation.lua",
+    ["ledge.worker"] = "lib/ledge/worker.lua",
 }

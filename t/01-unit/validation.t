@@ -7,6 +7,14 @@ $ENV{TEST_NGINX_PORT} |= 1984;
 
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;;";
+
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+        require("luacov.runner").init()
+    end
+}
+
 }; # HttpConfig
 
 no_long_string();
