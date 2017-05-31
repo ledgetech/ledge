@@ -1,96 +1,95 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => 4;
 
 my $pwd = cwd();
 
+$ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require "resty.core"
-        end
-        ledge_mod = require "ledge.ledge"
-        ledge = ledge_mod:new()
-        ledge:config_set("upstream_host", "127.0.0.1")
-        ledge:config_set("upstream_port", 1984)
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+        require("luacov.runner").init()
+    end
 
+    require("ledge").configure({
+        redis_connector_params = {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        },
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
 
-        require("ledge").configure({
-            redis_connector_params = {
+    require("ledge").set_handler_defaults({
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
-            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-        })
+        }
+    })
+}
 
-        require("ledge").set_handler_defaults({
-            upstream_port = 1984,
-            storage_driver_config = {
-                redis_connector = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                },
-            }
-        })
-    }
+init_worker_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+    end
+    require("ledge").create_worker():run()
+}
 
-    init_worker_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-        end
-        require("ledge").create_worker():run()
-    }
 };
 
 no_long_string();
 no_diff();
 run_tests();
 
+
 __DATA__
 === TEST 1: No calculated Age header on cache MISS.
 --- http_config eval: $::HttpConfig
 --- config
-	location /age_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:run()
-        ';
+location /age_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            origin_mode = require("ledge").ORIGIN_MODE_AVOID
+        }):run()
     }
-    location /age {
-        more_set_headers "Cache-Control public, max-age=600";
-        echo "OK";
-    }
+}
+location /age {
+    more_set_headers "Cache-Control public, max-age=600";
+    echo "OK";
+}
 --- request
 GET /age_prx
 --- response_headers
 Age:
+--- no_error_log
+[error]
 
 
 === TEST 2: Age header on cache HIT
 --- http_config eval: $::HttpConfig
 --- config
-	location /age_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:run()
-        ';
+location /age_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            origin_mode = require("ledge").ORIGIN_MODE_AVOID
+        }):run()
     }
-    location /age {
-        more_set_headers "Cache-Control public, max-age=600";
-        echo "OK";
-    }
+}
+location /age {
+    more_set_headers "Cache-Control public, max-age=600";
+    echo "OK";
+}
 --- request
 GET /age_prx
 --- response_headers_like
 Age: \d+
+--- no_error_log
+[error]
