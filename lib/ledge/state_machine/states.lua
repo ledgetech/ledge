@@ -14,6 +14,11 @@ local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 local ngx_re_match = ngx.re.match
 
+local can_revalidate_locally =
+    require("ledge.validation").can_revalidate_locally
+local must_revalidate = require("ledge.validation").must_revalidate
+local is_valid_locally = require("ledge.validation").is_valid_locally
+
 local can_serve_stale = require("ledge.stale").can_serve_stale
 local can_serve_stale_if_error = require("ledge.stale").can_serve_stale_if_error
 local can_serve_stale_while_revalidate =
@@ -368,9 +373,9 @@ return {
     end,
 
     considering_revalidation = function(sm, handler)
-        if handler:must_revalidate() then
+        if must_revalidate(handler:get_response()) then
             return sm:e "must_revalidate"
-        elseif handler:can_revalidate_locally() then
+        elseif can_revalidate_locally() then
             return sm:e "can_revalidate_locally"
         else
             return sm:e "no_validator_present"
@@ -378,7 +383,7 @@ return {
     end,
 
     considering_local_revalidation = function(sm, handler)
-        if handler:can_revalidate_locally() then
+        if can_revalidate_locally() then
             return sm:e "can_revalidate_locally"
         else
             return sm:e "no_validator_present"
@@ -386,7 +391,7 @@ return {
     end,
 
     revalidating_locally = function(sm, handler)
-        if handler:is_valid_locally() then
+        if is_valid_locally(handler:get_response()) then
             return sm:e "not_modified"
         else
             return sm:e "modified"
