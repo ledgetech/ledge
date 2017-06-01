@@ -25,6 +25,7 @@ local can_serve_stale_while_revalidate =
     require("ledge.stale").can_serve_stale_while_revalidate
 
 local req_accepts_cache = require("ledge.request").accepts_cache
+local purge_mode = require("ledge.request").purge_mode
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 
@@ -346,7 +347,7 @@ return {
     end,
 
     purging = function(sm, handler)
-        if handler:purge(handler:purge_mode()) then
+        if handler:purge(purge_mode()) then
             return sm:e "purged"
         else
             return sm:e "nothing_to_purge"
