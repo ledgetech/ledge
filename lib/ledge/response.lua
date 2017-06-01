@@ -41,7 +41,7 @@ local NOCACHE_HEADERS = {
 
 
 local _M = {
-    _VERSION = '1.28.4',
+    _VERSION = '1.28.5'
     DEBUG = false,
 }
 
