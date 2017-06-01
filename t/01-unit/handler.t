@@ -168,3 +168,27 @@ X-Foo: bar
 --- error_log
 no such event: foo
 error in user callback for 'before_serve': oops
+
+
+=== TEST 5: Cache key is the same with nil ngx.var.args and empty string
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_key {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local key_chain = require("ledge").create_handler():cache_key_chain()
+        local key1 = key_chain.key
+
+        ngx.req.set_uri_args({})
+
+        key_chain = require("ledge").create_handler():cache_key_chain()
+        local key2 = key_chain.key
+
+        assert(key1 == key2, "key1 should equal key2")
+    }
+}
+
+--- request
+GET /cache_key
+--- no_error_log
+[error]
