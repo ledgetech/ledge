@@ -75,7 +75,7 @@ return {
     end,
 
     checking_request = function(sm, handler)
-        if req_accepts_cache then
+        if req_accepts_cache() then
             return sm:e "cache_accepted"
         else
             return sm:e "cache_not_accepted"
