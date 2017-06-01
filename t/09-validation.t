@@ -1,60 +1,52 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 4) - 11;
 
 my $pwd = cwd();
 
+$ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require "resty.core"
-        end
-        ledge_mod = require "ledge.ledge"
-        ledge = ledge_mod:new()
-        ledge:config_set("upstream_host", "127.0.0.1")
-        ledge:config_set("upstream_port", 1984)
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+        require("luacov.runner").init()
+    end
 
-        require("ledge").configure({
-            redis_connector_params = {
+    require("ledge").configure({
+        redis_connector_params = {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        },
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
+
+    require("ledge").set_handler_defaults({
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
-            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-        })
+        }
+    })
+}
 
-        require("ledge").set_handler_defaults({
-            upstream_port = 1984,
-            storage_driver_config = {
-                redis_connector = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                },
-            }
-        })
-    }
+init_worker_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+    end
+    require("ledge").create_worker():run()
+}
 
-    init_worker_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-        end
-        require("ledge").create_worker():run()
-    }
 };
 
 no_long_string();
 no_diff();
 run_tests();
+
 
 __DATA__
 === TEST 1: Prime cache for subsequent tests
@@ -62,17 +54,17 @@ __DATA__
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "test1"
         ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 100)
         ngx.say("TEST 1")
-    ';
+    }
 }
 --- request
 GET /validation_prx
@@ -84,22 +76,23 @@ X-Cache: MISS from .*
 [error]
 
 
-=== TEST 2: Unspecified end-to-end revalidation (max-age=0 + no validator), upstream 200
+=== TEST 2: Unspecified end-to-end revalidation
+    max-age=0 + no validator, upstream 200
 --- http_config eval: $::HttpConfig
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "test2"
         ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 90)
         ngx.say("TEST 2")
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-age=0
@@ -114,19 +107,20 @@ X-Cache: MISS from .*
 [error]
 
 
-=== TEST 2b: Unspecified end-to-end revalidation (max-age=0 + no validator), upstream 304
+=== TEST 2b: Unspecified end-to-end revalidation
+    max-age=0 + no validator, upstream 304
 --- http_config eval: $::HttpConfig
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.exit(ngx.HTTP_NOT_MODIFIED)
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-age=0
@@ -141,16 +135,19 @@ X-Cache: MISS from .*
 [error]
 
 
-=== TEST 3: Revalidate against cache using IMS in the future. Check we still have headers
-with our 304, and no body.
+=== TEST 3: Revalidate against cache using IMS in the future.
+    Check we still have headers with our 304, and no body.
 --- http_config eval: $::HttpConfig
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() + 100))
-        ledge:run()
-    ';
+    content_by_lua_block {
+        ngx.req.set_header(
+            "If-Modified-Since",
+            ngx.http_time(ngx.time() + 100)
+        )
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 GET /validation_prx
@@ -163,15 +160,19 @@ Etag: test2
 [error]
 
 
-=== TEST 3b: Revalidate against cache using IMS in the past. Return 200 fresh cache.
+=== TEST 3b: Revalidate against cache using IMS in the past.
+    Return 200 fresh cache.
 --- http_config eval: $::HttpConfig
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() - 100))
-        ledge:run()
-    ';
+    content_by_lua_block {
+        ngx.req.set_header(
+            "If-Modified-Since",
+            ngx.http_time(ngx.time() - 100)
+        )
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 GET /validation_prx
@@ -189,9 +190,9 @@ X-Cache: HIT from .*
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- more_headers
 If-None-Match: test2
@@ -208,10 +209,13 @@ GET /validation_prx
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() + 100))
-        ledge:run()
-    ';
+    content_by_lua_block {
+        ngx.req.set_header(
+            "If-Modified-Since",
+            ngx.http_time(ngx.time() + 100)
+        )
+        require("ledge").create_handler():run()
+    }
 }
 --- more_headers
 If-None-Match: test2
@@ -228,15 +232,18 @@ GET /validation_prx
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() - 150))
-        ledge:run()
-    ';
+    content_by_lua_block {
+        ngx.req.set_header(
+            "If-Modified-Since",
+            ngx.http_time(ngx.time() - 150)
+        )
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.exit(ngx.HTTP_NOT_MODIFIED)
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-age=0
@@ -251,19 +258,20 @@ X-Cache: MISS from .*
 [error]
 
 
-=== TEST 6: Specific end-to-end revalidation using INM (matching), upstream 304.
+=== TEST 6: Specific end-to-end revalidation
+    Using INM (matching), upstream 304.
 --- http_config eval: $::HttpConfig
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.exit(ngx.HTTP_NOT_MODIFIED)
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-age=0
@@ -275,19 +283,20 @@ GET /validation_prx
 [error]
 
 
-=== TEST 6b: Specific end-to-end revalidation using INM (not matching), upstream 304.
+=== TEST 6b: Specific end-to-end revalidation
+    Using INM (not matching), upstream 304.
 --- http_config eval: $::HttpConfig
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.exit(ngx.HTTP_NOT_MODIFIED)
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-age=0
@@ -308,18 +317,21 @@ X-Cache: MISS from .*
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ngx.req.set_header("If-Modified-Since", ngx.http_time(ngx.time() - 150))
-        ledge:run()
-    ';
+    content_by_lua_block {
+        ngx.req.set_header(
+            "If-Modified-Since",
+            ngx.http_time(ngx.time() - 150)
+        )
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "test7"
         ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 70)
         ngx.say("TEST 7")
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-age=0
@@ -337,16 +349,16 @@ TEST 7
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "test8"
         ngx.say("TEST 8")
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-age=0
@@ -362,21 +374,22 @@ X-Cache: MISS from .*
 [error]
 
 
-=== TEST 8b: Unspecified end-to-end revalidation using INM, upstream 200, validators now match (so 304 to client).
+=== TEST 8b: Unspecified end-to-end revalidation
+    Using INM, upstream 200, validators now match (so 304 to client).
 --- http_config eval: $::HttpConfig
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "test8b"
         ngx.say("TEST 8b")
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-age=0
@@ -394,9 +407,9 @@ GET /validation_prx
 --- config
 location /validation_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 GET /validation_prx
@@ -414,19 +427,19 @@ X-Cache: HIT from .*
 --- config
 location /validation_9_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation_9 {
-    content_by_lua '
+    content_by_lua_block {
         if ngx.req.get_headers()["Cache-Control"] == "max-age=0" and
             ngx.req.get_headers()["If-None-Match"] == "test9" then
             ngx.exit(ngx.HTTP_NOT_MODIFIED)
         else
             ngx.say("TEST 9")
         end
-    ';
+    }
 }
 --- more_headers
 If-None-Match: test9
@@ -444,17 +457,17 @@ TEST 9
 --- config
 location /validation10_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation10 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.header["Etag"] = "test10"
         ngx.header["Last-Modified"] = ngx.http_time(ngx.time() - 60)
         ngx.say("TEST 10")
-    ';
+    }
 }
 --- more_headers
 If-None-Match: test10
@@ -471,9 +484,9 @@ GET /validation10_prx
 --- config
 location /validation10_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- more_headers
 If-Modified-Since: 234qr12411224
@@ -493,15 +506,15 @@ X-Cache: HIT from .*
 --- config
 location /validation_12_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation_12 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "public, max-age=600"
         ngx.say("Test 12")
-    ';
+    }
 }
 --- request
 GET /validation_12_prx
@@ -517,14 +530,14 @@ Test 12
 --- config
 location /validation_12_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation_12 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.say("Test 12")
-    ';
+    }
 }
 --- more_headers
 If-Modified-Since: Tue, 29 Nov 2016 23:16:59 GMT
@@ -542,14 +555,14 @@ Test 12
 --- config
 location /validation_12_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /validation_12 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.say("Test 12")
-    ';
+    }
 }
 --- more_headers
 If-None-Match: 1234
@@ -558,23 +571,5 @@ GET /validation_12_prx
 --- error_code: 200
 --- response_body
 Test 12
---- no_error_log
-[error]
-
-
-=== TEST 13: Allow pending qless jobs to run
---- http_config eval: $::HttpConfig
---- config
-location /qless {
-    content_by_lua '
-        ngx.sleep(5)
-        ngx.say("QLESS")
-    ';
-}
---- request
-GET /qless
---- timeout: 6
---- response_body
-QLESS
 --- no_error_log
 [error]
