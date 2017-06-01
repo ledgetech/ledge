@@ -223,17 +223,6 @@ end
 
 
 
-
-
-
--- Body reader for when the response body is missing
---
--- TODO response
-local function _no_body_reader()
-    return nil
-end
-
-
 -- Close and optionally keepalive the redis connection
 -- TODO either in state machine or something
 function _M.redis_close(self)

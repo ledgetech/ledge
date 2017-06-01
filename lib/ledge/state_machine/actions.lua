@@ -63,7 +63,7 @@ return {
 
     install_no_body_reader = function(handler)
         local res = handler:get_response()
-        res.body_reader = handler._no_body_reader
+        res.body_reader = res.empty_body_reader
     end,
 
     install_gzip_decoder = function(handler)

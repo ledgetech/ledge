@@ -40,10 +40,6 @@ local NOCACHE_HEADERS = {
 }
 
 
--- Const functions
-local _empty_body_reader = function() return nil end
-
-
 local _M = {
     _VERSION = '1.28.4',
     DEBUG = false,
@@ -54,6 +50,14 @@ local mt = {
     __newindex = function() error("module fields are read only", 2) end,
     __metatable = false,
 }
+
+-- Body reader for when the response body is missing
+--
+-- TODO response
+local function empty_body_reader()
+    return nil
+end
+_M.empty_body_reader = empty_body_reader
 
 
 function _M.new(ctx, key_chain)
@@ -82,7 +86,7 @@ function _M.new(ctx, key_chain)
 
         -- body
         entity_id = "",
-        body_reader = _empty_body_reader,
+        body_reader = empty_body_reader,
 
         -- runtime metadata (not persisted)
         length = 0,  -- If Content-Length is present
