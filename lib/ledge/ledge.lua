@@ -122,7 +122,7 @@ local WARNINGS = {
 
 
 local _M = {
-    _VERSION = '1.28.4',
+    _VERSION = '1.28.5',
     DEBUG = false,
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503.

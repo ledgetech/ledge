@@ -6,7 +6,7 @@ local ngx_null = ngx.null
 
 
 local _M = {
-    _VERSION = '1.28.4',
+    _VERSION = '1.28.5',
 }
 
 

@@ -9,9 +9,10 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_null = ngx.null
 local ngx_md5 = ngx.md5
+local tbl_getn = table.getn
 
 local _M = {
-    _VERSION = '1.28.4',
+    _VERSION = '1.28.5',
 }
 
 
@@ -59,24 +60,26 @@ function _M.expire_pattern(cursor, job)
     if not res or res == ngx_null then
         return nil, "SCAN error: " .. tostring(err)
     else
-        -- Create a Ledge instance and give it just enough scaffolding to run
-        -- a headless PURGE. Remember there's no real request context here.
-        local ledge = require("ledge.ledge").new()
-        ledge:config_set("redis_database", job.redis_params.db)
-        ledge:config_set("redis_qless_database", job.redis_qless_database)
-        ledge:ctx().redis = job.redis
-        ledge:set_response(response.new())
+        if tbl_getn(res[2]) > 0 then
+            -- Create a Ledge instance and give it just enough scaffolding to
+            -- run a headless PURGE. Remember there's no real request context.
+            local ledge = require("ledge.ledge").new()
+            ledge:config_set("redis_database", job.redis_params.db)
+            ledge:config_set("redis_qless_database", job.redis_qless_database)
+            ledge:ctx().redis = job.redis
+            ledge:set_response(response.new())
 
-        for _,key in ipairs(res[2]) do
-            -- Strip the "main" suffix to find the cache key
-            local cache_key = str_sub(key, 1, -(str_len("::main") + 1))
-            ledge:ctx().cache_key = cache_key
+            for _,key in ipairs(res[2]) do
+                -- Strip the "main" suffix to find the cache key
+                local cache_key = str_sub(key, 1, -(str_len("::main") + 1))
+                ledge:ctx().cache_key = cache_key
 
-            local ok, res, err = pcall(ledge.purge, ledge, job.data.purge_mode)
-            if not ok then
-                ngx_log(ngx_ERR, tostring(res))
-            elseif err then
-                ngx_log(ngx_ERR, err)
+                local ok, res, err = pcall(ledge.purge, ledge, job.data.purge_mode)
+                if not ok then
+                    ngx_log(ngx_ERR, tostring(res))
+                elseif err then
+                    ngx_log(ngx_ERR, err)
+                end
             end
         end
 
