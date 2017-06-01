@@ -13,7 +13,7 @@ local _M = {
 return {
     -- Initial transition (entry point). Connect to redis.
     init = {
-        { begin = "checking_method" },
+        { begin = "checking_method", but_first = "filter_esi_args" },
     },
 
     cacheable_method = {

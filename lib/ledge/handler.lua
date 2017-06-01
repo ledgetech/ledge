@@ -93,7 +93,8 @@ local function new(config)
         storage = {},
         state_machine = {},
         range = {},
-        response = true,
+        response = {},
+        esi_processor = {},
 
         -- TODO These fields were in ctx, now in self, collided with function
         -- names.
@@ -236,7 +237,7 @@ function _M.set_response(self, res, name)
   --  local name = name or "response"
   --  get_ctx(self)[name] = res
     if not res then
-        self.response = true
+        self.response = {}
     else
         self.response = res
     end

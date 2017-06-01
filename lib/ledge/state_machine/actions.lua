@@ -1,3 +1,5 @@
+local type, next = type, next 
+
 local esi = require("ledge.esi")
 local response = require("ledge.response")
 
@@ -26,8 +28,7 @@ return {
 
     httpc_close = function(handler)
         local res = handler:get_response()
-        -- TODO fix ambiguous "res is a boolean" issue
-        if type(res) == "table" then
+        if next(res) then
             local httpc = res.conn
             if httpc and type(httpc.set_keepalive) == "function" then
                 return httpc:set_keepalive()
@@ -94,7 +95,8 @@ return {
         local res = handler:get_response()
         local ctx = handler
         local esi_processor = handler.esi_processor
-        if esi_processor then
+
+        if next(esi_processor) then
             res:filter_body_reader(
                 "esi_scan_filter",
                 esi_processor:get_scan_filter(res)
@@ -112,12 +114,14 @@ return {
     install_esi_process_filter = function(handler)
         local res = handler:get_response()
         local esi_processor = handler.esi_processor
-        if esi_processor then
+
+        if next(esi_processor) then
             res:filter_body_reader(
                 "esi_process_filter",
                 esi_processor:get_process_filter(
                     res,
-                    handler:config_get("esi_pre_include_callback"),
+                    -- TODO this callback should be a bind now
+                    nil, --handler:config_get("before_esi_include_request"),
                     handler:config_get("esi_recursion_limit")
                 )
             )

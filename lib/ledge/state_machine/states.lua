@@ -86,9 +86,7 @@ return {
     checking_cache = function(sm, handler)
         local res = handler:get_response()
 
-        -- TODO this type check is because res might be bool
-        -- because of fixed field metatables. Hmm
-        if not res or type(res) ~= "table" then
+        if not next(res) then
             return sm:e "cache_missing"
         elseif res:has_expired() then
             return sm:e "cache_expired"
@@ -154,7 +152,7 @@ return {
             return sm:e "esi_process_disabled"
         end
 
-        if not handler.esi_processor then
+        if not next(handler.esi_processor) then
             -- On the fast path with ESI already detected, the processor wont have been loaded
             -- yet, so we must do that now
             -- TODO: Perhaps the state machine can load the processor to avoid this weird check
