@@ -121,6 +121,12 @@ local function new(config)
 
     }, get_fixed_field_metatable_proxy(_M))
 
+    return self
+end
+_M.new = new
+
+
+local function run(self)
     -- Install the client abort handler
     local ok, err = ngx_on_abort(function()
         return self:e "aborted"
@@ -130,12 +136,6 @@ local function new(config)
        ngx_log(ngx_WARN, "on_abort handler could not be set: " .. err)
     end
 
-    return self
-end
-_M.new = new
-
-
-local function run(self)
     -- Create Redis connection
     local redis, err = ledge.create_redis_connection()
     if not redis then
