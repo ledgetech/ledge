@@ -1,61 +1,56 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 7);
 
 my $pwd = cwd();
 
+$ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require "resty.core"
-        end
-        ledge_mod = require "ledge.ledge"
-        ledge = ledge_mod:new()
-        ledge:config_set("upstream_host", "127.0.0.1")
-        ledge:config_set("upstream_port", 1984)
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+        require("luacov.runner").init()
+    end
 
-        ledge.miss_count = 0
+    require("ledge").configure({
+        redis_connector_params = {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        },
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
 
-        require("ledge").configure({
-            redis_connector_params = {
+    require("ledge").set_handler_defaults({
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
-            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-        })
+        }
+    })
 
-        require("ledge").set_handler_defaults({
-            upstream_port = 1984,
-            storage_driver_config = {
-                redis_connector = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                },
-            }
-        })
+    package.loaded["state"] = {
+        miss_count = 0,
     }
+}
 
-    init_worker_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-        end
-        require("ledge").create_worker():run()
-    }
+init_worker_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+    end
+    require("ledge").create_worker():run()
+}
+
 };
 
 no_long_string();
+no_diff();
 run_tests();
+
 
 __DATA__
 === TEST 1: Honour max-stale request header for an expired item
@@ -64,26 +59,27 @@ __DATA__
 location /stale_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             -- immediately expire
             res.header["Cache-Control"] = "max-age=0"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_1 {
     content_by_lua_block {
-        ledge.miss_count = ledge.miss_count + 1
+        local state = require("state")
+        state.miss_count = state.miss_count + 1
         ngx.status = 404
         ngx.header["Cache-Control"] = "max-age=60"
-        ngx.print("TEST 1: ", ledge.miss_count)
+        ngx.print("TEST 1: ", state.miss_count)
     }
 }
 --- more_headers
 Cache-Control: max-stale=1000
 --- request eval
 ["GET /stale_1_prx", "GET /stale_1_prx"]
---- wait: 2
 --- response_body eval
 ["TEST 1: 1", "TEST 1: 1"]
 --- response_headers_like eval
@@ -100,7 +96,7 @@ Cache-Control: max-stale=1000
 location /stale_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 --- more_headers
@@ -122,19 +118,22 @@ Warning: 110 (?:[^\s]*) "Response is stale"
 location /stale_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        require("ledge.state_machine").set_debug(true)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             -- immediately expire
             res.header["Cache-Control"] = "max-age=0, proxy-revalidate"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_5 {
     content_by_lua_block {
-        ledge.miss_count = ledge.miss_count + 1
+        local state = require("state")
+        state.miss_count = state.miss_count + 1
         ngx.status = 404
         ngx.header["Cache-Control"] = "max-age=3600, proxy-revalidate"
-        ngx.print("TEST 5: ", ledge.miss_count)
+        ngx.print("TEST 5: ", state.miss_count)
     }
 }
 --- more_headers
@@ -157,19 +156,21 @@ Cache-Control: max-stale=120
 location /stale_6_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             -- immediately expire
             res.header["Cache-Control"] = "max-age=0, must-revalidate"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_6 {
     content_by_lua_block {
-        ledge.miss_count = ledge.miss_count + 1
+        local state = require("state")
+        state.miss_count = state.miss_count + 1
         ngx.status = 404
         ngx.header["Cache-Control"] = "max-age=3600, must-revalidate"
-        ngx.print("TEST 6: ", ledge.miss_count)
+        ngx.print("TEST 6: ", state.miss_count)
     }
 }
 --- more_headers
@@ -192,19 +193,21 @@ Cache-Control: max-stale=120
 location /stale_7_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             -- immediately expire
             res.header["Cache-Control"] = "max-age=0"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_7 {
     content_by_lua_block {
-        ledge.miss_count = ledge.miss_count + 1
+        local state = require("state")
+        state.miss_count = state.miss_count + 1
         ngx.status = 404
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.print("TEST 7: ", ledge.miss_count)
+        ngx.print("TEST 7: ", state.miss_count)
     }
 }
 --- more_headers
