@@ -84,13 +84,13 @@ _M.verify_stale_conditions = verify_stale_conditions
 
 
 local function can_serve_stale_while_revalidate(res)
-    verify_stale_conditions(res, "stale-while-revalidate")
+    return verify_stale_conditions(res, "stale-while-revalidate")
 end
 _M.can_serve_stale_while_revalidate = can_serve_stale_while_revalidate
 
 
 local function can_serve_stale_if_error(res)
-    verify_stale_conditions(res, "stale-if-error")
+    return verify_stale_conditions(res, "stale-if-error")
 end
 _M.can_serve_stale_if_error = can_serve_stale_if_error
 

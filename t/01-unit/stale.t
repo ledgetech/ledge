@@ -86,6 +86,22 @@ location /t {
         assert(tostring(verify_stale_conditions(res, token)) == stale,
             "verify_stale_conditions should be " .. stale)
 
+        if token == "stale-while-revalidate" then
+
+            local can_serve_stale_while_revalidate =
+                require("ledge.stale").can_serve_stale_while_revalidate
+
+            assert(tostring(can_serve_stale_while_revalidate(res)) == stale,
+                "can_serve_stale_while_revalidate should be " .. stale)
+        elseif token == "stale-if-error" then
+
+            local can_serve_stale_if_error = 
+                require("ledge.stale").can_serve_stale_if_error
+
+            assert(tostring(can_serve_stale_if_error(res)) == stale,
+                "can_serve_stale_if_error should be " .. stale)
+        end
+
     }
 }
 --- more_headers eval
