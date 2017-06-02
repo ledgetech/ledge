@@ -1,58 +1,56 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => 123;
 
 my $pwd = cwd();
 
+$ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require 'resty.core'
-        end
-        ledge_mod = require 'ledge.ledge'
-        ledge = ledge_mod:new()
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+        require("luacov.runner").init()
+    end
 
-        require("ledge").configure({
-            redis_connector_params = {
+    require("ledge").configure({
+        redis_connector_params = {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        },
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
+
+    require("ledge").set_handler_defaults({
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
-            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-        })
+        }
+    })
 
-        require("ledge").set_handler_defaults({
-            upstream_port = 1984,
-            storage_driver_config = {
-                redis_connector = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                },
-            }
-        })
+    package.loaded["state"] = {
+        req = 1,
     }
-    init_worker_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-        end
-        require("ledge").create_worker():run()
-    }
+}
+
+init_worker_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+    end
+    require("ledge").create_worker():run()
+}
+
 };
 
 no_long_string();
+no_diff();
 run_tests();
+
 
 __DATA__
 === TEST 1: Prime cache for subsequent tests
@@ -61,7 +59,7 @@ __DATA__
 location /stale_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /stale_1 {
@@ -88,17 +86,17 @@ X-Cache: MISS from .*
 location /stale_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /stale_1 {
     content_by_lua_block {
-        if not ledge.req then ledge.req = 1 end
+        local state = require("state")
 
         ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
-        ngx.print("ORIGIN: ", ledge.req)
+        ngx.print("ORIGIN: ", state.req)
 
-        ledge.req = ledge.req + 1
+        state.req = state.req + 1
     }
 }
 --- more_headers eval
@@ -121,10 +119,11 @@ location /stale_1 {
 location /stale_2_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_2 {
@@ -146,26 +145,26 @@ X-Cache: MISS from .*
 [error]
 
 
-=== TEST 2b: Request doesn't accept stale, for different reasons
+=== TEST 2b: Request does not accept stale, for different reasons
 --- http_config eval: $::HttpConfig
 --- config
 location /stale_2_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_2 {
     content_by_lua_block {
-        if not ledge.req then ledge.req = 1 end
-
+        local state = require("state")
         ngx.header["Cache-Control"] = "max-age=3600, s-maxage=60, stale-while-revalidate=60"
-        ngx.print("ORIGIN: ", ledge.req)
+        ngx.print("ORIGIN: ", state.req)
 
-        ledge.req = ledge.req + 1
+        state.req = state.req + 1
     }
 }
 --- more_headers eval
@@ -189,10 +188,11 @@ location /stale_2 {
 location /stale_3_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_3 {
@@ -218,7 +218,7 @@ X-Cache: MISS from .*
 location /stale_3_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /stale_3 {
@@ -246,7 +246,7 @@ location /stale_3 {
 location /stale_3_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /stale_3 {
@@ -268,10 +268,11 @@ GET /stale_3_prx
 location /stale_4_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60, must-revalidate"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_4 {
@@ -299,7 +300,7 @@ X-Cache: MISS from .*
 location /stale_4_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /stale_4 {
@@ -326,10 +327,11 @@ Warning: .*
 location /stale_4_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60, proxy-revalidate"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_4 {
@@ -357,7 +359,7 @@ X-Cache: MISS from .*
 location /stale_4_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /stale_4 {
@@ -384,11 +386,12 @@ Warning: .*
 location /stale_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             -- immediately expire cache entries
             res.header["Cache-Control"] = "max-age=0, s-maxage=0, stale-while-revalidate=60"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_5 {
@@ -413,11 +416,12 @@ TEST 5
 location /stale_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save_revalidation_data", function(reval_params, reval_headers)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save_revalidation_data", function(reval_params, reval_headers)
             reval_headers["X-Test"] = ngx.req.get_headers()["X-Test"]
             reval_headers["Cookie"] = ngx.req.get_headers()["Cookie"]
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_5 {
@@ -447,7 +451,7 @@ TEST 5
 location /stale_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 --- request
@@ -466,11 +470,12 @@ Cookie: baz=qux
 location /stale_reval_params_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             -- immediately expire cache entries
             res.header["Cache-Control"] = "max-age=0, stale-while-revalidate=60"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_reval_params {
@@ -482,11 +487,9 @@ location /stale_reval_params {
 location /stale_reval_params_remove {
     rewrite ^(.*)_remove$ $1 break;
     content_by_lua_block {
-        local redis_mod = require "resty.redis"
-        local redis = redis_mod.new()
-        redis:connect("127.0.0.1", 6379)
-        redis:select(ledge:config_get("redis_connection").db)
-        local key_chain = ledge:cache_key_chain()
+        local redis = require("ledge").create_redis_connection()
+        local handler = require("ledge").create_handler()
+        local key_chain = handler:cache_key_chain()
 
         redis:del(key_chain.reval_req_headers)
         redis:del(key_chain.reval_params)
@@ -505,13 +508,13 @@ Cache-Control: no-cache
 [error]
 
 
-=== TEST 6b: Stale revalidation doesn't choke on missing previous revalidation data.
+=== TEST 6b: Stale revalidation does not choke on missing revalidation data.
 --- http_config eval: $::HttpConfig
 --- config
 location /stale_reval_params_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /stale_reval_params {
@@ -539,7 +542,7 @@ Could not determine expiry for revalidation params. Will fallback to 3600 second
 location /stale_reval_params_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 --- request
@@ -556,11 +559,12 @@ GET /stale_reval_params_prx
 location /stale_reval_params_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:bind("before_save", function(res)
+        local handler = require("ledge").create_handler()
+        handler:bind("before_save", function(res)
             -- immediately expire cache entries
             res.header["Cache-Control"] = "max-age=0, stale-while-revalidate=60"
         end)
-        ledge:run()
+        handler:run()
     }
 }
 location /stale_reval_params {
@@ -585,7 +589,7 @@ Cache-Control: no-cache
 location /stale_reval_params_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /stale_reval_params {
@@ -609,7 +613,7 @@ location /stale_reval_params {
 location /stale_reval_params_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 --- request eval
