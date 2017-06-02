@@ -1,58 +1,52 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 4) - 6;
 
 my $pwd = cwd();
 
+$ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require 'resty.core'
-        end
-        ledge_mod = require 'ledge.ledge'
-        ledge = ledge_mod:new()
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+        require("luacov.runner").init()
+    end
 
-        require("ledge").configure({
-            redis_connector_params = {
+    require("ledge").configure({
+        redis_connector_params = {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        },
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
+
+    require("ledge").set_handler_defaults({
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
-            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-        })
+        }
+    })
+}
 
-        require("ledge").set_handler_defaults({
-            upstream_port = 1984,
-            storage_driver_config = {
-                redis_connector = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                },
-            }
-        })
-    }
-    init_worker_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-        end
-        require("ledge").create_worker():run()
-    }
+init_worker_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        jit.off()
+    end
+    require("ledge").create_worker():run()
+}
+
 };
 
 no_long_string();
+no_diff();
 run_tests();
+
 
 __DATA__
 === TEST 1: Prime cache for subsequent tests
@@ -60,15 +54,15 @@ __DATA__
 --- config
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /purge_cached {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 1")
-    ';
+    }
 }
 --- request
 GET /purge_cached_prx
@@ -82,9 +76,9 @@ TEST 1
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached {
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 
 --- request eval
@@ -103,15 +97,15 @@ location /purge_cached {
 --- config
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /purge_cached {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 3")
-    ';
+    }
 }
 --- request
 GET /purge_cached_prx
@@ -125,9 +119,9 @@ TEST 3
 --- http_config eval: $::HttpConfig
 --- config
 location /foobar {
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 
 --- request
@@ -143,16 +137,17 @@ PURGE /foobar
 --- config
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 0)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            keep_cache_for = 0,
+        }):run()
+    }
 }
 location /purge_cached {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5")
-    ';
+    }
 }
 --- request
 GET /purge_cached_prx?t=1
@@ -166,9 +161,9 @@ TEST 5
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached {
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 PURGE /purge_cached*
@@ -184,16 +179,17 @@ PURGE /purge_cached*
 --- config
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 0)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 0,
+        }):run()
+    }
 }
 location /purge_cached {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5c")
-    ';
+    }
 }
 --- request
 GET /purge_cached_prx?t=1
@@ -208,16 +204,17 @@ TEST 5c
 --- config
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 0)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 0,
+        }):run()
+    }
 }
 location /purge_cached {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5d")
-    ';
+    }
 }
 --- request
 GET /purge_cached_prx
@@ -231,9 +228,9 @@ TEST 5d
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_c {
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 PURGE /purge_c*
@@ -248,16 +245,14 @@ PURGE /purge_c*
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached {
-    content_by_lua '
-        local redis_mod = require "resty.redis"
-        local redis = redis_mod.new()
-        redis:connect("127.0.0.1", 6379)
-        redis:select(ledge:config_get("redis_connection").db)
-        local key_chain = ledge:cache_key_chain()
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local handler = require("ledge").create_handler()
+        local key_chain = handler:cache_key_chain()
 
         local num_entities, err = redis:scard(key_chain.entities)
         ngx.say("entities: ", num_entities)
-    ';
+    }
 }
 --- request
 GET /purge_cached
@@ -272,15 +267,15 @@ entities: 1
 --- config
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /purge_cached {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 5")
-    ';
+    }
 }
 --- request
 GET /purge_cached_prx?t=1
@@ -294,9 +289,9 @@ TEST 5
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_c {
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 PURGE /purge_ca*ed
@@ -312,10 +307,9 @@ PURGE /purge_ca*ed
 --- config
 location /purge_cached_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ngx.sleep(1) -- Wait for qless work
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 GET /purge_cached_prx?t=1
@@ -330,16 +324,17 @@ TEST 5
 --- config
 location /purge_cached_8_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
 }
 location /purge_cached_8 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 8")
-    ';
+    }
 }
 --- request
 GET /purge_cached_8_prx
@@ -353,10 +348,11 @@ TEST 8
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_8 {
-    content_by_lua '
-        ledge:config_set("keyspace_scan_count", 1)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keyspace_scan_count = 1,
+        }):run()
+    }
 }
 --- request
 PURGE /purge_cached_8*
@@ -372,15 +368,15 @@ PURGE /purge_cached_8*
 --- config
 location /purge_cached_8_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /purge_cached_8 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 8c")
-    ';
+    }
 }
 --- request
 GET /purge_cached_8_prx
@@ -396,16 +392,17 @@ TEST 8c
 --- config
 location /purge_cached_9_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
 }
 location /purge_cached_9 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 9: ", ngx.req.get_headers()["Cookie"])
-    ';
+    }
 }
 --- more_headers
 Cookie: primed
@@ -422,15 +419,15 @@ TEST 9: primed
 --- config
 location /purge_cached_9_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /purge_cached_9 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 9 Revalidated: ", ngx.req.get_headers()["Cookie"])
-    ';
+    }
 }
 --- more_headers
 X-Purge: revalidate
@@ -448,9 +445,9 @@ PURGE /purge_cached_9_prx
 --- config
 location /purge_cached_9_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 GET /purge_cached_9_prx
@@ -466,15 +463,15 @@ TEST 9 Revalidated: primed
 --- config
 location /purge_cached_10_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /purge_cached_10 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.print("TEST 10: ", ngx.req.get_uri_args()["a"], " ", ngx.req.get_headers()["Cookie"])
-    ';
+    }
 }
 --- more_headers
 Cookie: primed
@@ -491,16 +488,16 @@ Cookie: primed
 --- config
 location /purge_cached_10_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /purge_cached_10 {
     rewrite ^(.*)$ $1_origin break;
-    content_by_lua '
+    content_by_lua_block {
         local a = ngx.req.get_uri_args()["a"]
         ngx.log(ngx.DEBUG, "TEST 10 Revalidated: ", a, " ", ngx.req.get_headers()["Cookie"])
-    ';
+    }
 }
 --- more_headers
 X-Purge: revalidate
@@ -520,16 +517,17 @@ PURGE /purge_cached_10_prx?*
 --- config
 location /purge_cached_11_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
 }
 location /purge_cached_11 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.print("TEST 11")
-    ';
+    }
 }
 --- request
 GET /purge_cached_11_prx
@@ -543,10 +541,11 @@ GET /purge_cached_11_prx
 --- config
 location /purge_cached_11_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
 }
 --- more_headers
 X-Purge: delete
@@ -563,15 +562,16 @@ PURGE /purge_cached_11_prx
 --- config
 location /purge_cached_11_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
 }
 location /purge_cached_11 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.print("ORIGIN")
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-stale=1000
@@ -588,16 +588,17 @@ GET /purge_cached_11_prx
 --- config
 location /purge_cached_12_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
 }
 location /purge_cached_12 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.print("TEST 12: ", ngx.req.get_uri_args()["a"])
-    ';
+    }
 }
 --- request eval
 [ "GET /purge_cached_12_prx?a=1", "GET /purge_cached_12_prx?a=2" ]
@@ -612,10 +613,11 @@ location /purge_cached_12 {
 --- config
 location /purge_cached_12_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
 }
 --- more_headers
 X-Purge: delete
@@ -633,15 +635,16 @@ PURGE /purge_cached_12_prx?*
 --- config
 location /purge_cached_12_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:config_set("keep_cache_for", 3600)
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
 }
 location /purge_cached_12 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.print("ORIGIN: ", ngx.req.get_uri_args()["a"])
-    ';
+    }
 }
 --- more_headers
 Cache-Control: max-stale=1000
@@ -664,29 +667,22 @@ location /purge_cached_13_prx {
             -- Set query string to match original request
             ngx.req.set_uri_args({a=1})
 
-            -- Connect to redis
-            local redis = require("resty.redis"):new()
-            redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_connection").db)
-            ledge:ctx().redis = redis
-
-            local key_chain = ledge:cache_key_chain()
+            local redis = require("ledge").create_redis_connection()
+            local handler = require("ledge").create_handler()
+            local key_chain = handler:cache_key_chain()
 
             if sabotage == "uri" then
                 redis:hdel(key_chain.main, "uri")
                 ngx.print("Sabotaged: uri")
             elseif sabotage == "body" then
-                local storage = require("ledge.storage.redis").new(ledge, ledge:ctx())
+                handler.storage = require("ledge").create_storage_connection()
 
-                local ok, err = storage:connect(ledge:config_get("storage_connection"))
-                ledge:ctx().storage = storage
-
-                storage:delete(redis:hget(key_chain.main, entity))
+                handler.storage:delete(redis:hget(key_chain.main, entity))
 
                 ngx.print("Sabotaged: body storage")
             end
         else
-            ledge:run()
+            require("ledge").create_handler():run()
         end
     }
 }
@@ -718,7 +714,7 @@ Cookie: primed
 location /purge_cached_13_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:run()
+        require("ledge").create_handler():run()
     }
 }
 location /purge_cached_13 {
@@ -733,7 +729,7 @@ X-Purge: revalidate
 --- request
 PURGE /purge_cached_13_prx?*
 --- wait: 2
---- error_log eval
-["TEST 13 Revalidated: 2 primed"]
+--- error_log
+TEST 13 Revalidated: 2 primed
 --- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[0-9a-f]{32}","options":\{"tags":\["purge"\],"jid":"[0-9a-f]{32}","priority":5}},"purge_mode":"revalidate"}
 --- error_code: 200
