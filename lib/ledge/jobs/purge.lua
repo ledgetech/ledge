@@ -63,20 +63,18 @@ function _M.expire_pattern(cursor, job)
         return nil, "SCAN error: " .. tostring(err)
     else
         if tbl_getn(res[2]) > 0 then
-            -- Create a Ledge instance and give it just enough scaffolding to
-            -- run a headless PURGE. Remember there's no real request context.
-            local ledge = require("ledge.ledge").new()
-            ledge:config_set("redis_database", job.redis_params.db)
-            ledge:config_set("redis_qless_database", job.redis_qless_database)
-            ledge:ctx().redis = job.redis
-            ledge:set_response(response.new())
+            local handler = require("ledge").create_handler()
+            handler.redis = require("ledge").create_redis_connection()
+            -- TODO this needs to come from serialised job data?
+            handler.storage = require("ledge").create_storage_connection()
+            handler.response = response.new({}, {})
 
             for _,key in ipairs(res[2]) do
                 -- Strip the "main" suffix to find the cache key
                 local cache_key = str_sub(key, 1, -(str_len("::main") + 1))
-                ledge:ctx().cache_key = cache_key
+                handler.t_cache_key = cache_key
 
-                local ok, res, err = pcall(ledge.purge, ledge, job.data.purge_mode)
+                local ok, res, err = pcall(handler.purge, handler, job.data.purge_mode)
                 if not ok then
                     ngx_log(ngx_ERR, tostring(res))
                 elseif err then
