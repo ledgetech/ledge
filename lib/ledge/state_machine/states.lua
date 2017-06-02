@@ -288,7 +288,8 @@ return {
         if not res then
             return sm:e "http_gateway_timeout"
         else
-            redis:set_timeout(handler:config_get("redis_read_timeout"))
+            -- TODO this config is now in the singleton
+            redis:set_timeout(60) --handler:config_get("redis_read_timeout"))
             redis:unsubscribe()
 
             -- This is overly explicit for the sake of state machine introspection. That is
