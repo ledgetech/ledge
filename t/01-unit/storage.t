@@ -1,108 +1,100 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 3);
 
 my $pwd = cwd();
 
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_USE_RESTY_CORE} ||= 'nil';
-$ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-    lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;;";
 
 
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require "resty.core"
-        end
-
-        -- Define storage backends here, and add requests to each test
-        -- with backend=<backend> params.
-        backends = {
-            redis = {
-                module = "ledge.storage.redis",
-                params = {
-                    redis_connector = {
-                        db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                    },
+    -- Define storage backends here, and add requests to each test
+    -- with backend=<backend> params.
+    backends = {
+        redis = {
+            module = "ledge.storage.redis",
+            params = {
+                redis_connector = {
+                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
                 },
             },
-        }
-
-
-        -- Utility returning an iterator over given chunked data
-        function get_source(data)
-            local index = 0
-            return function()
-                index = index + 1
-                if data[index] then
-                    return data[index][1], data[index][2], data[index][3]
-                end
-            end
-        end
-
-
-        -- Utility returning an iterator over given chunked data, but which
-        -- fails (simulating connection failure) at fail_pos iteration.
-        function get_and_fail_source(data, fail_pos, storage)
-            local index = 0
-            return function()
-                index = index + 1
-
-                if index == fail_pos then
-                    storage.redis:close()
-                end
-
-                if data[index] then
-                    return data[index][1], data[index][2], data[index][3]
-                end
-            end
-        end
-
-
-        -- Utility to read the body as is serving
-        function sink(iterator)
-            repeat
-                local chunk, err, has_esi = iterator()
-                if chunk then
-                    ngx.say(chunk, ":", err, ":", tostring(has_esi))
-                end
-            until not chunk
-        end
-
-
-        -- Utilitu to report success and the size written
-        function success_handler(bytes_written)
-            ngx.say("wrote ", bytes_written, " bytes")
-        end
-
-
-        -- Utility to report the onfailure event was called
-        function failure_handler(reason)
-            ngx.say(reason)
-        end
-
-
-        -- Response object stub
-        _res = {}
-        local _mt = { __index = _res }
-
-        function _res.new(entity_id)
-            return setmetatable({
-                entity_id = entity_id,
-                body_reader = function() return nil end,
-            }, _mt)
-        end
+        },
     }
+
+
+    -- Utility returning an iterator over given chunked data
+    function get_source(data)
+        local index = 0
+        return function()
+            index = index + 1
+            if data[index] then
+                return data[index][1], data[index][2], data[index][3]
+            end
+        end
+    end
+
+
+    -- Utility returning an iterator over given chunked data, but which
+    -- fails (simulating connection failure) at fail_pos iteration.
+    function get_and_fail_source(data, fail_pos, storage)
+        local index = 0
+        return function()
+            index = index + 1
+
+            if index == fail_pos then
+                storage.redis:close()
+            end
+
+            if data[index] then
+                return data[index][1], data[index][2], data[index][3]
+            end
+        end
+    end
+
+
+    -- Utility to read the body as is serving
+    function sink(iterator)
+        repeat
+            local chunk, err, has_esi = iterator()
+            if chunk then
+                ngx.say(chunk, ":", err, ":", tostring(has_esi))
+            end
+        until not chunk
+    end
+
+
+    -- Utilitu to report success and the size written
+    function success_handler(bytes_written)
+        ngx.say("wrote ", bytes_written, " bytes")
+    end
+
+
+    -- Utility to report the onfailure event was called
+    function failure_handler(reason)
+        ngx.say(reason)
+    end
+
+
+    -- Response object stub
+    _res = {}
+    local _mt = { __index = _res }
+
+    function _res.new(entity_id)
+        return setmetatable({
+            entity_id = entity_id,
+            body_reader = function() return nil end,
+        }, _mt)
+    end
+}
+
 };
 
 no_long_string();

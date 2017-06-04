@@ -16,7 +16,6 @@ lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-rest
 
 init_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
-        jit.off()
         require("luacov.runner").init()
     end
 
@@ -38,9 +37,6 @@ init_by_lua_block {
 }
 
 init_worker_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        jit.off()
-    end
     require("ledge").create_worker():run()
 }
 
