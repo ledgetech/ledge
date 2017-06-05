@@ -174,12 +174,6 @@ end
 _M.config_get = config_get
 
 
--- DEPRECATED
--- Use self directly
-local function get_ctx(self)
-    return self
-end
-
 
 -- Bind a user callback to an event
 --
@@ -236,7 +230,7 @@ end
 -- TODO deprecated. Err response needs its own space
 function _M.set_response(self, res, name)
   --  local name = name or "response"
-  --  get_ctx(self)[name] = res
+  --  self.name] = res
     if not res then
         self.response = {}
     else
@@ -249,14 +243,14 @@ end
 function _M.get_response(self, name)
     return self.response
   --  local name = name or "response"
-  --  return get_ctx(self)[name]
+  --  return self.name]
 end
 
 
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
-    if get_ctx(self).t_cache_key == "" then
+    if self.t_cache_key == "" then
 
         -- If there is is a wildcard PURGE request with an asterisk placed
         -- at the end of the path, and we have no args, use * as the args.
@@ -282,9 +276,9 @@ function _M.cache_key(self)
         }
         tbl_insert(key_spec, 1, "cache")
         tbl_insert(key_spec, 1, "ledge")
-        get_ctx(self).t_cache_key = tbl_concat(key_spec, ":")
+        self.t_cache_key = tbl_concat(key_spec, ":")
     end
-    return get_ctx(self).t_cache_key
+    return self.t_cache_key
 end
 
 
@@ -315,18 +309,18 @@ end
 
 
 function _M.cache_key_chain(self)
-    if type(get_ctx(self).t_cache_key_chain ~= "table") then
+    if type(self.t_cache_key_chain ~= "table") then
         local cache_key = self:cache_key()
-        get_ctx(self).t_cache_key_chain = self:key_chain(cache_key)
+        self.t_cache_key_chain = self:key_chain(cache_key)
     end
-    return get_ctx(self).t_cache_key_chain
+    return self.t_cache_key_chain
 end
 
 
 -- TODO response?
 function _M.entity_id(self, key_chain)
     if not key_chain and key_chain.main then return nil end
-    local redis = get_ctx(self).redis
+    local redis = self.redis
 
     local entity_id, err = redis:hget(key_chain.main, "entity")
     if not entity_id or entity_id == ngx_null then
@@ -385,7 +379,7 @@ end
 -- Returns true if the lock was acquired, false if the lock already
 -- exists, and nil, err in case of failure.
 function _M.acquire_lock(self, lock_key, timeout)
-    local redis = get_ctx(self).redis
+    local redis = self.redis
 
     -- We use a Lua script to emulate SETNEX (set if not exists with expiry).
     -- This avoids a race window between the GET / SETEX.
@@ -464,7 +458,7 @@ end
 
 
 function _M.read_from_cache(self)
-    local ctx = get_ctx(self)
+    local ctx = self
 
     local res = response.new(ctx, self:cache_key_chain())
     local ok, err = res:read()
@@ -506,7 +500,7 @@ end
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response.new(get_ctx(self), self:cache_key_chain())
+    local res = response.new(self, self:cache_key_chain())
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
     if not method then
@@ -678,7 +672,7 @@ end
 
 -- TODO background
 function _M.revalidate_in_background(self, update_revalidation_data)
-    local redis = get_ctx(self).redis
+    local redis = self.redis
     local key_chain = self:cache_key_chain()
 
     -- Revalidation data is updated if this is a proper request, but not if it's a purge request.
@@ -751,7 +745,7 @@ function _M.save_to_cache(self, res)
 
     -- Length is only set if there was a Content-Length header
     local length = res.length
-    local storage = get_ctx(self).storage
+    local storage = self.storage
     local max_size = storage:get_max_size()
     if length and length > max_size then
         -- We'll carry on serving, just not saving.
@@ -762,7 +756,7 @@ function _M.save_to_cache(self, res)
     -- Watch the main key pointer. We abort the transaction if another request
     -- updates this key before we finish.
     local key_chain = self:cache_key_chain()
-    local redis = get_ctx(self).redis
+    local redis = self.redis
     redis:watch(key_chain.main)
 
     -- We'll need to mark the old entity for expiration shortly, as reads could still
@@ -882,7 +876,7 @@ end
 
 
 function _M.delete_from_cache(self)
-    local redis = get_ctx(self).redis
+    local redis = self.redis
     local key_chain = self:cache_key_chain()
 
     local entity_id = self:entity_id(key_chain)
@@ -908,10 +902,10 @@ end
 -- Purges the cache item according to X-Purge instructions, which defaults to "invalidate".
 -- If there's nothing to do we return false which results in a 404.
 function _M.purge(self, purge_mode)
-    local redis = get_ctx(self).redis
+    local redis = self.redis
     local key_chain = self:cache_key_chain()
     local entity_id, err = redis:hget(key_chain.main, "entity")
-    local storage = get_ctx(self).storage
+    local storage = self.storage
 
     local resp = self:get_response()
 
@@ -1000,8 +994,8 @@ end
 
 -- Expires the keys in key_chain and the entity provided by entity_keys
 function _M.expire_keys(self, key_chain, entity_id)
-    local redis = get_ctx(self).redis
-    local storage = get_ctx(self).storage
+    local redis = self.redis
+    local storage = self.storage
 
     local exists, err =  redis:exists(key_chain.main)
     if exists == 1 then
@@ -1069,7 +1063,7 @@ function _M.serve(self)
 
         -- X-Cache header
         -- Don't set if this isn't a cacheable response. Set to MISS is we fetched.
-        local ctx = get_ctx(self)
+        local ctx = self
         local state_history = self.state_machine.state_history
         local event_history = self.state_machine.event_history
 
@@ -1117,7 +1111,7 @@ function _M.serve_body(self, res, buffer_size)
     local buffered = 0
     local reader = res.body_reader
     local can_flush = ngx_req_http_version() >= 1.1
-    local ctx = get_ctx(self)
+    local ctx = self
 
     repeat
         local chunk, err = reader(buffer_size)
