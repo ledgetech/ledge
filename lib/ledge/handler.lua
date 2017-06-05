@@ -431,6 +431,7 @@ local function get_gzip_decoder(reader)
         reader(buffer_size)
     end)
 end
+_M.get_gzip_decoder = get_gzip_decoder
 
 
 -- TODO gzip
@@ -446,6 +447,7 @@ local function get_gzip_encoder(reader)
         reader(buffer_size)
     end)
 end
+_M.get_gzip_encoder = get_gzip_encoder
 
 
 -- TODO response? This is called from state machine
