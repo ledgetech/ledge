@@ -94,6 +94,7 @@ local function new(config)
         state_machine = {},
         range = {},
         response = {},
+        error_response = {},
         esi_processor = {},
 
         -- TODO These fields were in ctx, now in self, collided with function

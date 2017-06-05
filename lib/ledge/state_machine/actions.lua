@@ -37,14 +37,13 @@ return {
     end,
 
     stash_error_response = function(handler)
-        local error_res = handler:get_response()
-        handler:set_response(error_res, "error")
+        handler.error_response = handler.response
     end,
 
     restore_error_response = function(handler)
-        local error_res = handler:get_response("error")
-        if error_res then
-            handler:set_response(error_res)
+        local error_res = handler.error_response
+        if next(error_res) then
+            handler.response = error_res
         end
     end,
 
