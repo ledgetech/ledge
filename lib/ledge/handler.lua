@@ -474,7 +474,6 @@ function _M.read_from_cache(self)
     if res.size > 0 then
         local storage = self.storage
         if not storage:exists(res.entity_id) then
-            ngx.log(ngx.DEBUG, res.entity_id, " doesn't exist in storage")
             -- Should exist, so presumed evicted
 
             local delay = self:gc_wait(res.size)
@@ -605,9 +604,9 @@ function _M.fetch_from_origin(self)
         end
     end
 
-    -- May well be nil, but if present we bail on saving large bodies to memory nice
-    -- and early.
-    res.length = tonumber(origin.headers["Content-Length"])
+    -- May well be nil (we set to false if that's the case), but if present 
+    -- we bail on saving large bodies to memory nice and early.
+    res.length = tonumber(origin.headers["Content-Length"]) or false
 
     res.has_body = origin.has_body
     res:filter_body_reader(
@@ -742,6 +741,7 @@ function _M.save_to_cache(self, res)
     emit(self, "before_save", res)
 
     -- Length is only set if there was a Content-Length header
+    ngx.log(ngx.DEBUG, res.status)
     local length = res.length
     local storage = self.storage
     local max_size = storage:get_max_size()
@@ -1089,8 +1089,6 @@ function _M.serve(self)
                 ngx.header[k] = v
             end
         end
-
-        local cjson = require "cjson"
 
         if res.body_reader and ngx_req_get_method() ~= "HEAD" then
             local buffer_size = self:config_get("buffer_size")
