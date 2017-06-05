@@ -458,9 +458,7 @@ end
 
 
 function _M.read_from_cache(self)
-    local ctx = self
-
-    local res = response.new(ctx, self:cache_key_chain())
+    local res = response.new(self, self:cache_key_chain())
     local ok, err = res:read()
     if not ok then
         if err then
@@ -474,7 +472,7 @@ function _M.read_from_cache(self)
     end
 
     if res.size > 0 then
-        local storage = ctx.storage
+        local storage = self.storage
         if not storage:exists(res.entity_id) then
             ngx.log(ngx.DEBUG, res.entity_id, " doesn't exist in storage")
             -- Should exist, so presumed evicted
@@ -1063,7 +1061,6 @@ function _M.serve(self)
 
         -- X-Cache header
         -- Don't set if this isn't a cacheable response. Set to MISS is we fetched.
-        local ctx = self
         local state_history = self.state_machine.state_history
         local event_history = self.state_machine.event_history
 
@@ -1111,11 +1108,10 @@ function _M.serve_body(self, res, buffer_size)
     local buffered = 0
     local reader = res.body_reader
     local can_flush = ngx_req_http_version() >= 1.1
-    local ctx = self
 
     repeat
         local chunk, err = reader(buffer_size)
-        if chunk and ctx.output_buffers_enabled then
+        if chunk and self.output_buffers_enabled then
             local ok, err = ngx_print(chunk)
             if not ok then ngx_log(ngx_INFO, err) end
 
