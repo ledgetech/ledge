@@ -1,80 +1,68 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => 21;
 
 my $pwd = cwd();
 
+$ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require 'resty.core'
-        end
-		ledge_mod = require 'ledge.ledge'
-        ledge_mod.DEBUG = true
-        ledge = ledge_mod:new()
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
-        ledge:config_set("esi_enabled", true)
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
 
-        require("ledge").configure({
-            redis_connector_params = {
+    require("ledge").configure({
+        redis_connector_params = {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        },
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
+
+    require("ledge").set_handler_defaults({
+        esi_enabled = true,
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
-            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-        })
+        }
+    })
+}
 
-        require("ledge").set_handler_defaults({
-            upstream_port = 1984,
-            storage_driver_config = {
-                redis_connector = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                },
-            }
-        })
-    }
+init_worker_by_lua_block {
+    require("ledge").create_worker():run()
+}
 
-    init_worker_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-        end
-        require("ledge").create_worker():run()
-    }
 };
 
 no_long_string();
+no_diff();
 run_tests();
+
 
 __DATA__
 === TEST 1: Prime some cache
 --- http_config eval: $::HttpConfig
 --- config
-	location "/mem_pressure_1_prx" {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            ledge:run()
-        }
+location "/mem_pressure_1_prx" {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
     }
-    location "/mem_pressure_1" {
-        default_type text/html;
-        content_by_lua_block {
-            ngx.header["Cache-Control"] = "max-age=3600"
-            ngx.header["Surrogate-Control"] = [[content="ESI/1.0"]]
-            ngx.print("<esi:vars></esi:vars>Key: ", ngx.req.get_uri_args()["key"])
-        }
+}
+location "/mem_pressure_1" {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Surrogate-Control"] = [[content="ESI/1.0"]]
+        ngx.print("<esi:vars></esi:vars>Key: ", ngx.req.get_uri_args()["key"])
     }
+}
 --- request eval
 ["GET /mem_pressure_1_prx?key=main",
 "GET /mem_pressure_1_prx?key=headers",
@@ -90,40 +78,35 @@ __DATA__
 === TEST 1b: Break each key, in a different way for each, then try to serve
 --- http_config eval: $::HttpConfig
 --- config
-	location "/mem_pressure_1_prx" {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            local redis_mod = require "resty.redis"
-            local redis = redis_mod.new()
-            redis:connect("127.0.0.1", 6379)
-            redis:select(ledge:config_get("redis_connection").db)
-            ledge:ctx().redis = redis
+location "/mem_pressure_1_prx" {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local handler = require("ledge").create_handler()
+        local key_chain = handler:cache_key_chain()
 
-            local key_chain = ledge:cache_key_chain()
+        local evict = ngx.req.get_uri_args()["key"]
+        local key = key_chain[evict]
+        ngx.log(ngx.DEBUG, "will evict: ", key)
+        local res, err = redis:del(key)
+        if not res then
+            ngx.log(ngx.ERR, "could not evict: ", err)
+        end
+        redis:set(evict, "true")
+        ngx.log(ngx.DEBUG, tostring(res))
 
-            local evict = ngx.req.get_uri_args()["key"]
-            local key = key_chain[evict]
-            ngx.log(ngx.DEBUG, "will evict: ", key)
-            local res, err = redis:del(key)
-            if not res then
-                ngx.log(ngx.ERR, "could not evict: ", err)
-            end
-            redis:set(evict, "true")
-            ngx.log(ngx.DEBUG, tostring(res))
+        redis:close()
 
-            redis:close()
-            ledge:ctx().redis = nil
-
-            ledge:run()
-        }
+        handler:run()
     }
+}
 
-    location "/mem_pressure_1" {
-        content_by_lua_block {
-            ngx.header["Cache-Control"] = "max-age=0"
-            ngx.print("MISSED: ", ngx.req.get_uri_args()["key"])
-        }
+location "/mem_pressure_1" {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=0"
+        ngx.print("MISSED: ", ngx.req.get_uri_args()["key"])
     }
+}
 --- request eval
 ["GET /mem_pressure_1_prx?key=main",
 "GET /mem_pressure_1_prx?key=headers"]
@@ -134,47 +117,50 @@ __DATA__
 [error]
 
 
-=== TEST 2: Prime and break ::main before transaction completes (leaves it partial)
+=== TEST 2: Prime and break ::main before transaction completes
+(leaves it partial)
 --- http_config eval: $::HttpConfig
 --- config
-    location "/mem_pressure_2_prx" {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            ledge:bind("response_ready", function(res)
-                local redis = ledge:ctx().redis
-                local main = ledge:cache_key_chain().main
-                redis:del(main)
-            end)
-            ledge:run()
-        }
+location "/mem_pressure_2_prx" {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        handler:bind("before_serve", function(res)
+            local main = handler:cache_key_chain().main
+            handler.redis:del(main)
+        end)
+        handler:run()
     }
-    location "/mem_pressure_2" {
-        default_type text/html;
-        content_by_lua_block {
-            ngx.header["Cache-Control"] = "max-age=3600"
-            ngx.print("ORIGIN")
-        }
+}
+location "/mem_pressure_2" {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("ORIGIN")
     }
+}
 --- request
 GET /mem_pressure_2_prx
 --- response_body: ORIGIN
 --- no_error_log
 [error]
-=== TEST 2b: Confirm broken ::main doesn't get served
+
+
+=== TEST 2b: Confirm broken ::main doesnt get served
 --- http_config eval: $::HttpConfig
 --- config
-    location "/mem_pressure_2_prx" {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            ledge:run()
-        }
+location "/mem_pressure_2_prx" {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
     }
-    location "/mem_pressure_2" {
-        default_type text/html;
-        content_by_lua_block {
-            ngx.print("ORIGIN")
-        }
+}
+location "/mem_pressure_2" {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.print("ORIGIN")
     }
+}
 --- request
 GET /mem_pressure_2_prx
 --- response_body: ORIGIN
