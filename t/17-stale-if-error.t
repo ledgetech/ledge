@@ -292,7 +292,7 @@ Warning: .*
 [error]
 
 
-=== TEST 4c: Prime cache (with valid stale config + proxy-revalidate) and expire it
+=== TEST 4c: Prime cache (with valid stale config + proxy-revalidate) and expire
 --- http_config eval: $::HttpConfig
 --- config
 location /stale_if_error_4_prx {
