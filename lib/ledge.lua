@@ -66,7 +66,6 @@ local handler_defaults = setmetatable({
     resty_upstream = nil,
 
     buffer_size = 2^16,
-    cache_max_memory = 2048, -- TODO: Deprecate (storage param)
     advertise_ledge = true,
     keep_cache_for  = 86400 * 30,  -- (sec)
     minimum_old_entity_download_rate = 56,
