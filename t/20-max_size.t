@@ -1,62 +1,49 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 3) + 4;
 
 my $pwd = cwd();
 
+$ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require 'resty.core'
-        end
-        ledge_mod = require 'ledge.ledge'
-        ledge = ledge_mod:new()
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
 
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
+    require("ledge").configure({
+        redis_connector_params = {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        },
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
 
-
-        require("ledge").configure({
-            redis_connector_params = {
+    require("ledge").set_handler_defaults({
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
-            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-        })
+            max_size = 8,
+        }
+    })
+}
 
-        require("ledge").set_handler_defaults({
-            upstream_port = 1984,
-            storage_driver_config = {
-                redis_connector = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                },
-                max_size = 8,
-            }
-        })
-    }
+init_worker_by_lua_block {
+    require("ledge").create_worker():run()
+}
 
-    init_worker_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-        end
-        require("ledge").create_worker():run()
-    }
 };
 
 no_long_string();
+no_diff();
 run_tests();
+
 
 __DATA__
 === TEST 1: Response larger than cache_max_memory.
@@ -64,15 +51,15 @@ __DATA__
 --- config
 location /max_memory_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /max_memory {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("RESPONSE IS TOO LARGE TEST 1")
-    ';
+    }
 }
 --- request
 GET /max_memory_prx
@@ -81,23 +68,23 @@ RESPONSE IS TOO LARGE TEST 1
 --- response_headers_like
 X-Cache: MISS from .*
 --- error_log
-larger than 8 bytes
+storage failed to write: body is larger than 8 bytes
 
 
-=== TEST 2: Test we didn't store in previous test.
+=== TEST 2: Test we did not store in previous test.
 --- http_config eval: $::HttpConfig
 --- config
 location /max_memory_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /max_memory {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 2")
-    ';
+    }
 }
 --- request
 GET /max_memory_prx
@@ -113,18 +100,18 @@ X-Cache: MISS from .*
 --- config
 location /max_memory_3_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /max_memory_3 {
     chunked_transfer_encoding off;
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
-        local body = "RESPONSE IS TOO LARGE TEST 3\\\n"
+        local body = "RESPONSE IS TOO LARGE TEST 3\n"
         ngx.header["Content-Length"] = string.len(body)
         ngx.print(body)
-    ';
+    }
 }
 --- request
 GET /max_memory_3_prx
@@ -135,20 +122,20 @@ X-Cache: MISS from .*
 --- no_error_log
 
 
-=== TEST 4: Test we didn't store in previous test.
+=== TEST 4: Test we did not store in previous test.
 --- http_config eval: $::HttpConfig
 --- config
 location /max_memory_3_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /max_memory_3 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("TEST 4")
-    ';
+    }
 }
 --- request
 GET /max_memory_3_prx
@@ -164,15 +151,15 @@ X-Cache: MISS from .*
 --- config
 location /max_memory_5_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /max_memory_5 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("OK")
-    ';
+    }
 }
 --- request
 GET /max_memory_5_prx
@@ -189,15 +176,15 @@ X-Cache: MISS from .*
 --- config
 location /max_memory_5_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 location /max_memory_5 {
-    content_by_lua '
+    content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.say("RESPONSE IS TOO LARGE")
-    ';
+    }
 }
 --- more_headers
 Cache-Control: no-cache
@@ -216,9 +203,9 @@ larger than 8 bytes
 --- config
 location /max_memory_5_prx {
     rewrite ^(.*)_prx$ $1 break;
-    content_by_lua '
-        ledge:run()
-    ';
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
 }
 --- request
 GET /max_memory_5_prx
