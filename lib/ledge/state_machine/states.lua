@@ -67,7 +67,7 @@ return {
 
     checking_origin_mode = function(sm, handler)
         -- Ignore the client requirements if we're not in "NORMAL" mode.
-        if handler:config_get("origin_mode") < ledge.ORIGIN_MODE_NORMAL then
+        if handler.config.origin_mode < ledge.ORIGIN_MODE_NORMAL then
             return sm:e "forced_cache"
         else
             return sm:e "cacheable_method"
@@ -107,7 +107,7 @@ return {
             local accepts_gzip = h_util.header_has_directive(accept_encoding, "gzip")
 
             if handler.esi_scan_enabled or
-                (handler:config_get("gunzip_enabled") and accepts_gzip == false) then
+                (handler.config.gunzip_enabled and accepts_gzip == false) then
                 return sm:e "gzip_inflate_enabled"
             end
         end
@@ -116,7 +116,7 @@ return {
     end,
 
     considering_esi_scan = function(sm, handler)
-        if handler:config_get("esi_enabled") == true then
+        if handler.config.esi_enabled == true then
             local res = handler:get_response()
             if not res.has_body then
                 return sm:e "esi_scan_disabled"
@@ -126,7 +126,7 @@ return {
             -- (Currently there is only the ESI/1.0 processor)
             local processor = esi.choose_esi_processor(res)
             if processor then
-                if esi.is_allowed_content_type(res, handler:config_get("esi_content_types")) then
+                if esi.is_allowed_content_type(res, handler.config.esi_content_types) then
                     -- Store parser for processing
                     -- TODO: Strictly this should be installed by the state machine
                     handler.esi_processor = processor
@@ -168,7 +168,7 @@ return {
         end
 
         if esi.can_delegate_to_surrogate(
-            handler:config_get("esi_allow_surrogate_delegation"),
+            handler.config.esi_allow_surrogate_delegation,
             handler.esi_processor.token
         ) then
             -- Disabled due to surrogate delegation
@@ -197,7 +197,7 @@ return {
     end,
 
     checking_can_fetch = function(sm, handler)
-        if handler:config_get("origin_mode") == ledge.ORIGIN_MODE_BYPASS then
+        if handler.config.origin_mode == ledge.ORIGIN_MODE_BYPASS then
            return sm:e "http_service_unavailable"
         end
 
@@ -207,7 +207,7 @@ return {
             return sm:e "http_gateway_timeout"
         end
 
-        if handler:config_get("enable_collapsed_forwarding") then
+        if handler.config.enable_collapsed_forwarding then
             return sm:e "can_fetch_but_try_collapse"
         end
 
@@ -219,7 +219,7 @@ return {
         local key_chain = handler:cache_key_chain()
         local lock_key = key_chain.fetching_lock
 
-        local timeout = tonumber(handler:config_get("collapsed_forwarding_window"))
+        local timeout = tonumber(handler.config.collapsed_forwarding_window)
         if not timeout then
             ngx_log(ngx_ERR, "collapsed_forwarding_window must be a number")
             return sm:e "collapsed_forwarding_failed"
@@ -286,13 +286,13 @@ return {
         local redis = handler.redis
 
         -- Extend the timeout to the size of the window
-        redis:set_timeout(handler:config_get("collapsed_forwarding_window"))
+        redis:set_timeout(handler.config.collapsed_forwarding_window)
         local res, err = redis:read_reply() -- block until we hear something or timeout
         if not res then
             return sm:e "http_gateway_timeout"
         else
             -- TODO this config is now in the singleton
-            redis:set_timeout(60) --handler:config_get("redis_read_timeout"))
+            redis:set_timeout(60) --handler.config.redis_read_timeout)
             redis:unsubscribe()
 
             -- This is overly explicit for the sake of state machine introspection. That is
@@ -404,7 +404,7 @@ return {
 
     checking_can_serve_stale = function(sm, handler)
         local res = handler:get_response()
-        if handler:config_get("origin_mode") < ledge.ORIGIN_MODE_NORMAL then
+        if handler.config.origin_mode < ledge.ORIGIN_MODE_NORMAL then
             return sm:e "can_serve_stale"
         elseif can_serve_stale_while_revalidate(res) then
             return sm:e "can_serve_stale_while_revalidate"

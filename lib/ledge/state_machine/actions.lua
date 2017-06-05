@@ -1,4 +1,4 @@
-local type, next = type, next 
+local type, next = type, next
 
 local esi = require("ledge.esi")
 local response = require("ledge.response")
@@ -51,8 +51,8 @@ return {
     -- beginning with the prefix (knows as ESI_ARGS) out of the URI (and thus cache key)
     -- and stash them in the custom ESI variables table.
     filter_esi_args = function(handler)
-        if handler:config_get("esi_enabled") then
-            esi.filter_esi_args(handler:config_get("esi_args_prefix"))
+        if handler.config.esi_enabled then
+            esi.filter_esi_args(handler.config.esi_args_prefix)
         end
     end,
 
@@ -120,8 +120,8 @@ return {
                 esi_processor:get_process_filter(
                     res,
                     -- TODO this callback should be a bind now
-                    nil, --handler:config_get("before_esi_include_request"),
-                    handler:config_get("esi_recursion_limit")
+                    nil, --handler.config.before_esi_include_request,
+                    handler.config.esi_recursion_limit
                 )
             )
         end

@@ -166,14 +166,6 @@ end
 _M.run = run
 
 
--- DEPRECATED
--- Use handler.config directly
-local function config_get(self, k)
-    return self.config[k]
-end
-_M.config_get = config_get
-
-
 
 -- Bind a user callback to an event
 --
@@ -267,7 +259,7 @@ function _M.cache_key(self)
             args = args_default
         end
 
-        --local key_spec = self:config_get("cache_key_spec") or {
+        --local key_spec = self.config.cache_key_spec or {
         local key_spec = {
             ngx_var.scheme,
             ngx_var.host,
@@ -506,13 +498,13 @@ function _M.fetch_from_origin(self)
     end
 
     local httpc
-    if self:config_get("use_resty_upstream") then
-        httpc = self:config_get("resty_upstream")
+    if self.config.use_resty_upstream then
+        httpc = self.config.resty_upstream
     else
         httpc = http.new()
-        httpc:set_timeout(self:config_get("upstream_connect_timeout"))
+        httpc:set_timeout(self.config.upstream_connect_timeout)
 
-        local ok, err = httpc:connect(self:config_get("upstream_host"), self:config_get("upstream_port"))
+        local ok, err = httpc:connect(self.config.upstream_host, self.config.upstream_port)
 
         if not ok then
             if err == "timeout" then
@@ -523,12 +515,12 @@ function _M.fetch_from_origin(self)
             return res
         end
 
-        httpc:set_timeout(self:config_get("upstream_read_timeout"))
+        httpc:set_timeout(self.config.upstream_read_timeout)
 
-        if self:config_get("upstream_use_ssl") == true then
+        if self.config.upstream_use_ssl == true then
             local ok, err = httpc:ssl_handshake(false,
-                                                self:config_get("upstream_ssl_server_name"),
-                                                self:config_get("upstream_ssl_verify"))
+                                                self.config.upstream_ssl_server_name,
+                                                self.config.upstream_ssl_verify)
             if not ok then
                 ngx_log(ngx_ERR, "ssl handshake failed: ", err)
                 res.status = 525 -- SSL Handshake Failed
@@ -546,7 +538,7 @@ function _M.fetch_from_origin(self)
     end
 
     -- Advertise ESI surrogate capabilities
-    if self:config_get("esi_enabled") then
+    if self.config.esi_enabled then
         local capability_entry =    (ngx_var.visible_hostname or ngx_var.hostname)
                                     .. '="' .. esi.esi_capabilities() .. '"'
         local sc = headers.surrogate_capability
@@ -558,7 +550,7 @@ function _M.fetch_from_origin(self)
         end
     end
 
-    local client_body_reader, err = httpc:get_client_body_reader(self:config_get("buffer_size"))
+    local client_body_reader, err = httpc:get_client_body_reader(self.config.buffer_size)
     if err then
         ngx_log(ngx_ERR, "error getting client body reader: ", err)
     end
@@ -642,10 +634,10 @@ function _M.revalidation_data(self)
         server_port = ngx_var.server_port,
         scheme = ngx_var.scheme,
         uri = ngx_var.request_uri,
-        connect_timeout = self:config_get("upstream_connect_timeout"),
-        read_timeout = self:config_get("upstream_read_timeout"),
-        ssl_server_name = self:config_get("upstream_ssl_server_name"),
-        ssl_verify = self:config_get("upstream_ssl_verify"),
+        connect_timeout = self.config.upstream_connect_timeout,
+        read_timeout = self.config.upstream_read_timeout,
+        ssl_server_name = self.config.upstream_ssl_server_name,
+        ssl_verify = self.config.upstream_ssl_verify,
     }
 
     local h = ngx_req_get_headers()
@@ -791,7 +783,7 @@ function _M.save_to_cache(self, res)
 
 
     -- TODO: Is this supposed to be total ttl + keep_cache_for?
-    local keep_cache_for = self:config_get("keep_cache_for")
+    local keep_cache_for = self.config.keep_cache_for
 
     res.uri = req_full_uri()
     local ok, err = res:save(keep_cache_for)
@@ -968,7 +960,7 @@ function _M.purge_in_background(self)
 
     local job, err = self:put_background_job("ledge_purge", "ledge.jobs.purge", {
         key_chain = key_chain,
-        keyspace_scan_count = self:config_get("keyspace_scan_count"),
+        keyspace_scan_count = self.config.keyspace_scan_count,
         purge_mode = purge_mode,
     }, {
         jid = ngx_md5("purge:" .. key_chain.root),
@@ -1049,7 +1041,7 @@ function _M.serve(self)
 
         -- Via header
         local via = "1.1 " .. visible_hostname
-        if self:config_get("advertise_ledge") then
+        if self.config.advertise_ledge then
             via = via .. " (ledge/" .. _M._VERSION .. ")"
         end
         local res_via = res.header["Via"]
@@ -1091,7 +1083,7 @@ function _M.serve(self)
         end
 
         if res.body_reader and ngx_req_get_method() ~= "HEAD" then
-            local buffer_size = self:config_get("buffer_size")
+            local buffer_size = self.config.buffer_size
             self:serve_body(res, buffer_size)
         end
 
