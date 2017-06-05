@@ -156,7 +156,6 @@ X-Cache: MISS from .*
 location /stale_if_error_2_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        require("ledge.state_machine").set_debug(true)
         require("ledge").create_handler():run()
     }
 }
