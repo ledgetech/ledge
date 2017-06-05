@@ -7,6 +7,9 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_PARTIAL_CONTENT = ngx.PARTIAL_CONTENT
 local ngx_null = ngx.null
+local ngx_PARTIAL_CONTENT = 206
+local ngx_RANGE_NOT_SATISFIABLE = 416
+local ngx_HTTP_NOT_MODIFIED = 304
 
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_headers = ngx.req.get_headers
@@ -326,6 +329,7 @@ return {
         else
             local content_range = res.header["Content-Range"]
             if content_range then
+                -- TODO: move this to a range util
                 local m, err = ngx_re_match(
                     content_range,
                     [[bytes\s+(?:\d+|\*)-(?:\d+|\*)/(\d+)]],
@@ -334,8 +338,8 @@ return {
 
                 if m then
                     local size = tonumber(m[1])
-                    local max_memory = handler:config_get("cache_max_memory")
-                    if max_memory * 1024 > size then
+                    local max_size = handler.storage:get_max_size()
+                    if type(max_size) == "number" and max_size > size then
                         return sm:e "can_fetch_in_background"
                     end
                 end
