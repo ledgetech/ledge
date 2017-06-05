@@ -130,7 +130,7 @@ _M.new = new
 local function run(self)
     -- Install the client abort handler
     local ok, err = ngx_on_abort(function()
-        return self:e "aborted"
+        return self.state_machine:e "aborted"
     end)
 
     if not ok then
