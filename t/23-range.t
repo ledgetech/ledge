@@ -1,58 +1,48 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 4) + 8;
 
 my $pwd = cwd();
 
+$ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;/usr/local/share/lua/5.1/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-            require("luacov.runner").init()
-        end
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
-        local use_resty_core = $ENV{TEST_USE_RESTY_CORE}
-        if use_resty_core then
-            require 'resty.core'
-        end
-        ledge_mod = require 'ledge.ledge'
-        ledge = ledge_mod:new()
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
 
-        require("ledge").configure({
-            redis_connector_params = {
+    require("ledge").configure({
+        redis_connector_params = {
+            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+        },
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
+
+    require("ledge").set_handler_defaults({
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
-            qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-        })
+        }
+    })
+}
 
-        require("ledge").set_handler_defaults({
-            upstream_port = 1984,
-            storage_driver_config = {
-                redis_connector = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-                },
-            }
-        })
-    }
+init_worker_by_lua_block {
+    require("ledge").create_worker():run()
+}
 
-    init_worker_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            jit.off()
-        end
-        require("ledge").create_worker():run()
-    }
 };
 
+no_long_string();
+no_diff();
 run_tests();
+
 
 __DATA__
 === TEST 1: Prime cache for subsequent tests.
@@ -61,7 +51,7 @@ __DATA__
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 
@@ -85,7 +75,7 @@ GET /range_prx
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -109,7 +99,7 @@ Cache-Control: public, max-age=3600
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -133,7 +123,7 @@ Cache-Control: public, max-age=3600
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -157,7 +147,7 @@ Cache-Control: public, max-age=3600
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -181,7 +171,7 @@ Cache-Control: public, max-age=3600
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -205,8 +195,9 @@ Cache-Control: public, max-age=3600
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:config_set("buffer_size", 2)
-            ledge:run()
+            require("ledge").create_handler({
+                buffer_size = 2,
+            }):run()
         }
     }
 --- more_headers
@@ -230,8 +221,9 @@ Cache-Control: public, max-age=3600
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:config_set("buffer_size", 4)
-            ledge:run()
+            require("ledge").create_handler({
+                buffer_size = 4,
+            }):run()
         }
     }
 --- more_headers
@@ -255,7 +247,7 @@ Cache-Control: public, max-age=3600
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -279,7 +271,7 @@ Cache-Control: public, max-age=3600
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -300,7 +292,7 @@ Content-Range: bytes */10
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -311,6 +303,8 @@ GET /range_prx
 Content-Range: bytes */10
 --- response_body:
 --- error_code: 416
+--- no_error_log
+[error]
 
 
 === TEST 10: Range is incompreshensible
@@ -319,7 +313,7 @@ Content-Range: bytes */10
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -340,7 +334,7 @@ Content-Range: bytes */10
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -361,7 +355,7 @@ Content-Range: bytes */10
     location /range_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -394,8 +388,9 @@ Content-Range: bytes 5-8/10
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:config_set("buffer_size", 3)
-            ledge:run()
+            require("ledge").create_handler({
+                buffer_size = 3,
+            }):run()
         }
     }
 
@@ -419,7 +414,7 @@ GET /range_12_prx
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -452,7 +447,7 @@ Content-Range: bytes 5-8/10
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -463,6 +458,8 @@ GET /range_12_prx
 Content-Range: bytes 4-7/10
 --- response_body: 4567
 --- error_code: 206
+--- no_error_log
+[error]
 
 
 === TEST 12d: Multi byte reversed ranges. Return in sane order.
@@ -471,7 +468,7 @@ Content-Range: bytes 4-7/10
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -504,7 +501,7 @@ Content-Range: bytes 5-8/10
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -537,7 +534,7 @@ Content-Range: bytes 4-8/10
     location /range_12_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -558,15 +555,16 @@ Content-Range: bytes 0-8/10
     location /range_13_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:config_set("esi_enabled", true)
-            ledge:run()
+            require("ledge").create_handler({
+                esi_enabled = true,
+            }):run()
         }
     }
 
     location /range_13 {
         default_type text/html;
         content_by_lua_block {
-            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.header["Cache-Control"] = "public, max-age=3600"
             ngx.header["Surrogate-Control"] = 'content="ESI/1.0"'
             ngx.status = 200
             ngx.print("01");
@@ -587,8 +585,10 @@ GET /range_13_prx?a=234
     location /range_13_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:config_set("esi_enabled", true)
-            ledge:run()
+            require("ledge.state_machine").set_debug(true)
+            require("ledge").create_handler({
+                esi_enabled = true,
+            }):run()
         }
     }
 --- more_headers
@@ -599,6 +599,7 @@ GET /range_13_prx?a=234
 --- error_code: 200
 --- no_error_log
 [error]
+--- SKIP
 
 
 === TEST 13c: Offset to end over indeterminate length (must 200 with full reply)
@@ -607,8 +608,9 @@ GET /range_13_prx?a=234
     location /range_13_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:config_set("esi_enabled", true)
-            ledge:run()
+            require("ledge").create_handler({
+                esi_enabled = true,
+            }):run()
         }
     }
 --- more_headers
@@ -619,16 +621,18 @@ GET /range_13_prx?a=234
 --- error_code: 200
 --- no_error_log
 [error]
+--- SKIP
 
 
-=== TEST 13c: Range to end over indeterminate length (must 200 with full reply)
+=== TEST 13d: Range to end over indeterminate length (must 200 with full reply)
 --- http_config eval: $::HttpConfig
 --- config
     location /range_13_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:config_set("esi_enabled", true)
-            ledge:run()
+            require("ledge").create_handler({
+                esi_enabled = true,
+            }):run()
         }
     }
 --- more_headers
@@ -639,15 +643,16 @@ GET /range_13_prx?a=234
 --- error_code: 200
 --- no_error_log
 [error]
+--- SKIP
 
 
-=== TEST 14: Confirm we don't cache 206 responses from upstream
+=== TEST 14: Confirm we do not cache 206 responses from upstream
 --- http_config eval: $::HttpConfig
 --- config
     location /range_14_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 
@@ -674,13 +679,13 @@ Range: bytes=0-5
 [error]
 
 
-=== TEST 15: Confirm we don't cache 416 responses from upstream
+=== TEST 15: Confirm we do not cache 416 responses from upstream
 --- http_config eval: $::HttpConfig
 --- config
     location /range_15_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 
@@ -705,13 +710,13 @@ Range: bytes=11-
 [error]
 
 
-=== TEST 16: Confirm we don't attempt range processing on non-200 responses
+=== TEST 16: Confirm we do not attempt range processing on non-200 responses
 --- http_config eval: $::HttpConfig
 --- config
     location /range_16_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 
@@ -736,13 +741,15 @@ Range: bytes=0-5
 [error]
 
 
-=== TEST 17: Cache miss range request, upstream returns range, triggers background fetch
+=== TEST 17: Cache miss range request
+Upstream returns range, triggers background fetch
 --- http_config eval: $::HttpConfig
 --- config
     location /range_17_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge.state_machine").set_debug(true)
+            require("ledge").create_handler():run()
         }
     }
 
@@ -750,13 +757,13 @@ Range: bytes=0-5
         content_by_lua_block {
             if ngx.req.get_headers()["Range"] then
                 ngx.status = 206
-                ngx.header["Cache-Control"] = "public, max-age=3600";
-                ngx.header["Content-Range"] = "bytes 0-5/10"
-                ngx.print("012345");
+                ngx.header["Cache-Control"] = "public, max-age=3600"
+                ngx.header["Content-Range"] = "bytes 1-5/10"
+                ngx.print("012345")
             else
                 ngx.status = 200
-                ngx.header["Cache-Control"] = "public, max-age=3600";
-                ngx.print("0123456789");
+                ngx.header["Cache-Control"] = "public, max-age=3600"
+                ngx.print("0123456789")
             end
         }
     }
@@ -767,7 +774,7 @@ GET /range_17_prx
 --- response_body: 012345
 --- raw_response_headers_unlike
 X-Cache: .*
---- wait: 1
+--- wait: 2
 --- error_code: 206
 --- no_error_log
 [error]
@@ -779,7 +786,7 @@ X-Cache: .*
     location /range_17_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
 --- more_headers
@@ -797,32 +804,35 @@ X-Cache: HIT from .*
 === TEST 18: Cache miss range request, upstream returns range, but size is too big for background fetch
 --- http_config eval: $::HttpConfig
 --- config
-    location /range_18_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            -- Set max memory on first hit, but not on background fetch. We want to test
-            -- that the job is never started
-            if ngx.req.get_headers()["Range"] then
-                ledge:config_set("cache_max_memory", 0.009) -- Less than 10 bytes, in kilobytes
-            end
-            ledge:run()
-        }
+location /range_18_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        -- Set max memory on first hit, but not on background fetch.
+        -- We want to test that the job is never started
+        if ngx.req.get_headers()["Range"] then
+            local handler = require("ledge").create_handler()
+            handler.config.storage_driver_config.max_size = 9 -- < 10
+            handler:run()
+        else
+            require("ledge").create_handler():run()
+        end
     }
+}
 
-    location /range_18 {
-        content_by_lua_block {
-            if ngx.req.get_headers()["Range"] then
-                ngx.status = 206
-                ngx.header["Cache-Control"] = "public, max-age=3600";
-                ngx.header["Content-Range"] = "bytes 0-5/10"
-                ngx.print("012345");
-            else
-                ngx.status = 200
-                ngx.header["Cache-Control"] = "public, max-age=3600";
-                ngx.print("0123456789");
-            end
-        }
+location /range_18 {
+    content_by_lua_block {
+        if ngx.req.get_headers()["Range"] then
+            ngx.status = 206
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.header["Content-Range"] = "bytes 0-5/10"
+            ngx.print("012345");
+        else
+            ngx.status = 200
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.print("0123456789");
+        end
     }
+}
 --- more_headers
 Range: bytes=0-5
 --- request
@@ -836,13 +846,13 @@ X-Cache: .*
 [error]
 
 
-=== TEST 18b: Confirm revalidation hasn't happened
+=== TEST 18b: Confirm revalidation has not happened
 --- http_config eval: $::HttpConfig
 --- config
     location /range_18_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
     location /range_18 {
@@ -863,35 +873,39 @@ X-Cache: MISS from .*
 [error]
 
 
-=== TEST 19: Cache miss range request, upstream returns range, but size is unknown
+=== TEST 19: Cache miss range request
+Upstream returns range, but size is unknown
 --- http_config eval: $::HttpConfig
 --- config
-    location /range_19_prx {
-        rewrite ^(.*)_prx$ $1 break;
-        content_by_lua_block {
-            -- Set max memory on first hit, but not on background fetch. We want to test
-            -- that the job is never started
-            if ngx.req.get_headers()["Range"] then
-                ledge:config_set("cache_max_memory", 0.009) -- Less than 10 bytes, in kilobytes
-            end
-            ledge:run()
-        }
+location /range_19_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        -- Set max memory on first hit, but not on background fetch.
+        -- We want to test that the job is never started
+        if ngx.req.get_headers()["Range"] then
+            local handler = require("ledge").create_handler()
+            handler.config.storage_driver_config.max_size = 9 -- < 10
+            handler:run()
+        else
+            require("ledge").create_handler():run()
+        end
     }
+}
 
-    location /range_19 {
-        content_by_lua_block {
-            if ngx.req.get_headers()["Range"] then
-                ngx.status = 206
-                ngx.header["Cache-Control"] = "public, max-age=3600";
-                ngx.header["Content-Range"] = "bytes 0-5/*"
-                ngx.print("012345");
-            else
-                ngx.status = 200
-                ngx.header["Cache-Control"] = "public, max-age=3600";
-                ngx.print("0123456789");
-            end
-        }
+location /range_19 {
+    content_by_lua_block {
+        if ngx.req.get_headers()["Range"] then
+            ngx.status = 206
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.header["Content-Range"] = "bytes 0-5/*"
+            ngx.print("012345");
+        else
+            ngx.status = 200
+            ngx.header["Cache-Control"] = "public, max-age=3600";
+            ngx.print("0123456789");
+        end
     }
+}
 --- more_headers
 Range: bytes=0-5
 --- request
@@ -905,13 +919,13 @@ X-Cache: .*
 [error]
 
 
-=== TEST 19b: Confirm revalidation hasn't happened
+=== TEST 19b: Confirm revalidation has not happened
 --- http_config eval: $::HttpConfig
 --- config
     location /range_19_prx {
         rewrite ^(.*)_prx$ $1 break;
         content_by_lua_block {
-            ledge:run()
+            require("ledge").create_handler():run()
         }
     }
     location /range_19 {
