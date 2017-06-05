@@ -124,7 +124,7 @@ function _M.handle_range_request(self, res)
             if not range_satisfiable then
                 -- We'll return 416
                 res.status = ngx_RANGE_NOT_SATISFIABLE
-                res.body_reader = nil
+                res.body_reader = res.empty_body_reader
                 res.header.content_range = "bytes */" .. res.size
 
                 return res, false
