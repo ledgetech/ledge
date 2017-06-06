@@ -243,33 +243,66 @@ end
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
     if self.t_cache_key == "" then
+        local key_spec = self.config.cache_key_spec
 
-        -- If there is is a wildcard PURGE request with an asterisk placed
-        -- at the end of the path, and we have no args, use * as the args.
-        local args_default = ""
-        if ngx_req_get_method() == "PURGE" then
-            if ngx_re_find(ngx_var.request_uri, "\\*$", "soj") then
-                args_default = "*"
+        -- If key_spec is empty, provide a default
+        if not next(key_spec) then
+            key_spec = {
+                "scheme",
+                "host",
+                "port",
+                "uri",
+                "args",
+            }
+        end
+
+        local key = {
+            "ledge",
+            "cache",
+        }
+
+        for _, field in ipairs(key_spec) do
+            if field == "scheme" then
+                tbl_insert(key, ngx_var.scheme)
+            end
+        
+            if field == "host" then
+                tbl_insert(key, ngx_var.host)
+            end
+            
+            if field == "port" then
+                tbl_insert(key, ngx_var.server_port)
+            end
+
+            if field == "uri" then
+                tbl_insert(key, ngx_var.uri)
+            end
+
+            if field == "args" then
+                -- If there is is a wildcard PURGE request with an asterisk
+                -- placed at the end of the path, and we have no args,
+                -- use * as the args.
+                local args_default = ""
+                if ngx_req_get_method() == "PURGE" then
+                    if ngx_re_find(ngx_var.request_uri, "\\*$", "soj") then
+                        args_default = "*"
+                    end
+                end
+
+                -- If args is manipulated before us, it may be a zero
+                -- length string.
+                local args = ngx_var.args
+                if not args or args == "" then
+                    args = args_default
+                end
+
+                tbl_insert(key, args)
             end
         end
 
-        -- If args is manipulated before us, it may be a zero length string.
-        local args = ngx_var.args
-        if not args or args == "" then
-            args = args_default
-        end
-
-        --local key_spec = self.config.cache_key_spec or {
-        local key_spec = {
-            ngx_var.scheme,
-            ngx_var.host,
-            ngx_var.uri,
-            args,
-        }
-        tbl_insert(key_spec, 1, "cache")
-        tbl_insert(key_spec, 1, "ledge")
-        self.t_cache_key = tbl_concat(key_spec, ":")
+        self.t_cache_key = tbl_concat(key, ":")
     end
+
     return self.t_cache_key
 end
 
@@ -596,7 +629,7 @@ function _M.fetch_from_origin(self)
         end
     end
 
-    -- May well be nil (we set to false if that's the case), but if present 
+    -- May well be nil (we set to false if that's the case), but if present
     -- we bail on saving large bodies to memory nice and early.
     res.length = tonumber(origin.headers["Content-Length"]) or false
 

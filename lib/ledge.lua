@@ -83,7 +83,7 @@ local handler_defaults = setmetatable({
     gunzip_enabled = true,
     keyspace_scan_count = 10,
 
-    cache_key_spec = {},
+    cache_key_spec = {},  -- No default as we don't ever wish to merge it
 
 }, fixed_field_metatable)
 

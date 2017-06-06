@@ -964,13 +964,15 @@ novalue
 location /esi_10_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:config_set("enable_esi", true)
-        ledge:config_set("cache_key_spec", {
-            ngx.var.scheme,
-            ngx.var.host,
-            ngx.var.uri,
+        local handler = require("ledge").create_handler({
+            esi_enabled = true,
+            cache_key_spec = {
+                "scheme",
+                "host",
+                "uri",
+            }
         }) 
-        run()
+        run(handler)
     }
 }
 location /esi_10 {
@@ -992,7 +994,6 @@ X-Cache: MISS from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 10b: ESI still runs on cache HIT.
@@ -1000,13 +1001,15 @@ X-Cache: MISS from .*
 --- config
 location /esi_10 {
     content_by_lua_block {
-        ledge:config_set("enable_esi", true)
-        ledge:config_set("cache_key_spec", {
-            ngx.var.scheme,
-            ngx.var.host,
-            ngx.var.uri,
+        local handler = require("ledge").create_handler({
+            esi_enabled = true,
+            cache_key_spec = {
+                "scheme",
+                "host",
+                "uri",
+            }
         }) 
-        run()
+        run(handler)
     }
 }
 --- request
@@ -1019,7 +1022,6 @@ X-Cache: HIT from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 10c: ESI still runs on cache revalidation, upstream 200.
@@ -1028,13 +1030,15 @@ X-Cache: HIT from .*
 location /esi_10_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:config_set("enable_esi", true)
-        ledge:config_set("cache_key_spec", {
-            ngx.var.scheme,
-            ngx.var.host,
-            ngx.var.uri,
+        local handler = require("ledge").create_handler({
+            esi_enabled = true,
+            cache_key_spec = {
+                "scheme",
+                "host",
+                "uri",
+            }
         }) 
-        run()
+        run(handler)
     }
 }
 location /esi_10 {
@@ -1059,7 +1063,6 @@ X-Cache: MISS from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 10d: ESI still runs on cache revalidation, upstream 200, locally valid.
@@ -1068,13 +1071,15 @@ X-Cache: MISS from .*
 location /esi_10_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:config_set("enable_esi", true)
-        ledge:config_set("cache_key_spec", {
-            ngx.var.scheme,
-            ngx.var.host,
-            ngx.var.uri,
+        local handler = require("ledge").create_handler({
+            esi_enabled = true,
+            cache_key_spec = {
+                "scheme",
+                "host",
+                "uri",
+            }
         }) 
-        run()
+        run(handler)
     }
 }
 location /esi_10 {
@@ -1099,7 +1104,6 @@ X-Cache: MISS from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 10e: ESI still runs on cache revalidation, upstream 304, locally valid.
@@ -1108,13 +1112,15 @@ X-Cache: MISS from .*
 location /esi_10_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ledge:config_set("enable_esi", true)
-        ledge:config_set("cache_key_spec", {
-            ngx.var.scheme,
-            ngx.var.host,
-            ngx.var.uri,
-        })
-        run()
+        local handler = require("ledge").create_handler({
+            esi_enabled = true,
+            cache_key_spec = {
+                "scheme",
+                "host",
+                "uri",
+            }
+        }) 
+        run(handler)
     }
 }
 location /esi_10 {
@@ -1135,7 +1141,6 @@ X-Cache: MISS from .*
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 11a: Prime fragment

@@ -60,3 +60,45 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 2: Custom cache key spec
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        assert(handler:cache_key() == "ledge:cache:http:localhost:1984:/t:a=1",
+            "cache_key should be ledge:cache:http:localhost:1984:/t:a=1")
+
+        local handler = require("ledge").create_handler({
+            cache_key_spec = {
+                "scheme",
+                "host",
+                "port",
+                "uri",
+                "args",
+            }
+        })
+
+        assert(handler:cache_key() == "ledge:cache:http:localhost:1984:/t:a=1",
+            "cache_key should be ledge:cache:http:localhost:1984:/t:a=1")
+
+        local handler = require("ledge").create_handler({
+            cache_key_spec = {
+                "host",
+                "uri",
+            }
+        })
+
+        assert(handler:cache_key() == "ledge:cache:localhost:/t",
+            "cache_key should be " .. handler:cache_key())
+    }
+}
+
+--- request
+GET /t?a=1
+--- no_error_log
+[error]
