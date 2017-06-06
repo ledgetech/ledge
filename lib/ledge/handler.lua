@@ -264,21 +264,13 @@ function _M.cache_key(self)
         for _, field in ipairs(key_spec) do
             if field == "scheme" then
                 tbl_insert(key, ngx_var.scheme)
-            end
-        
-            if field == "host" then
+            elseif field == "host" then
                 tbl_insert(key, ngx_var.host)
-            end
-            
-            if field == "port" then
+            elseif field == "port" then
                 tbl_insert(key, ngx_var.server_port)
-            end
-
-            if field == "uri" then
+            elseif field == "uri" then
                 tbl_insert(key, ngx_var.uri)
-            end
-
-            if field == "args" then
+            elseif field == "args" then
                 -- If there is is a wildcard PURGE request with an asterisk
                 -- placed at the end of the path, and we have no args,
                 -- use * as the args.
@@ -297,6 +289,11 @@ function _M.cache_key(self)
                 end
 
                 tbl_insert(key, args)
+            elseif type(field) == "function" then
+                local ok, res = pcall(field)
+                if ok and type(res) == "string" then
+                    tbl_insert(key, res)
+                end
             end
         end
 

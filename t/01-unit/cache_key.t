@@ -94,7 +94,19 @@ location /t {
         })
 
         assert(handler:cache_key() == "ledge:cache:localhost:/t",
-            "cache_key should be " .. handler:cache_key())
+            "cache_key should be ledge:cache:localhost:/t")
+        
+            
+        local handler = require("ledge").create_handler({
+            cache_key_spec = {
+                "host",
+                "uri",
+                function() return "hello" end,
+            }
+        })
+
+        assert(handler:cache_key() == "ledge:cache:localhost:/t:hello",
+            "cache_key should be ledge:cache:localhost:/t:hello")
     }
 }
 
