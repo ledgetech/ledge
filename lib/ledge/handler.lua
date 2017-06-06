@@ -242,64 +242,72 @@ end
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
-    if self.t_cache_key == "" then
-        local key_spec = self.config.cache_key_spec
+    if self.t_cache_key ~= "" then return self.t_cache_key end
 
-        -- If key_spec is empty, provide a default
-        if not next(key_spec) then
-            key_spec = {
-                "scheme",
-                "host",
-                "port",
-                "uri",
-                "args",
-            }
-        end
+    local key_spec = self.config.cache_key_spec
 
-        local key = {
-            "ledge",
-            "cache",
+    -- If key_spec is empty, provide a default
+    if not next(key_spec) then
+        key_spec = {
+            "scheme",
+            "host",
+            "port",
+            "uri",
+            "args",
         }
-
-        for _, field in ipairs(key_spec) do
-            if field == "scheme" then
-                tbl_insert(key, ngx_var.scheme)
-            elseif field == "host" then
-                tbl_insert(key, ngx_var.host)
-            elseif field == "port" then
-                tbl_insert(key, ngx_var.server_port)
-            elseif field == "uri" then
-                tbl_insert(key, ngx_var.uri)
-            elseif field == "args" then
-                -- If there is is a wildcard PURGE request with an asterisk
-                -- placed at the end of the path, and we have no args,
-                -- use * as the args.
-                local args_default = ""
-                if ngx_req_get_method() == "PURGE" then
-                    if ngx_re_find(ngx_var.request_uri, "\\*$", "soj") then
-                        args_default = "*"
-                    end
-                end
-
-                -- If args is manipulated before us, it may be a zero
-                -- length string.
-                local args = ngx_var.args
-                if not args or args == "" then
-                    args = args_default
-                end
-
-                tbl_insert(key, args)
-            elseif type(field) == "function" then
-                local ok, res = pcall(field)
-                if ok and type(res) == "string" then
-                    tbl_insert(key, res)
-                end
-            end
-        end
-
-        self.t_cache_key = tbl_concat(key, ":")
     end
 
+    local key = {
+        "ledge",
+        "cache",
+    }
+
+    for _, field in ipairs(key_spec) do
+        if field == "scheme" then
+            tbl_insert(key, ngx_var.scheme)
+        elseif field == "host" then
+            tbl_insert(key, ngx_var.host)
+        elseif field == "port" then
+            tbl_insert(key, ngx_var.server_port)
+        elseif field == "uri" then
+            tbl_insert(key, ngx_var.uri)
+        elseif field == "args" then
+            -- If there is is a wildcard PURGE request with an asterisk
+            -- placed at the end of the path, and we have no args,
+            -- use * as the args.
+            local args_default = ""
+            if ngx_req_get_method() == "PURGE" then
+                if ngx_re_find(ngx_var.request_uri, "\\*$", "soj") then
+                    args_default = "*"
+                end
+            end
+
+            -- If args is manipulated before us, it may be a zero
+            -- length string.
+            local args = ngx_var.args
+            if not args or args == "" then
+                args = args_default
+            end
+
+            tbl_insert(key, args)
+
+        elseif type(field) == "function" then
+            local ok, res = pcall(field)
+            if not ok then
+                ngx_log(ngx_ERR,
+                    "error in function supplied to cache_key_spec: ", res
+                )
+            elseif type(res) ~= "string" then
+                ngx_log(ngx_ERR,
+                    "functions supplied to cache_key_spec must return a string"
+                )
+            else
+                tbl_insert(key, res)
+            end
+        end
+    end
+
+    self.t_cache_key = tbl_concat(key, ":")
     return self.t_cache_key
 end
 

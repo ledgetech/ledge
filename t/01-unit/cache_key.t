@@ -95,8 +95,8 @@ location /t {
 
         assert(handler:cache_key() == "ledge:cache:localhost:/t",
             "cache_key should be ledge:cache:localhost:/t")
-        
-            
+
+
         local handler = require("ledge").create_handler({
             cache_key_spec = {
                 "host",
@@ -114,3 +114,41 @@ location /t {
 GET /t?a=1
 --- no_error_log
 [error]
+
+
+=== TEST 3: Errors in cache key spec functions
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            cache_key_spec = {
+                "host",
+                "uri",
+                function() return 123 end,
+            }
+        })
+
+        assert(handler:cache_key() == "ledge:cache:localhost:/t",
+            "cache_key should be ledge:cache:localhost:/t")
+
+
+        local handler = require("ledge").create_handler({
+            cache_key_spec = {
+                "host",
+                "uri",
+                function() return foo() end,
+            }
+        })
+
+        assert(handler:cache_key() == "ledge:cache:localhost:/t",
+            "cache_key should be ledge:cache:localhost:/t")
+    }
+}
+
+--- request
+GET /t?a=2
+--- error_log
+functions supplied to cache_key_spec must return a string
+error in function supplied to cache_key_spec
