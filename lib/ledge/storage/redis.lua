@@ -66,12 +66,10 @@ end
 --------------------------------------------------------------------------------
 -- Creates a new (disconnected) storage instance
 --------------------------------------------------------------------------------
--- @param   table   The request context
 -- @return  table   The module instance
 --------------------------------------------------------------------------------
-function _M.new(ctx)
+function _M.new()
     return setmetatable({
-        ctx = ctx or { esi_process_enabled = false }, -- TODO: Make this go away
         redis = {},
         params = {},
 
@@ -250,19 +248,14 @@ function _M.get_reader(self, res)
         local cursor = self._reader_cursor
         self._reader_cursor = cursor + 1
 
-        local has_esi = false
-
         if cursor < num_chunks then
             local chunk, err = redis:lindex(entity_keys.body, cursor)
             if not chunk then return nil, err, nil end
 
-            local process_esi = self.ctx.esi_process_enabled
-            if process_esi then
-                has_esi, err = redis:lindex(entity_keys.body_esi, cursor)
-                if not has_esi then return nil, err, nil end
-            end
+            local has_esi, err = redis:lindex(entity_keys.body_esi, cursor)
+            if not has_esi then return nil, err, nil end
 
-            if chunk == ngx_null or (process_esi and has_esi == ngx_null) then
+            if chunk == ngx_null or has_esi == ngx_null then
                 ngx_log(ngx_WARN,
                     "entity removed during read, ",
                     entity_keys.body

@@ -67,6 +67,42 @@ run_tests();
 
 
 __DATA__
+=== TEST 0: ESI works on slow and fast paths
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_0_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        run()
+    }
+}
+location /esi_0 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.print("<esi:vars>Hello</esi:vars>")
+    }
+}
+--- request eval
+[
+    "GET /esi_0_prx",
+    "GET /esi_0_prx",
+]
+--- response_body eval
+[
+    "Hello",
+    "Hello",
+]
+--- response_headers_like eval
+[
+    "X-Cache: MISS from .*",
+    "X-Cache: HIT from .*",
+]
+--- no_error_log
+[error]
+
+
 === TEST 1: Single line comments removed
 --- http_config eval: $::HttpConfig
 --- config
@@ -2071,7 +2107,6 @@ GET /esi_27_prx?a=1
 a=1
 --- no_error_log
 [error]
---- SKIP (stale not working?)
 
 
 === TEST 27c: ESI still works when serving stale-if-error
@@ -2080,7 +2115,6 @@ a=1
 location /esi_27_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        require("ledge.state_machine").set_debug(true)
         run()
     }
 }
@@ -2098,7 +2132,6 @@ a=1
 --- wait: 2
 --- no_error_log
 [error]
---- SKIP (stale not working?)
 
 
 === TEST 28: Remaining parent response returned on fragment error
@@ -2243,7 +2276,6 @@ esi_a=3
 ["X-Cache: HIT from .*", "X-Cache: HIT from .*", "X-Cache: MISS from .*"]
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 30c: As 30 but with request not accepting cache

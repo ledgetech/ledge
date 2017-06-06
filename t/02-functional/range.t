@@ -599,7 +599,6 @@ GET /range_13_prx?a=234
 --- error_code: 200
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 13c: Offset to end over indeterminate length (must 200 with full reply)
@@ -621,7 +620,6 @@ GET /range_13_prx?a=234
 --- error_code: 200
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 13d: Range to end over indeterminate length (must 200 with full reply)
@@ -643,7 +641,6 @@ GET /range_13_prx?a=234
 --- error_code: 200
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 14: Confirm we do not cache 206 responses from upstream

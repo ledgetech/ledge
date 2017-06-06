@@ -186,7 +186,6 @@ OK
 location /gzip_5_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        require("ledge.state_machine").set_debug(true)
         require("ledge").create_handler():run()
     }
 }
@@ -198,7 +197,6 @@ Accept-Encoding: gzip
 OK
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 7: HEAD request for gzipped response with ESI, auto unzips.

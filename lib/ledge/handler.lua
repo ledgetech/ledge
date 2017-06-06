@@ -733,7 +733,6 @@ function _M.save_to_cache(self, res)
     emit(self, "before_save", res)
 
     -- Length is only set if there was a Content-Length header
-    ngx.log(ngx.DEBUG, res.status)
     local length = res.length
     local storage = self.storage
     local max_size = storage:get_max_size()
