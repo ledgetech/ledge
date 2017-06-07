@@ -119,8 +119,9 @@ return {
                 "esi_process_filter",
                 esi_processor:get_process_filter(
                     res,
-                    -- TODO this callback should be a bind now
-                    nil, --handler.config.before_esi_include_request,
+                    function(req_params)
+                        handler:emit("before_esi_include_request", req_params)
+                    end,
                     handler.config.esi_recursion_limit
                 )
             )

@@ -1281,7 +1281,6 @@ FRAGMENT
 --- error_code: 200
 --- no_error_log
 [error]
---- SKIP
 
 
 === TEST 12: ESI processed over buffer larger than buffer_size.
