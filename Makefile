@@ -60,7 +60,7 @@ SENTINEL_CONFIG_FILE = /tmp/sentinel-test-config
 PREFIX          ?= /usr/local
 LUA_INCLUDE_DIR ?= $(PREFIX)/include
 LUA_LIB_DIR     ?= $(PREFIX)/lib/lua/$(LUA_VERSION)
-PROVE           ?= prove -I ../test-nginx/lib
+PROVE           ?= prove -rI ../test-nginx/lib
 INSTALL         ?= install
 
 .PHONY: all install test test_all start_redis_instances stop_redis_instances \
@@ -159,4 +159,4 @@ coverage: flush_db
 	@rm -f luacov.stats.out
 	@$(TEST_LEDGE_REDIS_VARS) TEST_COVERAGE=1 $(PROVE) $(TEST_FILE)
 	@luacov
-	@tail -12 luacov.report.out
+	@tail -21 luacov.report.out

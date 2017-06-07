@@ -29,34 +29,23 @@ local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 
-local _M = {
-    _VERSION = '1.28.5'
-}
-
-local NOCACHE_HEADERS = {
-    ["Pragma"] = { "no-cache" },
-    ["Cache-Control"] = {
-        "no-cache",
-        "no-store",
-        "private",
-    }
-}
+local get_fixed_field_metatable_proxy =
+    require("ledge.util").mt.get_fixed_field_metatable_proxy
 
 
--- Const functions
-local _empty_body_reader = function() return nil end
-
+local _DEBUG = false
 
 local _M = {
-    _VERSION = '1.28.2',
-    DEBUG = false,
+    _VERSION = "1.28.3",
+    set_debug = function(debug) _DEBUG = debug end,
 }
 
-local mt = {
-    __index = _M,
-    __newindex = function() error("module fields are read only", 2) end,
-    __metatable = false,
-}
+
+-- Body reader for when the response body is missing
+local function empty_body_reader()
+    return nil
+end
+_M.empty_body_reader = empty_body_reader
 
 
 function _M.new(ctx, key_chain)
@@ -65,13 +54,13 @@ function _M.new(ctx, key_chain)
     end
 
     if type(key_chain) ~= "table" then
-        error("key_chain table expected, got " .. type(ctx), 2)
+        error("key_chain table expected, got " .. type(key_chain), 2)
     end
 
     return setmetatable({
-        ctx = ctx,  -- Request context
+        ctx = ctx,  -- Request context, TODO should this be handler?
         key_chain = key_chain,  -- Cache key chain
-        conn = {},  -- httpc instance
+        conn = {},  -- httpc instance, TODO is this used?
 
         uri = "",
         status = 0,
@@ -85,12 +74,13 @@ function _M.new(ctx, key_chain)
 
         -- body
         entity_id = "",
-        body_reader = _empty_body_reader,
+        body_reader = empty_body_reader,
 
         -- runtime metadata (not persisted)
         length = 0,  -- If Content-Length is present
         has_body = false,  -- From lua-resty-http has_body
-    }, mt)
+
+    }, get_fixed_field_metatable_proxy(_M))
 end
 
 
@@ -109,6 +99,8 @@ end
 
 
 function _M.filter_body_reader(self, filter_name, filter)
+    assert(type(filter) == "function", "filter must be a function")
+
     if _M.DEBUG then
         -- Keep track of the filters by name, just for debugging
         local filters = self.ctx.body_filters
@@ -126,6 +118,16 @@ function _M.filter_body_reader(self, filter_name, filter)
 
     self.body_reader = filter
 end
+
+
+local NOCACHE_HEADERS = {
+    ["Pragma"] = { "no-cache" },
+    ["Cache-Control"] = {
+        "no-cache",
+        "no-store",
+        "private",
+    }
+}
 
 
 function _M.is_cacheable(self)
