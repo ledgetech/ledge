@@ -220,26 +220,6 @@ end
 
 
 
--- TODO deprecated. Err response needs its own space
-function _M.set_response(self, res, name)
-  --  local name = name or "response"
-  --  self.name] = res
-    if not res then
-        self.response = {}
-    else
-        self.response = res
-    end
-end
-
-
--- TODO deprecated. Err response needs its own space
-function _M.get_response(self, name)
-    return self.response
-  --  local name = name or "response"
-  --  return self.name]
-end
-
-
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
@@ -477,7 +457,7 @@ _M.get_gzip_encoder = get_gzip_encoder
 
 -- TODO response? This is called from state machine
 function _M.add_warning(self, code)
-    local res = self:get_response()
+    local res = self.response
     if not res.header["Warning"] then
         res.header["Warning"] = {}
     end
@@ -495,18 +475,19 @@ function _M.read_from_cache(self)
         if err then
             -- TODO: What conditions do we want this to happen? Surely we should
             -- just MISS on failure?
-            error(err)
             return self:e "http_internal_server_error"
         else
-            return nil
+            ngx.log(ngx.DEBUG, "read mised without error")
+            return {} -- MSS
         end
     end
 
     if res.size > 0 then
         local storage = self.storage
-        if not storage:exists(res.entity_id) then
-            -- Should exist, so presumed evicted
 
+        -- Check storage has the entity, if not presume it has been evitcted
+        -- and clean up
+        if not storage:exists(res.entity_id) then
             local delay = self:gc_wait(res.size)
             self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
                 entity_id = res.entity_id,
@@ -515,7 +496,7 @@ function _M.read_from_cache(self)
                 tags = { "collect_entity" },
                 priority = 10,
             })
-            return nil -- MISS
+            return {} -- MISS
         end
 
         res:filter_body_reader("cache_body_reader", storage:get_reader(res))
@@ -935,13 +916,13 @@ function _M.purge(self, purge_mode)
     local entity_id, err = redis:hget(key_chain.main, "entity")
     local storage = self.storage
 
-    local resp = self:get_response()
+    local resp = self.response
 
     -- We 404 if we have nothing
     if not entity_id or entity_id == ngx_null or not storage:exists(entity_id) then
         local json = cjson_encode({ purge_mode = purge_mode, result = "nothing to purge" })
         resp:set_body(json)
-        self:set_response(resp)
+        self.response = resp
         return false
     end
 
@@ -955,7 +936,7 @@ function _M.purge(self, purge_mode)
 
         local json = cjson_encode({ purge_mode = purge_mode, result = result })
         resp:set_body(json)
-        self:set_response(resp)
+        self.response = resp
         return true
     end
 
@@ -985,7 +966,7 @@ function _M.purge(self, purge_mode)
     if job then json.qless_job = job end
 
     resp:set_body(cjson_encode(json))
-    self:set_response(resp)
+    self.response = resp
 
     return ok
 end
@@ -1007,14 +988,14 @@ function _M.purge_in_background(self)
     })
 
     -- Create a JSON payload for the response
-    local res = self:get_response()
+    local res = self.response
     local _, json = pcall(cjson_encode, {
         purge_mode = purge_mode,
         result = "scheduled",
         qless_job = job
     })
     res:set_body(json)
-    self:set_response(res)
+    self.response = res
 
     return true
 end
@@ -1074,7 +1055,7 @@ end
 
 function _M.serve(self)
     if not ngx.headers_sent then
-        local res = self:get_response()
+        local res = self.response
         local visible_hostname = req_visible_hostname()
 
         -- Via header

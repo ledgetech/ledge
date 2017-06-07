@@ -27,7 +27,7 @@ return {
     end,
 
     httpc_close = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         if next(res) then
             local httpc = res.conn
             if httpc and type(httpc.set_keepalive) == "function" then
@@ -57,17 +57,16 @@ return {
     end,
 
     read_cache = function(handler)
-        local res = handler:read_from_cache()
-        handler:set_response(res)
+        handler.response = handler:read_from_cache()
     end,
 
     install_no_body_reader = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         res.body_reader = res.empty_body_reader
     end,
 
     install_gzip_decoder = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         res.header["Content-Encoding"] = nil
         res:filter_body_reader(
             "gzip_decoder",
@@ -76,7 +75,7 @@ return {
     end,
 
     install_range_filter = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         local range = handler.range
         res:filter_body_reader(
             "range_request_filter",
@@ -87,12 +86,11 @@ return {
     set_esi_scan_enabled = function(handler)
         handler.esi_scan_enabled = true
         handler.esi_scan_disabled = false
-        handler:get_response().esi_scanned = true
+        handler.response.esi_scanned = true
     end,
 
     install_esi_scan_filter = function(handler)
-        local res = handler:get_response()
-        local ctx = handler
+        local res = handler.response
         local esi_processor = handler.esi_processor
 
         if next(esi_processor) then
@@ -104,14 +102,14 @@ return {
     end,
 
     set_esi_scan_disabled = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         handler.esi_scan_disabled = true
         handler.esi_scan_enabled = false
         res.esi_scanned = false
     end,
 
     install_esi_process_filter = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         local esi_processor = handler.esi_processor
 
         if next(esi_processor) then
@@ -137,14 +135,14 @@ return {
     end,
 
     zero_downstream_lifetime = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         if res.header then
             res.header["Cache-Control"] = "private, max-age=0"
         end
     end,
 
     remove_surrogate_control_header = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         if res.header then
             res.header["Surrogate-Control"] = nil
         end
@@ -153,7 +151,7 @@ return {
     fetch = function(handler)
         local res = handler:fetch_from_origin()
         if res.status ~= ngx_HTTP_NOT_MODIFIED then
-            handler:set_response(res)
+            handler.response = res
         end
     end,
 
@@ -174,7 +172,7 @@ return {
     end,
 
     add_validators_from_cache = function(handler)
-        local cached_res = handler:get_response()
+        local cached_res = handler.response
 
         ngx_req_set_header("If-Modified-Since", cached_res.header["Last-Modified"])
         ngx_req_set_header("If-None-Match", cached_res.header["Etag"])
@@ -200,9 +198,8 @@ return {
     set_json_response = function(handler)
         local res = response.new(handler, handler:cache_key_chain())
         res.header["Content-Type"] = "application/json"
-        handler:set_response(res)
+        handler.response = res
     end,
-
 
     -- Updates the realidation_params key with data from the current request,
     -- and schedules a background revalidation job
@@ -218,7 +215,7 @@ return {
     end,
 
     save_to_cache = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         return handler:save_to_cache(res)
     end,
 
@@ -263,7 +260,7 @@ return {
     end,
 
     set_http_status_from_response = function(handler)
-        local res = handler:get_response()
+        local res = handler.response
         if res and res.status then
             ngx.status = res.status
         else

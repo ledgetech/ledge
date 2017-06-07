@@ -87,7 +87,7 @@ return {
     end,
 
     checking_cache = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
 
         if not next(res) then
             return sm:e "cache_missing"
@@ -99,7 +99,7 @@ return {
     end,
 
     considering_gzip_inflate = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
         local accept_encoding = ngx_req_get_headers()["Accept-Encoding"] or ""
 
         -- If the response is gzip encoded and the client doesn't support it, then inflate
@@ -117,7 +117,7 @@ return {
 
     considering_esi_scan = function(sm, handler)
         if handler.config.esi_enabled == true then
-            local res = handler:get_response()
+            local res = handler.response
             if not res.has_body then
                 return sm:e "esi_scan_disabled"
             end
@@ -148,7 +148,7 @@ return {
     --  So essentially, if we think we may need to process, then we do. We don't want to
     --  accidentally send ESI instructions to a client, so we only delegate if we're sure.
     considering_esi_process = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
 
         -- If we know there's no esi or it hasn't been scanned, don't process
         if not res.has_esi and res.esi_scanned == false then
@@ -179,13 +179,14 @@ return {
     end,
 
     checking_range_request = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
 
+        -- TODO this should just check, not install range?
         local range = range.new()
         local res, partial_response = range:handle_range_request(res)
-        handler.range = range
 
-        handler:set_response(res)
+        handler.range = range
+        handler.response = res
 
         if partial_response then
             return sm:e "range_accepted"
@@ -308,7 +309,7 @@ return {
     end,
 
     fetching = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
 
         if res.status >= 500 then
             return sm:e "upstream_error"
@@ -322,7 +323,7 @@ return {
     end,
 
     considering_background_fetch = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
         if res.status ~= ngx_PARTIAL_CONTENT then
             -- Shouldn't happen, but just in case
             return sm:e "background_fetch_skipped"
@@ -363,7 +364,7 @@ return {
     end,
 
     considering_stale_error = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
         if can_serve_stale_if_error(res) then
             return sm:e "can_serve_disconnected"
         else
@@ -377,7 +378,7 @@ return {
     end,
 
     considering_revalidation = function(sm, handler)
-        if must_revalidate(handler:get_response()) then
+        if must_revalidate(handler.response) then
             return sm:e "must_revalidate"
         elseif can_revalidate_locally() then
             return sm:e "can_revalidate_locally"
@@ -395,7 +396,7 @@ return {
     end,
 
     revalidating_locally = function(sm, handler)
-        if is_valid_locally(handler:get_response()) then
+        if is_valid_locally(handler.response) then
             return sm:e "not_modified"
         else
             return sm:e "modified"
@@ -403,7 +404,7 @@ return {
     end,
 
     checking_can_serve_stale = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
         if handler.config.origin_mode < ledge.ORIGIN_MODE_NORMAL then
             return sm:e "can_serve_stale"
         elseif can_serve_stale_while_revalidate(res) then
@@ -416,7 +417,7 @@ return {
     end,
 
     updating_cache = function(sm, handler)
-        local res = handler:get_response()
+        local res = handler.response
         if res.has_body then
             if res:is_cacheable() then
                 return sm:e "response_cacheable"

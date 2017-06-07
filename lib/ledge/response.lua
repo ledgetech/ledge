@@ -75,6 +75,7 @@ function _M.new(ctx, key_chain)
         -- body
         entity_id = "",
         body_reader = empty_body_reader,
+        body_filters = {}, -- for debug logging
 
         -- runtime metadata (not persisted)
         length = 0,  -- If Content-Length is present
@@ -101,19 +102,18 @@ end
 function _M.filter_body_reader(self, filter_name, filter)
     assert(type(filter) == "function", "filter must be a function")
 
-    if _M.DEBUG then
+    if _DEBUG then
         -- Keep track of the filters by name, just for debugging
-        local filters = self.ctx.body_filters
-        if not filters then filters = {} end
-
         ngx_log(ngx_DEBUG,
-            filter_name, "(",
-            tbl_concat(filters, "("), "" , str_rep(")", #filters - 1)
-            , ")"
+            filter_name,
+            "(",
+            tbl_concat(self.body_filters, 
+                "("), "" , str_rep(")", #self.body_filters - 1
+            ),
+            ")"
         )
 
-        tbl_insert(filters, 1, filter_name)
-        self.ctx.body_filters = filters
+        tbl_insert(self.body_filters, 1, filter_name)
     end
 
     self.body_reader = filter
@@ -196,7 +196,7 @@ end
 
 
 function _M.read(self)
-    local redis = self.ctx.redis
+    local redis = self.ctx.redis -- TODO ctx currently is handler
     local key_chain = self.key_chain
 
     -- Read main metdata
