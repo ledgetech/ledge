@@ -72,9 +72,11 @@ function _M.expire_pattern(cursor, job)
             for _,key in ipairs(res[2]) do
                 -- Strip the "main" suffix to find the cache key
                 local cache_key = str_sub(key, 1, -(str_len("::main") + 1))
-                handler.t_cache_key = cache_key
-
+                handler._cache_key = cache_key
                 local ok, res, err = pcall(handler.purge, handler, job.data.purge_mode)
+                -- reset these so that handler can be reused
+                handler._cache_key_chain = {}
+                handler._cache_key = ""
                 if not ok then
                     ngx_log(ngx_ERR, tostring(res))
                 elseif err then

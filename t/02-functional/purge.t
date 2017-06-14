@@ -503,8 +503,9 @@ PURGE /purge_cached_10_prx?*
 --- no_error_log
 [error]
 --- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[0-9a-f]{32}","options":\{"tags":\["purge"\],"jid":"[0-9a-f]{32}","priority":5}},"purge_mode":"revalidate"}
---- error_log eval
-["TEST 10 Revalidated: 1 primed", "TEST 10 Revalidated: 2 primed"]
+--- error_log
+TEST 10 Revalidated: 1 primed
+TEST 10 Revalidated: 2 primed
 --- error_code: 200
 
 

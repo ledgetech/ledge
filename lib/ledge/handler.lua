@@ -86,6 +86,7 @@ local function new(config)
     config = setmetatable(config, fixed_field_metatable)
 
     local self = setmetatable({
+    -- public:
         config = config,
 
         -- Slots for composed objects
@@ -96,12 +97,6 @@ local function new(config)
         response = {},
         error_response = {},
         esi_processor = {},
-
-        -- TODO These fields were in ctx, now in self, collided with function
-        -- names.
-        t_cache_key = "",
-        t_cache_key_chain = true, -- hmm
-
         client_validators = {},
 
         -- Events not listed here cannot be bound / emitted
@@ -119,6 +114,10 @@ local function new(config)
         esi_scan_disabled = true,
         esi_scan_enabled = false, -- TODO: errrr, both?
         esi_process_enabled = false,
+
+    -- private:
+        _cache_key = "",
+        _cache_key_chain = {},
 
     }, get_fixed_field_metatable_proxy(_M))
 
@@ -223,7 +222,7 @@ end
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
 function _M.cache_key(self)
-    if self.t_cache_key ~= "" then return self.t_cache_key end
+    if self._cache_key ~= "" then return self._cache_key end
 
     local key_spec = self.config.cache_key_spec
 
@@ -288,8 +287,8 @@ function _M.cache_key(self)
         end
     end
 
-    self.t_cache_key = tbl_concat(key, ":")
-    return self.t_cache_key
+    self._cache_key = tbl_concat(key, ":")
+    return self._cache_key
 end
 
 
@@ -320,11 +319,11 @@ end
 
 
 function _M.cache_key_chain(self)
-    if type(self.t_cache_key_chain ~= "table") then
+    if not next(self._cache_key_chain) then
         local cache_key = self:cache_key()
-        self.t_cache_key_chain = self:key_chain(cache_key)
+        self._cache_key_chain = self:key_chain(cache_key)
     end
-    return self.t_cache_key_chain
+    return self._cache_key_chain
 end
 
 
