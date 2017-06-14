@@ -64,6 +64,7 @@ local function req_byte_ranges()
 
     return ranges
 end
+_M.req_byte_ranges = req_byte_ranges
 
 
 local function sort_byte_ranges(first, second)
