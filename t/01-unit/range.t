@@ -111,3 +111,88 @@ location /t {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 2: handle_range_request
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local range = require("ledge.range").new()
+        local args = ngx.req.get_uri_args()
+
+        -- Response stub
+        local response = {
+            status = tonumber(args.status),
+            size = tonumber(args.size),
+            header = {}
+        }
+
+        local range_applied = false
+        response, range_applied = range:handle_range_request(response)
+
+        local t = tonumber(ngx.req.get_uri_args().t)
+        if t == 1 then
+            assert(response and not range_applied,
+                "response should not be nil but range was not applied")
+        elseif t == 2 then
+            assert(response and range_applied,
+                "response should not be nil and range should be applied")
+
+            assert(response.status == 206,
+                "status should be 206")
+
+            assert(response.header["Content-Range"] == "bytes 0-99/200",
+                "content_range header should be set")
+        elseif t == 3 then
+            assert(response and range_applied,
+                "response should not be nil and range should be applied")
+
+            assert(response.status == 206,
+                "status should be 206")
+
+            assert(response.header["Content-Range"] == "bytes 0-70/200",
+                "content_range header should be set to coalesced ranges")
+
+        elseif t == 4 then
+            assert(response and range_applied,
+                "response should not be nil and range should be applied")
+
+            assert(response.status == 206,
+                "status should be 206")
+
+            assert(response.header["Content-Range"] == "bytes 0-199/200",
+                "Content-Range header should be expanded to size")
+
+        elseif t == 5 then
+            assert(response and range_applied,
+                "response should not be nil and range should be applied")
+
+            assert(response.status == 206,
+                "status should be 206")
+
+            local ct = response.header["Content-Type"]
+            assert(string.find(ct, "multipart/byteranges;"),
+                "Content-Type header should incude multipart/byteranges")
+
+        end
+    }
+}
+--- more_headers eval
+[
+    "",
+    "Range: bytes=0-99",
+    "Range: bytes=0-30,20-70",
+    "Range: bytes=0-",
+    "Range: bytes=0-10,20-30",
+]
+--- request eval
+[
+    "GET /t?t=1&size=100&status=200",
+    "GET /t?t=2&size=200&status=200",
+    "GET /t?t=3&size=200&status=200",
+    "GET /t?t=4&size=200&status=200",
+    "GET /t?t=5&size=200&status=200",
+]
+--- no_error_log
+[error]
