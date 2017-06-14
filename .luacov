@@ -24,4 +24,5 @@ modules = {
     ["ledge.util"] = "lib/ledge/util.lua",
     ["ledge.validation"] = "lib/ledge/validation.lua",
     ["ledge.worker"] = "lib/ledge/worker.lua",
+    ["ledge"] = "lib/ledge.lua",
 }
