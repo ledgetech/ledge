@@ -193,7 +193,6 @@ function _M.handle_range_request(self, res)
                     boundary,
                     "Content-Type: " .. res.header["Content-Type"]
                 )
-                tbl_insert(boundary, "")
             end
 
             self.boundary = tbl_concat(boundary, "\n")
@@ -240,7 +239,7 @@ function _M.get_range_request_filter(self, reader)
                         -- required and only once per range.
                         if num_ranges > 1 and not range.boundary_printed then
                             co_yield(boundary)
-                            co_yield("Content-Range: " .. range.header)
+                            co_yield("\nContent-Range: " .. range.header)
                             co_yield("\n\n")
                             range.boundary_printed = true
                         end
