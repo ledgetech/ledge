@@ -1,21 +1,23 @@
-local h_util = require "ledge.header_util"
-local util = require "ledge.util"
-
 local setmetatable, tonumber, ipairs, type =
     setmetatable, tonumber, ipairs, type
 
 local str_match = string.match
 local str_sub = string.sub
-local str_randomhex = util.string.randomhex
-local str_split = util.string.split
+local str_randomhex = require("ledge.util").string.randomhex
+local str_split = require("ledge.util").string.split
 
 local tbl_insert = table.insert
 local tbl_sort = table.sort
 local tbl_remove = table.remove
 local tbl_concat = table.concat
 
+local get_header_token = require("ledge.header_util").get_header_token
+
 local co_yield = coroutine.yield
-local co_wrap = util.coroutine.wrap
+local co_wrap = require("ledge.util").coroutine.wrap
+
+local get_fixed_field_metatable_proxy =
+    require("ledge.util").mt.get_fixed_field_metatable_proxy
 
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_RANGE_NOT_SATISFIABLE = 416
@@ -26,19 +28,13 @@ local _M = {
     _VERSION = '1.28.3',
 }
 
-local mt = {
-    __index = _M,
-    __newindex = function() error("module fields are read only", 2) end,
-    __metatable = false,
-}
-
 
 function _M.new()
     return setmetatable({
         ranges = {},
         boundary_end = "",
         boundary = "",
-    }, mt)
+    }, get_fixed_field_metatable_proxy(_M))
 end
 
 
@@ -50,7 +46,7 @@ end
 --      { from = 100, to = 199 },
 -- }
 local function req_byte_ranges()
-    local bytes = h_util.get_header_token(ngx_req_get_headers().range, "bytes")
+    local bytes = get_header_token(ngx_req_get_headers().range, "bytes")
     local ranges = nil
 
     if bytes then
@@ -64,6 +60,7 @@ local function req_byte_ranges()
 
     return ranges
 end
+_M.req_byte_ranges = req_byte_ranges
 
 
 local function sort_byte_ranges(first, second)
@@ -192,7 +189,6 @@ function _M.handle_range_request(self, res)
                     boundary,
                     "Content-Type: " .. res.header["Content-Type"]
                 )
-                tbl_insert(boundary, "")
             end
 
             self.boundary = tbl_concat(boundary, "\n")
@@ -239,7 +235,7 @@ function _M.get_range_request_filter(self, reader)
                         -- required and only once per range.
                         if num_ranges > 1 and not range.boundary_printed then
                             co_yield(boundary)
-                            co_yield("Content-Range: " .. range.header)
+                            co_yield("\nContent-Range: " .. range.header)
                             co_yield("\n\n")
                             range.boundary_printed = true
                         end
