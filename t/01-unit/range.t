@@ -175,6 +175,17 @@ location /t {
             assert(string.find(ct, "multipart/byteranges;"),
                 "Content-Type header should incude multipart/byteranges")
 
+        elseif t == 6 then
+            assert(response and not range_applied,
+                "response should not be nil but range was not applied")
+
+            assert(response.status == 416,
+                "status should be 416 (Not Satisfiable)")
+
+        elseif t == 7 then
+            assert(response and not range_applied,
+                "response should not be nil but range was not applied")
+
         end
     }
 }
@@ -185,6 +196,8 @@ location /t {
     "Range: bytes=0-30,20-70",
     "Range: bytes=0-",
     "Range: bytes=0-10,20-30",
+    "Range: bytes=40-20",
+    "Range: bytes=0-10",
 ]
 --- request eval
 [
@@ -193,6 +206,126 @@ location /t {
     "GET /t?t=3&size=200&status=200",
     "GET /t?t=4&size=200&status=200",
     "GET /t?t=5&size=200&status=200",
+    "GET /t?t=6&size=200&status=200",
+    "GET /t?t=7&size=200&status=404",
+]
+--- no_error_log
+[error]
+
+
+=== TEST 3: get_range_request_filter
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local range = require("ledge.range").new()
+        local args = ngx.req.get_uri_args()
+
+        -- Response stub
+        local response = {
+            status = 200,
+            size = 10,
+            header = {},
+            body_reader = coroutine.wrap(function()
+                coroutine.yield("01234")
+                coroutine.yield("56789")
+            end),
+        }
+
+        if args["type"] then
+            response.header["Content-Type"] = args["type"]
+        end
+
+        local function read_body(response)
+            local res = ""
+            repeat
+                local chunk, err = response.body_reader()
+                if chunk then
+                    res = res .. chunk
+                end
+            until not chunk
+            return res
+        end
+
+        local range_applied = false
+        response, range_applied = range:handle_range_request(response)
+        if range_applied then
+            response.body_reader = range:get_range_request_filter(
+                response.body_reader
+            )
+        end
+        local body = read_body(response)
+
+        local t = tonumber(ngx.req.get_uri_args().t)
+        if t == 1 then
+            assert(body == "0123456789", "body should be un-filtered")
+
+        elseif t == 2 then
+            assert(body == "0123", "body should be 0123")
+
+        elseif t == 3 then
+            assert(body == "2345678", "body should be 2345678")
+
+        elseif t == 4 then
+            assert(body == "456789", "body should be 456789")
+
+        elseif t == 5 then
+            assert(body == "23456789", "body should be 23456789")
+
+        elseif t == 6 then
+            assert(response.status == 206, "status should be 206")
+
+            local ct = response.header["Content-Type"]
+            assert(string.find(ct, "multipart/byteranges;"),
+                "Content-Type header should incude multipart/byteranges")
+
+            assert(ngx.re.find(
+                body,
+                [[^(Content-Range: bytes 0-4\/10\n$)]],
+                "m"
+            ), "body should contain Content-Range bytes 0-4/10")
+
+            assert(ngx.re.find(
+                body,
+                [[^Content-Range: bytes 6-9\/10\n$]],
+                "m"
+            ), "body should contain Content-Range bytes 6-9/10")
+
+        elseif t == 7 then
+            assert(body == "3456789", "ranges should be coalesced")
+
+        elseif t == 8 then
+            assert(body == "0123456789", "body should be unfiltered")
+            assert(response.status == 206, response.status)
+            assert(response.header["Content-Range"] == "bytes 0-9/10",
+                "Content-Range header should be trimmed to size")
+
+        end
+    }
+}
+--- more_headers eval
+[
+    "Range: bytes=0-9",
+    "Range: bytes=0-3",
+    "Range: bytes=2-8",
+    "Range: bytes=4-",
+    "Range: bytes=-8",
+    "Range: bytes=0-4,6-9",
+    "Range: bytes=0-4,6-9",
+    "Range: bytes=3-6,6-9",
+    "Range: bytes=0-11",
+]
+--- request eval
+[
+    "GET /t?t=1",
+    "GET /t?t=2",
+    "GET /t?t=3",
+    "GET /t?t=4",
+    "GET /t?t=5",
+    "GET /t?t=6",
+    "GET /t?t=6&type=text/html",
+    "GET /t?t=7",
+    "GET /t?t=8",
 ]
 --- no_error_log
 [error]
