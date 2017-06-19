@@ -68,8 +68,10 @@ function _M.expire_pattern(cursor, job)
         if tbl_getn(res[2]) > 0 then
             local handler = require("ledge").create_handler()
             handler.redis = require("ledge").create_redis_connection()
-            -- TODO this needs to come from serialised job data?
-            handler.storage = require("ledge").create_storage_connection()
+            handler.storage = require("ledge").create_storage_connection(
+                job.data.storage_driver,
+                job.data.storage_driver_config
+            )
 
             for _,key in ipairs(res[2]) do
                 -- Strip the "main" suffix to find the cache key

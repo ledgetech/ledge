@@ -146,6 +146,8 @@ local function purge_in_background(handler, purge_mode)
         key_chain = key_chain,
         keyspace_scan_count = handler.config.keyspace_scan_count,
         purge_mode = purge_mode,
+        storage_driver = handler.config.storage_driver,
+        storage_driver_config = handler.config.storage_driver_config,
     }, {
         jid = ngx_md5("purge:" .. tostring(key_chain.root)),
         tags = { "purge" },
