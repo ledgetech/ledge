@@ -11,6 +11,8 @@ local ngx_null = ngx.null
 local ngx_md5 = ngx.md5
 local tbl_getn = table.getn
 
+local purge = require("ledge.purge").purge
+
 local _M = {
     _VERSION = '1.28.5',
 }
@@ -53,9 +55,10 @@ function _M.expire_pattern(cursor, job)
         end
     end
 
+    -- Scan using the "main" key to get a single key per cache entry
     local res, err = job.redis_slave:scan(
         cursor,
-        "MATCH", job.data.key_chain.main, -- We use the "main" key to single out a cache entry
+        "MATCH", job.data.key_chain.main,
         "COUNT", job.data.keyspace_scan_count
     )
 
@@ -65,23 +68,22 @@ function _M.expire_pattern(cursor, job)
         if tbl_getn(res[2]) > 0 then
             local handler = require("ledge").create_handler()
             handler.redis = require("ledge").create_redis_connection()
-            -- TODO this needs to come from serialised job data?
-            handler.storage = require("ledge").create_storage_connection()
-            handler.response = response.new({}, {})
+            handler.storage = require("ledge").create_storage_connection(
+                job.data.storage_driver,
+                job.data.storage_driver_config
+            )
 
             for _,key in ipairs(res[2]) do
                 -- Strip the "main" suffix to find the cache key
                 local cache_key = str_sub(key, 1, -(str_len("::main") + 1))
                 handler._cache_key = cache_key
-                local ok, res, err = pcall(handler.purge, handler, job.data.purge_mode)
+
+                local ok, err = purge(handler, job.data.purge_mode)
+                if ok == nil and err then ngx_log(ngx_ERR, tostring(err)) end
+
                 -- reset these so that handler can be reused
                 handler._cache_key_chain = {}
                 handler._cache_key = ""
-                if not ok then
-                    ngx_log(ngx_ERR, tostring(res))
-                elseif err then
-                    ngx_log(ngx_ERR, err)
-                end
             end
         end
 

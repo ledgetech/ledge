@@ -17,6 +17,7 @@ modules = {
 
     ["ledge.handler"] = "lib/ledge/handler.lua",
     ["ledge.header_util"] = "lib/ledge/header_util.lua",
+    ["ledge.purge"] = "lib/ledge/purge.lua",
     ["ledge.range"] = "lib/ledge/range.lua",
     ["ledge.request"] = "lib/ledge/request.lua",
     ["ledge.response"] = "lib/ledge/response.lua",
