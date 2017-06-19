@@ -153,11 +153,8 @@ local function purge_in_background(handler, purge_mode)
     })
 
     -- Create a JSON payload for the response
-    handler.response:set_body(create_purge_response(
-        purge_mode,
-        "scheduled",
-        job
-    ))
+    local res = create_purge_response(purge_mode, "scheduled", job)
+    handler.response:set_body(res)
 
     return true
 end
