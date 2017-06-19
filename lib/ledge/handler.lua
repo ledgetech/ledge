@@ -52,7 +52,6 @@ local co_wrap = require("ledge.util").coroutine.wrap
 local cjson_encode = require("cjson").encode
 local cjson_decode = require("cjson").decode
 
-local req_purge_mode = require("ledge.request").purge_mode
 local req_relative_uri = require("ledge.request").relative_uri
 local req_full_uri = require("ledge.request").full_uri
 local req_visible_hostname = require("ledge.request").visible_hostname
