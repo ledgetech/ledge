@@ -89,6 +89,7 @@ _M.expire_keys = expire_keys
 -- @param   string  "invalidate" | "delete" | "revalidate
 -- @return  boolean success
 -- @return  string  message
+-- @return  table   qless job (for revalidate only)
 local function purge(handler, purge_mode)
     local redis = handler.redis
     local storage = handler.storage
@@ -99,16 +100,16 @@ local function purge(handler, purge_mode)
     if not entity_id or entity_id == ngx_null
         or not storage:exists(entity_id) then
 
-        return false, "nothing to purge"
+        return false, "nothing to purge", nil
     end
 
     -- Delete mode overrides everything else, since you can't revalidate
     if purge_mode == "delete" then
         local res, err = handler:delete_from_cache()
         if not res then
-            return nil, err
+            return nil, err, nil
         else
-            return true, "deleted"
+            return true, "deleted", nil
         end
     end
 
@@ -127,7 +128,7 @@ local function purge(handler, purge_mode)
         return nil, err
 
     elseif not ok then
-        return false, "already expired"
+        return false, "already expired", nil
 
     elseif ok then
         return true, "purged", job
