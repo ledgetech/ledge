@@ -373,12 +373,14 @@ local function esi_replace_vars(chunk)
 end
 
 
-local function esi_fetch_include(include_tag, buffer_size, pre_include_callback, recursion_limit)
+function _M.esi_fetch_include(self, include_tag, buffer_size)
     -- We track include recursion, and bail past the limit, yielding a special
     -- "esi:abort_includes" instruction which the outer process filter checks
     -- for.
     local recursion_count =
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
+
+    local recursion_limit = self.handler.config.esi_recursion_limit
 
     if recursion_count >= recursion_limit then
         ngx_log(ngx_ERR, "ESI recursion limit (", recursion_limit, ") exceeded")
@@ -453,16 +455,8 @@ local function esi_fetch_include(include_tag, buffer_size, pre_include_callback,
                 },
             }
 
-            if pre_include_callback and
-                type(pre_include_callback) == "function" then
-
-                local ok, err = pcall(pre_include_callback, req_params)
-                if not ok then
-                    ngx_log(ngx_ERR,
-                        "Error running esi_pre_include_callback: ", err
-                    )
-                end
-            end
+            -- A chance to modify the request before we go upstream
+            self.handler:emit("before_esi_include_request", req_params)
 
             -- Add these after the pre_include_callback so that they cannot be
             -- accidentally overriden
@@ -742,7 +736,7 @@ function _M.get_scan_filter(self, res)
 end
 
 
-function _M.get_process_filter(self, res, pre_include_callback, recursion_limit)
+function _M.get_process_filter(self, res)
     local recursion_count =
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
 
@@ -806,11 +800,9 @@ function _M.get_process_filter(self, res, pre_include_callback, recursion_limit)
                                 -- instruction.
                                 if esi_abort_flag == false then
                                     -- Fetches and yields the streamed response
-                                    esi_fetch_include(
+                                    self:esi_fetch_include(
                                         str_sub(chunk, from, to),
-                                        buffer_size,
-                                        pre_include_callback,
-                                        recursion_limit
+                                        buffer_size
                                     )
                                 end
                             else

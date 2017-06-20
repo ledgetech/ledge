@@ -115,13 +115,7 @@ return {
         if next(esi_processor) then
             res:filter_body_reader(
                 "esi_process_filter",
-                esi_processor:get_process_filter(
-                    res,
-                    function(req_params)
-                        handler:emit("before_esi_include_request", req_params)
-                    end,
-                    handler.config.esi_recursion_limit
-                )
+                esi_processor:get_process_filter(res)
             )
         end
     end,
