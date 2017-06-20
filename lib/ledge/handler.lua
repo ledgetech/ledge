@@ -204,6 +204,8 @@ local function emit(self, event, ...)
             end
         end
     end
+
+    return true
 end
 _M.emit = emit
 
