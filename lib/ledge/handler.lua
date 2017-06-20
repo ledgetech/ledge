@@ -80,13 +80,14 @@ local _M = {
 --
 -- @param   table   The complete config table
 -- @return  table   Handler instance, or nil if no config table is provided
-local function new(config)
+local function new(config, events)
     if not config then return nil, "config table expected" end
     config = setmetatable(config, fixed_field_metatable)
 
     local self = setmetatable({
     -- public:
         config = config,
+        events = events,
 
         -- Slots for composed objects
         redis = {},
@@ -97,17 +98,6 @@ local function new(config)
         error_response = {},
         esi_processor = {},
         client_validators = {},
-
-        -- Events not listed here cannot be bound / emitted
-        events = {
-            after_cache_read = {},
-            before_upstream_request = {},
-            after_upstream_request = {},
-            before_save = {},
-            before_save_revalidation_data = {},
-            before_serve = {},
-            before_esi_include_request = {},
-        },
 
         output_buffers_enabled = true,
         esi_scan_disabled = true,
@@ -180,7 +170,7 @@ local function bind(self, event, callback)
         ngx_log(ngx_ERR, err)
         return nil, err
     else
-        tbl_insert(self.events[event], callback)
+        tbl_insert(ev, callback)
     end
     return true, nil
 end

@@ -114,3 +114,30 @@ GET /t
 function 1
 function 2
 function 3
+--- no_error_log
+[error]
+
+
+=== TEST 3: Default binds
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").bind("after_cache_read", function(arg)
+            ngx.say("default: ", arg)
+        end)
+
+        local handler = require("ledge").create_handler()
+        handler:bind("after_cache_read", function(arg)
+            ngx.say("instance: ", arg)
+        end)
+
+        handler:emit("after_cache_read", "foo")
+    }
+}
+--- request
+GET /t
+--- response_body
+default: foo
+instance: foo
