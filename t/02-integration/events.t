@@ -95,3 +95,40 @@ GET /events_2
 ORIGIN
 --- no_error_log
 [error]
+
+
+=== TEST 2b: As above but using a combination of default and handler bind
+--- http_config eval: $::HttpConfig
+--- config
+location /events_2 {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local ledge = require("ledge")
+
+        ledge.bind("before_upstream_request", function(req_params)
+            req_params.headers["X-Foo"] = "bar"
+        end)
+
+        local handler = require("ledge").create_handler()
+
+        handler:bind("before_upstream_request", function(req_params)
+            req_params.path = "/modified"
+        end)
+
+        handler:run()
+    }
+}
+location /modified {
+    content_by_lua_block {
+        ngx.say(ngx.req.get_headers()["X-Foo"])
+        ngx.say("ORIGIN");
+    }
+}
+--- request
+GET /events_2
+--- error_code: 200
+--- response_body
+bar
+ORIGIN
+--- no_error_log
+[error]

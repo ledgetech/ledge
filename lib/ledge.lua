@@ -7,6 +7,8 @@ local ngx_ERR = ngx.ERR
 local ngx_get_phase = ngx.get_phase
 local ngx_null = ngx.null
 
+local tbl_insert = table.insert
+
 local util = require("ledge.util")
 local tbl_copy = util.table.copy
 local tbl_copy_merge_defaults = util.table.copy_merge_defaults
@@ -88,6 +90,19 @@ local handler_defaults = setmetatable({
 }, fixed_field_metatable)
 
 
+-- events are not fixed field to avoid runtime fatal errors from bad config
+-- ledge.bind() and handler:bind() both check validity of event names however.
+local event_defaults = {
+    after_cache_read = {},
+    before_upstream_request = {},
+    after_upstream_request = {},
+    before_save = {},
+    before_save_revalidation_data = {},
+    before_serve = {},
+    before_esi_include_request = {},
+}
+
+
 local function set_handler_defaults(user_config)
     assert(ngx_get_phase() == "init",
         "attempt to call set_handler_defaults outside the 'init' phase")
@@ -100,6 +115,16 @@ end
 _M.set_handler_defaults = set_handler_defaults
 
 
+local function bind(event, callback)
+    local ev = event_defaults[event]
+    assert(ev, "no such event: " .. tostring(event))
+
+    tbl_insert(ev, callback)
+    return true
+end
+_M.bind = bind
+
+
 local function create_worker(config)
     return require("ledge.worker").new(config)
 end
@@ -108,7 +133,7 @@ _M.create_worker = create_worker
 
 local function create_handler(config)
     local config = tbl_copy_merge_defaults(config, handler_defaults)
-    return require("ledge.handler").new(config)
+    return require("ledge.handler").new(config, tbl_copy(event_defaults))
 end
 _M.create_handler = create_handler
 
