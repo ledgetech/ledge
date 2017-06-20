@@ -190,7 +190,7 @@ return {
     end,
 
     set_json_response = function(handler)
-        local res = response.new(handler, handler:cache_key_chain())
+        local res = response.new(handler.redis, handler:cache_key_chain())
         res.header["Content-Type"] = "application/json"
         handler.response = res
     end,

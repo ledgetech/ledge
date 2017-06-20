@@ -459,7 +459,7 @@ end
 
 
 function _M.read_from_cache(self)
-    local res = response.new(self, self:cache_key_chain())
+    local res = response.new(self.redis, self:cache_key_chain())
     local ok, err = res:read()
     if not ok then
         if err then
@@ -499,7 +499,7 @@ end
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response.new(self, self:cache_key_chain())
+    local res = response.new(self.redis, self:cache_key_chain())
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
     if not method then

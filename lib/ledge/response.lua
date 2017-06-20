@@ -48,19 +48,13 @@ end
 _M.empty_body_reader = empty_body_reader
 
 
-function _M.new(ctx, key_chain)
-    if type(ctx) ~= "table" then
-        error("ctx table expected, got " .. type(ctx), 2)
-    end
-
-    if type(key_chain) ~= "table" then
-        error("key_chain table expected, got " .. type(key_chain), 2)
-    end
-
+function _M.new(redis, key_chain)
     return setmetatable({
-        ctx = ctx,  -- Request context, TODO should this be handler?
+        redis = redis,
         key_chain = key_chain,  -- Cache key chain
-        conn = {},  -- httpc instance, TODO is this used?
+
+        conn = {},  -- httpc instance, TODO is this used? Yes, set by handler
+                    -- and pulled out in http_close action. Weird.
 
         uri = "",
         status = 0,
@@ -107,7 +101,7 @@ function _M.filter_body_reader(self, filter_name, filter)
         ngx_log(ngx_DEBUG,
             filter_name,
             "(",
-            tbl_concat(self.body_filters, 
+            tbl_concat(self.body_filters,
                 "("), "" , str_rep(")", #self.body_filters - 1
             ),
             ")"
@@ -196,7 +190,7 @@ end
 
 
 function _M.read(self)
-    local redis = self.ctx.redis -- TODO ctx currently is handler
+    local redis = self.redis
     local key_chain = self.key_chain
 
     -- Read main metdata
@@ -364,7 +358,7 @@ function _M.save(self, keep_cache_for)
     local ttl = self:ttl()
     local time = ngx_time()
 
-    local redis = self.ctx.redis
+    local redis = self.redis
     local key_chain = self.key_chain
     local ok, err = redis:hmset(key_chain.main,
         "entity",       self.entity_id,
@@ -407,7 +401,7 @@ end
 
 
 function _M.set_and_save(self, field, value)
-    local redis = self.ctx.redis
+    local redis = self.redis
     local ok, err = redis:hset(self.key_chain.main, field, tostring(value))
     if not ok then ngx_log(ngx_ERR, err) end
     return ok
