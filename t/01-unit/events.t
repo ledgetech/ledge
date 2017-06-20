@@ -1,4 +1,3 @@
-
 use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
 my $pwd = cwd();
@@ -90,3 +89,28 @@ before_serve
 before_esi_include_request
 --- error_log
 no such event: non_event
+
+
+=== TEST 2: Bind multiple functions to an event
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        for i = 1, 3 do
+            handler:bind("after_cache_read", function()
+                ngx.say("function ", i)
+            end)
+        end
+
+        handler:emit("after_cache_read")
+    }
+}
+--- request
+GET /t
+--- response_body
+function 1
+function 2
+function 3
