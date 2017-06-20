@@ -125,12 +125,21 @@ location /t {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         require("ledge").bind("after_cache_read", function(arg)
-            ngx.say("default: ", arg)
+            ngx.say("default 1: ", arg)
+        end)
+        
+        require("ledge").bind("after_cache_read", function(arg)
+            ngx.say("default 2: ", arg)
         end)
 
         local handler = require("ledge").create_handler()
+
         handler:bind("after_cache_read", function(arg)
-            ngx.say("instance: ", arg)
+            ngx.say("instance 1: ", arg)
+        end)
+        
+        handler:bind("after_cache_read", function(arg)
+            ngx.say("instance 2: ", arg)
         end)
 
         handler:emit("after_cache_read", "foo")
@@ -139,5 +148,9 @@ location /t {
 --- request
 GET /t
 --- response_body
-default: foo
-instance: foo
+default 1: foo
+default 2: foo
+instance 1: foo
+instance 2: foo
+--- no_error_log
+[error]
