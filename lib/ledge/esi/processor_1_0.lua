@@ -40,8 +40,9 @@ local _M = {
 }
 
 
-function _M.new()
+function _M.new(handler)
     return setmetatable({
+        handler = handler,
         token = "ESI/1.0",
     }, get_fixed_field_metatable_proxy(_M))
 end

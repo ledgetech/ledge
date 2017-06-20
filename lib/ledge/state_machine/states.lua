@@ -128,7 +128,7 @@ return {
 
             -- Choose an ESI processor from the Surrogate-Control header
             -- (Currently there is only the ESI/1.0 processor)
-            local processor = esi.choose_esi_processor(res)
+            local processor = esi.choose_esi_processor(handler)
             if processor then
                 if esi.is_allowed_content_type(res, handler.config.esi_content_types) then
                     -- Store parser for processing
@@ -164,7 +164,7 @@ return {
             -- yet, so we must do that now
             -- TODO: Perhaps the state machine can load the processor to avoid this weird check
             if res.has_esi then
-                handler.esi_processor = esi.choose_esi_processor(res)
+                handler.esi_processor = esi.choose_esi_processor(handler)
             else
                 -- We know there's nothing to do
                 return sm:e "esi_process_not_required"
