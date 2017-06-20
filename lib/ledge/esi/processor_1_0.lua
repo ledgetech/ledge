@@ -31,22 +31,19 @@ local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_INFO = ngx.INFO
 
+local get_fixed_field_metatable_proxy =
+    require("ledge.util").mt.get_fixed_field_metatable_proxy
+
 
 local _M = {
     _VERSION = '1.28.3',
-}
-
-local mt = {
-    __index = _M,
-    __newindex = function() error("module fields are read only", 2) end,
-    __metatable = false,
 }
 
 
 function _M.new()
     return setmetatable({
         token = "ESI/1.0",
-    }, mt)
+    }, get_fixed_field_metatable_proxy(_M))
 end
 
 
@@ -56,7 +53,8 @@ local default_recursion_limit = 10
 -- $2: substructure key
 -- $3: default value
 -- $4: default value if quoted
-local esi_var_pattern = [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+)|'([^\')]+)')?\)]]
+local esi_var_pattern =
+    [[\$\(([A-Z_]+){?([a-zA-Z\.\-~_%0-9]*)}?\|?(?:([^\s\)']+)|'([^\')]+)')?\)]]
 
 
 -- Evaluates a given ESI variable.
