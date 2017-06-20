@@ -8,15 +8,12 @@ local ngx_re_match = ngx.re.match
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 
+local get_fixed_field_metatable_proxy =
+    require("ledge.util").mt.get_fixed_field_metatable_proxy
+
 
 local _M = {
     _VERSION = '1.28.3',
-}
-
-local mt = {
-    __index = _M,
-    __newindex = function() error("module fields are read only", 2) end,
-    __metatable = false,
 }
 
 
@@ -25,7 +22,7 @@ function _M.new(content, offset)
         content = content,
         pos = (offset or 0),
         open_comments = 0,
-    }, mt)
+    }, get_fixed_field_metatable_proxy(_M))
 end
 
 
