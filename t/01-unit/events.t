@@ -14,20 +14,6 @@ init_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
         require("luacov.runner").init()
     end
-
-    require("ledge").configure({
-        redis_connector_params = {
-            url = "redis://127.0.0.1:6379/$ENV{TEST_LEDGE_REDIS_DATABASE}",
-        },
-        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-    })
-
-    TEST_NGINX_PORT = $ENV{TEST_NGINX_PORT}
-    require("ledge").set_handler_defaults({
-        upstream_port = TEST_NGINX_PORT,
-    })
-
-    require("ledge.state_machine").set_debug(true)
 }
 
 }; # HttpConfig
@@ -119,18 +105,28 @@ function 3
 
 
 === TEST 3: Default binds
---- http_config eval: $::HttpConfig
+--- http_config
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
+
+init_by_lua_block {
+    require("ledge").bind("after_cache_read", function(arg)
+        ngx.say("default 1: ", arg)
+    end)
+
+    require("ledge").bind("after_cache_read", function(arg)
+        ngx.say("default 2: ", arg)
+    end)
+}
 --- config
 location /t {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        require("ledge").bind("after_cache_read", function(arg)
-            ngx.say("default 1: ", arg)
+        local ledge = require("ledge")
+        local ok, err = pcall(ledge.bind, "after_cache_read", function(arg)
+            ngx.say(arg)
         end)
 
-        require("ledge").bind("after_cache_read", function(arg)
-            ngx.say("default 2: ", arg)
-        end)
+        assert(not ok and string.find(err, "attempt to call bind outside the 'init' phase"), err)
 
         local handler = require("ledge").create_handler()
 

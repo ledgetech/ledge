@@ -116,6 +116,9 @@ _M.set_handler_defaults = set_handler_defaults
 
 
 local function bind(event, callback)
+    assert(ngx_get_phase() == "init",
+        "attempt to call bind outside the 'init' phase")
+
     local ev = event_defaults[event]
     assert(ev, "no such event: " .. tostring(event))
 
