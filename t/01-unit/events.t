@@ -127,7 +127,7 @@ location /t {
         require("ledge").bind("after_cache_read", function(arg)
             ngx.say("default 1: ", arg)
         end)
-        
+
         require("ledge").bind("after_cache_read", function(arg)
             ngx.say("default 2: ", arg)
         end)
@@ -137,7 +137,7 @@ location /t {
         handler:bind("after_cache_read", function(arg)
             ngx.say("instance 1: ", arg)
         end)
-        
+
         handler:bind("after_cache_read", function(arg)
             ngx.say("instance 2: ", arg)
         end)
