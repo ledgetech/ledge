@@ -41,19 +41,6 @@ local _M = {
 }
 
 
-local mt = {
-    __index = _M,
-    __newindex = function() error("module fields are read only", 2) end,
-    __metatable = false,
-}
-
-
-function _M.new(content, offset)
-    return setmetatable({
-    }, mt)
-end
-
-
 local esi_processors = {
     ["ESI"] = {
         ["1.0"] = require "ledge.esi.processor_1_0",
@@ -79,11 +66,14 @@ end
 
 
 -- Returns a processor instance based on Surrogate-Control header
-function _M.choose_esi_processor(res)
+function _M.choose_esi_processor(handler)
+    local res = handler.response
     local res_surrogate_control = res.header["Surrogate-Control"]
+
     if res_surrogate_control then
         -- Get the token value (e.g. "ESI/1.0")
-        local content_token = h_util.get_header_token(res_surrogate_control, "content")
+        local content_token =
+            h_util.get_header_token(res_surrogate_control, "content")
 
         if content_token then
             local processor_token, version = _M.split_esi_token(content_token)
@@ -95,7 +85,7 @@ function _M.choose_esi_processor(res)
                 if processor_type then
                     for v,processor in pairs(processor_type) do
                         if tonumber(version) <= tonumber(v) then
-                            return processor.new()
+                            return processor.new(handler)
                         end
                     end
                 end
