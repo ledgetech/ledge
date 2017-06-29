@@ -551,12 +551,12 @@ function _M.fetch_from_origin(self)
     if self.config.esi_enabled then
         local capability_entry =    (ngx_var.visible_hostname or ngx_var.hostname)
                                     .. '="' .. esi.esi_capabilities() .. '"'
-        local sc = headers.surrogate_capability
+        local sc = headers["Surrogate-Capability"]
 
         if not sc then
-            headers.surrogate_capability = capability_entry
+            headers["Surrogate-Capability"] = capability_entry
         else
-            headers.surrogate_capability = sc .. ", " .. capability_entry
+            headers["Surrogate-Capability"] = sc .. ", " .. capability_entry
         end
     end
 

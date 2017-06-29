@@ -54,12 +54,12 @@ location /response_1_prx {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
         handler:bind("after_upstream_request", function(res)
-            if res.header["X_tesT"] == "1" then
+            if res.header["X-tesT"] == "1" then
                 res.header["x-TESt"] = "2"
             end
 
             if res.header["X-TEST"] == "2" then
-                res.header["x_test"] = "3"
+                res.header["x-test"] = "3"
             end
         end)
         handler:run()
