@@ -101,7 +101,9 @@ function _M.is_allowed_content_type(res, allowed_types)
         local res_content_type = res.header["Content-Type"]
         if res_content_type then
             for _, content_type in ipairs(allowed_types) do
-                if str_sub(res_content_type, 1, str_len(content_type)) == content_type then
+                local sep = str_find(res_content_type, ";")
+                if sep then sep = sep - 1 end
+                if str_sub(res_content_type, 1, sep) == content_type then
                     return true
                 end
             end
