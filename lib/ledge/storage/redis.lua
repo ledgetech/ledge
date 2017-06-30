@@ -14,16 +14,12 @@ local tbl_insert = table.insert
 local tbl_copy = require("ledge.util").table.copy
 local tbl_copy_merge_defaults = require("ledge.util").table.copy_merge_defaults
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
+local get_fixed_field_metatable_proxy =
+    require("ledge.util").mt.get_fixed_field_metatable_proxy
 
 
 local _M = {
     _VERSION = '1.28.3',
-}
-
-local mt = {
-    __index = _M,
-    __newindex = function() error("attempt to create new module field", 2) end,
-    __metatable = false,
 }
 
 
@@ -75,7 +71,7 @@ function _M.new()
 
         _reader_cursor = 0,
         _keys_created = false,
-    }, mt)
+    }, get_fixed_field_metatable_proxy(_M))
 end
 
 
