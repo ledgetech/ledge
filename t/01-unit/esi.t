@@ -187,3 +187,35 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 6: filter_esi_args
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local filter_esi_args = require("ledge.esi").filter_esi_args
+
+        local args = ngx.req.get_uri_args()
+        assert(args.a == "1" and args.esi_foo == "bar bar" and args.b == "2",
+            "request args should be intact")
+
+        filter_esi_args("esi_")
+
+        local args = ngx.req.get_uri_args()
+        assert(args.a == "1" and not args.esi_foo and args.b == "2",
+            "esi args should be removed")
+
+        assert(ngx.ctx.ledge_esi_custom_variables["ESI_ARGS"].foo == "bar bar",
+            "custom vars should have foo: bar bar")
+
+        assert(ngx.ctx.ledge_esi_args_encoded == "esi_foo=bar%20bar",
+            "esi_args_encoded should be foo=bar%20bar")
+
+    }
+}
+--- request
+GET /t?a=1&esi_foo=bar+bar&b=2
+--- no_error_log
+[error]
