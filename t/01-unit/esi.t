@@ -32,7 +32,7 @@ location /t {
             "module should load without errors")
 
         local capability, version = esi.split_esi_token("ESI/1.0")
-        assert(capability == "ESI" and version == "1.0",
+        assert(capability == "ESI" and version == 1.0,
             "capability and version should be returned")
     }
 }
