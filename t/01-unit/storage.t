@@ -106,19 +106,19 @@ __DATA__
 === TEST 1: Load connect and close without errors.
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
-            local storage = require(config.module).new()
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local storage = require(config.module).new()
 
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-            assert(storage:close(),
-                "storage:close() should return positively")
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+        assert(storage:close(),
+            "storage:close() should return positively")
 
-            ngx.print(ngx.req.get_uri_args()["backend"], " OK")
-        }
+        ngx.print(ngx.req.get_uri_args()["backend"], " OK")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
@@ -130,49 +130,49 @@ __DATA__
 === TEST 2: Write entity, read it back
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
 
-            -- This flag is required for has_esi flags to be read
-            local ctx = {
-                esi_process_enabled = true
-            }
-
-            local storage = require(config.module).new(ctx)
-
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            local res = _res.new("00002")
-            res.body_reader = get_source({
-                { "CHUNK 1", nil, false },
-                { "CHUNK 2", nil, true },
-                { "CHUNK 3", nil, false },
-            })
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(
-                res, 60,
-                success_handler,
-                failure_handler
-            )
-            sink(res.body_reader)
-
-            assert(storage:exists(res.entity_id),
-                "entity should exist")
-
-            -- Attach the reader, and run sink
-            res.body_reader = storage:get_reader(res)
-            sink(res.body_reader)
-
-            assert(storage:close(),
-                "storage:close should return positively")
+        -- This flag is required for has_esi flags to be read
+        local ctx = {
+            esi_process_enabled = true
         }
+
+        local storage = require(config.module).new(ctx)
+
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00002")
+        res.body_reader = get_source({
+            { "CHUNK 1", nil, false },
+            { "CHUNK 2", nil, true },
+            { "CHUNK 3", nil, false },
+        })
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
+
+        -- Attach the reader, and run sink
+        res.body_reader = storage:get_reader(res)
+        sink(res.body_reader)
+
+        assert(storage:close(),
+            "storage:close should return positively")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
@@ -191,47 +191,47 @@ CHUNK 3:nil:false
 === TEST 3: Fail to write entity larger than max_size
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
 
-            -- This flag is required for has_esi flags to be read
-            local ctx = {
-                esi_process_enabled = true
-            }
-
-            local storage = require(config.module).new(ctx)
-            config.params.max_size = 8
-
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            local res = _res.new("00003")
-            res.body_reader = get_source({
-                { "123", nil, false },
-                { "456", nil, true },
-                { "789", nil, false },
-            })
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(
-                res, 60,
-                success_handler,
-                failure_handler
-            )
-            sink(res.body_reader)
-
-            -- Prove entity wasn't written
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            assert(storage:close(),
-                "storage:close should return positively")
+        -- This flag is required for has_esi flags to be read
+        local ctx = {
+            esi_process_enabled = true
         }
+
+        local storage = require(config.module).new(ctx)
+        config.params.max_size = 8
+
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00003")
+        res.body_reader = get_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, false },
+        })
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        -- Prove entity wasn't written
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        assert(storage:close(),
+            "storage:close should return positively")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
@@ -247,40 +247,40 @@ body is larger than 8 bytes
 === TEST 4: Test zero length bodies are not written
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
 
-            -- This flag is required for has_esi flags to be read
-            local ctx = {
-                esi_process_enabled = true
-            }
-
-            local storage = require(config.module).new(ctx)
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            local res = _res.new("00004")
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(
-                res, 60,
-                success_handler,
-                failure_handler
-            )
-            sink(res.body_reader)
-
-            -- Prove entity wasn't written
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            assert(storage:close(),
-                "storage:close should return positively")
+        -- This flag is required for has_esi flags to be read
+        local ctx = {
+            esi_process_enabled = true
         }
+
+        local storage = require(config.module).new(ctx)
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00004")
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        -- Prove entity wasn't written
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        assert(storage:close(),
+            "storage:close should return positively")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
@@ -293,44 +293,44 @@ body is larger than 8 bytes
 === TEST 5: Test write fails and abort handler called if conn is interrupted
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        lua_socket_log_errors off;
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
+location /storage {
+    lua_socket_log_errors off;
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
 
-            -- This flag is required for has_esi flags to be read
-            local ctx = {
-                esi_process_enabled = true
-            }
-
-            local storage = require(config.module).new(ctx)
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            local res = _res.new("00005")
-            -- Load source but fail on second chunk
-            res.body_reader = get_and_fail_source({
-                { "123", nil, false },
-                { "456", nil, true },
-                { "789", nil, true },
-            }, 2, storage)
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(
-                res, 60,
-                success_handler,
-                failure_handler
-            )
-            sink(res.body_reader)
-
-            -- Prove entity wasn't written (rolled back)
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
+        -- This flag is required for has_esi flags to be read
+        local ctx = {
+            esi_process_enabled = true
         }
+
+        local storage = require(config.module).new(ctx)
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00005")
+        -- Load source but fail on second chunk
+        res.body_reader = get_and_fail_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, true },
+        }, 2, storage)
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        -- Prove entity wasn't written (rolled back)
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
@@ -346,50 +346,50 @@ error writing: closed
 === TEST 6: Write entity with short exiry, test keys expire
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
 
-            -- This flag is required for has_esi flags to be read
-            local ctx = {
-                esi_process_enabled = true
-            }
-
-            local storage = require(config.module).new(ctx)
-
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            local res = _res.new("00006")
-            res.body_reader = get_source({
-                { "123", nil, false },
-                { "456", nil, true },
-                { "789", nil, false },
-            })
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(
-                res, 1,
-                success_handler,
-                failure_handler
-            )
-            sink(res.body_reader)
-
-            assert(storage:exists(res.entity_id),
-                "entity should exist")
-
-            ngx.sleep(1)
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            assert(storage:close(),
-                "storage:close should return positively")
+        -- This flag is required for has_esi flags to be read
+        local ctx = {
+            esi_process_enabled = true
         }
+
+        local storage = require(config.module).new(ctx)
+
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00006")
+        res.body_reader = get_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, false },
+        })
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 1,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
+
+        ngx.sleep(1)
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        assert(storage:close(),
+            "storage:close should return positively")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
@@ -405,48 +405,48 @@ wrote 9 bytes
 === TEST 7: Test maxmem keys are cleaned up when transactions are not available
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
 
-            -- This flag is required for has_esi flags to be read
-            local ctx = {
-                esi_process_enabled = true
-            }
-
-            local storage = require(config.module).new(ctx)
-
-            config.params.max_size = 8
-
-            -- Turn off atomicity
-            config.params.supports_transactions = false
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            local res = _res.new("00007")
-            -- Load source but fail on second chunk
-            res.body_reader = get_source({
-                { "123", nil, false },
-                { "456", nil, true },
-                { "789", nil, true },
-            }, storage)
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(
-                res, 60,
-                success_handler,
-                failure_handler
-            )
-            sink(res.body_reader)
-
-            -- Prove entity wasn't written (rolled back)
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
+        -- This flag is required for has_esi flags to be read
+        local ctx = {
+            esi_process_enabled = true
         }
+
+        local storage = require(config.module).new(ctx)
+
+        config.params.max_size = 8
+
+        -- Turn off atomicity
+        config.params.supports_transactions = false
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00007")
+        -- Load source but fail on second chunk
+        res.body_reader = get_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, true },
+        }, storage)
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        -- Prove entity wasn't written (rolled back)
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
@@ -462,50 +462,50 @@ body is larger than 8 bytes
 === TEST 8: Keys will remain on failure when transactions are not available
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        lua_socket_log_errors off;
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
+location /storage {
+    lua_socket_log_errors off;
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
 
-            -- This flag is required for has_esi flags to be read
-            local ctx = {
-                esi_process_enabled = true
-            }
-
-            local storage = require(config.module).new(ctx)
-
-            config.params.supports_transactions = false
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            local res = _res.new("00008")
-            -- Load source but fail on second chunk
-            res.body_reader = get_and_fail_source({
-                { "123", nil, false },
-                { "456", nil, true },
-                { "789", nil, true },
-            }, 2, storage)
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(
-                res, 60,
-                success_handler,
-                failure_handler
-            )
-            sink(res.body_reader)
-
-            -- Reconnect
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            -- Prove it still exists (could not be cleaned up)
-            assert(storage:exists(res.entity_id),
-                "entity should exist")
+        -- This flag is required for has_esi flags to be read
+        local ctx = {
+            esi_process_enabled = true
         }
+
+        local storage = require(config.module).new(ctx)
+
+        config.params.supports_transactions = false
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00008")
+        -- Load source but fail on second chunk
+        res.body_reader = get_and_fail_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, true },
+        }, 2, storage)
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        -- Reconnect
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        -- Prove it still exists (could not be cleaned up)
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
@@ -521,57 +521,57 @@ error writing: closed
 === TEST 9: Close connection and then reconnect and re-read
 --- http_config eval: $::HttpConfig
 --- config
-    location /storage {
-        content_by_lua_block {
-            local config = backends[ngx.req.get_uri_args()["backend"]]
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
 
-            -- This flag is required for has_esi flags to be read
-            local ctx = {
-                esi_process_enabled = true
-            }
-
-            local storage = require(config.module).new(ctx)
-
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            local res = _res.new("00009")
-            res.body_reader = get_source({
-                { "123", nil, false },
-                { "456", nil, true },
-                { "789", nil, false },
-            })
-
-            assert(not storage:exists(res.entity_id),
-                "entity should not exist")
-
-            -- Attach the writer, and run sink
-            res.body_reader = storage:get_writer(
-                res, 60,
-                success_handler,
-                failure_handler
-            )
-            sink(res.body_reader)
-
-            assert(storage:exists(res.entity_id),
-                "entity should exist")
-
-            assert(storage:close(),
-                "storage:close should return positively")
-
-            assert(storage:connect(config.params),
-                "storage:connect should return positively")
-
-            assert(storage:exists(res.entity_id),
-                "entity should exist")
-
-            res.body_reader = storage:get_reader(res)
-            sink(res.body_reader)
-
-            assert(storage:close(),
-                "storage:close should return positively")
+        -- This flag is required for has_esi flags to be read
+        local ctx = {
+            esi_process_enabled = true
         }
+
+        local storage = require(config.module).new(ctx)
+
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00009")
+        res.body_reader = get_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, false },
+        })
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
+
+        assert(storage:close(),
+            "storage:close should return positively")
+
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
+
+        res.body_reader = storage:get_reader(res)
+        sink(res.body_reader)
+
+        assert(storage:close(),
+            "storage:close should return positively")
     }
+}
 --- request eval
 ["GET /storage?backend=redis"]
 --- response_body eval
