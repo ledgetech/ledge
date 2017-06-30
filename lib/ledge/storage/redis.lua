@@ -176,8 +176,12 @@ function _M.delete(self, entity_id)
         for k, v in pairs(key_chain) do
             tbl_insert(keys, v)
         end
-        -- TODO: return bool
-        return self.redis:del(unpack(keys))
+        local res, err = self.redis:del(unpack(keys))
+        if res == 0 and not err then
+            return false, nil
+        else
+            return res, err
+        end
     end
 end
 
