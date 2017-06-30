@@ -1,13 +1,10 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 2) + 2;
 
 my $pwd = cwd();
 
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
 $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
@@ -18,11 +15,12 @@ init_by_lua_block {
         require("luacov.runner").init()
     end
 
+    qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE}
     require("ledge").configure({
         redis_connector_params = {
             url = "redis://127.0.0.1:6379/$ENV{TEST_LEDGE_REDIS_DATABASE}",
         },
-        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+        qless_db = qless_db,
     })
 }
 
@@ -195,3 +193,34 @@ location /ledge_8 {
 GET /ledge_8
 --- error_log
 Connection refused
+
+
+=== TEST 9: Create qless connection
+--- http_config eval: $::HttpConfig
+--- config
+location /ledge_9 {
+    content_by_lua_block {
+        local redis = assert(require("ledge").create_qless_connection(),
+            "create_qless_connection() should return positively")
+
+        assert(redis:set("ledge_9:cat", "dog"),
+            "redis:set() should return positively")
+
+        assert(require("ledge").close_redis_connection(redis),
+            "close_redis_connection() should return positively")
+
+        local redis = require("ledge").create_redis_connection()
+        assert(redis:select(qless_db), "select() shoudl return positively")
+
+        ngx.say(redis:get("ledge_9:cat"))
+
+        assert(require("ledge").close_redis_connection(redis),
+            "close_redis_connection() should return positively")
+    }
+}
+--- request
+GET /ledge_9
+--- response_body
+dog
+--- no_error_log
+[error]
