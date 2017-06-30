@@ -50,7 +50,16 @@ local esi_processors = {
 
 
 function _M.split_esi_token(token)
-    return unpack(str_split(token, "/") or {})
+    if token then
+        local m = ngx_re_match(
+            token,
+            [[^([A-Za-z0-9-_]+)\/(\d+\.?\d+)$]],
+            "oj"
+        )
+        if m then
+            return m[1], tonumber(m[2])
+        end
+    end
 end
 
 
@@ -101,7 +110,9 @@ function _M.is_allowed_content_type(res, allowed_types)
         local res_content_type = res.header["Content-Type"]
         if res_content_type then
             for _, content_type in ipairs(allowed_types) do
-                if str_sub(res_content_type, 1, str_len(content_type)) == content_type then
+                local sep = str_find(res_content_type, ";")
+                if sep then sep = sep - 1 end
+                if str_sub(res_content_type, 1, sep) == content_type then
                     return true
                 end
             end
@@ -121,12 +132,13 @@ function _M.can_delegate_to_surrogate(surrogates, processor_token)
             surrogate_capability,
             "[!#\\$%&'\\*\\+\\-.\\^_`\\|~0-9a-zA-Z]+"
         )
-        local capability_processor, capability_version = _M.split_esi_token(capability_token)
-        capability_version = tonumber(capability_version)
+
+        local capability_processor, capability_version =
+            _M.split_esi_token(capability_token)
 
         if capability_processor and capability_version then
-            local control_processor, control_version = _M.split_esi_token(processor_token)
-            control_version = tonumber(control_version)
+            local control_processor, control_version =
+                _M.split_esi_token(processor_token)
 
             if control_processor and control_version
                 and control_processor == capability_processor
@@ -163,7 +175,12 @@ function _M.filter_esi_args(esi_args_prefix)
 
         for k,v in pairs(args) do
             -- If we have the prefix, extract the suffix
-            local m, err = ngx_re_match(k, "^" .. esi_args_prefix .. "(\\S+)", "oj")
+            local m, err = ngx_re_match(
+                k,
+                "^" .. esi_args_prefix .. "(\\S+)",
+                "oj"
+            )
+
             if m and m[1] then
                 has_esi_args = true
                 esi_args[m[1]] = v
@@ -180,8 +197,8 @@ function _M.filter_esi_args(esi_args_prefix)
             custom_variables["ESI_ARGS"] = esi_args
             ngx.ctx.ledge_esi_custom_variables = custom_variables
 
-            -- Also keep them in encoded querystring form, so that $(ESI_ARGS) works
-            -- as a string.
+            -- Also keep them in encoded querystring form, so that $(ESI_ARGS)
+            -- works as a string.
             ngx.ctx.ledge_esi_args_prefix = esi_args_prefix
             local args = {}
             for k,v in pairs(esi_args) do
