@@ -50,13 +50,15 @@ local esi_processors = {
 
 
 function _M.split_esi_token(token)
-    local m = ngx_re_match(
-        token,
-        [[^([A-Za-z0-9-_]+)\/(\d+\.?\d+)$]],
-        "oj"
-    )
-    if m then
-        return m[1], tonumber(m[2])
+    if token then
+        local m = ngx_re_match(
+            token,
+            [[^([A-Za-z0-9-_]+)\/(\d+\.?\d+)$]],
+            "oj"
+        )
+        if m then
+            return m[1], tonumber(m[2])
+        end
     end
 end
 
@@ -134,12 +136,9 @@ function _M.can_delegate_to_surrogate(surrogates, processor_token)
         local capability_processor, capability_version =
             _M.split_esi_token(capability_token)
 
-        capability_version = tonumber(capability_version)
-
         if capability_processor and capability_version then
             local control_processor, control_version =
                 _M.split_esi_token(processor_token)
-            control_version = tonumber(control_version)
 
             if control_processor and control_version
                 and control_processor == capability_processor

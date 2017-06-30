@@ -34,6 +34,10 @@ location /t {
         local capability, version = esi.split_esi_token("ESI/1.0")
         assert(capability == "ESI" and version == 1.0,
             "capability and version should be returned")
+
+        local ok, cap, ver = pcall(esi.split_esi_token)
+        assert(ok and not cap and not ver,
+            "split_esi_token without a token should safely return nil")
     }
 }
 
@@ -145,6 +149,40 @@ location /t {
     }
 }
 
+--- request
+GET /t
+--- no_error_log
+[error]
+
+
+=== TEST 5: can_delegate_to_surrogate
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local can_delegate_to_surrogate =
+            require("ledge.esi").can_delegate_to_surrogate
+
+        assert(not can_delegate_to_surrogate(true, "ESI/1.0"),
+            "cannot delegate without capability")
+
+        ngx.req.set_header("Surrogate-Capability", "localhost=ESI/1.0")
+
+        assert(can_delegate_to_surrogate(true, "ESI/1.0"),
+            "can delegate with capability")
+
+        assert(not can_delegate_to_surrogate(true, "FOO/1.2"),
+            "cannnot delegate to non-supported capability")
+
+        assert(can_delegate_to_surrogate({ "127.0.0.1" }, "ESI/1.0" ),
+            "can delegate to loopback with capability")
+
+        assert(not can_delegate_to_surrogate({ "127.0.0.2" }, "ESI/1.0" ),
+            "cant delegate to non-loopback with capability")
+
+    }
+}
 --- request
 GET /t
 --- no_error_log
