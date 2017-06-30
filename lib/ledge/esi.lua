@@ -175,7 +175,12 @@ function _M.filter_esi_args(esi_args_prefix)
 
         for k,v in pairs(args) do
             -- If we have the prefix, extract the suffix
-            local m, err = ngx_re_match(k, "^" .. esi_args_prefix .. "(\\S+)", "oj")
+            local m, err = ngx_re_match(
+                k,
+                "^" .. esi_args_prefix .. "(\\S+)",
+                "oj"
+            )
+
             if m and m[1] then
                 has_esi_args = true
                 esi_args[m[1]] = v
@@ -192,8 +197,8 @@ function _M.filter_esi_args(esi_args_prefix)
             custom_variables["ESI_ARGS"] = esi_args
             ngx.ctx.ledge_esi_custom_variables = custom_variables
 
-            -- Also keep them in encoded querystring form, so that $(ESI_ARGS) works
-            -- as a string.
+            -- Also keep them in encoded querystring form, so that $(ESI_ARGS)
+            -- works as a string.
             ngx.ctx.ledge_esi_args_prefix = esi_args_prefix
             local args = {}
             for k,v in pairs(esi_args) do
