@@ -109,6 +109,8 @@ function 3
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
 init_by_lua_block {
+    require("luacov.runner").init()
+
     require("ledge").bind("after_cache_read", function(arg)
         ngx.say("default 1: ", arg)
     end)
