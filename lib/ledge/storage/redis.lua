@@ -59,11 +59,9 @@ local function entity_keys(entity_id)
 end
 
 
---------------------------------------------------------------------------------
 -- Creates a new (disconnected) storage instance
---------------------------------------------------------------------------------
+--
 -- @return  table   The module instance
---------------------------------------------------------------------------------
 function _M.new()
     return setmetatable({
         redis = {},
@@ -75,12 +73,10 @@ function _M.new()
 end
 
 
---------------------------------------------------------------------------------
 -- Connects to the Redis storage backend
---------------------------------------------------------------------------------
+--
 -- @param   table   Module instance (self)
 -- @param   table   Storage params
---------------------------------------------------------------------------------
 function _M.connect(self, user_params)
     -- take user_params by value and merge with defaults
     user_params = tbl_copy_merge_defaults(user_params, defaults)
@@ -102,11 +98,9 @@ function _M.connect(self, user_params)
 end
 
 
---------------------------------------------------------------------------------
 -- Closes the Redis connection (placing back on the keepalive pool)
---------------------------------------------------------------------------------
+--
 -- @param   table   Module instance (self)
---------------------------------------------------------------------------------
 function _M.close(self)
     self._reader_cursor = 0
     self._keys_created = false
@@ -135,25 +129,21 @@ function _M.close(self)
 end
 
 
---------------------------------------------------------------------------------
 -- Returns the maximum size this connection is prepared to store.
---------------------------------------------------------------------------------
+--
 -- @param   table   Module instance (self)
 -- @return  number  Size (bytes)
---------------------------------------------------------------------------------
 function _M.get_max_size(self)
     return self.params.max_size
 end
 
 
---------------------------------------------------------------------------------
 -- Returns a boolean indicating if the entity exists.
---------------------------------------------------------------------------------
+--
 -- @param   table   Module instance (self)
 -- @param   string  The entity ID
 -- @return  boolean (exists)
 -- @return  string  err (or nil)
---------------------------------------------------------------------------------
 function _M.exists(self, entity_id)
     local keys = entity_keys(entity_id)
     if not keys then
@@ -173,14 +163,12 @@ function _M.exists(self, entity_id)
 end
 
 
---------------------------------------------------------------------------------
 -- Deletes an entity
---------------------------------------------------------------------------------
+--
 -- @param   table   Module instance (self)
 -- @param   string  The entity ID
 -- @return  boolean success
 -- @return  string  err (or nil)
---------------------------------------------------------------------------------
 function _M.delete(self, entity_id)
     local key_chain = entity_keys(entity_id)
     if key_chain then
@@ -194,15 +182,13 @@ function _M.delete(self, entity_id)
 end
 
 
---------------------------------------------------------------------------------
 -- Sets the time-to-live for an entity
---------------------------------------------------------------------------------
+--
 -- @param   table   Module instance (self)
 -- @param   string  The entity ID
 -- @param   number  TTL (seconds)
 -- @return  boolean success
 -- @return  string  err (or nil)
---------------------------------------------------------------------------------
 function _M.set_ttl(self, entity_id, ttl)
     local key_chain = entity_keys(entity_id)
     if key_chain then
@@ -214,26 +200,22 @@ function _M.set_ttl(self, entity_id, ttl)
 end
 
 
---------------------------------------------------------------------------------
 -- Gets the time-to-live for an entity
---------------------------------------------------------------------------------
+--
 -- @param   table   Module instance (self)
 -- @param   string  The entity ID
 -- @return  number  ttl
 -- @return  string  err (or nil)
---------------------------------------------------------------------------------
 function _M.get_ttl(self, entity_id)
     -- TODO: implement
 end
 
 
---------------------------------------------------------------------------------
 -- Returns an iterator for reading the body chunks.
---------------------------------------------------------------------------------
+--
 -- @param   table       Module instance (self)
 -- @param   table       Response object
 -- @return  function    Iterator, returning chunk, err, has_esi for each call
---------------------------------------------------------------------------------
 function _M.get_reader(self, res)
     local redis = self.redis
     local entity_id = res.entity_id
@@ -290,19 +272,17 @@ local function write_chunk(self, entity_keys, chunk, has_esi, ttl)
 end
 
 
---------------------------------------------------------------------------------
 -- Returns an iterator which writes chunks to cache as they are read from
 -- reader belonging to the repsonse object.
 -- If we cross the maxsize boundary, or error for any reason, we just
 -- keep yielding chunks to be served, after having removed the cache entry.
---------------------------------------------------------------------------------
+--
 -- @param   table       Module instance (self)
 -- @param   table       Response object
 -- @param   number      time-to-live
 -- @param   function    onsuccess callback
 -- @param   function    onfailure callback
 -- @return  function    Iterator, returning chunk, err, has_esi for each call
---------------------------------------------------------------------------------
 function _M.get_writer(self, res, ttl, onsuccess, onfailure)
     assert(type(res) == "table")
     assert(type(ttl) == "number")
