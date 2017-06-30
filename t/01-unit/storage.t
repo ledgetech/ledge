@@ -585,3 +585,62 @@ wrote 9 bytes
 "]
 --- no_error_log
 [error]
+
+
+=== TEST 10: Entities can be deleted
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
+
+        local storage = require(config.module).new()
+
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00010")
+        res.body_reader = get_source({
+            { "123", nil, false },
+            { "456", nil, false },
+            { "789", nil, false },
+        })
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 99,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
+
+        assert(storage:delete(res.entity_id),
+            "entity should delete without error")
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        local ok, err = storage:delete("foo")
+        assert(ok == false and err == nil,
+            "deleting foo entity should return false without error")
+
+        assert(storage:close(),
+            "storage:close should return positively")
+    }
+}
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["123:nil:false
+456:nil:false
+789:nil:false
+wrote 9 bytes
+"]
+--- no_error_log
+[error]
