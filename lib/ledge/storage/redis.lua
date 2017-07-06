@@ -196,9 +196,16 @@ end
 function _M.set_ttl(self, entity_id, ttl)
     local key_chain = entity_keys(entity_id)
     if key_chain then
+        local res, err
         for _,key in pairs(key_chain) do
-            -- TODO: Return bool
-            self.redis:expire(key, ttl)
+            res, err = self.redis:expire(key, ttl)
+        end
+        if not res then
+            return res, err
+        elseif res == 0 then
+            return false, "entity does not exist"
+        else
+            return true, nil
         end
     end
 end
@@ -211,7 +218,19 @@ end
 -- @return  number  ttl
 -- @return  string  err (or nil)
 function _M.get_ttl(self, entity_id)
-    -- TODO: implement
+    local key_chain = entity_keys(entity_id)
+    if next(key_chain) then
+        local res, err = self.redis:ttl(key_chain.body)
+        if not res then
+            return res, err
+        elseif res == -2 then
+            return false, "entity does not exist"
+        elseif res == -1 then
+            return false, "entity does not have a ttl"
+        else
+            return res, nil
+        end
+    end
 end
 
 

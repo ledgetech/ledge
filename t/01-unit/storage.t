@@ -604,3 +604,72 @@ wrote 9 bytes
 "]
 --- no_error_log
 [error]
+
+
+=== TEST 11: set_ttl / get_ttl
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    content_by_lua_block {
+        local config = backends[ngx.req.get_uri_args()["backend"]]
+
+        local storage = require(config.module).new()
+
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00011")
+        res.body_reader = get_source({
+            { "123", nil, false },
+            { "456", nil, false },
+            { "789", nil, false },
+        })
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 99,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        assert(storage:exists(res.entity_id),
+            "entity should exist")
+
+        local ttl, err = storage:get_ttl("foo")
+        assert(ttl == false and err == "entity does not exist",
+            "getting ttl on foo entity should return false without error")
+
+        local ttl = storage:get_ttl(res.entity_id)
+        assert(ttl and ttl <= 99 and ttl >= 98,
+            "entity ttl should be roughly 99")
+
+        local ok, err = storage:set_ttl("foo", 1)
+        assert(ok == false and err == "entity does not exist",
+            "setting ttl on foo entity should return false without error")
+
+        assert(storage:set_ttl(res.entity_id, 1),
+            "setting ttl should return positively")
+
+        ngx.sleep(1)
+
+        assert(not storage:exists(res.entity_id),
+            "entity should have expired")
+
+        assert(storage:close(),
+            "storage:close should return positively")
+    }
+}
+--- request eval
+["GET /storage?backend=redis"]
+--- response_body eval
+["123:nil:false
+456:nil:false
+789:nil:false
+wrote 9 bytes
+"]
+--- no_error_log
+[error]
