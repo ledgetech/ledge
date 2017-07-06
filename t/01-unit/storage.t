@@ -134,12 +134,7 @@ location /storage {
     content_by_lua_block {
         local config = backends[ngx.req.get_uri_args()["backend"]]
 
-        -- This flag is required for has_esi flags to be read
-        local ctx = {
-            esi_process_enabled = true
-        }
-
-        local storage = require(config.module).new(ctx)
+        local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
             "storage:connect should return positively")
@@ -195,12 +190,7 @@ location /storage {
     content_by_lua_block {
         local config = backends[ngx.req.get_uri_args()["backend"]]
 
-        -- This flag is required for has_esi flags to be read
-        local ctx = {
-            esi_process_enabled = true
-        }
-
-        local storage = require(config.module).new(ctx)
+        local storage = require(config.module).new()
         config.params.max_size = 8
 
         assert(storage:connect(config.params),
@@ -251,12 +241,7 @@ location /storage {
     content_by_lua_block {
         local config = backends[ngx.req.get_uri_args()["backend"]]
 
-        -- This flag is required for has_esi flags to be read
-        local ctx = {
-            esi_process_enabled = true
-        }
-
-        local storage = require(config.module).new(ctx)
+        local storage = require(config.module).new()
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
@@ -298,12 +283,7 @@ location /storage {
     content_by_lua_block {
         local config = backends[ngx.req.get_uri_args()["backend"]]
 
-        -- This flag is required for has_esi flags to be read
-        local ctx = {
-            esi_process_enabled = true
-        }
-
-        local storage = require(config.module).new(ctx)
+        local storage = require(config.module).new()
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
@@ -350,12 +330,7 @@ location /storage {
     content_by_lua_block {
         local config = backends[ngx.req.get_uri_args()["backend"]]
 
-        -- This flag is required for has_esi flags to be read
-        local ctx = {
-            esi_process_enabled = true
-        }
-
-        local storage = require(config.module).new(ctx)
+        local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
             "storage:connect should return positively")
@@ -409,12 +384,7 @@ location /storage {
     content_by_lua_block {
         local config = backends[ngx.req.get_uri_args()["backend"]]
 
-        -- This flag is required for has_esi flags to be read
-        local ctx = {
-            esi_process_enabled = true
-        }
-
-        local storage = require(config.module).new(ctx)
+        local storage = require(config.module).new()
 
         config.params.max_size = 8
 
@@ -467,12 +437,7 @@ location /storage {
     content_by_lua_block {
         local config = backends[ngx.req.get_uri_args()["backend"]]
 
-        -- This flag is required for has_esi flags to be read
-        local ctx = {
-            esi_process_enabled = true
-        }
-
-        local storage = require(config.module).new(ctx)
+        local storage = require(config.module).new()
 
         config.params.supports_transactions = false
         assert(storage:connect(config.params),
@@ -525,12 +490,7 @@ location /storage {
     content_by_lua_block {
         local config = backends[ngx.req.get_uri_args()["backend"]]
 
-        -- This flag is required for has_esi flags to be read
-        local ctx = {
-            esi_process_enabled = true
-        }
-
-        local storage = require(config.module).new(ctx)
+        local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
             "storage:connect should return positively")
