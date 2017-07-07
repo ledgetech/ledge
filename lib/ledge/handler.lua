@@ -479,8 +479,11 @@ function _M.read_from_cache(self)
         -- and clean up
         if not storage:exists(res.entity_id) then
             local delay = self:gc_wait(res.size)
+            local config = self.config
             self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
                 entity_id = res.entity_id,
+                storage_driver = self.config.storage_driver,
+                storage_driver_config = self.config.storage_driver_config,
             }, {
                 delay = res.size,
                 tags = { "collect_entity" },
@@ -780,6 +783,8 @@ function _M.save_to_cache(self, res)
     if previous_entity_id then
         self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
             entity_id = previous_entity_id,
+            storage_driver = self.config.storage_driver,
+            storage_driver_config = self.config.storage_driver_config,
         }, {
             delay = previous_entity_size,
             tags = { "collect_entity" },
@@ -884,6 +889,8 @@ function _M.delete_from_cache(self)
         local size = redis:hget(key_chain.main, "size")
         self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
             entity_id = entity_id,
+            storage_driver = self.config.storage_driver,
+            storage_driver_config = self.config.storage_driver_config,
         }, {
             delay = self:gc_wait(size),
             tags = { "collect_entity" },
