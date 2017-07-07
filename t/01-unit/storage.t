@@ -22,7 +22,7 @@ init_by_lua_block {
         redis = {
             module = "ledge.storage.redis",
             params = {
-                redis_connector = {
+                redis_connector_params = {
                     db = $ENV{TEST_LEDGE_REDIS_DATABASE},
                 },
             },

@@ -25,15 +25,7 @@ local _M = {
 
 -- Default parameters
 local defaults = setmetatable({
-    connect_timeout = 500,
-    read_timeout = 5000,
-    connection_options = {},
-    keepalive_timeout = 60000,
-    keepalive_poolsize = 30,
-
-    -- lua-resty-redis-connector params
-    -- TODO: Rename connector_params for consistency
-    redis_connector = {},
+    redis_connector_params = {},
 
     max_size = 1024 * 1024,  -- Max storable size, in bytes
 
@@ -82,13 +74,10 @@ function _M.connect(self, user_params)
     user_params = tbl_copy_merge_defaults(user_params, defaults)
     self.params = user_params
 
-    local rc = redis_connector.new()
-    rc:set_connect_timeout(user_params.connect_timeout)
-    rc:set_read_timeout(user_params.read_timeout)
-    rc:set_connection_options(user_params.connection_options)
+    local redis, err = redis_connector.new(
+        user_params.redis_connector_params
+    ):connect()
 
-    -- Connect
-    local redis, err = rc:connect(user_params.redis_connector)
     if not redis then
         return nil, err
     else
@@ -107,24 +96,9 @@ function _M.close(self)
 
     local redis = self.redis
     if redis then
-        local params = self.params
-        if params.supports_transactions then
-            -- Restore the connection to "NORMAL" before placing in the
-            -- keepalive pool
-            redis:discard()
-        end
-
-        local ok, err = redis:set_keepalive(
-            params.keepalive_timeout,
-            params.keepalive_poolsize
-        )
-
-        if not ok then
-            ngx_log(ngx_WARN, "couldn't set keepalive, ", err)
-            return redis:close()
-        end
-
-        return ok
+        return redis_connector.new(
+            self.params.redis_connector_params
+        ):set_keepalive(redis)
     end
 end
 
