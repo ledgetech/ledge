@@ -27,7 +27,7 @@ init_by_lua_block {
         keep_cache_for = 0,
         upstream_port = $ENV{TEST_NGINX_PORT},
         storage_driver_config = {
-            redis_connector = {
+            redis_connector_params = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
         }

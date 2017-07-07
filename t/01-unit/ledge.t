@@ -176,7 +176,7 @@ lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-rest
 init_by_lua_block {
     require("ledge").set_handler_defaults({
         storage_driver_config = {
-            redis_connector = {
+            redis_connector_params = {
                 port = 0,
             },
         }
