@@ -10,7 +10,7 @@ $ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
-    
+
 lua_check_client_abort on;
 
 upstream test-upstream {
@@ -33,7 +33,7 @@ init_by_lua_block {
     require("ledge").set_handler_defaults({
         upstream_port = $ENV{TEST_NGINX_PORT},
         storage_driver_config = {
-            redis_connector = {
+            redis_connector_params = {
                 db = $ENV{TEST_LEDGE_REDIS_DATABASE},
             },
         }

@@ -34,7 +34,7 @@ init_by_lua_block {
     require("ledge").set_handler_defaults({
         upstream_port = $ENV{TEST_NGINX_PORT},
         storage_driver_config = {
-            redis_connector = {
+            redis_connector_params = {
                 db = TEST_LEDGE_REDIS_DATABASE,
             },
         },
