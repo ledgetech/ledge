@@ -281,11 +281,6 @@ end
 -- @param   function    onfailure callback
 -- @return  function    Iterator, returning chunk, err, has_esi for each call
 function _M.get_writer(self, res, ttl, onsuccess, onfailure)
-    assert(type(res) == "table")
-    assert(type(ttl) == "number")
-    assert(type(onsuccess) == "function")
-    assert(type(onfailure) == "function")
-
     local redis = self.redis
     local max_size = self.params.max_size
     local supports_transactions = self.params.supports_transactions
