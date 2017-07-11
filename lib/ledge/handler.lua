@@ -194,7 +194,7 @@ _M.emit = emit
 
 -- Generates or returns the cache key. The default spec is:
 -- ledge:cache_obj:http:example.com:/about:p=3&q=searchterms
-function _M.cache_key(self)
+local function cache_key(self)
     if self._cache_key ~= "" then return self._cache_key end
 
     local key_spec = self.config.cache_key_spec
@@ -264,10 +264,11 @@ function _M.cache_key(self)
     self._cache_key = tbl_concat(key, ":")
     return self._cache_key
 end
+_M.cache_key = cache_key
 
 
 -- Returns the key chain for all cache keys, except the body entity
-function _M.key_chain(self, cache_key)
+local function key_chain(cache_key)
     return setmetatable({
         -- hash: cache key metadata
         main = cache_key .. "::main",
@@ -294,8 +295,8 @@ end
 
 function _M.cache_key_chain(self)
     if not next(self._cache_key_chain) then
-        local cache_key = self:cache_key()
-        self._cache_key_chain = self:key_chain(cache_key)
+        local cache_key = cache_key(self)
+        self._cache_key_chain = key_chain(cache_key)
     end
     return self._cache_key_chain
 end
@@ -389,8 +390,6 @@ function _M.acquire_lock(self, lock_key, timeout)
         return false
     end
 end
-
-
 
 
 function _M.read_from_cache(self)
