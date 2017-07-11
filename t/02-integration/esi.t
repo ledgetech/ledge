@@ -1436,7 +1436,7 @@ location /esi_13_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler()
-        handler.config.storage_driver_config.max_size = 16
+        handler.config.esi_max_size = 16
         run(handler)
     }
 }
@@ -1449,18 +1449,19 @@ location /esi_13 {
         ngx.say(junk)
         ngx.say("$(QUERY_STRING)")
         ngx.say(junk)
-        ngx.print("</esi:vars>")
+        ngx.say("</esi:vars>")
     }
 }
 --- request
 GET /esi_13_prx?a=1
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
+<esi:vars>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+$(QUERY_STRING)
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-a=1
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+</esi:vars>
 --- error_log
-body is larger than 16 bytes
+esi scan bailed as instructions spanned buffers larger than esi_max_size
 
 
 === TEST 14: choose - when - otherwise, first when matched
@@ -2208,7 +2209,7 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 500 from /fragment_1
 
 
-=== TEST 30: Prime with ESI args - which should not enter cache key or 
+=== TEST 30: Prime with ESI args - which should not enter cache key or
     reach the origin
 --- http_config eval: $::HttpConfig
 --- config

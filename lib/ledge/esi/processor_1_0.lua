@@ -634,6 +634,8 @@ end
 function _M.get_scan_filter(self, res)
     local reader = res.body_reader
     local esi_detected = false
+    local max_size = self.handler.config.esi_max_size
+    local bailed = false
 
     return co_wrap(function(buffer_size)
         local prev_chunk = ""
@@ -655,77 +657,89 @@ function _M.get_scan_filter(self, res)
                 -- an ESI instruction spanning buffers.
                 chunk = prev_chunk .. chunk
 
-                local parser = tag_parser.new(chunk)
+                -- If we've buffered beyond max_size, give up
+                if bailed or #chunk > max_size then
+                    bailed = true
+                    prev_chunk = ""
+                    ngx_log(ngx_INFO,
+                        "esi scan bailed as instructions spanned buffers " ..
+                        "larger than esi_max_size"
+                    )
+                    co_yield(chunk, nil, false)
+                else
 
-                repeat
-                    local tag, before, after = parser:next()
+                    local parser = tag_parser.new(chunk)
 
-                    if tag and tag.whole then
-                        -- We have a whole instruction
+                    repeat
+                        local tag, before, after = parser:next()
 
-                        -- Yield anything before this tag
-                        if before ~= "" then
-                            co_yield(before, nil, false)
-                        end
+                        if tag and tag.whole then
+                            -- We have a whole instruction
 
-                        -- Yield the entire tag with has_esi=true
-                        co_yield(tag.whole, nil, true)
+                            -- Yield anything before this tag
+                            if before ~= "" then
+                                co_yield(before, nil, false)
+                            end
 
-                        -- On first time, set res:set_and_save("has_esi", parser)
-                        -- TODO: Need to get parser from somewhere?
-                        if not esi_detected then
-                            res:set_and_save("has_esi", self.token)
-                            esi_detected = true
-                        end
+                            -- Yield the entire tag with has_esi=true
+                            co_yield(tag.whole, nil, true)
 
-                        -- Trim chunk to what's left
-                        chunk = after
-                        prev_chunk = ""
-                    elseif tag and not tag.whole then
-                        -- Opening, but incompete. We yield up to this point
-                        -- and buffer from the opening tag onwards, to try again.
-                        -- This is so that we don't buffer the "before" content
-                        -- if there turns out to be no closing tag
-                        if before ~= "" then
-                            co_yield(before, nil, false)
-                        end
+                            -- On first time, set res:set_and_save("has_esi", parser)
+                            -- TODO: Need to get parser from somewhere?
+                            if not esi_detected then
+                                res:set_and_save("has_esi", self.token)
+                                esi_detected = true
+                            end
 
-                        prev_chunk = tag.opening.tag .. after
-                        break
-                    else
-                        -- No complete tag found, but look for something
-                        -- resembling the beginning of an incomplete ESI tag
-                        local start_from, start_to, err = ngx_re_find(
-                            chunk,
-                            "<(?:!--)?esi", "soj"
-                        )
-                        if start_from then
-                            -- Incomplete opening tag, so buffer and try again
-                            prev_chunk = chunk
+                            -- Trim chunk to what's left
+                            chunk = after
+                            prev_chunk = ""
+                        elseif tag and not tag.whole then
+                            -- Opening, but incompete. We yield up to this point
+                            -- and buffer from the opening tag onwards, to try again.
+                            -- This is so that we don't buffer the "before" content
+                            -- if there turns out to be no closing tag
+                            if before ~= "" then
+                                co_yield(before, nil, false)
+                            end
+
+                            prev_chunk = tag.opening.tag .. after
+                            break
+                        else
+                            -- No complete tag found, but look for something
+                            -- resembling the beginning of an incomplete ESI tag
+                            local start_from, start_to, err = ngx_re_find(
+                                chunk,
+                                "<(?:!--)?esi", "soj"
+                            )
+                            if start_from then
+                                -- Incomplete opening tag, so buffer and try again
+                                prev_chunk = chunk
+                                break
+                            end
+
+                            -- Check the end of the chunk for the beginning of an
+                            -- opening tag (a hint), incase it spans to the next
+                            -- buffer.
+                            local hint_match, err = ngx_re_match(
+                                str_sub(chunk, -6, -1),
+                                "(?:<!--es|<!--e|<!--|<es|<!-|<e|<!|<)$", "soj"
+                            )
+
+                            if hint_match then
+                                tag_hint = hint_match[0]
+                                -- Remove the hint from this chunk, it'll be
+                                -- prepending to the next one.
+                                chunk = str_sub(chunk, 1, - (#tag_hint + 1))
+                            end
+
+
+                            -- Nothing found, yield the whole chunk
+                            co_yield(chunk, nil, false)
                             break
                         end
-
-                        -- Check the end of the chunk for the beginning of an
-                        -- opening tag (a hint), incase it spans to the next
-                        -- buffer.
-                        local hint_match, err = ngx_re_match(
-                            str_sub(chunk, -6, -1),
-                            "(?:<!--es|<!--e|<!--|<es|<!-|<e|<!|<)$", "soj"
-                        )
-
-                        if hint_match then
-                            tag_hint = hint_match[0]
-                            -- Remove the hint from this chunk, it'll be
-                            -- prepending to the next one.
-                            chunk = str_sub(chunk, 1, - (#tag_hint + 1))
-                        end
-
-
-                        -- Nothing found, yield the whole chunk
-                        co_yield(chunk, nil, false)
-                        break
-                    end
-                until not tag
+                    until not tag
+                end
             elseif tag_hint then
                 -- We had what looked like a tag_hint but there are no more
                 -- chunks left.

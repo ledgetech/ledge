@@ -78,6 +78,7 @@ local handler_defaults = setmetatable({
     esi_recursion_limit = 10,
     esi_pre_include_callback = nil,
     esi_args_prefix = "esi_",
+    esi_max_size = 1024 * 1024,  -- (bytes)
 
     enable_collapsed_forwarding = false,
     collapsed_forwarding_window = 60 * 1000,
