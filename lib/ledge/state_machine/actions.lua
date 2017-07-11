@@ -23,7 +23,7 @@ local _M = {
 -- Actions. Functions which can be called on transition.
 return {
     redis_close = function(handler)
-        return handler:redis_close()
+        return require("ledge").close_redis_connection(handler.redis)
     end,
 
     httpc_close = function(handler)

@@ -154,7 +154,6 @@ end
 _M.run = run
 
 
-
 -- Bind a user callback to an event
 --
 -- Callbacks will be called in the order they are bound
@@ -198,16 +197,6 @@ local function emit(self, event, ...)
     return true
 end
 _M.emit = emit
-
-
-
-
--- Close and optionally keepalive the redis connection
--- TODO either in state machine or something
-function _M.redis_close(self)
-    return ledge.close_redis_connection(self.redis)
-end
-
 
 
 -- Generates or returns the cache key. The default spec is:
