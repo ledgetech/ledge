@@ -29,6 +29,8 @@ local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 
+local req_visible_hostname = require("ledge.request").visible_hostname
+
 local get_fixed_field_metatable_proxy =
     require("ledge.util").mt.get_fixed_field_metatable_proxy
 
@@ -405,6 +407,24 @@ function _M.set_and_save(self, field, value)
     local ok, err = redis:hset(self.key_chain.main, field, tostring(value))
     if not ok then ngx_log(ngx_ERR, err) end
     return ok
+end
+
+
+local WARNINGS = {
+    ["110"] = "Response is stale",
+    ["214"] = "Transformation applied",
+    ["112"] = "Disconnected Operation",
+}
+
+
+function _M.add_warning(self, code)
+    if not self.header["Warning"] then
+        self.header["Warning"] = {}
+    end
+
+    local header = code .. ' ' .. req_visible_hostname()
+    header = header .. ' "' .. WARNINGS[code] .. '"'
+    tbl_insert(self.header["Warning"], header)
 end
 
 

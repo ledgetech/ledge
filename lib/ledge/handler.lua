@@ -60,12 +60,6 @@ local get_fixed_field_metatable_proxy =
     require("ledge.util").mt.get_fixed_field_metatable_proxy
 
 
-local WARNINGS = {
-    ["110"] = "Response is stale",
-    ["214"] = "Transformation applied",
-    ["112"] = "Disconnected Operation",
-}
-
 
 local _M = {
     _VERSION = "1.28.3",
@@ -364,6 +358,7 @@ function _M.put_background_job(self, queue, klass, data, options)
 end
 
 
+-- TODO collapse?
 -- Attempts to set a lock key in redis. The lock will expire after
 -- the expiry value if it is not cleared (i.e. in case of errors).
 -- Returns true if the lock was acquired, false if the lock already
@@ -396,18 +391,6 @@ function _M.acquire_lock(self, lock_key, timeout)
 end
 
 
-
--- TODO response? This is called from state machine
-function _M.add_warning(self, code)
-    local res = self.response
-    if not res.header["Warning"] then
-        res.header["Warning"] = {}
-    end
-
-    local header = code .. ' ' .. req_visible_hostname()
-    header = header .. ' "' .. WARNINGS[code] .. '"'
-    tbl_insert(res.header["Warning"], header)
-end
 
 
 function _M.read_from_cache(self)
