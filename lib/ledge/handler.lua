@@ -259,7 +259,8 @@ function _M.cache_key(self)
                 )
             elseif type(res) ~= "string" then
                 ngx_log(ngx_ERR,
-                    "functions supplied to cache_key_spec must return a string"
+                    "functions supplied to cache_key_spec must " ..
+                    "return a string"
                 )
             else
                 tbl_insert(key, res)
@@ -410,8 +411,9 @@ local function get_gzip_decoder(reader)
             ngx_log(ngx_ERR, err)
         end
 
-        -- zlib decides it is done when the stream is complete. Call reader() one more time
-        -- to resume the next coroutine in the chain.
+        -- zlib decides it is done when the stream is complete.
+        -- Call reader() one more time to resume the next coroutine in the
+        -- chain.
         reader(buffer_size)
     end)
 end
@@ -427,7 +429,8 @@ local function get_gzip_encoder(reader)
         end
 
         -- zlib decides it is done when the stream is complete.
-        -- Call reader() one more time to resume the next coroutine in the chain
+        -- Call reader() one more time to resume the next coroutine in the
+        -- chain
         reader(buffer_size)
     end)
 end
@@ -452,8 +455,8 @@ function _M.read_from_cache(self)
     local ok, err = res:read()
     if not ok then
         if err then
-            -- TODO: What conditions do we want this to happen? Surely we should
-            -- just MISS on failure?
+            -- TODO: What conditions do we want this to happen?
+            -- Surely we should just MISS on failure?
             return self:e "http_internal_server_error"
         else
             ngx.log(ngx.DEBUG, "read mised without error")
@@ -469,15 +472,20 @@ function _M.read_from_cache(self)
         if not storage:exists(res.entity_id) then
             local delay = self:gc_wait(res.size)
             local config = self.config
-            self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
-                entity_id = res.entity_id,
-                storage_driver = self.config.storage_driver,
-                storage_driver_config = self.config.storage_driver_config,
-            }, {
-                delay = res.size,
-                tags = { "collect_entity" },
-                priority = 10,
-            })
+            self:put_background_job(
+                "ledge_gc",
+                "ledge.jobs.collect_entity",
+                {
+                    entity_id = res.entity_id,
+                    storage_driver = self.config.storage_driver,
+                    storage_driver_config = self.config.storage_driver_config,
+                },
+                {
+                    delay = res.size,
+                    tags = { "collect_entity" },
+                    priority = 10,
+                }
+            )
             return {} -- MISS
         end
 
@@ -506,7 +514,10 @@ function _M.fetch_from_origin(self)
         httpc = http.new()
         httpc:set_timeout(self.config.upstream_connect_timeout)
 
-        local ok, err = httpc:connect(self.config.upstream_host, self.config.upstream_port)
+        local ok, err = httpc:connect(
+            self.config.upstream_host,
+            self.config.upstream_port
+        )
 
         if not ok then
             if err == "timeout" then
@@ -520,9 +531,12 @@ function _M.fetch_from_origin(self)
         httpc:set_timeout(self.config.upstream_read_timeout)
 
         if self.config.upstream_use_ssl == true then
-            local ok, err = httpc:ssl_handshake(false,
-                                                self.config.upstream_ssl_server_name,
-                                                self.config.upstream_ssl_verify)
+            local ok, err = httpc:ssl_handshake(
+                false,
+                self.config.upstream_ssl_server_name,
+                self.config.upstream_ssl_verify
+            )
+
             if not ok then
                 ngx_log(ngx_ERR, "ssl handshake failed: ", err)
                 res.status = 525 -- SSL Handshake Failed
@@ -541,8 +555,10 @@ function _M.fetch_from_origin(self)
 
     -- Advertise ESI surrogate capabilities
     if self.config.esi_enabled then
-        local capability_entry =    (ngx_var.visible_hostname or ngx_var.hostname)
-                                    .. '="' .. esi.esi_capabilities() .. '"'
+        local capability_entry =
+            (ngx_var.visible_hostname or ngx_var.hostname)  ..
+            '="' .. esi.esi_capabilities() .. '"'
+
         local sc = headers["Surrogate-Capability"]
 
         if not sc then
@@ -552,7 +568,9 @@ function _M.fetch_from_origin(self)
         end
     end
 
-    local client_body_reader, err = httpc:get_client_body_reader(self.config.buffer_size)
+    local client_body_reader, err =
+        httpc:get_client_body_reader(self.config.buffer_size)
+
     if err then
         ngx_log(ngx_ERR, "error getting client body reader: ", err)
     end
@@ -610,10 +628,15 @@ function _M.fetch_from_origin(self)
 
     if res.status < 500 then
         -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.18
-        -- A received message that does not have a Date header field MUST be assigned
-        -- one by the recipient if the message will be cached by that recipient
-        if not res.header["Date"] or not ngx_parse_http_time(res.header["Date"]) then
-            ngx_log(ngx_WARN, "no Date header from upstream, generating locally")
+        -- A received message that does not have a Date header field MUST be
+        -- assigned one by the recipient if the message will be cached by that
+        -- recipient
+        if not res.header["Date"] or
+            not ngx_parse_http_time(res.header["Date"]) then
+
+            ngx_log(ngx_WARN,
+                "no Date header from upstream, generating locally"
+            )
             res.header["Date"] = ngx_http_time(ngx_time())
         end
     end
@@ -643,7 +666,9 @@ function _M.revalidation_data(self)
     }
 
     local h = ngx_req_get_headers()
-    -- By default we pass through Host, and Authorization and Cookie headers if present.
+
+    -- By default we pass through Host, and Authorization and Cookie headers
+    -- if present.
     local reval_headers = {
         host = h["Host"],
     }
@@ -666,14 +691,19 @@ function _M.revalidate_in_background(self, update_revalidation_data)
     local redis = self.redis
     local key_chain = self:cache_key_chain()
 
-    -- Revalidation data is updated if this is a proper request, but not if it's a purge request.
+    -- Revalidation data is updated if this is a proper request, but not if
+    -- it's a purge request.
     if update_revalidation_data then
         local reval_params, reval_headers = self:revalidation_data()
 
         local ttl, err = redis:ttl(key_chain.reval_params)
         if not ttl or ttl == ngx_null or ttl < 0 then
-            ngx_log(ngx_ERR, "Could not determine expiry for revalidation params. Will fallback to 3600 seconds.")
-            ttl = 3600 -- Arbitrarily expire these revalidation parameters in an hour.
+            ngx_log(ngx_ERR,
+                "Could not determine expiry for revalidation params. " ..
+                "Will fallback to 3600 seconds."
+            )
+            -- Arbitrarily expire these revalidation parameters in an hour.
+            ttl = 3600
         end
 
         -- Delete and update reval request headers
@@ -695,39 +725,49 @@ function _M.revalidate_in_background(self, update_revalidation_data)
 
     local uri, err = redis:hget(key_chain.main, "uri")
     if not uri or uri == ngx_null then
-        ngx_log(ngx_ERR, "Cache key has no 'uri' field, aborting revalidation")
+        ngx_log(ngx_ERR,
+            "Cache key has no 'uri' field, aborting revalidation"
+        )
         return nil
     end
 
     -- Schedule the background job (immediately). jid is a function of the
     -- URI for automatic de-duping.
-    return self:put_background_job("ledge_revalidate", "ledge.jobs.revalidate", {
-        key_chain = key_chain,
-    }, {
-        jid = ngx_md5("revalidate:" .. uri),
-        tags = { "revalidate" },
-        priority = 4,
-    })
+    return self:put_background_job(
+        "ledge_revalidate",
+        "ledge.jobs.revalidate",
+        { key_chain = key_chain },
+        {
+            jid = ngx_md5("revalidate:" .. uri),
+            tags = { "revalidate" },
+            priority = 4,
+        }
+    )
 end
 
 
 -- TODO background
 --
--- Starts a "revalidation" job but maybe for brand new cache. We pass the current
--- request's revalidation data through so that the job has meaningul parameters to
--- work with (rather than using stored metadata).
+-- Starts a "revalidation" job but maybe for brand new cache. We pass the
+-- current request's revalidation data through so that the job has meaninful
+-- parameters to work with (rather than using stored metadata).
 function _M.fetch_in_background(self)
     local key_chain = self:cache_key_chain()
     local reval_params, reval_headers = self:revalidation_data()
-    return self:put_background_job("ledge_revalidate", "ledge.jobs.revalidate", {
-        key_chain = key_chain,
-        reval_params = reval_params,
-        reval_headers = reval_headers,
-    }, {
-        jid = ngx_md5("revalidate:" .. req_full_uri()),
-        tags = { "revalidate" },
-        priority = 4,
-    })
+    return self:put_background_job(
+        "ledge_revalidate",
+        "ledge.jobs.revalidate",
+        {
+            key_chain = key_chain,
+            reval_params = reval_params,
+            reval_headers = reval_headers,
+        },
+        {
+            jid = ngx_md5("revalidate:" .. req_full_uri()),
+            tags = { "revalidate" },
+            priority = 4,
+        }
+    )
 end
 
 
@@ -750,8 +790,9 @@ function _M.save_to_cache(self, res)
     local redis = self.redis
     redis:watch(key_chain.main)
 
-    -- We'll need to mark the old entity for expiration shortly, as reads could still
-    -- be in progress. We need to know the previous entity keys and the size.
+    -- We'll need to mark the old entity for expiration shortly, as reads
+    -- could still be in progress. We need to know the previous entity keys
+    -- and the size.
     local previous_entity_id = self:entity_id(key_chain)
 
     local previous_entity_size, err
@@ -770,15 +811,20 @@ function _M.save_to_cache(self, res)
     if not ok then ngx_log(ngx_ERR, err) end
 
     if previous_entity_id then
-        self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
-            entity_id = previous_entity_id,
-            storage_driver = self.config.storage_driver,
-            storage_driver_config = self.config.storage_driver_config,
-        }, {
-            delay = previous_entity_size,
-            tags = { "collect_entity" },
-            priority = 10,
-        })
+        self:put_background_job(
+            "ledge_gc",
+            "ledge.jobs.collect_entity",
+            {
+                entity_id = previous_entity_id,
+                storage_driver = self.config.storage_driver,
+                storage_driver_config = self.config.storage_driver_config,
+            },
+            {
+                delay = previous_entity_size,
+                tags = { "collect_entity" },
+                priority = 10,
+            }
+        )
 
         local ok, err = redis:srem(key_chain.entities, previous_entity_id)
         if not ok then ngx_log(ngx_ERR, err) end
@@ -806,8 +852,8 @@ function _M.save_to_cache(self, res)
     redis:expire(key_chain.reval_req_headers, keep_cache_for)
 
     -- If we have a body, we need to attach the storage writer
-    -- NOTE: res.has_body is false for known bodyless repsonse types (e.g. HEAD)
-    -- but may be true and of zero length (commonly 301 etc).
+    -- NOTE: res.has_body is false for known bodyless repsonse types
+    -- (e.g. HEAD) but may be true and of zero length (commonly 301 etc).
     if res.has_body then
 
         -- Storage callback for write success
@@ -876,15 +922,20 @@ function _M.delete_from_cache(self)
 
     if entity_id then
         local size = redis:hget(key_chain.main, "size")
-        self:put_background_job("ledge_gc", "ledge.jobs.collect_entity", {
-            entity_id = entity_id,
-            storage_driver = self.config.storage_driver,
-            storage_driver_config = self.config.storage_driver_config,
-        }, {
-            delay = self:gc_wait(size),
-            tags = { "collect_entity" },
-            priority = 10,
-        })
+        self:put_background_job(
+            "ledge_gc",
+            "ledge.jobs.collect_entity",
+            {
+                entity_id = entity_id,
+                storage_driver = self.config.storage_driver,
+                storage_driver_config = self.config.storage_driver_config,
+            },
+            {
+                delay = self:gc_wait(size),
+                tags = { "collect_entity" },
+                priority = 10,
+            }
+        )
     end
 
     -- Delete everything else immediately
@@ -910,7 +961,8 @@ function _M.serve(self)
         end
 
         -- X-Cache header
-        -- Don't set if this isn't a cacheable response. Set to MISS is we fetched.
+        -- Don't set if this isn't a cacheable response. Set to MISS is we
+        -- fetched.
         local state_history = self.state_machine.state_history
         local event_history = self.state_machine.event_history
 
