@@ -1,7 +1,6 @@
 local http = require("resty.http")
 local http_headers = require("resty.http_headers")
 local qless = require("resty.qless")
-local zlib = require("ffi-zlib")
 
 local ledge = require("ledge")
 local h_util = require("ledge.header_util")
@@ -396,45 +395,6 @@ function _M.acquire_lock(self, lock_key, timeout)
     end
 end
 
-
--- TODO gzip
-local zlib_output = function(data)
-    co_yield(data)
-end
-
-
--- TODO gzip
-local function get_gzip_decoder(reader)
-    return co_wrap(function(buffer_size)
-        local ok, err = zlib.inflateGzip(reader, zlib_output, buffer_size)
-        if not ok then
-            ngx_log(ngx_ERR, err)
-        end
-
-        -- zlib decides it is done when the stream is complete.
-        -- Call reader() one more time to resume the next coroutine in the
-        -- chain.
-        reader(buffer_size)
-    end)
-end
-_M.get_gzip_decoder = get_gzip_decoder
-
-
--- TODO gzip
-local function get_gzip_encoder(reader)
-    return co_wrap(function(buffer_size)
-        local ok, err = zlib.deflateGzip(reader, zlib_output, buffer_size)
-        if not ok then
-            ngx_log(ngx_ERR, err)
-        end
-
-        -- zlib decides it is done when the stream is complete.
-        -- Call reader() one more time to resume the next coroutine in the
-        -- chain
-        reader(buffer_size)
-    end)
-end
-_M.get_gzip_encoder = get_gzip_encoder
 
 
 -- TODO response? This is called from state machine

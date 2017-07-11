@@ -11,6 +11,7 @@ local ngx_HTTP_NOT_MODIFIED = ngx.HTTP_NOT_MODIFIED
 
 local ngx_req_set_header = ngx.req.set_header
 
+local get_gzip_decoder = require("ledge.gzip").get_gzip_decoder
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 
@@ -70,7 +71,7 @@ return {
         res.header["Content-Encoding"] = nil
         res:filter_body_reader(
             "gzip_decoder",
-            handler.get_gzip_decoder(res.body_reader)
+            get_gzip_decoder(res.body_reader)
         )
     end,
 
