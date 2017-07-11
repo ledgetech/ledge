@@ -293,13 +293,14 @@ local function key_chain(cache_key)
 end
 
 
-function _M.cache_key_chain(self)
+local function cache_key_chain(self)
     if not next(self._cache_key_chain) then
         local cache_key = cache_key(self)
         self._cache_key_chain = key_chain(cache_key)
     end
     return self._cache_key_chain
 end
+_M.cache_key_chain = cache_key_chain
 
 
 -- TODO response?
@@ -393,7 +394,7 @@ end
 
 
 function _M.read_from_cache(self)
-    local res = response.new(self.redis, self:cache_key_chain())
+    local res = response.new(self.redis, cache_key_chain(self))
     local ok, err = res:read()
     if not ok then
         if err then
@@ -419,8 +420,8 @@ function _M.read_from_cache(self)
                 "ledge.jobs.collect_entity",
                 {
                     entity_id = res.entity_id,
-                    storage_driver = self.config.storage_driver,
-                    storage_driver_config = self.config.storage_driver_config,
+                    storage_driver = config.storage_driver,
+                    storage_driver_config = config.storage_driver_config,
                 },
                 {
                     delay = res.size,
@@ -441,7 +442,7 @@ end
 
 -- Fetches a resource from the origin server.
 function _M.fetch_from_origin(self)
-    local res = response.new(self.redis, self:cache_key_chain())
+    local res = response.new(self.redis, cache_key_chain(self))
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
     if not method then
@@ -631,7 +632,7 @@ end
 -- TODO background
 function _M.revalidate_in_background(self, update_revalidation_data)
     local redis = self.redis
-    local key_chain = self:cache_key_chain()
+    local key_chain = cache_key_chain(self)
 
     -- Revalidation data is updated if this is a proper request, but not if
     -- it's a purge request.
@@ -694,7 +695,7 @@ end
 -- current request's revalidation data through so that the job has meaninful
 -- parameters to work with (rather than using stored metadata).
 function _M.fetch_in_background(self)
-    local key_chain = self:cache_key_chain()
+    local key_chain = cache_key_chain(self)
     local reval_params, reval_headers = self:revalidation_data()
     return self:put_background_job(
         "ledge_revalidate",
@@ -728,7 +729,7 @@ function _M.save_to_cache(self, res)
 
     -- Watch the main key pointer. We abort the transaction if another request
     -- updates this key before we finish.
-    local key_chain = self:cache_key_chain()
+    local key_chain = cache_key_chain(self)
     local redis = self.redis
     redis:watch(key_chain.main)
 
@@ -858,7 +859,7 @@ end
 
 function _M.delete_from_cache(self)
     local redis = self.redis
-    local key_chain = self:cache_key_chain()
+    local key_chain = cache_key_chain(self)
 
     local entity_id = self:entity_id(key_chain)
 
