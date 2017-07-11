@@ -21,18 +21,6 @@ local _M = {
 -- Scans the keyspace for keys which match, and expires them. We do this against
 -- the slave Redis instance if available.
 function _M.perform(job)
-    --[[
-    -- Try to connect to a slave for SCAN commands.
-    local rc = redis_connector.new()
-    rc:set_connect_timeout(job.redis_connection_options.connect_timeout)
-    rc:set_read_timeout(job.redis_connection_options.read_timeout)
-    job.redis_params.role = "slave"
-
-    job.redis_slave = rc:connect(job.redis_params)
-    job.redis_params.role = "master" -- switch params back to master
-    ]]--
-    if not job.redis_slave then job.redis_slave = job.redis end -- in case there is no slave
-
     if not job.redis then
         return nil, "job-error", "no redis connection provided"
     end
