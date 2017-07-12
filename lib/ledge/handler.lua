@@ -317,16 +317,14 @@ function _M.entity_id(self, key_chain)
 end
 
 
--- TODO background? jobs?
 -- Calculate when to GC an entity based on its size and the minimum download
 -- rate setting, plus 1 second of arbitrary latency for good measure.
-function _M.gc_wait(self, entity_size)
+local function gc_wait(self, entity_size)
     local dl_rate_Bps = self.config.minimum_old_entity_download_rate * 128
     return math_ceil((entity_size / dl_rate_Bps)) + 1
 end
 
 
--- TODO background
 function _M.put_background_job(self, queue, klass, data, options)
     local q = qless.new({
         get_redis_client = require("ledge").create_qless_connection
@@ -360,7 +358,7 @@ function _M.put_background_job(self, queue, klass, data, options)
 end
 
 
-function _M.read_from_cache(self)
+local function read_from_cache(self)
     local res = response.new(self.redis, cache_key_chain(self))
     local ok, err = res:read()
     if not ok then
@@ -380,7 +378,7 @@ function _M.read_from_cache(self)
         -- Check storage has the entity, if not presume it has been evitcted
         -- and clean up
         if not storage:exists(res.entity_id) then
-            local delay = self:gc_wait(res.size)
+            local delay = gc_wait(self, res.size)
             local config = self.config
             self:put_background_job(
                 "ledge_gc",
@@ -405,10 +403,26 @@ function _M.read_from_cache(self)
     emit(self, "after_cache_read", res)
     return res
 end
+_M.read_from_cache = read_from_cache
+
+
+-- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
+local hop_by_hop_headers = {
+    ["connection"]          = true,
+    ["keep-alive"]          = true,
+    ["proxy-authenticate"]  = true,
+    ["proxy-authorization"] = true,
+    ["te"]                  = true,
+    ["trailers"]            = true,
+    ["transfer-encoding"]   = true,
+    ["upgrade"]             = true,
+    ["content-length"]      = true,  -- Not strictly hop-by-hop, but we
+    -- set dynamically downstream.
+}
 
 
 -- Fetches a resource from the origin server.
-function _M.fetch_from_origin(self)
+local function fetch_from_origin(self)
     local res = response.new(self.redis, cache_key_chain(self))
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
@@ -506,20 +520,7 @@ function _M.fetch_from_origin(self)
     res.status = origin.status
 
     -- Merge end-to-end headers
-    -- http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html#sec13.5.1
-    local hop_by_hop_headers = {
-        ["connection"]          = true,
-        ["keep-alive"]          = true,
-        ["proxy-authenticate"]  = true,
-        ["proxy-authorization"] = true,
-        ["te"]                  = true,
-        ["trailers"]            = true,
-        ["transfer-encoding"]   = true,
-        ["upgrade"]             = true,
-        ["content-length"]      = true,  -- Not strictly hop-by-hop, but we
-                                         -- set dynamically downstream.
-    }
-
+    local hop_by_hop_headers = hop_by_hop_headers
     for k,v in pairs(origin.headers) do
         if not hop_by_hop_headers[str_lower(k)] then
             res.header[k] = v
@@ -556,13 +557,12 @@ function _M.fetch_from_origin(self)
 
     return res
 end
+_M.fetch_from_origin = fetch_from_origin
 
 
--- TODO background?
---
 -- Returns data required to perform a background revalidation for this current
 -- request, as two tables; reval_params and reval_headers.
-function _M.revalidation_data(self)
+local function revalidation_data(self)
     -- Everything that a headless revalidation job would need to connect
     local reval_params = {
         server_addr = ngx_var.server_addr,
@@ -596,15 +596,14 @@ function _M.revalidation_data(self)
 end
 
 
--- TODO background
-function _M.revalidate_in_background(self, update_revalidation_data)
+local function revalidate_in_background(self, update_revalidation_data)
     local redis = self.redis
     local key_chain = cache_key_chain(self)
 
     -- Revalidation data is updated if this is a proper request, but not if
     -- it's a purge request.
     if update_revalidation_data then
-        local reval_params, reval_headers = self:revalidation_data()
+        local reval_params, reval_headers = revalidation_data(self)
 
         local ttl, err = redis:ttl(key_chain.reval_params)
         if not ttl or ttl == ngx_null or ttl < 0 then
@@ -654,16 +653,15 @@ function _M.revalidate_in_background(self, update_revalidation_data)
         }
     )
 end
+_M.revalidate_in_background = revalidate_in_background
 
 
--- TODO background
---
 -- Starts a "revalidation" job but maybe for brand new cache. We pass the
 -- current request's revalidation data through so that the job has meaninful
 -- parameters to work with (rather than using stored metadata).
-function _M.fetch_in_background(self)
+local function fetch_in_background(self)
     local key_chain = cache_key_chain(self)
-    local reval_params, reval_headers = self:revalidation_data()
+    local reval_params, reval_headers = revalidation_data(self)
     return self:put_background_job(
         "ledge_revalidate",
         "ledge.jobs.revalidate",
@@ -679,9 +677,10 @@ function _M.fetch_in_background(self)
         }
     )
 end
+_M.fetch_in_background = fetch_in_background
 
 
-function _M.save_to_cache(self, res)
+local function save_to_cache(self, res)
     emit(self, "before_save", res)
 
     -- Length is only set if there was a Content-Length header
@@ -749,7 +748,7 @@ function _M.save_to_cache(self, res)
     -- TODO: Do somethign with this err?
 
     -- Set revalidation parameters from this request
-    local reval_params, reval_headers = self:revalidation_data()
+    local reval_params, reval_headers = revalidation_data(self)
 
     -- TODO: Catch errors
     redis:del(key_chain.reval_params)
@@ -813,23 +812,15 @@ function _M.save_to_cache(self, res)
         if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
     end
 end
+_M.save_to_cache = save_to_cache
 
 
-function _M.delete(redis, key_chain)
-    local keys = {}
-    for k, v in pairs(key_chain) do
-        tbl_insert(keys, v)
-    end
-    return redis:del(unpack(keys))
-end
-
-
-function _M.delete_from_cache(self)
+local function delete_from_cache(self)
     local redis = self.redis
     local key_chain = cache_key_chain(self)
 
+    -- Schedule entity collection
     local entity_id = self:entity_id(key_chain)
-
     if entity_id then
         local size = redis:hget(key_chain.main, "size")
         self:put_background_job(
@@ -841,19 +832,51 @@ function _M.delete_from_cache(self)
                 storage_driver_config = self.config.storage_driver_config,
             },
             {
-                delay = self:gc_wait(size),
+                delay = gc_wait(self, size),
                 tags = { "collect_entity" },
                 priority = 10,
             }
         )
     end
 
-    -- Delete everything else immediately
-    return _M.delete(redis, key_chain)
+    -- Delete everything in the keychain
+    local keys = {}
+    for k, v in pairs(key_chain) do
+        tbl_insert(keys, v)
+    end
+    return redis:del(unpack(keys))
+end
+_M.delete_from_cache = delete_from_cache
+
+
+-- Resumes the reader coroutine and prints the data yielded. This could be
+-- via a cache read, or a save via a fetch... the interface is uniform.
+local function serve_body(self, res, buffer_size)
+    local buffered = 0
+    local reader = res.body_reader
+    local can_flush = ngx_req_http_version() >= 1.1
+
+    repeat
+        local chunk, err = reader(buffer_size)
+        if chunk and self.output_buffers_enabled then
+            local ok, err = ngx_print(chunk)
+            if not ok then ngx_log(ngx_INFO, err) end
+
+            -- Flush each full buffer, if we can
+            buffered = buffered + #chunk
+            if can_flush and buffered >= buffer_size then
+                local ok, err = ngx_flush(true)
+                if not ok then ngx_log(ngx_INFO, err) end
+
+                buffered = 0
+            end
+        end
+
+    until not chunk
 end
 
 
-function _M.serve(self)
+local function serve(self)
     if not ngx.headers_sent then
         local res = self.response
         local visible_hostname = req_visible_hostname()
@@ -904,39 +927,13 @@ function _M.serve(self)
 
         if res.body_reader and ngx_req_get_method() ~= "HEAD" then
             local buffer_size = self.config.buffer_size
-            self:serve_body(res, buffer_size)
+            serve_body(self, res, buffer_size)
         end
 
         ngx.eof()
     end
 end
-
-
--- Resumes the reader coroutine and prints the data yielded. This could be
--- via a cache read, or a save via a fetch... the interface is uniform.
-function _M.serve_body(self, res, buffer_size)
-    local buffered = 0
-    local reader = res.body_reader
-    local can_flush = ngx_req_http_version() >= 1.1
-
-    repeat
-        local chunk, err = reader(buffer_size)
-        if chunk and self.output_buffers_enabled then
-            local ok, err = ngx_print(chunk)
-            if not ok then ngx_log(ngx_INFO, err) end
-
-            -- Flush each full buffer, if we can
-            buffered = buffered + #chunk
-            if can_flush and buffered >= buffer_size then
-                local ok, err = ngx_flush(true)
-                if not ok then ngx_log(ngx_INFO, err) end
-
-                buffered = 0
-            end
-        end
-
-    until not chunk
-end
+_M.serve = serve
 
 
 return setmetatable(_M, fixed_field_metatable)
