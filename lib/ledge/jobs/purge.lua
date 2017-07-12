@@ -1,7 +1,5 @@
 local redis_connector = require "resty.redis.connector"
 local response = require "ledge.response"
-local qless = require "resty.qless"
-
 local ipairs, tonumber = ipairs, tonumber
 local str_len = string.len
 local str_sub = string.sub

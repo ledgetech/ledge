@@ -7,6 +7,7 @@ local ngx_md5 = ngx.md5
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local cjson_encode = require("cjson").encode
+local put_background_job = require("ledge.background").put_background_job
 
 
 local _M = {
@@ -141,19 +142,22 @@ _M.purge = purge
 local function purge_in_background(handler, purge_mode)
     local key_chain = handler:cache_key_chain()
 
-    local job, err = handler:put_background_job(
+    local job, err = put_background_job(
         "ledge_purge",
-        "ledge.jobs.purge", {
-        key_chain = key_chain,
-        keyspace_scan_count = handler.config.keyspace_scan_count,
-        purge_mode = purge_mode,
-        storage_driver = handler.config.storage_driver,
-        storage_driver_config = handler.config.storage_driver_config,
-    }, {
-        jid = ngx_md5("purge:" .. tostring(key_chain.root)),
-        tags = { "purge" },
-        priority = 5,
-    })
+        "ledge.jobs.purge",
+        {
+            key_chain = key_chain,
+            keyspace_scan_count = handler.config.keyspace_scan_count,
+            purge_mode = purge_mode,
+            storage_driver = handler.config.storage_driver,
+            storage_driver_config = handler.config.storage_driver_config,
+        },
+        {
+            jid = ngx_md5("purge:" .. tostring(key_chain.root)),
+            tags = { "purge" },
+            priority = 5,
+        }
+    )
 
     -- Create a JSON payload for the response
     local res = create_purge_response(purge_mode, "scheduled", job)

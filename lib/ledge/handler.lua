@@ -1,6 +1,5 @@
 local http = require("resty.http")
 local http_headers = require("resty.http_headers")
-local qless = require("resty.qless")
 
 local ledge = require("ledge")
 local h_util = require("ledge.header_util")
@@ -54,6 +53,9 @@ local cjson_decode = require("cjson").decode
 local req_relative_uri = require("ledge.request").relative_uri
 local req_full_uri = require("ledge.request").full_uri
 local req_visible_hostname = require("ledge.request").visible_hostname
+
+local put_background_job = require("ledge.background").put_background_job
+local gc_wait = require("ledge.background").gc_wait
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local get_fixed_field_metatable_proxy =
@@ -317,47 +319,6 @@ function _M.entity_id(self, key_chain)
 end
 
 
--- Calculate when to GC an entity based on its size and the minimum download
--- rate setting, plus 1 second of arbitrary latency for good measure.
-local function gc_wait(self, entity_size)
-    local dl_rate_Bps = self.config.minimum_old_entity_download_rate * 128
-    return math_ceil((entity_size / dl_rate_Bps)) + 1
-end
-
-
-function _M.put_background_job(self, queue, klass, data, options)
-    local q = qless.new({
-        get_redis_client = require("ledge").create_qless_connection
-    })
-
-    -- If we've been specified a jid (i.e. a non random jid), putting this
-    -- job will overwrite any existing job with the same jid.
-    -- We test for a "running" state, and if so we silently drop this job.
-    if options.jid then
-        local existing = q.jobs:get(options.jid)
-
-        if existing and existing.state == "running" then
-            return nil, "Job with the same jid is currently running"
-        end
-    end
-
-    -- Put the job
-    local res, err = q.queues[queue]:put(klass, data, options)
-
-    q:redis_close()
-
-    if res then
-        return {
-            jid = res,
-            klass = klass,
-            options = options,
-        }
-    else
-        return res, err
-    end
-end
-
-
 local function read_from_cache(self)
     local res = response.new(self.redis, cache_key_chain(self))
     local ok, err = res:read()
@@ -378,9 +339,8 @@ local function read_from_cache(self)
         -- Check storage has the entity, if not presume it has been evitcted
         -- and clean up
         if not storage:exists(res.entity_id) then
-            local delay = gc_wait(self, res.size)
             local config = self.config
-            self:put_background_job(
+            put_background_job(
                 "ledge_gc",
                 "ledge.jobs.collect_entity",
                 {
@@ -389,7 +349,10 @@ local function read_from_cache(self)
                     storage_driver_config = config.storage_driver_config,
                 },
                 {
-                    delay = res.size,
+                    delay = gc_wait(
+                        res.size,
+                        config.minimum_old_entity_download_rate
+                    ),
                     tags = { "collect_entity" },
                     priority = 10,
                 }
@@ -642,7 +605,7 @@ local function revalidate_in_background(self, update_revalidation_data)
 
     -- Schedule the background job (immediately). jid is a function of the
     -- URI for automatic de-duping.
-    return self:put_background_job(
+    return put_background_job(
         "ledge_revalidate",
         "ledge.jobs.revalidate",
         { key_chain = key_chain },
@@ -662,7 +625,7 @@ _M.revalidate_in_background = revalidate_in_background
 local function fetch_in_background(self)
     local key_chain = cache_key_chain(self)
     local reval_params, reval_headers = revalidation_data(self)
-    return self:put_background_job(
+    return put_background_job(
         "ledge_revalidate",
         "ledge.jobs.revalidate",
         {
@@ -720,7 +683,7 @@ local function save_to_cache(self, res)
     if not ok then ngx_log(ngx_ERR, err) end
 
     if previous_entity_id then
-        self:put_background_job(
+        put_background_job(
             "ledge_gc",
             "ledge.jobs.collect_entity",
             {
@@ -822,17 +785,21 @@ local function delete_from_cache(self)
     -- Schedule entity collection
     local entity_id = self:entity_id(key_chain)
     if entity_id then
+        local config = self.config
         local size = redis:hget(key_chain.main, "size")
-        self:put_background_job(
+        put_background_job(
             "ledge_gc",
             "ledge.jobs.collect_entity",
             {
                 entity_id = entity_id,
-                storage_driver = self.config.storage_driver,
-                storage_driver_config = self.config.storage_driver_config,
+                storage_driver = config.storage_driver,
+                storage_driver_config = config.storage_driver_config,
             },
             {
-                delay = gc_wait(self, size),
+                delay = gc_wait(
+                    size,
+                    config.minimum_old_entity_download_rate
+                ),
                 tags = { "collect_entity" },
                 priority = 10,
             }
