@@ -12,8 +12,10 @@ local ngx_INFO = ngx.INFO
 local ngx_var = ngx.var
 local ngx_null = ngx.null
 
-local ngx_on_abort = ngx.on_abort
 local ngx_flush = ngx.flush
+local ngx_print = ngx.print
+
+local ngx_on_abort = ngx.on_abort
 local ngx_md5 = ngx.md5
 
 local ngx_time = ngx.time
