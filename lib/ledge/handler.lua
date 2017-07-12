@@ -285,11 +285,11 @@ local function key_chain(cache_key)
         -- hash: request params for revalidation
         reval_req_headers = cache_key .. "::reval_req_headers",
 
-    }, { __index = {
+    }, get_fixed_field_metatable_proxy({
         -- Hide "root" and "fetching_lock" from iterators.
         root = cache_key,
         fetching_lock = cache_key .. "::fetching",
-    }})
+    }))
 end
 
 

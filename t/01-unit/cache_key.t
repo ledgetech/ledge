@@ -45,12 +45,12 @@ location /t {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local key_chain = require("ledge").create_handler():cache_key_chain()
-        local key1 = key_chain.key
+        local key1 = key_chain.main
 
         ngx.req.set_uri_args({})
 
         key_chain = require("ledge").create_handler():cache_key_chain()
-        local key2 = key_chain.key
+        local key2 = key_chain.main
 
         assert(key1 == key2, "key1 should equal key2")
     }
