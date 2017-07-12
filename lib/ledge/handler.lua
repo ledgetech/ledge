@@ -1,46 +1,28 @@
-local http = require("resty.http")
-local http_headers = require("resty.http_headers")
-
-local ledge = require("ledge")
-local h_util = require("ledge.header_util")
-local state_machine = require("ledge.state_machine")
-local response = require("ledge.response")
-local esi = require("ledge.esi")
-
-local setmetatable = setmetatable
+local setmetatable, tostring, tonumber, pcall, type, ipairs, pairs, next, error =
+     setmetatable, tostring, tonumber, pcall, type, ipairs, pairs, next, error
 
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_headers = ngx.req.get_headers
-local ngx_req_set_header = ngx.req.set_header
 local ngx_req_http_version = ngx.req.http_version
+
+local ngx_log = ngx.log
+local ngx_WARN = ngx.WARN
+local ngx_ERR = ngx.ERR
+local ngx_INFO = ngx.INFO
+local ngx_var = ngx.var
+local ngx_null = ngx.null
+
+local ngx_on_abort = ngx.on_abort
+local ngx_flush = ngx.flush
+local ngx_md5 = ngx.md5
 
 local ngx_time = ngx.time
 local ngx_http_time = ngx.http_time
 local ngx_parse_http_time = ngx.parse_http_time
 
 local ngx_re_find = ngx.re.find
-local ngx_re_sub = ngx.re.sub
-local ngx_re_gsub = ngx.re.gsub
-
-local ngx_print = ngx.print
-local ngx_flush = ngx.flush
-local ngx_on_abort = ngx.on_abort
-
-local ngx_log = ngx.log
-local ngx_INFO = ngx.INFO
-local ngx_WARN = ngx.WARN
-local ngx_ERR = ngx.ERR
-
-local ngx_null = ngx.null
-local ngx_var = ngx.var
-
-local ngx_md5 = ngx.md5
 
 local str_lower = string.lower
-
-local math_min = math.min
-local math_ceil = math.ceil
-
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 
@@ -49,6 +31,8 @@ local co_wrap = require("ledge.util").coroutine.wrap
 
 local cjson_encode = require("cjson").encode
 local cjson_decode = require("cjson").decode
+
+local esi_capabilities = require("ledge.esi").esi_capabilities
 
 local req_relative_uri = require("ledge.request").relative_uri
 local req_full_uri = require("ledge.request").full_uri
@@ -61,6 +45,12 @@ local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local get_fixed_field_metatable_proxy =
     require("ledge.util").mt.get_fixed_field_metatable_proxy
 
+
+local ledge = require("ledge")
+local http = require("resty.http")
+local http_headers = require("resty.http_headers")
+local state_machine = require("ledge.state_machine")
+local response = require("ledge.response")
 
 
 local _M = {
@@ -444,7 +434,7 @@ local function fetch_from_origin(self)
     if self.config.esi_enabled then
         local capability_entry =
             (ngx_var.visible_hostname or ngx_var.hostname)  ..
-            '="' .. esi.esi_capabilities() .. '"'
+            '="' .. esi_capabilities() .. '"'
 
         local sc = headers["Surrogate-Capability"]
 
