@@ -360,39 +360,6 @@ function _M.put_background_job(self, queue, klass, data, options)
 end
 
 
--- TODO collapse?
--- Attempts to set a lock key in redis. The lock will expire after
--- the expiry value if it is not cleared (i.e. in case of errors).
--- Returns true if the lock was acquired, false if the lock already
--- exists, and nil, err in case of failure.
-function _M.acquire_lock(self, lock_key, timeout)
-    local redis = self.redis
-
-    -- We use a Lua script to emulate SETNEX (set if not exists with expiry).
-    -- This avoids a race window between the GET / SETEX.
-    -- Params: key, expiry
-    -- Return: OK or BUSY
-    local SETNEX = [[
-    local lock = redis.call("GET", KEYS[1])
-    if not lock then
-        return redis.call("PSETEX", KEYS[1], ARGV[1], "locked")
-    else
-        return "BUSY"
-    end
-    ]]
-
-    local res, err = redis:eval(SETNEX, 1, lock_key, timeout)
-
-    if not res then -- Lua script failed
-        return nil, err
-    elseif res == "OK" then -- We have the lock
-        return true
-    elseif res == "BUSY" then -- Lock is busy
-        return false
-    end
-end
-
-
 function _M.read_from_cache(self)
     local res = response.new(self.redis, cache_key_chain(self))
     local ok, err = res:read()

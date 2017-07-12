@@ -34,6 +34,8 @@ local purge = require("ledge.purge").purge
 local purge_in_background = require("ledge.purge").purge_in_background
 local create_purge_response = require("ledge.purge").create_purge_response
 
+local acquire_lock = require("ledge.collapse").acquire_lock
+
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 
 
@@ -220,26 +222,26 @@ return {
     end,
 
     requesting_collapse_lock = function(sm, handler)
-        local redis = handler.redis
-        local key_chain = handler:cache_key_chain()
-        local lock_key = key_chain.fetching_lock
-
         local timeout = tonumber(handler.config.collapsed_forwarding_window)
         if not timeout then
             ngx_log(ngx_ERR, "collapsed_forwarding_window must be a number")
             return sm:e "collapsed_forwarding_failed"
         end
 
-        -- Watch the lock key before we attempt to lock. If we fail to lock, we need to subscribe
-        -- for updates, but there's a chance we might miss the message.
-        -- This "watch" allows us to abort the "subscribe" transaction if we've missed
-        -- the opportunity.
+        local redis = handler.redis
+        local key_chain = handler:cache_key_chain()
+        local lock_key = key_chain.fetching_lock
+
+        -- Watch the lock key before we attempt to lock. If we fail to lock, we
+        -- need to subscribe for updates, but there's a chance we might miss the
+        -- message. This "watch" allows us to abort the "subscribe" transaction
+        -- if we've missed the opportunity.
         --
-        -- We must unwatch later for paths without transactions, else subsequent transactions
-        -- on this connection could fail.
+        -- We must unwatch later for paths without transactions, else subsequent
+        -- transactions on this connection could fail.
         redis:watch(lock_key)
 
-        local res, err = handler:acquire_lock(lock_key, timeout)
+        local res, err = acquire_lock(redis, lock_key, timeout)
 
         if res == nil then -- Lua script failed
             redis:unwatch()
