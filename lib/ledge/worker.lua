@@ -42,7 +42,8 @@ local function run(self)
     local ledge = require("ledge")
 
     local ql_worker = assert(require("resty.qless.worker").new({
-        get_redis_client = ledge.create_qless_connection
+        get_redis_client = ledge.create_qless_connection,
+        close_redis_client = ledge.close_redis_connection
     }))
 
     -- Runs around job exectution, to instantiate necessary connections
