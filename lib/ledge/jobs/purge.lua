@@ -12,7 +12,7 @@ local ngx_md5 = ngx.md5
 local tbl_getn = table.getn
 
 local _M = {
-    _VERSION = '1.28.5',
+    _VERSION = '1.28.6',
 }
 
 
