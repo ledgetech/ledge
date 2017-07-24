@@ -76,7 +76,6 @@ local handler_defaults = setmetatable({
     esi_content_types = { "text/html" },
     esi_allow_surrogate_delegation = false,
     esi_recursion_limit = 10,
-    esi_pre_include_callback = nil,
     esi_args_prefix = "esi_",
     esi_max_size = 1024 * 1024,  -- (bytes)
 
