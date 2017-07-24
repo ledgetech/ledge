@@ -1,19 +1,19 @@
 # Ledge
 
-An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache module for [OpenResty](http://openresty.org), backed by [Redis](http://redis.io).
+An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://nginx.org), backed by [Redis](http://redis.io).
 
 
 ## Table of Contents
 
 * [Status](#status)
 * [Features](#features)
-	* [Dynamic configuration](#dynamic-configuration)
-	* [Serving stale content](#serving-stale-content)
-	* [PURGE API](#purge-api)
-	* [Load balancing upstreams](#load-balancing-upstreams)
-	* [Redis failover with Sentinel](#redis-sentinel)
-	* [Collapsed forwarding](#collapsed-forwarding)
-	* [Edge Side Includes](#edge-side-includes-esi)
+    * [Dynamic configuration](#dynamic-configuration)
+    * [Serving stale content](#serving-stale-content)
+    * [PURGE API](#purge-api)
+    * [Load balancing upstreams](#load-balancing-upstreams)
+    * [Redis failover with Sentinel](#redis-sentinel)
+    * [Collapsed forwarding](#collapsed-forwarding)
+    * [Edge Side Includes](#edge-side-includes-esi)
 * [Installation](#installation)
 * [Configuration options](#configuration-options)
 * [Binding to events](#events)
@@ -24,14 +24,14 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache module for [OpenRest
 
 ## Status
 
-Under active development, and so functionality may change without much notice. However, release branches are generally well tested in staging environments against real world sites before being tagged, and the latest tagged release is guaranteed to be running hundreds of sites worldwide.
+This branch contains work towards `v2`, and as such should be considered experimental with functionality changing without much notice. The latest `v1.*` tag is considered more stable.
 
 Please feel free to [ask questions / raise issues / request features](https://github.com/pintsized/ledge/issues).
 
 
 ## Features
 
-Ledge aims to be an RFC compliant HTTP reverse proxy cache wherever possible, providing a fast and robust alternative to Squid / Varnish etc.
+Ledge aims to be an RFC compliant HTTP reverse proxy cache, providing a fast and robust alternative to Squid / Varnish etc.
 
 There are exceptions and omissions. Please raise an [issue](https://github.com/pintsized/ledge/issues) if something doesn't work as expected.
 
@@ -45,9 +45,11 @@ Default behaviours aim to be as RFC compliant as possible, but whilst many advan
 By [binding to events](#events), it's possible to dynamically alter behaviours of Ledge by, for example, adjusting a given response to include a `Cache-Control` header, only when fetching from the upstream (i.e. on a cache MISS).
 
 ```lua
-ledge:bind("origin_fetched", function(res)
-	res.header["Cache-Control"] = "public, max-age=3600"
-end)
+handler:bind("after_upstream_request",
+    function(res)
+	    res.header["Cache-Control"] = "public, max-age=3600"
+    end
+)
 ```
 
 ### Serving stale content
@@ -61,10 +63,12 @@ This can be very effective in ensuring a fast user experience. For example, if y
 If your origin server cannot be configured in this way, you can always override by [binding](#events) to the `before_save` event.
 
 ```lua
-ledge:bind("before_save", function(res)
-	-- Valid for 1 hour, stale-while-revalidate for 23 hours, stale-if-error for three days
-	res.header["Cache-Control"] = "max-age=3600, stale-while-revalidate=82800, stale-if-error=259200"
-end)
+handler:bind("before_save",
+    function(res)
+	    -- Valid for 1 hour, stale-while-revalidate for 23 hours, stale-if-error for three days
+	    res.header["Cache-Control"] = "max-age=3600, stale-while-revalidate=82800, stale-if-error=259200"
+    end
+)
 ```
 
 In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of data content for one request.
@@ -153,18 +157,6 @@ Support for Redis [Sentinel](http://redis.io/topics/sentinel) is fully integrate
 
 Cache reads will be served from the slave in the window between the master failing and the slave being promoted, whilst writes are temporarily proxied without cache.
 
-Instead of specifying a [redis host](#redis_host), configure your sentinels and Ledge will use this to determine the current active master.
-
-```lua
- ledge:config_set("redis_use_sentinel", true)
- ledge:config_set("redis_sentinel_master_name", "mymaster")
- ledge:config_set("redis_sentinels", {
-	 { host = "127.0.0.1", port = 6381 },
-	 { host = "127.0.0.1", port = 6382 },
-	 { host = "127.0.0.1", port = 6383 },
- })
-```
-
 
 ### Collapsed forwarding
 
@@ -214,7 +206,7 @@ local function set_surrogate_response_header(res)
         res.header["Surrogate-Control"] = 'content="ESI/1.0"'
     end
 end
-ledge:bind("origin_fetched", set_surrogate_response_header)
+handler:bind("after_upstream_request", set_surrogate_response_header)
 ```
 
 Note that if ESI is processed, downstream cache-ability is automatically dropped since you don't want other intermediaries or browsers caching the result downstream.
@@ -336,12 +328,14 @@ nginx {
 	if_modified_since Off;
 	lua_check_client_abort On;
 	
-	init_by_lua_block {
-		ledge = require("ledge.ledge").new()
-	}
-	
+    init_by_lua_block {
+        require("ledge").set_handler_defaults({
+            upstream_host = "upstream.example.com",
+        })
+    }
+    
 	init_worker_by_lua_block {
-		ledge:run_workers()
+		require("ledge").create_worker():run()
 	}
 
 	server {
@@ -350,8 +344,7 @@ nginx {
 		
 		location / {
 			content_by_lua_block {
-				ledge:config_set("upstream_host", "upstream.example.com")
-				ledge:run()
+				require("ledge").create_handler():run()
 			}
 		}
 	}
