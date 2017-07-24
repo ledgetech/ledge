@@ -1,6 +1,7 @@
 # Ledge
 
-An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://nginx.org), backed by [Redis](http://redis.io).
+An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for
+[Nginx](http://nginx.org), backed by [Redis](http://redis.io).
 
 
 ## Table of Contents
@@ -24,61 +25,95 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 
 ## Status
 
-This branch contains work towards `v2`, and as such should be considered experimental with functionality changing without much notice. The latest `v1.*` tag is considered more stable.
-
-Please feel free to [ask questions / raise issues / request features](https://github.com/pintsized/ledge/issues).
+This branch contains work towards `v2`, and as such should be considered
+experimental with functionality changing without much notice. The latest `v1.*`
+tag is considered more stable.
 
 
 ## Features
 
-Ledge aims to be an RFC compliant HTTP reverse proxy cache, providing a fast and robust alternative to Squid / Varnish etc.
+Ledge aims to be an RFC compliant HTTP reverse proxy cache, providing a fast and
+robust alternative to Squid / Varnish etc.
 
-There are exceptions and omissions. Please raise an [issue](https://github.com/pintsized/ledge/issues) if something doesn't work as expected.
+There are exceptions and omissions. Please raise an
+[issue](https://github.com/pintsized/ledge/issues) if something doesn't work as
+expected.
 
-Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible. For example, using [ESI](#edge-side-includes-esi) to separate page fragments where their TTL differs, serving stale content whilst [revalidating in the background](#stale--background-revalidation), [collapsing](#collapsed-forwarding) concurrent similar upstream requests, dynamically modifying the cache key specification, and [automatically revalidating](#revalidate-on-purge) content with a PURGE API.
+Moreover, it is particularly suited to applications where the origin is
+expensive or distant, making it desirable to serve from cache as optimistically
+as possible. For example, using [ESI](#edge-side-includes-esi) to separate page
+fragments where their TTL differs, serving stale content whilst
+[revalidating in the background](#stale--background-revalidation),
+[collapsing](#collapsed-forwarding) concurrent similar upstream requests,
+dynamically modifying the cache key specification, and
+[automatically revalidating](#revalidate-on-purge) content with a PURGE API.
 
 
 ### Dynamic configuration
 
-Default behaviours aim to be as RFC compliant as possible, but whilst many advanced features can be [configured](#configuration-options), often in the real world it can be hard to coerce an origin server to cooperate properly with HTTP caching semantics.
+Default behaviours aim to be as RFC compliant as possible, but whilst many
+advanced features can be [configured](#configuration-options), often in the real
+world it can be hard to coerce an origin server to cooperate properly with HTTP
+caching semantics.
 
-By [binding to events](#events), it's possible to dynamically alter behaviours of Ledge by, for example, adjusting a given response to include a `Cache-Control` header, only when fetching from the upstream (i.e. on a cache MISS).
+By [binding to events](#events), it's possible to dynamically alter behaviours
+of Ledge by, for example, adjusting a given response to include a `Cache-Control`
+header, only when fetching from the upstream (i.e. on a cache MISS).
 
 ```lua
-handler:bind("after_upstream_request",
-    function(res)
-	    res.header["Cache-Control"] = "public, max-age=3600"
-    end
-)
+handler:bind("after_upstream_request", function(res)
+    res.header["Cache-Control"] = "public, max-age=3600"
+end)
 ```
 
 ### Serving stale content
 
-Content is considered "stale" when its age is beyond its TTL. However, depending on the value of [keep_cache_for](#keep_cache_for) (which defaults to 1 month), we don't actually expire content in Redis straight away.
+Content is considered "stale" when its age is beyond its TTL. However, depending
+on the value of [keep_cache_for](#keep_cache_for) (which defaults to 1 month),
+we don't actually expire content in Redis straight away.
 
-This allows us to implement the stale cache control extensions described in [RFC5861](https://tools.ietf.org/html/rfc5861), which provides request and response header semantics for describing how stale something can be served, when it should be revalidated in the background, and how long we can serve stale content in the event of upstream errors.
+This allows us to implement the stale cache control extensions described in
+[RFC5861](https://tools.ietf.org/html/rfc5861), which provides request and
+response header semantics for describing how stale something can be served, when
+it should be revalidated in the background, and how long we can serve stale
+content in the event of upstream errors.
 
-This can be very effective in ensuring a fast user experience. For example, if your content has a `max-age` of 24 hours, consider changing this to 1 hour, and adding `stale-while-revalidate` for 23 hours. The net TTL is therefore the same, but the first request after the first hour will trigger backgrounded revalidation, extending the TTL for a further 1 hour + 23 hours.
+This can be very effective in ensuring a fast user experience. For example, if
+your content has a `max-age` of 24 hours, consider changing this to 1 hour, and
+adding `stale-while-revalidate` for 23 hours. The net TTL is therefore the same,
+but the first request after the first hour will trigger backgrounded
+revalidation, extending the TTL for a further 1 hour + 23 hours.
 
-If your origin server cannot be configured in this way, you can always override by [binding](#events) to the `before_save` event.
+If your origin server cannot be configured in this way, you can always override
+by [binding](#events) to the `before_save` event.
 
 ```lua
-handler:bind("before_save",
-    function(res)
-	    -- Valid for 1 hour, stale-while-revalidate for 23 hours, stale-if-error for three days
-	    res.header["Cache-Control"] = "max-age=3600, stale-while-revalidate=82800, stale-if-error=259200"
-    end
-)
+handler:bind("before_save", function(res)
+    -- Valid for 1 hour, stale-while-revalidate for 23 hours,
+    -- stale-if-error for three days
+    res.header["Cache-Control"]
+        = "max-age=3600, stale-while-revalidate=82800, stale-if-error=259200"
+end)
 ```
 
-In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of data content for one request.
+In other words, set the TTL to the highest comfortable frequency of requests at
+the origin, and `stale-while-revalidate` to the longest comfortable TTL, to
+increase the chances of background revalidation occurring. Note that the first
+stale request will obviously get stale content, and so very long values can
+result in very out of data content for one request.
 
-All stale behaviours are constrained by normal cache control semantics. For example, if the origin is down, and the response could be served stale due to the upstream error, but the request contains `Cache-Control: no-cache` or even `Cache-Control: max-age=60` where the content is older than 60 seconds, they will be served the error, rather than the stale content.
+All stale behaviours are constrained by normal cache control semantics. For
+example, if the origin is down, and the response could be served stale due to
+the upstream error, but the request contains `Cache-Control: no-cache` or even
+`Cache-Control: max-age=60` where the content is older than 60 seconds, they
+will be served the error, rather than the stale content.
 
 
 ### PURGE API
 
-Cache can be invalidated using the PURGE method. This will return a status of `200` indicating success, or `404` if there was nothing to purge. A JSON response body is returned with more information.
+Cache can be invalidated using the PURGE method. This will return a status of
+`200` indicating success, or `404` if there was nothing to purge. A JSON
+response body is returned with more information.
 
 `$> curl -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
 ```json
@@ -88,15 +123,19 @@ Cache can be invalidated using the PURGE method. This will return a status of `2
 }
 ```
 
-In addition, PURGE requests accept an `X-Purge` request header, to alter the purge mode. Supported values are `invalidate` (default), `delete` (to actually hard remove the item and all metadata), and `revalidate`.
+In addition, PURGE requests accept an `X-Purge` request header, to alter the
+purge mode. Supported values are `invalidate` (default), `delete` (to actually
+hard remove the item and all metadata), and `revalidate`.
 
 
 #### Revalidate-on-purge
 
-When specifying `X-Purge: revalidate`, a JSON response is returned detailing a background
-[Qless](https://github.com/pintsized/lua-resty-qless) job ID scheduled to revalidate the cache item.
+When specifying `X-Purge: revalidate`, a JSON response is returned detailing a
+background [Qless](https://github.com/pintsized/lua-resty-qless) job ID
+scheduled to revalidate the cache item.
 
-Note that `X-Cache: revalidate, delete` has no useful meaning because revalidation requires metadata to be present (`delete` overrides).
+Note that `X-Cache: revalidate, delete` has no useful meaning because
+revalidation requires metadata to be present (`delete` overrides).
 
 `$> curl -X PURGE -H "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/page1 | jq .`
 
@@ -121,9 +160,14 @@ Note that `X-Cache: revalidate, delete` has no useful meaning because revalidati
 
 #### Wildcard PURGE
 
-Wildcard (*) patterns are also supported in URIs, which will always return a status of `200` and a JSON body detailing a background job ID. Wildcard purges involve scanning the entire keyspace, and so can take a little while. See [keyspace_scan_count](#keyspace_scan_count) for tuning help.
+Wildcard (\*) patterns are also supported in URIs, which will always return a
+status of `200` and a JSON body detailing a background job ID. Wildcard purges
+involve scanning the entire keyspace, and so can take a little while. See
+[keyspace_scan_count](#keyspace_scan_count) for tuning help.
 
-In addition, the `X-Purge` request header will propagate to all URIs purged as a result of the wildcard, making it possible to trigger site / section wide revalidation for example. Again, be careful what you wish for.
+In addition, the `X-Purge` request header will propagate to all URIs purged as
+a result of the wildcard, making it possible to trigger site / section wide
+revalidation for example. Again, be careful what you wish for.
 
 `$> curl -v -X PURGE -H "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/* | jq .`
 
@@ -148,26 +192,39 @@ In addition, the `X-Purge` request header will propagate to all URIs purged as a
 
 ### Load balancing upstreams
 
-Multiple upstreams can be load balanced (and optionally health-checked) by passing a configured instance of [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) and setting [use_resty_upstream](#use_resty_upstream) to `true`.
+Multiple upstreams can be load balanced (and optionally health-checked) by
+passing a configured instance of
+[lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) and
+setting [use_resty_upstream](#use_resty_upstream) to `true`.
 
 
 ### Redis Sentinel
 
-Support for Redis [Sentinel](http://redis.io/topics/sentinel) is fully integrated, making it possible to run master / slave pairs, where Sentinel promotes the slave to master in the event of failure, without losing cache. 
+Support for Redis [Sentinel](http://redis.io/topics/sentinel) is fully
+integrated, making it possible to run master / slave pairs, where Sentinel
+promotes the slave to master in the event of failure, without losing cache.
 
-Cache reads will be served from the slave in the window between the master failing and the slave being promoted, whilst writes are temporarily proxied without cache.
+Cache reads will be served from the slave in the window between the master
+failing and the slave being promoted, whilst writes are temporarily proxied
+without cache.
 
 
 ### Collapsed forwarding
 
-With [collapsed forwarding](#enable_collapsed_forwarding) enabled, Ledge will attempt to collapse concurrent origin requests for known (previously) cacheable resources into single upstream requests.
+With [collapsed forwarding](#enable_collapsed_forwarding) enabled, Ledge will
+attempt to collapse concurrent origin requests for known (previously) cacheable
+resources into single upstream requests.
 
-This is particularly useful to reduce load at the origin if a spike of traffic occurs for expired and slow content (since the chances of concurrent requests is higher).
+This is particularly useful to reduce load at the origin if a spike of traffic
+occurs for expired and slow content (since the chances of concurrent requests
+is higher).
 
 
 ### Edge Side Includes (ESI)
 
-Almost complete support for the [ESI 1.0 Language Specification](https://www.w3.org/TR/esi-lang) is included, with a few exceptions, and a few enhancements.
+Almost complete support for the
+[ESI 1.0 Language Specification](https://www.w3.org/TR/esi-lang) is included,
+with a few exceptions, and a few enhancements.
 
 ```html
 <html>
@@ -186,36 +243,52 @@ Almost complete support for the [ESI 1.0 Language Specification](https://www.w3.
          </esi:choose>
       </esi:otherwise>
    </esi:choose>
-   
+
 </body>
 </html>
 ```
 
 #### Enabling ESI
 
-Note that simply [enabling](#esi_enabled) ESI might not be enough. We also check the [content type](#esi_content_types) against the allowed types specified, but more importantly ESI processing is contingent upon the [Edge Architecture Specification](https://www.w3.org/TR/edge-arch/). When enabled, Ledge will advertise capabilities upstream with the `Surrogate-Capability` request header, and expect the origin to include a `Surrogate-Control` header delegating ESI processing to Ledge.
+Note that simply [enabling](#esi_enabled) ESI might not be enough. We also check
+the [content type](#esi_content_types) against the allowed types specified, but
+more importantly ESI processing is contingent upon the
+[Edge Architecture Specification](https://www.w3.org/TR/edge-arch/). When
+enabled, Ledge will advertise capabilities upstream with the
+`Surrogate-Capability` request header, and expect the origin to include a
+`Surrogate-Control` header delegating ESI processing to Ledge.
 
-If your origin is not ESI aware, a common approach is to bind to the [origin_fetched](#origin_fetched) event in order to add the `Surrogate-Control` header manually. E.g.
+If your origin is not ESI aware, a common approach is to bind to the
+[after_upstream_request](#after_upstream_request) event in order to add the `Surrogate-Control`
+header manually. E.g.
 
 ```lua
-local function set_surrogate_response_header(res)
+handler:bind("after_upstream_request", function(res)
     -- Don't enable ESI on redirect responses
     -- Don't override Surrogate Control if it already exists
     local status = res.status
     if not res.header["Surrogate-Control"] and not (status > 300 and status < 303) then
         res.header["Surrogate-Control"] = 'content="ESI/1.0"'
     end
-end
-handler:bind("after_upstream_request", set_surrogate_response_header)
+end)
 ```
 
-Note that if ESI is processed, downstream cache-ability is automatically dropped since you don't want other intermediaries or browsers caching the result downstream.
+Note that if ESI is processed, downstream cache-ability is automatically dropped
+since you don't want other intermediaries or browsers caching the result
+downstream.
 
-It's therefore best to only set `Surrogate-Control` for content which you know has ESI instructions. Whilst Ledge will detect the presence of ESI instructions when saving (and do nothing on cache HITs if no instructions are present), on a cache MISS it will have already dropped downstream cache headers before reading / saving the body. This is a side-effect of the [streaming architecture](#streaming-architecture).
+It's therefore best to only set `Surrogate-Control` for content which you know
+has ESI instructions. Whilst Ledge will detect the presence of ESI instructions
+when saving (and do nothing on cache HITs if no instructions are present), on a
+cache MISS it will have already dropped downstream cache headers before reading
+/ saving the body. This is a side-effect of the
+[streaming architecture](#streaming-architecture).
 
 #### Regular expressions in conditions
 
-In addition to the operators defined in the [ESI specification](https://www.w3.org/TR/esi-lang), we also support regular expressions in conditions (as string literals), using the `=~` operator.
+In addition to the operators defined in the
+[ESI specification](https://www.w3.org/TR/esi-lang), we also support regular
+expressions in conditions (as string literals), using the `=~` operator.
 
 ```html
 <esi:choose>
@@ -225,13 +298,19 @@ In addition to the operators defined in the [ESI specification](https://www.w3.o
 </esi:choose>
 ```
 
-Supported modifiers are as per the [ngx.re.*](https://github.com/openresty/lua-nginx-module#ngxrematch) documentation.
+Supported modifiers are as per the
+[ngx.re.\*](https://github.com/openresty/lua-nginx-module#ngxrematch)
+documentation.
 
 #### Custom ESI variables
 
-In addition to the variables defined in the [ESI specification](https://www.w3.org/TR/esi-lang), it is possible to stuff custom variables into a special table before running Ledge.
+In addition to the variables defined in the
+[ESI specification](https://www.w3.org/TR/esi-lang), it is possible to stuff
+custom variables into a special table before running Ledge.
 
-A common use case is to combine the [Geo IP](http://nginx.org/en/docs/http/ngx_http_geoip_module.html) module variables for use in ESI conditions.
+A common use case is to combine the
+[Geo IP](http://nginx.org/en/docs/http/ngx_http_geoip_module.html) module
+variables for use in ESI conditions.
 
 ```lua
 content_by_lua_block {
@@ -250,9 +329,15 @@ content_by_lua_block {
 
 #### ESI Args
 
-ESI args are query string parameters identified by a configurable prefix, which defaults to `esi_`. With ESI enabled, query string parameters with this prefix are removed from the cache key and also from upstream requests, and instead stuffed into the `$(ESI_ARGS{foo})` variable for use in ESI, typically in conditions.
+ESI args are query string parameters identified by a configurable prefix, which
+defaults to `esi_`. With ESI enabled, query string parameters with this prefix
+are removed from the cache key and also from upstream requests, and instead
+stuffed into the `$(ESI_ARGS{foo})` variable for use in ESI, typically in
+conditions.
 
-This has the effect of allowing query string parameters to alter the page layout without splitting the cache, since variables are used exclusively by the ESI processor, downstream of cache.
+This has the effect of allowing query string parameters to alter the page layout
+without splitting the cache, since variables are used exclusively by the ESI
+processor, downstream of cache.
 
 `$> curl -H "Host: example.com" http://cache.example.com/page1?esi_display_mode=summary`
 
@@ -267,13 +352,17 @@ This has the effect of allowing query string parameters to alter the page layout
 </esi:choose>
 ```
 
-In this example, the `esi_display_mode` values of `summary` or `details` will return the same cache HIT, but display different content.
+In this example, the `esi_display_mode` values of `summary` or `details` will
+return the same cache HIT, but display different content.
 
-If `$(ESI_ARGS)` is used without a field key, it renders the original query string arguments, e.g. `esi_foo=bar&esi_display_mode=summary`, URL encoded.
+If `$(ESI_ARGS)` is used without a field key, it renders the original query
+string arguments, e.g. `esi_foo=bar&esi_display_mode=summary`, URL encoded.
 
 #### Missing ESI features
 
-The following parts of the [ESI specification](https://www.w3.org/TR/esi-lang) are not supported, but could be in due course if a need is identified.
+The following parts of the
+[ESI specification](https://www.w3.org/TR/esi-lang) are not supported, but could
+be in due course if a need is identified.
 
 * `<esi:inline>` not implemented (or advertised as a capability).
 * No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
@@ -283,9 +372,13 @@ The following parts of the [ESI specification](https://www.w3.org/TR/esi-lang) a
 
 ## Installation
 
-Ledge is a Lua module for OpenResty. It is not designed to work in a pure Lua environment, and depends completely upon Redis data structures to function.
+Ledge is a Lua module for OpenResty. It is not designed to work in a pure Lua
+environment, and depends completely upon Redis data structures to function.
 
-*Note: Currently all cache and metadata is stored in Redis, and thus in **memory**. This is an important consideration if you plan on having a very large cache. There are longer term plans to optionally move response body storage to a disk-backed system.*
+*Note: Currently all cache and metadata is stored in Redis, and thus in
+**memory**. This is an important consideration if you plan on having a very
+large cache. There are longer term plans to optionally move response body
+storage to a disk-backed system.*
 
 Download and install:
 
@@ -306,7 +399,10 @@ This will install the latest stable release, and all other Lua module dependenci
 * [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib)
 * [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream)
 
-Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx. If you are new to OpenResty, it's important to take the time to do this properly, as the environment is quite specific.
+Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module)
+documentation on how to run Lua code in Nginx. If you are new to OpenResty, it's
+important to take the time to do this properly, as the environment is quite
+specific.
 
 In your `nginx.conf` file:
 
@@ -319,21 +415,19 @@ In your `nginx.conf` file:
 
 ### Minimal configuration
 
-To have Ledge respond to a request, we instantiate a global instance and set any global configuration using the [init_by_lua_block](https://github.com/openresty/lua-nginx-module#init_by_lua) directive, start the Ledge background workers with the [init_worker_by_lua_block](https://github.com/openresty/lua-nginx-module#init_worker_by_lua) directive, and configure anything route specific in the [content_by_lua_block](https://github.com/openresty/lua-nginx-module#content_by_lua) directives, before calling `ledge:run()`.
-
 Assuming you have Redis running on the the default `localhost:6379`.
 
 ```nginx
 nginx {
 	if_modified_since Off;
 	lua_check_client_abort On;
-	
+
     init_by_lua_block {
         require("ledge").set_handler_defaults({
             upstream_host = "upstream.example.com",
         })
     }
-    
+
 	init_worker_by_lua_block {
 		require("ledge").create_worker():run()
 	}
@@ -341,7 +435,7 @@ nginx {
 	server {
 		server_name example.com;
 		listen 80;
-		
+
 		location / {
 			content_by_lua_block {
 				require("ledge").create_handler():run()
@@ -352,11 +446,11 @@ nginx {
 ```
 
 
-## Configuration options
+## Handler configuration options
 
-Options can be specified globally with the `init_by_lua_block` directive, or for a specific server / location with `content_by_lua_block` directives.
-
-Config set in `content_by_lua_block` will only affect that specific location, and runs in the context of the current running request. That is, you can write request-specific conditions which dynamically set configuration for matching requests.
+Options can be specified globally by calling `ledge:set_handler_defaults()`
+inside the `init_by_lua_block` directive, or when creating a handler in a
+`content_by_lua_block` directive for server / location specific configuration.
 
  * [origin_mode](#origin_mode)
  * [upstream_connect_timeout](#upstream_connect_timeout)
@@ -371,16 +465,6 @@ Config set in `content_by_lua_block` will only affect that specific location, an
  * [buffer_size](#buffer_size)
  * [cache_max_memory](#cache_max_memory)
  * [advertise_ledge](#advertise_ledge)
- * [redis_database](#redis_database)
- * [redis_qless_database](#redis_qless_database)
- * [redis_connect_timeout](#redis_connect_timeout)
- * [redis_read_timeout](#redis_read_timeout)
- * [redis_keepalive_timeout](#redis_keepalive_timeout)
- * [redis_keepalive_poolsize](#redis_keepalive_poolsize)
- * [redis_host](#redis_host)
- * [redis_use_sentinel](#redis_use_sentinel)
- * [redis_sentinel_master_name](#redis_sentinel_master_name)
- * [redis_sentinels](#redis_sentinels)
  * [keep_cache_for](#keep_cache_for)
  * [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
  * [cache_key_spec](#cache_key_spec)
@@ -390,7 +474,6 @@ Config set in `content_by_lua_block` will only affect that specific location, an
  * [esi_content_types](#esi_content_types)
  * [esi_allow_surrogate_delegation](#esi_allow_surrogate_delegation)
  * [esi_recursion_limit](#esi_recursion_limit)
- * [esi_pre_include_callback](#esi_pre_include_callback)
  * [esi_args_prefix](#esi_args_prefix)
  * [gunzip_enabled](#gunzip_enabled)
  * [keyspace_scan_count](#keyspace_scan_count)
@@ -402,11 +485,17 @@ syntax: `ledge:config_set("origin_mode", ledge.ORIGIN_MODE_NORMAL | ledge.ORIGIN
 
 default: `ledge.ORIGIN_MODE_NORMAL`
 
-Determines the overall behaviour for connecting to the origin.  `ORIGIN_MODE_NORMAL` will assume the origin is up, and connect as necessary.
+Determines the overall behaviour for connecting to the origin.
+`ORIGIN_MODE_NORMAL` will assume the origin is up, and connect as necessary.
 
-`ORIGIN_MODE_AVOID` is similar to Squid's `offline_mode`, where any retained cache (expired or not) will be served rather than trying the origin, regardless of cache-control headers, but the origin will be tried if there is no cache to serve.
+`ORIGIN_MODE_AVOID` is similar to Squid's `offline_mode`, where any retained
+cache (expired or not) will be served rather than trying the origin, regardless
+of cache-control headers, but the origin will be tried if there is no cache to
+serve.
 
-`ORIGIN_MODE_BYPASS` is the same as `AVOID`, except if there is no cache to serve we send a `503 Service Unavailable` status code to the client and never attempt an upstream connection.
+`ORIGIN_MODE_BYPASS` is the same as `AVOID`, except if there is no cache to
+serve we send a `503 Service Unavailable` status code to the client and never
+attempt an upstream connection.
 
 
 ### upstream_connect_timeout
@@ -415,7 +504,9 @@ syntax: `ledge:config_set("upstream_connect_timeout", 1000)`
 
 default: `500 (ms)`
 
-Maximum time to wait for an upstream connection (in milliseconds). If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
+Maximum time to wait for an upstream connection (in milliseconds). If it is
+exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error)
+is configured.
 
 
 ### upstream_read_timeout
@@ -424,7 +515,9 @@ syntax: `ledge:config_set("upstream_read_timeout", 5000)`
 
 default: `5000 (ms)`
 
-Maximum time to wait for data on a connected upstream socket (in milliseconds).  If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
+Maximum time to wait for data on a connected upstream socket (in milliseconds).
+If it is exceeded, we send a `503` status code, unless
+[stale_if_error](#stale_if_error) is configured.
 
 
 ### upstream_host
@@ -433,7 +526,10 @@ syntax: `ledge:config_set("upstream_host", "web01.example.com")`
 
 default: `empty (must be set)`
 
-Specifies the hostname or IP address of the upstream host. If a hostname is specified, you must configure the Nginx [resolver](http://nginx.org/en/docs/http/ngx_http_core_module.html#resolver) somewhere, for example:
+Specifies the hostname or IP address of the upstream host. If a hostname is
+specified, you must configure the Nginx
+[resolver](http://nginx.org/en/docs/http/ngx_http_core_module.html#resolver)
+somewhere, for example:
 
 ```nginx
 resolver 8.8.8.8;
@@ -455,7 +551,8 @@ syntax: `ledge:config_set("upstream_use_ssl", true)`
 
 default: `false`
 
-Toggles the use of SSL on the upstream connection. Other `upstream_ssl_*` options will be ignored if this is not set to `true`.
+Toggles the use of SSL on the upstream connection. Other `upstream_ssl_*`
+options will be ignored if this is not set to `true`.
 
 
 ### upstream_ssl_server_name
@@ -464,7 +561,9 @@ syntax: `ledge:config_set("upstream_ssl_server_name", "www.example.com")`
 
 default: `nil`
 
-Specifies the SSL server name used for Server Name Indication (SNI). See [sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake) for more information.
+Specifies the SSL server name used for Server Name Indication (SNI). See
+[sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake)
+for more information.
 
 
 ### upstream_ssl_verify
@@ -473,7 +572,9 @@ syntax: `ledge:config_set("upstream_ssl_verify", true)`
 
 default: `false`
 
-Toggles SSL verification. See [sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake) for more information.
+Toggles SSL verification. See
+[sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake)
+for more information.
 
 
 ### use_resty_upstream
@@ -482,7 +583,9 @@ syntax: `ledge:config_set("use_resty_upstream", true)`
 
 default: `false`
 
-Toggles whether to use a preconfigured [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) instance (see below), instead of the above `upstream_*` options.
+Toggles whether to use a preconfigured
+[lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream)
+instance (see below), instead of the above `upstream_*` options.
 
 
 ### resty_upstream
@@ -491,7 +594,10 @@ syntax: `ledge:config_set("resty_upstream", my_upstream)`
 
 default: `nil`
 
-Specifies a preconfigured [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) instance to be used for all upstream connections. This provides upstream load balancing and active healthchecks.
+Specifies a preconfigured
+[lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream)
+instance to be used for all upstream connections. This provides upstream load
+balancing and active healthchecks.
 
 
 ### buffer_size
@@ -500,9 +606,16 @@ syntax: `ledge:config_set("buffer_size", 2^17)`
 
 default: `2^16 (64KB in bytes)`
 
-Specifies the internal buffer size (in bytes) used for data to be read/written/served. Upstream responses are read in chunks of this maximum size, preventing allocation of large amounts of memory in the event of receiving large files. Data is also stored internally as a list of chunks, and delivered to the Nginx output chain buffers in the same fashion.
+Specifies the internal buffer size (in bytes) used for data to be
+read/written/served. Upstream responses are read in chunks of this maximum size,
+preventing allocation of large amounts of memory in the event of receiving large
+files. Data is also stored internally as a list of chunks, and delivered to the
+Nginx output chain buffers in the same fashion.
 
-The only exception is if ESI is configured, and Ledge has determined there are ESI instructions to process, and any of these instructions span a given chunk.  In this case, buffers are concatenated until a complete instruction is found, and then ESI operates on this new buffer.
+The only exception is if ESI is configured, and Ledge has determined there are
+ESI instructions to process, and any of these instructions span a given chunk.
+In this case, buffers are concatenated until a complete instruction is found,
+and then ESI operates on this new buffer.
 
 
 ### cache_max_memory
@@ -511,11 +624,18 @@ syntax: `ledge:config_set("cache_max_memory", 4096)`
 
 default: `2048 (KB)`
 
-Specifies (in kilobytes) the maximum size a cache item can occupy before we give up attempting to store (and delete the entity).
+Specifies (in kilobytes) the maximum size a cache item can occupy before we give
+up attempting to store (and delete the entity).
 
-Note that since entities are written and served as a list of buffers, when replacing an entity we create a new entity list and only delete the old one after existing read operations should have completed, marking the old entity for garbage collection.
+Note that since entities are written and served as a list of buffers, when
+replacing an entity we create a new entity list and only delete the old one
+after existing read operations should have completed, marking the old entity for
+garbage collection.
 
-As a result, it is possible for multiple entities for a given cache key to exist, each up to a maximum of `cache_max_memory`. However this should only every happen quite temporarily, the timing of which is configurable with [minimum_old_entity_download_rate](#minimum_old_entity_download_rate).
+As a result, it is possible for multiple entities for a given cache key to
+exist, each up to a maximum of `cache_max_memory`. However this should only
+every happen quite temporarily, the timing of which is configurable with
+[minimum_old_entity_download_rate](#minimum_old_entity_download_rate).
 
 
 ### advertise_ledge
@@ -524,95 +644,8 @@ syntax: `ledge:config_set("advertise_ledge", false)`
 
 default `true`
 
-If set to false, disables advertising the software name and version, e.g. `(ledge/1.26)` from the `Via` response header.
-
-
-### redis_database
-
-syntax: `ledge:config_set("redis_database", 1)`
-
-default: `0`
-
-Specifies the Redis database to use for cache data / metadata.
-
-
-### redis_qless_database
-
-syntax: `ledge:config_set("redis_qless_database", 2)`
-
-default: `1`
-
-Specifies the Redis database to use for [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) jobs. These are background tasks such as garbage collection and revalidation, which are managed by Qless. It can be useful to keep these in a separate database, purely for namespace sanity.
-
-
-### redis_connect_timeout
-
-syntax: `ledge:config_set("redis_connect_timeout", 1000)`
-
-default: `500 (ms)`
-
-Maximum time to wait for a Redis connection (in milliseconds). If it is exceeded, we send a `503` status code.
-
-
-### redis_read_timeout
-
-syntax: `ledge:config_set("redis_read_timeout", 5000)`
-
-default: `5000 (ms)`
-
-Maximum time to wait for data on a connected Redis socket (in milliseconds). If it is exceeded, we send a `503 Service Unavailable` status.
-
-
-### redis_keepalive_timeout
-
-syntax: `ledge:config_set("redis_keepalive_timeout", 120)`
-
-default: `60s or lua_socket_keepalive_timeout (sec)`
-
-
-### redis_keepalive_poolsize
-
-syntax: `ledge:config_set("redis_keepalive_poolsize", 60)`
-
-default: `Defaults to 30 or lua_socket_pool_size`
-
-
-### redis_host
-
-`syntax: ledge:config_set("redis_host", { host = "127.0.0.1", port = 6380 })`
-
-`default: { host = "127.0.0.1", port = 6379, password = nil, socket = nil }`
-
-Specifies the Redis host to connect to. If `socket` is specified then `host` and `port` are ignored. See the [lua-resty-redis](https://github.com/openresty/lua-resty-redis#connect) documentation for more details.
-
-
-### redis_use_sentinel
-
-syntax: `ledge:config_set("redis_use_sentinel", true)`
-
-default: `false`
-
-Toggles the use of [Redis Sentinel](http://redis.io/topics/sentinel) for Redis host discovery. If set to `true`, then [redis_sentinels](#redis_sentinels) will override [redis_host](#redis_host).
-
-
-### redis_sentinel_master_name
-
-syntax: `ledge:config_set("redis_sentinel_master_name", "master")`
-
-default: `mymaster`
-
-Specifies the [Redis Sentinel](http://redis.io/topics/sentinel) master name.
-
-
-### redis_sentinels
-
-`syntax: ledge:set_config("redis_sentinels", { { host = "127.0.0.1", port = 6381 }, { host = "127.0.0.1", port = 6382 }, { host = "127.0.0.1", port = 6383 }, }`
-
-default: `nil`
-
-Specifies a list of [Redis Sentinels](http://redis.io/topics/sentinel) to be tried in order. Once connected, Sentinel provides us with a master Redis node to connect to. If it cannot identify a master, or if the master node cannot be connected to, we ask Sentinel for a list of slaves to try.
-
-This normally happens when the master has gone down, but Sentinel has not yet promoted a slave. During this window, we optimistically try to connect to a slave for read-only operations, since cache-hits may still be served.
+If set to false, disables advertising the software name and version,
+e.g. `(ledge/1.26)` from the `Via` response header.
 
 
 ### keep_cache_for
@@ -621,11 +654,16 @@ syntax: `ledge:config_set("keep_cache_for", 86400 * 14)`
 
 default: `86400 * 30 (1 month in seconds)`
 
-Specifies how long to retain cache data past its expiry date. This allows us to serve stale cache in the event of upstream failure with [stale_if_error](#stale_if_error) or [origin_mode](#origin_mode) settings.
+Specifies how long to retain cache data past its expiry date. This allows us to
+serve stale cache in the event of upstream failure with
+[stale_if_error](#stale_if_error) or [origin_mode](#origin_mode) settings.
 
-Items will be evicted when under memory pressure provided you are using one of the Redis [volatile eviction policies](http://redis.io/topics/lru-cache), so there should generally be no real need to lower this for space reasons.
+Items will be evicted when under memory pressure provided you are using one of
+the Redis [volatile eviction policies](http://redis.io/topics/lru-cache), so
+there should generally be no real need to lower this for space reasons.
 
-Items at the extreme end of this (i.e. nearly a month old) are clearly very rarely requested, or more likely, have been removed at the origin.
+Items at the extreme end of this (i.e. nearly a month old) are clearly very
+rarely requested, or more likely, have been removed at the origin.
 
 
 ### minimum_old_entity_download_rate
@@ -634,11 +672,18 @@ syntax: `ledge:config_set("minimum_old_entity_download_rate", 128)`
 
 default: `56 (kbps)`
 
-Clients reading slower than this who are also unfortunate enough to have started reading from an entity which has been replaced (due to another client causing a revalidation for example), may have their entity garbage collected before they finish, resulting in an incomplete resource being delivered.
+Clients reading slower than this who are also unfortunate enough to have started
+reading from an entity which has been replaced (due to another client causing a
+revalidation for example), may have their entity garbage collected before they
+finish, resulting in an incomplete resource being delivered.
 
-Lowering this is fairer on slow clients, but widens the potential window for multiple old entities to stack up, which in turn could threaten Redis storage space and force evictions.
+Lowering this is fairer on slow clients, but widens the potential window for
+multiple old entities to stack up, which in turn could threaten Redis storage
+space and force evictions.
 
-This design favours high availability (since there are no read-locks, we can serve cache from Redis slaves in the event of failure) on the assumption that the chances of this causing incomplete resources to be served are quite low.
+This design favours high availability (since there are no read-locks, we can
+serve cache from Redis slaves in the event of failure) on the assumption that
+the chances of this causing incomplete resources to be served are quite low.
 
 
 ### cache_key_spec
@@ -647,7 +692,8 @@ This design favours high availability (since there are no read-locks, we can ser
 
 `default: { ngx.var.scheme, ngx.var.host, ngx.var.uri, ngx.var.args }`
 
-Specifies the cache key format. This allows you to abstract certain items for great hit rates (at the expense of collisions), for example.
+Specifies the cache key format. This allows you to abstract certain items for
+great hit rates (at the expense of collisions), for example.
 
 The default spec is:
 
@@ -662,7 +708,9 @@ ledge:cache:http:example.com:/about
 ledge:cache:http:example.com:/about:p=2&q=foo
 ```
 
-If you're doing SSL termination at Nginx and your origin pages look the same for HTTPS and HTTP traffic, you could provide a cache key spec omitting `ngx.var.scheme`, to avoid splitting the cache when the content is identical.
+If you're doing SSL termination at Nginx and your origin pages look the same for
+HTTPS and HTTP traffic, you could provide a cache key spec omitting
+`ngx.var.scheme`, to avoid splitting the cache when the content is identical.
 
 
 ### enable_collapsed_forwarding
@@ -671,11 +719,18 @@ syntax: `ledge:config_get("enable_collapsed_forwarding", true)`
 
 default: `false`
 
-With collapsed forwarding enabled, Ledge will attempt to collapse concurrent origin requests for known (previously) cacheable resources into single upstream requests.
+With collapsed forwarding enabled, Ledge will attempt to collapse concurrent
+origin requests for known (previously) cacheable resources into single upstream
+requests.
 
-This is useful in reducing load at the origin if requests are expensive. The longer the origin request, the more useful this is, since the greater the chance of concurrent requests.
+This is useful in reducing load at the origin if requests are expensive. The
+longer the origin request, the more useful this is, since the greater the chance
+of concurrent requests.
 
-Ledge wont collapse requests for resources that it hasn't seen before and weren't cacheable last time. If the resource has become non-cacheable since the last request, the waiting requests will go to the origin themselves (having waited on the first request to find this out).
+Ledge wont collapse requests for resources that it hasn't seen before and
+weren't cacheable last time. If the resource has become non-cacheable since the
+last request, the waiting requests will go to the origin themselves (having
+waited on the first request to find this out).
 
 
 ### collapsed_forwarding_window
@@ -684,9 +739,15 @@ syntax: `ledge:config_set("collapsed_forwarding_window", 30000)`
 
 default: `60000 (ms)`
 
-When collapsed forwarding is enabled, if a fatal error occurs during the origin request, the collapsed requests may never receive the response they are waiting for. This setting puts a limit on how long they will wait, and how long before new requests will decide to try the origin for themselves.
+When collapsed forwarding is enabled, if a fatal error occurs during the origin
+request, the collapsed requests may never receive the response they are waiting
+for. This setting puts a limit on how long they will wait, and how long before
+new requests will decide to try the origin for themselves.
 
-If this is set shorter than your origin takes to respond, then you may get more upstream requests than desired. Fatal errors (server reboot etc) may result in hanging connections for up to the maximum time set. Normal errors (such as upstream timeouts) work independently of this setting.
+If this is set shorter than your origin takes to respond, then you may get more
+upstream requests than desired. Fatal errors (server reboot etc) may result in
+hanging connections for up to the maximum time set. Normal errors (such as
+upstream timeouts) work independently of this setting.
 
 
 ### esi_enabled
@@ -695,9 +756,14 @@ syntax: `ledge:config_set("esi_enabled", true)`
 
 default: `false`
 
-Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though behaviour is also contingent upon [esi_content_types](#esi_content_types) and [esi_surrogate_delegation](#esi_surrogate_delegation) settings, as well as `Surrogate-Control` / `Surrogate-Capability` headers.
+Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though
+behaviour is also contingent upon [esi_content_types](#esi_content_types) and
+[esi_surrogate_delegation](#esi_surrogate_delegation) settings, as well as
+`Surrogate-Control` / `Surrogate-Capability` headers.
 
-ESI instructions are detected on the slow path (i.e. when fetching from the origin), so only instructions which are known to be present are processed on cache HITs.
+ESI instructions are detected on the slow path (i.e. when fetching from the
+origin), so only instructions which are known to be present are processed on
+cache HITs.
 
 
 ### esi_content_types
@@ -706,7 +772,8 @@ syntax: `ledge:config_set("esi_content_types", { "text/html", "text/javascript" 
 
 default: `{ text/html }`
 
-Specifies content types to perform ESI processing on. All other content types will not be considered for processing.
+Specifies content types to perform ESI processing on. All other content types
+will not be considered for processing.
 
 
 ### esi_allow_surrogate_delegation
@@ -715,9 +782,14 @@ syntax: `ledge:config_set("esi_allow_surrogate_delegation", true)`
 
 default: false
 
-[ESI Surrogate Delegation](http://www.w3.org/TR/edge-arch) allows for downstream intermediaries to advertise a capability to process ESI instructions nearer to the client. By setting this to `true` any downstream offering this will disable ESI processing in Ledge, delegating it downstream.
+[ESI Surrogate Delegation](http://www.w3.org/TR/edge-arch) allows for downstream
+intermediaries to advertise a capability to process ESI instructions nearer to
+the client. By setting this to `true` any downstream offering this will disable
+ESI processing in Ledge, delegating it downstream.
 
-When set to a Lua table of IP address strings, delegation will only be allowed to this specific hosts. This may be important if ESI instructions contain sensitive data which must be removed.
+When set to a Lua table of IP address strings, delegation will only be allowed
+to this specific hosts. This may be important if ESI instructions contain
+sensitive data which must be removed.
 
 
 ### esi_recursion_limit
@@ -729,22 +801,15 @@ default: 10
 Limits fragment inclusion nesting, to avoid accidental infinite recursion.
 
 
-### esi_pre_include_callback
-
-syntax: `ledge:config_set("esi_pre_include_callback", function(req_params) ... end)`
-
-default: nil
-
-A function provided here will be called each time the ESI parser goes to make an outbound HTTP request for a fragment. The request parameters are passed through and can be manipulated here, for example to modify request headers.
-
-
 ### esi_args_prefix
 
 syntax: `ledge:config_set("esi_args_prefix", "__esi_")`
 
-default: "esi_"
+default: "esi\_"
 
-URI args prefix for parameters to be ignored from the cache key (and not proxied upstream), for use exclusively with ESI rendering logic. Set to nil to disable the feature.
+URI args prefix for parameters to be ignored from the cache key
+(and not proxied upstream), for use exclusively with ESI rendering logic.
+Set to nil to disable the feature.
 
 
 ### gunzip_enabled
@@ -753,9 +818,13 @@ syntax: `ledge:config_set("gunzip_enabled", false)`
 
 default: true
 
-With this enabled, gzipped responses will be uncompressed on the fly for clients that do not set `Accept-Encoding: gzip`. Note that if we receive a gzipped response for a resource containing ESI instructions, we gunzip whilst saving and store uncompressed, since we need to read the ESI instructions.
+With this enabled, gzipped responses will be uncompressed on the fly for clients
+that do not set `Accept-Encoding: gzip`. Note that if we receive a gzipped
+response for a resource containing ESI instructions, we gunzip whilst saving and
+store uncompressed, since we need to read the ESI instructions.
 
-Also note that `Range` requests for gzipped content must be ignored - the full response will be returned.
+Also note that `Range` requests for gzipped content must be ignored - the full
+response will be returned.
 
 
 ### keyspace_scan_count
@@ -764,24 +833,29 @@ syntax: `ledge:config_set("keyspace_scan_count", 10000)`
 
 default: 1000
 
-Tunes the behaviour of keyspace scans, which occur when sending a PURGE request with wildcard syntax.
+Tunes the behaviour of keyspace scans, which occur when sending a PURGE request
+with wildcard syntax.
 
-A higher number may be better if latency to Redis is high and the keyspace is large.
+A higher number may be better if latency to Redis is high and the keyspace is
+large.
 
 
 
 ## Events
 
-Events are broadcast at various stages, which can be listened for using Lua functions.
+Events are broadcast at various stages, which can be listened for using Lua
+functions.
 
-For example, this may be useful if an upstream doesn't set optimal `Cache-Control` headers, and cannot be easily be modified itself.
+For example, this may be useful if an upstream doesn't set optimal
+`Cache-Control` headers, and cannot be easily be modified itself.
 
-*Note: Events which pass through a `res` (response) object never contain the response body itself, since this is streamed at the point of serving.*
+*Note: Events which pass through a `res` (response) object never contain the
+response body itself, since this is streamed at the point of serving.*
 
 Example:
 
 ```lua
-ledge:bind("origin_fetched", function(res)
+handler:bind("after_upstream_request", function(res)
     res.header["Cache-Control"] = "max-age=86400"
     res.header["Last-Modified"] = ngx.http_time(ngx.time())
 end)
@@ -791,50 +865,56 @@ end)
 
 ## Event types
 
-* [cache_accessed](#cache_accessed)
-* [origin_required](#origin_required)
-* [before_request](#before_request)
-* [origin_fetched](#origin_fetched)
+* [after_cache_read](#after_cache_read)
+* [before_upstream_request](#before_upstream_request)
+* [before_esi_inclulde_request"](#before_esi_include_request)
+* [after_upstream_request](#after_upstream_request)
 * [before_save](#before_save)
-* [response_ready](#response_ready)
+* [before_serve](#before_serve)
 * [before_save_revalidation_data](#before_save_revalidation_data)
 
-### cache_accessed
+### after_cache_read
 
-syntax: `ledge:bind("cache_accessed", function(res) -- end)`
+syntax: `handler:bind("after_cache_read", function(res) -- end)`
 
 params: `res` The cached `ledge.response` instance.
 
 Fires directly after the response was successfully loaded from cache.
 
 
-### origin_required
+### before_upstream_request
 
-syntax: `ledge:bind("origin_required", function() -- end)`
+syntax: `ledge:bind("before_upstream_request", function(req_params) -- end)`
 
-params: `nil`
+params: `req_params`. The table of request params about to send to the
+[httpc:request](https://github.com/pintsized/lua-resty-http#request) method.
 
-Fires when decided we need to request from the origin.
-
-
-### before_request
-
-syntax: `ledge:bind("before_request", function(req_params) -- end)`
-
-params: `req_params`. The table of request params about to send to the [httpc:request](https://github.com/pintsized/lua-resty-http#request) method.
-
-Fires when about to perform an origin request.
+Fires when about to perform an upstream request.
 
 
-### origin_fetched
+### before_esi_include_request
 
-syntax: `ledge:bind("origin_fetched", function(res) -- end)`
+syntax: `ledge:bind("before_esi_include_request", function(req_params) -- end)`
+
+params: `req_params`. The table of request params about to be used for an ESI
+include.
+
+Fires when about to perform a HTTP request on behalf of an ESI include
+instruction.
+
+
+### after_upstream_request
+
+syntax: `ledge:bind("after_upstream_request", function(res) -- end)`
 
 params: `res` The `ledge.response` object.
 
-Fires when the status/headers have been fetched, but before it is stored. Typically used to override cache headers before we decide what to do with this response.
+Fires when the status/headers have been fetched, but before it is stored.
+Typically used to override cache headers before we decide what to do with this
+response.
 
-*Note: unlike `before_save` below, this fires for all fetched content, not just cacheable content.*
+*Note: unlike `before_save` below, this fires for all fetched content, not just
+cacheable content.*
 
 
 ### before_save
@@ -846,9 +926,9 @@ params: `res` The `ledge.response` object.
 Fires when we're about to save the response.
 
 
-### response_ready
+### before_serve
 
-syntax: `ledge:bind("response_ready", function(res) -- end)`
+syntax: `ledge:bind("before_serve", function(res) -- end)`
 
 params: `res` The `ledge.response` object.
 
@@ -863,7 +943,9 @@ params: `reval_params`. Table of revalidation params.
 
 params: `reval_headers`. Table of revalidation headers.
 
-Fires when a background revalidation is triggered or when cache is being saved. Allows for modifying the headers and paramters (such as connection parameters) which are inherited by the background revalidation.
+Fires when a background revalidation is triggered or when cache is being saved.
+Allows for modifying the headers and paramters (such as connection parameters)
+which are inherited by the background revalidation.
 
 The `reval_params` are values derived from the current running configuration for:
 
@@ -879,36 +961,50 @@ The `reval_params` are values derived from the current running configuration for
 
 ## Background workers
 
-Ledge uses [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) to schedule and process background tasks, which are stored in Redis (usually in a separate DB to cache data).
+Ledge uses [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) to
+schedule and process background tasks, which are stored in Redis (usually in a
+separate DB to cache data).
 
-Jobs are scheduled for background revalidation requests as well as wildcard PURGE requests, but most importantly for garbage collection of replaced body entities.
+Jobs are scheduled for background revalidation requests as well as wildcard
+PURGE requests, but most importantly for garbage collection of replaced body
+entities.
 
-That is, it's very important that jobs are being run properly and in a timely fashion.
+That is, it's very important that jobs are being run properly and in a timely
+fashion.
 
-Installing the [web user interface](https://github.com/hamishforbes/lua-resty-qless-web) can be very helpful to check this.
+Installing the
+[web user interface](https://github.com/hamishforbes/lua-resty-qless-web) can be
+very helpful to check this.
 
-You may also wish to tweak the [qless job history](https://github.com/pintsized/lua-resty-qless#configuration-options) settings if it takes up too much space.
+You may also wish to tweak the
+[qless job history](https://github.com/pintsized/lua-resty-qless#configuration-options)
+settings if it takes up too much space.
 
 ### run_workers
 
-syntax: `init_worker_by_lua_block { ledge:run_workers(options) }`
+syntax: `init_worker_by_lua_block { ledge:create_worker(options):run() }`
 
 default options: `{ interval = 10, concurrency = 1, purge_concurrency = 1, revalidate_concurrency = 1 }`
 
-Starts the Ledge workers within each Nginx worker process. When no jobs are left to be processed, each worker will wait for `interval` before checking again.
+Starts the Ledge workers within each Nginx worker process. When no jobs are left
+to be processed, each worker will wait for `interval` before checking again.
 
-You can have many worker "light threads" per worker process, by upping the concurrency. They will yield to each other when doing i/o. Concurrency can be adjusted for each job type indepedently:
+You can have many worker "light threads" per worker process, by upping the
+concurrency. They will yield to each other when doing i/o. Concurrency can be
+adjusted for each job type indepedently:
 
 * __concurrency__: Controls core job concurrency, which currently is just the garbage collection jobs.
 * __purge_concurrency__: Controls job concurrency for backgrounded purge requests.
 * __revalidate_concurrency__: Controls job concurrency for backgrounded revalidation.
 
-The default options are quite conservative. You probably want to up the `*concurrency` options and lower the `interval` on busy systems.
+The default options are quite conservative. You probably want to up the
+`*concurrency` options and lower the `interval` on busy systems.
 
 
 ## Logging
 
-For cacheable responses, Ledge will add headers indicating the cache status. These can be added to your Nginx log file in the normal way.
+For cacheable responses, Ledge will add headers indicating the cache status.
+These can be added to your Nginx log file in the normal way.
 
 An example using the default combined format plus the available headers:
 
@@ -930,9 +1026,12 @@ Result:
 
 ### X-Cache
 
-This header follows the convention set by other HTTP cache servers. It indicates simply `HIT` or `MISS` and the host name in question, preserving upstream values when more than one cache server is in play. 
+This header follows the convention set by other HTTP cache servers. It indicates
+simply `HIT` or `MISS` and the host name in question, preserving upstream values
+when more than one cache server is in play.
 
-If a resource is considered not cacheable, the `X-Cache` header will not be present in the response.
+If a resource is considered not cacheable, the `X-Cache` header will not be
+present in the response.
 
 For example:
 
