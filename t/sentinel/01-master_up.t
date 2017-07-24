@@ -1,4 +1,4 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket skip_all => "sentinels not running";
 use Cwd qw(cwd);
 
 plan tests => repeat_each() * (blocks() * 3); 
