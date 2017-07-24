@@ -51,12 +51,12 @@ location /response_1_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua '
         ledge:bind("origin_fetched", function(res)
-            if res.header["X_tesT"] == "1" then
+            if res.header["X-tesT"] == "1" then
                 res.header["x-TESt"] = "2"
             end
 
             if res.header["X-TEST"] == "2" then
-                res.header["x_test"] = "3"
+                res.header["x-test"] = "3"
             end
         end)
         ledge:run()
