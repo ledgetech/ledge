@@ -847,11 +847,15 @@ local function serve(self)
         end
         local res_via = res.header["Via"]
         if  (res_via ~= nil) then
-            res.header["Via"] = via .. ", " .. res_via
+            if (type(res_via) == "table") then
+              res.header["Via"] = via .. ", " .. table.concat(res_via, ", ")
+            else
+              res.header["Via"] = via .. ", " .. res_via
+            end
         else
             res.header["Via"] = via
         end
-
+       
         -- X-Cache header
         -- Don't set if this isn't a cacheable response. Set to MISS is we
         -- fetched.
