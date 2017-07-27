@@ -231,7 +231,10 @@ local function cache_key(self)
                 end
             end
 
-            tbl_insert(key, req_args_sorted() or args_default)
+            tbl_insert(
+                key,
+                req_args_sorted(self.config.max_uri_args) or args_default
+            )
 
         elseif type(field) == "function" then
             local ok, res = pcall(field)

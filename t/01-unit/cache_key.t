@@ -188,3 +188,33 @@ location /t {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 5: Max URI args
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            max_uri_args = 2,
+        })
+        ngx.print(handler:cache_key())
+    }
+}
+--- request eval
+[
+    "GET /t",
+    "GET /t?a=1",
+    "GET /t?b=2&a=1",
+    "GET /t?c=3&b=2&a=1",
+]
+--- response_body eval
+[
+    "ledge:cache:http:localhost:1984:/t:",
+    "ledge:cache:http:localhost:1984:/t:a=1",
+    "ledge:cache:http:localhost:1984:/t:a=1&b=2",
+    "ledge:cache:http:localhost:1984:/t:b=2&c=3",
+]
+--- no_error_log
+[error]
