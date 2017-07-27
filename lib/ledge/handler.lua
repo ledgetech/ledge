@@ -39,6 +39,8 @@ local esi_capabilities = require("ledge.esi").esi_capabilities
 local req_relative_uri = require("ledge.request").relative_uri
 local req_full_uri = require("ledge.request").full_uri
 local req_visible_hostname = require("ledge.request").visible_hostname
+local req_args_sorted = require("ledge.request").args_sorted
+local req_args_sorted = require("ledge.request").args_sorted
 
 local put_background_job = require("ledge.background").put_background_job
 local gc_wait = require("ledge.background").gc_wait
@@ -229,14 +231,7 @@ local function cache_key(self)
                 end
             end
 
-            -- If args is manipulated before us, it may be a zero
-            -- length string.
-            local args = ngx_var.args
-            if not args or args == "" then
-                args = args_default
-            end
-
-            tbl_insert(key, args)
+            tbl_insert(key, req_args_sorted() or args_default)
 
         elseif type(field) == "function" then
             local ok, res = pcall(field)

@@ -2,8 +2,12 @@ local hdr_has_directive = require("ledge.header_util").header_has_directive
 
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_gsub = ngx.re.gsub
+local ngx_req_get_uri_args = ngx.req.get_uri_args
 
 local ngx_var = ngx.var
+
+local tbl_sort = table.sort
+local tbl_insert = table.insert
 
 
 local _M = {
@@ -65,6 +69,35 @@ local function accepts_cache()
     return true
 end
 _M.accepts_cache = accepts_cache
+
+
+local function sort_args(a, b)
+    return a[1] < b[1]
+end
+
+
+local function args_sorted(max_args)
+    max_args = max_args or 100
+    local args = ngx_req_get_uri_args(max_args)
+    if not next(args) then return nil end
+
+    local sorted = {}
+    for k, v in pairs(args) do
+        tbl_insert(sorted, { k, v })
+    end
+
+    tbl_sort(sorted, sort_args)
+
+    local sargs = ""
+    local sortedln = #sorted
+    for i, v in ipairs(sorted) do
+        sargs = sargs .. ngx.encode_args({ [v[1]] = v[2] })
+        if i < sortedln then sargs = sargs .. "&" end
+    end
+
+    return sargs
+end
+_M.args_sorted = args_sorted
 
 
 return _M
