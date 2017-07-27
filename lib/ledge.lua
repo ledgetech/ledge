@@ -65,7 +65,7 @@ local handler_defaults = setmetatable({
     upstream_ssl_verify = true,
 
     use_resty_upstream = false,
-    resty_upstream = nil,
+    resty_upstream = false,
 
     buffer_size = 2^16,
     advertise_ledge = true,
