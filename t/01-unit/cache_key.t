@@ -218,3 +218,33 @@ location /t {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 6: Wildcard purge URIs
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            max_uri_args = 2,
+        })
+        ngx.print(handler:cache_key())
+    }
+}
+--- request eval
+[
+    "PURGE /t*",
+    "PURGE /t?*",
+    "PURGE /t?a=1*",
+    "PURGE /t?a=*",
+]
+--- response_body eval
+[
+    "ledge:cache:http:localhost:1984:/t*:*",
+    "ledge:cache:http:localhost:1984:/t:*",
+    "ledge:cache:http:localhost:1984:/t:a=1*",
+    "ledge:cache:http:localhost:1984:/t:a=*",
+]
+--- no_error_log
+[error]
