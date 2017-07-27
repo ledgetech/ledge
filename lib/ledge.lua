@@ -86,6 +86,7 @@ local handler_defaults = setmetatable({
     keyspace_scan_count = 10,
 
     cache_key_spec = {},  -- No default as we don't ever wish to merge it
+    max_uri_args = 100,
 
 }, fixed_field_metatable)
 

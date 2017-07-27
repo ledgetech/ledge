@@ -39,6 +39,8 @@ local esi_capabilities = require("ledge.esi").esi_capabilities
 local req_relative_uri = require("ledge.request").relative_uri
 local req_full_uri = require("ledge.request").full_uri
 local req_visible_hostname = require("ledge.request").visible_hostname
+local req_args_sorted = require("ledge.request").args_sorted
+local req_default_args = require("ledge.request").default_args
 
 local put_background_job = require("ledge.background").put_background_job
 local gc_wait = require("ledge.background").gc_wait
@@ -219,24 +221,10 @@ local function cache_key(self)
         elseif field == "uri" then
             tbl_insert(key, ngx_var.uri)
         elseif field == "args" then
-            -- If there is is a wildcard PURGE request with an asterisk
-            -- placed at the end of the path, and we have no args,
-            -- use * as the args.
-            local args_default = ""
-            if ngx_req_get_method() == "PURGE" then
-                if ngx_re_find(ngx_var.request_uri, "\\*$", "soj") then
-                    args_default = "*"
-                end
-            end
-
-            -- If args is manipulated before us, it may be a zero
-            -- length string.
-            local args = ngx_var.args
-            if not args or args == "" then
-                args = args_default
-            end
-
-            tbl_insert(key, args)
+            tbl_insert(
+                key,
+                req_args_sorted(self.config.max_uri_args) or req_default_args()
+            )
 
         elseif type(field) == "function" then
             local ok, res = pcall(field)
