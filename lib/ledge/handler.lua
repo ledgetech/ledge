@@ -308,8 +308,8 @@ local function read_from_cache(self)
             -- Surely we should just MISS on failure?
             return self:e "http_internal_server_error"
         else
-            ngx.log(ngx.DEBUG, "read mised without error")
-            return {} -- MSS
+            ngx.log(ngx.DEBUG, "read missed without error")
+            return {} -- MISS
         end
     end
 
