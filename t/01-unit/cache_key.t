@@ -226,9 +226,7 @@ location /t {
 location /t {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        local handler = require("ledge").create_handler({
-            max_uri_args = 2,
-        })
+        local handler = require("ledge").create_handler()
         ngx.print(handler:cache_key())
     }
 }
