@@ -152,3 +152,69 @@ GET /t?a=2
 --- error_log
 functions supplied to cache_key_spec must return a string
 error in function supplied to cache_key_spec
+
+
+=== TEST 4: URI args are sorted (normalised)
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        ngx.print(handler:cache_key())
+    }
+}
+--- request eval
+[
+    "GET /t",
+    "GET /t?a=1",
+    "GET /t?aba=1&aab=2",
+    "GET /t?a=1&b=2&c=3",
+    "GET /t?b=2&a=1&c=3",
+    "GET /t?c=3&a=1&b=2",
+    "GET /t?c=3&b&a=1",
+    "GET /t?c=3&b=&a=1",
+]
+--- response_body eval
+[
+    "ledge:cache:http:localhost:1984:/t:",
+    "ledge:cache:http:localhost:1984:/t:a=1",
+    "ledge:cache:http:localhost:1984:/t:aab=2&aba=1",
+    "ledge:cache:http:localhost:1984:/t:a=1&b=2&c=3",
+    "ledge:cache:http:localhost:1984:/t:a=1&b=2&c=3",
+    "ledge:cache:http:localhost:1984:/t:a=1&b=2&c=3",
+    "ledge:cache:http:localhost:1984:/t:a=1&b&c=3",
+    "ledge:cache:http:localhost:1984:/t:a=1&b=&c=3",
+]
+--- no_error_log
+[error]
+
+
+=== TEST 5: Max URI args
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            max_uri_args = 2,
+        })
+        ngx.print(handler:cache_key())
+    }
+}
+--- request eval
+[
+    "GET /t",
+    "GET /t?a=1",
+    "GET /t?b=2&a=1",
+    "GET /t?c=3&b=2&a=1",
+]
+--- response_body eval
+[
+    "ledge:cache:http:localhost:1984:/t:",
+    "ledge:cache:http:localhost:1984:/t:a=1",
+    "ledge:cache:http:localhost:1984:/t:a=1&b=2",
+    "ledge:cache:http:localhost:1984:/t:b=2&c=3",
+]
+--- no_error_log
+[error]
