@@ -174,6 +174,7 @@ location /t {
     "GET /t?c=3&a=1&b=2",
     "GET /t?c=3&b&a=1",
     "GET /t?c=3&b=&a=1",
+    "GET /t?c=3&b=2&a=1&b=4",
 ]
 --- response_body eval
 [
@@ -185,6 +186,7 @@ location /t {
     "ledge:cache:http:localhost:1984:/t:a=1&b=2&c=3",
     "ledge:cache:http:localhost:1984:/t:a=1&b&c=3",
     "ledge:cache:http:localhost:1984:/t:a=1&b=&c=3",
+    "ledge:cache:http:localhost:1984:/t:a=1&b=2&b=4&c=3",
 ]
 --- no_error_log
 [error]
