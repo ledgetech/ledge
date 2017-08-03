@@ -27,7 +27,37 @@ init_by_lua_block {
                 },
             },
         },
+        redis_notransact = {
+            module = "ledge.storage.redis",
+            params = {
+                redis_connector_params = {
+                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                },
+                supports_transactions = false,
+            },
+        },
     }
+
+    function get_backend(backend)
+        local config = backends[backend]
+
+        if backend == "redis_notransact" then
+            -- stub out transactional redis functions to error
+            require("resty.redis").multi = function(...)
+                error("called transactional function 'multi'")
+            end
+
+            require("resty.redis").exec = function(...)
+                error("called transactional function 'exec'")
+            end
+
+            require("resty.redis").discard = function(...)
+                error("called transactional function 'discard'")
+            end
+        end
+
+        return config
+    end
 
 
     -- Utility returning an iterator over given chunked data
@@ -108,7 +138,7 @@ __DATA__
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local config = get_backend(ngx.req.get_uri_args()["backend"])
         local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
@@ -120,9 +150,15 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["redis OK"]
+[
+    "redis OK",
+    "redis_notransact OK",
+]
 --- no_error_log
 [error]
 
@@ -132,14 +168,15 @@ location /storage {
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00002")
+        local res = _res.new("00002-" .. backend)
         res.body_reader = get_source({
             { "CHUNK 1", nil, false },
             { "CHUNK 2", nil, true },
@@ -169,16 +206,29 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["CHUNK 1:nil:false
+[
+    "CHUNK 1:nil:false
 CHUNK 2:nil:true
 CHUNK 3:nil:false
 wrote 21 bytes
 CHUNK 1:nil:false
 CHUNK 2:nil:true
 CHUNK 3:nil:false
-"]
+",
+    "CHUNK 1:nil:false
+CHUNK 2:nil:true
+CHUNK 3:nil:false
+wrote 21 bytes
+CHUNK 1:nil:false
+CHUNK 2:nil:true
+CHUNK 3:nil:false
+",
+]
 --- no_error_log
 [error]
 
@@ -188,7 +238,8 @@ CHUNK 3:nil:false
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
         config.params.max_size = 8
@@ -196,7 +247,7 @@ location /storage {
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00003")
+        local res = _res.new("00003-" .. backend)
         res.body_reader = get_source({
             { "123", nil, false },
             { "456", nil, true },
@@ -223,13 +274,23 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["123:nil:false
+[
+    "123:nil:false
 456:nil:true
 789:nil:false
 body is larger than 8 bytes
-"]
+",
+    "123:nil:false
+456:nil:true
+789:nil:false
+body is larger than 8 bytes
+",
+]
 --- no_error_log
 [error]
 
@@ -239,13 +300,14 @@ body is larger than 8 bytes
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00004")
+        local res = _res.new("00004-" .. backend)
 
         assert(not storage:exists(res.entity_id),
             "entity should not exist")
@@ -267,10 +329,18 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["wrote 0 bytes
-"]
+[
+    "wrote 0 bytes
+",
+    "wrote 0 bytes
+",
+]
+
 --- no_error_log
 [error]
 
@@ -281,13 +351,17 @@ location /storage {
 location /storage {
     lua_socket_log_errors off;
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        -- TODO find a way to check the error log, for no transact redis,
+        -- where the optimistic call to redis:del() fails due to closed conn.
+
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00005")
+        local res = _res.new("00005-" .. backend)
         -- Load source but fail on second chunk
         res.body_reader = get_and_fail_source({
             { "123", nil, false },
@@ -312,15 +386,23 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["123:nil:false
+[
+    "123:nil:false
 456:nil:true
 789:nil:true
 error writing: closed
-"]
---- no_error_log
-[error]
+",
+    "123:nil:false
+456:nil:true
+789:nil:true
+error writing: closed
+",
+]
 
 
 === TEST 6: Write entity with short exiry, test keys expire
@@ -328,14 +410,15 @@ error writing: closed
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00006")
+        local res = _res.new("00006-" .. backend)
         res.body_reader = get_source({
             { "123", nil, false },
             { "456", nil, true },
@@ -366,13 +449,23 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["123:nil:false
+[
+    "123:nil:false
 456:nil:true
 789:nil:false
 wrote 9 bytes
-"]
+",
+    "123:nil:false
+456:nil:true
+789:nil:false
+wrote 9 bytes
+",
+]
 --- no_error_log
 [error]
 
@@ -382,7 +475,8 @@ wrote 9 bytes
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
 
@@ -393,7 +487,7 @@ location /storage {
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00007")
+        local res = _res.new("00007-" .. backend)
         -- Load source but fail on second chunk
         res.body_reader = get_source({
             { "123", nil, false },
@@ -418,13 +512,23 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["123:nil:false
+[
+    "123:nil:false
 456:nil:true
 789:nil:true
 body is larger than 8 bytes
-"]
+",
+    "123:nil:false
+456:nil:true
+789:nil:true
+body is larger than 8 bytes
+",
+]
 --- no_error_log
 [error]
 
@@ -435,7 +539,8 @@ body is larger than 8 bytes
 location /storage {
     lua_socket_log_errors off;
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
 
@@ -443,7 +548,7 @@ location /storage {
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00008")
+        local res = _res.new("00008-" .. backend)
         -- Load source but fail on second chunk
         res.body_reader = get_and_fail_source({
             { "123", nil, false },
@@ -472,13 +577,23 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["123:nil:false
+[
+    "123:nil:false
 456:nil:true
 789:nil:true
 error writing: closed
-"]
+",
+    "123:nil:false
+456:nil:true
+789:nil:true
+error writing: closed
+",
+]
 --- error_log eval
 ["closed"]
 
@@ -488,14 +603,15 @@ error writing: closed
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00009")
+        local res = _res.new("00009-" .. backend)
         res.body_reader = get_source({
             { "123", nil, false },
             { "456", nil, true },
@@ -533,16 +649,29 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["123:nil:false
+[
+    "123:nil:false
 456:nil:true
 789:nil:false
 wrote 9 bytes
 123:nil:false
 456:nil:true
 789:nil:false
-"]
+",
+    "123:nil:false
+456:nil:true
+789:nil:false
+wrote 9 bytes
+123:nil:false
+456:nil:true
+789:nil:false
+",
+]
 --- no_error_log
 [error]
 
@@ -552,14 +681,15 @@ wrote 9 bytes
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00010")
+        local res = _res.new("00010-" .. backend)
         res.body_reader = get_source({
             { "123", nil, false },
             { "456", nil, false },
@@ -595,13 +725,23 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["123:nil:false
+[
+    "123:nil:false
 456:nil:false
 789:nil:false
 wrote 9 bytes
-"]
+",
+    "123:nil:false
+456:nil:false
+789:nil:false
+wrote 9 bytes
+",
+]
 --- no_error_log
 [error]
 
@@ -611,14 +751,15 @@ wrote 9 bytes
 --- config
 location /storage {
     content_by_lua_block {
-        local config = backends[ngx.req.get_uri_args()["backend"]]
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
 
         local storage = require(config.module).new()
 
         assert(storage:connect(config.params),
             "storage:connect should return positively")
 
-        local res = _res.new("00011")
+        local res = _res.new("00011-" .. backend)
         res.body_reader = get_source({
             { "123", nil, false },
             { "456", nil, false },
@@ -664,12 +805,22 @@ location /storage {
     }
 }
 --- request eval
-["GET /storage?backend=redis"]
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
 --- response_body eval
-["123:nil:false
+[
+    "123:nil:false
 456:nil:false
 789:nil:false
 wrote 9 bytes
-"]
+",
+    "123:nil:false
+456:nil:false
+789:nil:false
+wrote 9 bytes
+",
+]
 --- no_error_log
 [error]

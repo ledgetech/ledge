@@ -323,17 +323,19 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
             end
 
         elseif not chunk and not failed then  -- We're finished
-            local ok, e = redis:exec() -- Commit
+            if supports_transactions then
+                local ok, e = redis:exec() -- Commit
 
-            if not ok or ok == ngx_null then
-                -- Transaction failed
-                ok, e = pcall(onfailure, e)
-                if not ok then ngx_log(ngx_ERR, e) end
-            else
-                -- All good, report success
-                ok, e = pcall(onsuccess, size)
-                if not ok then ngx_log(ngx_ERR, e) end
+                if not ok or ok == ngx_null then
+                    -- Transaction failed
+                    ok, e = pcall(onfailure, e)
+                    if not ok then ngx_log(ngx_ERR, e) end
+                end
             end
+
+            -- All good, report success
+            local ok, e = pcall(onsuccess, size)
+            if not ok then ngx_log(ngx_ERR, e) end
 
         elseif not chunk and failed then  -- We're finished, but failed
             if supports_transactions then
