@@ -25,6 +25,7 @@ init_by_lua_block {
 
     require("ledge").set_handler_defaults({
         keep_cache_for = 0,
+        upstream_host = "127.0.0.1",
         upstream_port = $ENV{TEST_NGINX_PORT},
         storage_driver_config = {
             redis_connector_params = {

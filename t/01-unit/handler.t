@@ -24,6 +24,7 @@ init_by_lua_block {
 
     TEST_NGINX_PORT = $ENV{TEST_NGINX_PORT}
     require("ledge").set_handler_defaults({
+        upstream_host = "127.0.0.1",
         upstream_port = TEST_NGINX_PORT,
     })
 
