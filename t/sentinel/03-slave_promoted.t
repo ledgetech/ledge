@@ -1,26 +1,49 @@
-use Test::Nginx::Socket skip_all => "sentinels not running";
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 2); 
 
 my $pwd = cwd();
 
-$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 1;
+$ENV{TEST_NGINX_PORT} ||= 1984;
+$ENV{TEST_LEDGE_REDIS_DATABASE} ||= 2;
+$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} ||= 3;
+$ENV{TEST_LEDGE_SENTINEL_MASTER_NAME} ||= 'mymaster';
+$ENV{TEST_LEDGE_SENTINEL_PORT} ||= 6381;
+$ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
-    lua_package_path "$pwd/../lua-ffi-zlib/lib/?.lua;$pwd/../lua-resty-redis-connector/lib/?.lua;$pwd/../lua-resty-qless/lib/?.lua;$pwd/../lua-resty-http/lib/?.lua;$pwd/../lua-resty-cookie/lib/?.lua;$pwd/lib/?.lua;;";
-	init_by_lua "
-		ledge_mod = require 'ledge.ledge'
-        ledge = ledge_mod:new()
-        ledge:config_set('redis_use_sentinel', true)
-        ledge:config_set('redis_sentinel_master_name', '$ENV{TEST_LEDGE_SENTINEL_MASTER_NAME}')
-        ledge:config_set('redis_sentinels', {
-            { host = '127.0.0.1', port = $ENV{TEST_LEDGE_SENTINEL_PORT} }, 
-        })
-		ledge:config_set('redis_database', $ENV{TEST_LEDGE_REDIS_DATABASE})
-        ledge:config_set('upstream_host', '127.0.0.1')
-        ledge:config_set('upstream_port', 1984)
-	";
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
+
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
+
+    local db = $ENV{TEST_LEDGE_REDIS_DATABASE}
+    local qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE}
+    local master_name = '$ENV{TEST_LEDGE_SENTINEL_MASTER_NAME}'
+    local sentinel_port = $ENV{TEST_LEDGE_SENTINEL_PORT}
+
+    local redis_connector_params = {
+        url = "sentinel://" .. master_name .. ":a/" .. tostring(db),
+        sentinels = {
+            { host = "127.0.0.1", port = sentinel_port },
+        },
+    }
+
+    require("ledge").configure({
+        redis_connector_params = redis_connector_params,
+        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
+    })
+
+    require("ledge").set_handler_defaults({
+        upstream_host = "127.0.0.1",
+        upstream_port = $ENV{TEST_NGINX_PORT},
+        storage_driver_config = {
+            redis_connector_params = redis_connector_params,
+        }
+    })
+}
+
 };
 
 no_long_string();
@@ -31,29 +54,33 @@ __DATA__
 --- http_config eval: $::HttpConfig
 --- config
 	location /sentinel_1 {
-        content_by_lua '
-            ledge:run()
-        ';
+        content_by_lua_block {
+            require("ledge").create_handler():run()
+        }
     }
 --- request
 GET /sentinel_1
 --- response_body
 OK
+--- no_error_log
+[error]
+--- ONLY
+
 
 === TEST 2: The write will succeed, as our slave has been promoted.
 --- http_config eval: $::HttpConfig
 --- config
 	location /sentinel_2_prx {
         rewrite ^(.*)_prx$ $1 break;
-        content_by_lua '
-            ledge:run()
-        ';
+        content_by_lua_block {
+            require("ledge").create_handler():run()
+        }
     }
     location /sentinel_2 {
-        content_by_lua '
+        content_by_lua_block {
             ngx.header["Cache-Control"] = "max-age=3600"
             ngx.say("TEST 2")
-        ';
+        }
     }
 --- request
 GET /sentinel_2_prx
@@ -65,9 +92,9 @@ TEST 2
 --- http_config eval: $::HttpConfig
 --- config
 	location /sentinel_2 {
-        content_by_lua '
-            ledge:run()
-        ';
+        content_by_lua_block {
+            require("ledge").create_handler():run()
+        }
     }
 --- request
 GET /sentinel_2
