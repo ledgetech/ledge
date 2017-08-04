@@ -91,8 +91,8 @@ OK
 GET /sentinel_2_prx
 --- response_body
 TEST 2
---- no_error_log
-[error]
+--- error_log
+READONLY You can't write against a read only slave.
 
 
 === TEST 2b: The write will fail, but we still get a 200 with our content.
@@ -114,5 +114,5 @@ TEST 2
 GET /sentinel_2_prx
 --- response_body
 TEST 2b
---- no_error_log
-[error]
+--- error_log
+READONLY You can't write against a read only slave.
