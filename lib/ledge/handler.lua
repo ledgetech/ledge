@@ -304,11 +304,9 @@ local function read_from_cache(self)
     local ok, err = res:read()
     if not ok then
         if err then
-            -- TODO: What conditions do we want this to happen?
-            -- Surely we should just MISS on failure?
-            return self:e "http_internal_server_error"
+            ngx_log(ngx_ERR, "could not read from Redis: ", err)
+            return self.state_machine:e "http_internal_server_error"
         else
-            ngx.log(ngx.DEBUG, "read missed without error")
             return {} -- MISS
         end
     end
