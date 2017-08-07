@@ -28,11 +28,10 @@ return {
     end,
 
     httpc_close = function(handler)
-        local res = handler.response
-        if next(res) then
-            local httpc = res.conn
-            if httpc and type(httpc.set_keepalive) == "function" then
-                return httpc:set_keepalive()
+        local upstream_client = handler.upstream_client
+        if next(upstream_client) then
+            if type(upstream_client.set_keepalive) == "function" then
+                return upstream_client:set_keepalive() -- TODO: Get keepalive settings from handler config
             end
         end
     end,

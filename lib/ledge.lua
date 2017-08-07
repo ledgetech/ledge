@@ -64,9 +64,6 @@ local handler_defaults = setmetatable({
     upstream_ssl_server_name = "",
     upstream_ssl_verify = true,
 
-    use_resty_upstream = false,
-    resty_upstream = false,
-
     buffer_size = 2^16,
     advertise_ledge = true,
     keep_cache_for  = 86400 * 30,  -- (sec)
@@ -95,6 +92,7 @@ local handler_defaults = setmetatable({
 -- ledge.bind() and handler:bind() both check validity of event names however.
 local event_defaults = {
     after_cache_read = {},
+    before_upstream_connect = {},
     before_upstream_request = {},
     after_upstream_request = {},
     before_save = {},
