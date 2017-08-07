@@ -3,7 +3,7 @@ SHELL := /bin/bash # Cheat by using bash :)
 OPENRESTY_PREFIX    = /usr/local/openresty
 
 TEST_FILE          ?= t/01-unit t/02-integration
-SENTINEL_TEST_FILE ?= t/sentinel
+SENTINEL_TEST_FILE ?= t/03-sentinel
 
 REDIS_CMD           = redis-server
 SENTINEL_CMD        = $(REDIS_CMD) --sentinel
