@@ -96,6 +96,7 @@ GET /upstream_prx
 --- response_body
 OK https
 
+
 === TEST 2: Bad SSL name errors
 --- http_config eval: $::HttpConfig
 --- config
@@ -127,7 +128,8 @@ GET /upstream_prx
 ssl handshake failed
 --- response_body:
 
-=== TEST 1: SSL verification can be disabled
+
+=== TEST 3: SSL verification can be disabled
 --- http_config eval: $::HttpConfig
 --- config
 listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
