@@ -125,13 +125,17 @@ function _M.exists(self, entity_id)
     else
         local redis = self.redis
 
-        local res, err = redis:exists(keys.body, keys.body_esi)
+        redis:init_pipeline(2)
+        redis:exists(keys.body)
+        redis:exists(keys.body_esi)
+        local res, err = redis:commit_pipeline()
+
         if not res and err then
             return nil, err
-        elseif res == ngx_null or res < 2 then
-            return false
+        elseif res == ngx_null or #res < 2 then
+            return nil, "expected 2 pipelined command results"
         else
-            return true, nil
+            return res[1] == 1 and res[2] == 1
         end
     end
 end
