@@ -514,8 +514,6 @@ local function revalidation_data(self)
         uri = ngx_var.request_uri,
         connect_timeout = self.config.upstream_connect_timeout,
         read_timeout = self.config.upstream_read_timeout,
-        ssl_server_name = self.config.upstream_ssl_server_name,
-        ssl_verify = self.config.upstream_ssl_verify,
     }
 
     local h = ngx_req_get_headers()
