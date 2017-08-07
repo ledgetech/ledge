@@ -64,7 +64,6 @@ GET /sentinel_1
 OK
 --- no_error_log
 [error]
---- ONLY
 
 
 === TEST 2: The write will succeed, as our slave has been promoted.

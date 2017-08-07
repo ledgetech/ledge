@@ -2,8 +2,8 @@ SHELL := /bin/bash # Cheat by using bash :)
 
 OPENRESTY_PREFIX    = /usr/local/openresty
 
-TEST_FILE          ?= t
-SENTINEL_TEST_FILE ?= $(TEST_FILE)/sentinel
+TEST_FILE          ?= t/01-unit t/02-integration
+SENTINEL_TEST_FILE ?= t/sentinel
 
 REDIS_CMD           = redis-server
 SENTINEL_CMD        = $(REDIS_CMD) --sentinel
@@ -27,7 +27,7 @@ REDIS_CLI                           := redis-cli -p $(REDIS_FIRST_PORT)
 TEST_LEDGE_REDIS_SOCKET             ?= $(REDIS_PREFIX)$(REDIS_FIRST_PORT)$(REDIS_SOCK)
 
 # Overrideable ledge + sentinel test variables
-TEST_LEDGE_SENTINEL_PORTS           ?= 6381 6382 6383
+TEST_LEDGE_SENTINEL_PORTS           ?= 26379 26380 26381
 TEST_LEDGE_SENTINEL_MASTER_NAME     ?= mymaster
 TEST_LEDGE_SENTINEL_PROMOTION_TIME  ?= 20
 
@@ -54,19 +54,18 @@ endef
 
 export TEST_LEDGE_SENTINEL_CONFIG
 
-SENTINEL_CONFIG_FILE = /tmp/sentinel-test-config
+SENTINEL_CONFIG_PREFIX = /tmp/sentinel
 
 
 PREFIX          ?= /usr/local
 LUA_INCLUDE_DIR ?= $(PREFIX)/include
 LUA_LIB_DIR     ?= $(PREFIX)/lib/lua/$(LUA_VERSION)
-PROVE           ?= prove -rI ../test-nginx/lib
+PROVE           ?= prove -I ../test-nginx/lib
 INSTALL         ?= install
 
 .PHONY: all install test test_all start_redis_instances stop_redis_instances \
 	start_redis_instance stop_redis_instance cleanup_redis_instance flush_db \
-	create_sentinel_config delete_sentinel_config check_ports test_ledge \
-	test_sentinel coverage
+	check_ports test_ledge test_sentinel coverage delete_sentinel_config
 
 all: ;
 
@@ -77,7 +76,7 @@ install: all
 test: test_ledge
 test_all: start_redis_instances test_ledge test_sentinel stop_redis_instances
 
-start_redis_instances: check_ports create_sentinel_config
+start_redis_instances: check_ports
 	@$(foreach port,$(TEST_LEDGE_REDIS_PORTS), \
 		[[ "$(port)" != "$(REDIS_FIRST_PORT)" ]] && \
 			SLAVE="$(REDIS_SLAVE_ARG)" || \
@@ -87,8 +86,10 @@ start_redis_instances: check_ports create_sentinel_config
 	) true
 
 	@$(foreach port,$(TEST_LEDGE_SENTINEL_PORTS), \
+		echo "port $(port)" > "$(SENTINEL_CONFIG_PREFIX)-$(port).conf"; \
+		echo "$$TEST_LEDGE_SENTINEL_CONFIG" >> "$(SENTINEL_CONFIG_PREFIX)-$(port).conf"; \
 		$(MAKE) start_redis_instance \
-		port=$(port) args="$(SENTINEL_CONFIG_FILE) --sentinel" \
+		port=$(port) args="$(SENTINEL_CONFIG_PREFIX)-$(port).conf --sentinel" \
 		prefix=$(REDIS_PREFIX)$(port) && \
 	) true
 
@@ -121,18 +122,14 @@ cleanup_redis_instance: stop_redis_instance
 	-@echo "Cleaning up redis files in $(prefix)"
 	-@rm -rf $(prefix)
 
+delete_sentinel_config:
+	-@echo "Cleaning up sentinel config files"
+	-@rm -f $(SENTINEL_CONFIG_PREFIX)-*.conf
+
 flush_db:
 	-@echo "Flushing Redis databases"
 	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_DATABASE) flushdb
 	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) flushdb
-
-create_sentinel_config:
-	-@echo "Creating $(SENTINEL_CONFIG_FILE)"
-	@echo "$$TEST_LEDGE_SENTINEL_CONFIG" > $(SENTINEL_CONFIG_FILE)
-
-delete_sentinel_config:
-	-@echo "Removing $(SENTINEL_CONFIG_FILE)"
-	@rm -f $(SENTINEL_CONFIG_FILE)
 
 check_ports:
 	-@echo "Checking ports $(REDIS_PORTS)"
