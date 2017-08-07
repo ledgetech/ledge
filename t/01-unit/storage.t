@@ -440,7 +440,7 @@ location /storage {
         assert(storage:exists(res.entity_id),
             "entity should exist")
 
-        ngx.sleep(1)
+        ngx.sleep(2)
 
         assert(not storage:exists(res.entity_id),
             "entity should not exist")
@@ -796,7 +796,7 @@ location /storage {
         assert(storage:set_ttl(res.entity_id, 1),
             "setting ttl should return positively")
 
-        ngx.sleep(1)
+        ngx.sleep(2)
 
         assert(not storage:exists(res.entity_id),
             "entity should have expired")
