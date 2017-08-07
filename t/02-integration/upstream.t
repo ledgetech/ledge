@@ -86,6 +86,6 @@ location /upstream_prx {
 GET /upstream_prx
 --- error_code: 503
 --- response_body
---- no_error_log
-[error]
+--- error_log
+upstream connection failed:
 
