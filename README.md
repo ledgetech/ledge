@@ -460,8 +460,6 @@ inside the `init_by_lua_block` directive, or when creating a handler in a
  * [upstream_use_ssl](#upstream_use_ssl)
  * [upstream_ssl_server_name](#upstream_ssl_server_name)
  * [upstream_ssl_verify](#upstream_ssl_verify)
- * [use_resty_upstream](#use_resty_upstream)
- * [resty_upstream](#resty_upstream)
  * [buffer_size](#buffer_size)
  * [cache_max_memory](#cache_max_memory)
  * [advertise_ledge](#advertise_ledge)
@@ -866,6 +864,7 @@ end)
 ## Event types
 
 * [after_cache_read](#after_cache_read)
+* [before_upstream_connect](#before_upstream_connect)
 * [before_upstream_request](#before_upstream_request)
 * [before_esi_inclulde_request"](#before_esi_include_request)
 * [after_upstream_request](#after_upstream_request)
@@ -880,6 +879,16 @@ syntax: `handler:bind("after_cache_read", function(res) -- end)`
 params: `res` The cached `ledge.response` instance.
 
 Fires directly after the response was successfully loaded from cache.
+
+
+### before_upstream_connect
+
+syntax: `ledge:bind("before_upstream_connect", function(handler) -- end)`
+
+params: `handler`. The current handler instance.
+
+Fires before the default `handler.upstream_client` is created.  
+Use to override the default `resty.http` client and provide a pre-connected client module compatible with `resty.httpc`
 
 
 ### before_upstream_request
