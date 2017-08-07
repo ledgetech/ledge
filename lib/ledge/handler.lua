@@ -77,6 +77,7 @@ local function new(config, events)
     -- public:
         config = config,
         events = events,
+        upstream_client = {},
 
         -- Slots for composed objects
         redis = {},
@@ -372,11 +373,10 @@ local function fetch_from_origin(self)
         return res
     end
 
-    local httpc
-    if self.config.use_resty_upstream then
-        httpc = self.config.resty_upstream
-    else
-        httpc = http.new()
+    emit(self, "before_upstream_connect", self)
+
+    if not next(self.upstream_client) then
+        local httpc = http.new()
         httpc:set_timeout(self.config.upstream_connect_timeout)
 
         local ok, err = httpc:connect(
@@ -385,6 +385,7 @@ local function fetch_from_origin(self)
         )
 
         if not ok then
+            ngx_log(ngx_ERR, "upstream connection failed: ", err)
             if err == "timeout" then
                 res.status = 524 -- upstream server timeout
             else
@@ -408,9 +409,10 @@ local function fetch_from_origin(self)
                 return res
             end
         end
+        self.upstream_client = httpc
     end
 
-    res.conn = httpc
+    local upstream_client = self.upstream_client
 
     -- Case insensitve headers so that we can safely manipulate them
     local headers = http_headers.new()
@@ -434,7 +436,7 @@ local function fetch_from_origin(self)
     end
 
     local client_body_reader, err =
-        httpc:get_client_body_reader(self.config.buffer_size)
+        upstream_client:get_client_body_reader(self.config.buffer_size)
 
     if err then
         ngx_log(ngx_ERR, "error getting client body reader: ", err)
@@ -450,7 +452,7 @@ local function fetch_from_origin(self)
     -- allow request params to be customised
     emit(self, "before_upstream_request", req_params)
 
-    local origin, err = httpc:request(req_params)
+    local origin, err = upstream_client:request(req_params)
 
     if not origin then
         ngx_log(ngx_ERR, err)

@@ -55,9 +55,6 @@ function _M.new(redis, key_chain)
         redis = redis,
         key_chain = key_chain,  -- Cache key chain
 
-        conn = {},  -- httpc instance, TODO is this used? Yes, set by handler
-                    -- and pulled out in http_close action. Weird.
-
         uri = "",
         status = 0,
         header = http_headers.new(),
