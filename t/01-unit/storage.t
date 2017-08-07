@@ -32,6 +32,7 @@ init_by_lua_block {
             params = {
                 redis_connector_params = {
                     db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    connection_is_proxied = true,
                 },
                 supports_transactions = false,
             },
