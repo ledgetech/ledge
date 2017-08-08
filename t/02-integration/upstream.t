@@ -7,6 +7,7 @@ $ENV{TEST_NGINX_PORT} |= 1984;
 $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_COVERAGE} ||= 0;
+$ENV{TEST_NGINX_HTML_DIR} ||= html_dir();
 
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
@@ -89,3 +90,47 @@ GET /upstream_prx
 --- error_log
 upstream connection failed:
 
+
+=== TEST 3: No port results in 503
+--- http_config eval: $::HttpConfig
+--- config
+location /upstream_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            upstream_host = "127.0.0.1",
+            upstream_port = "",
+        }):run()
+    }
+}
+--- request
+GET /upstream_prx
+--- error_code: 503
+--- response_body
+--- error_log
+upstream connection failed:
+
+
+=== TEST 4: No port with unix socket works
+--- http_config eval: $::HttpConfig
+--- config
+listen unix:$TEST_NGINX_HTML_DIR/nginx.sock;
+location /upstream_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            upstream_host = "unix:$TEST_NGINX_HTML_DIR/nginx.sock",
+            upstream_port = "",
+        }):run()
+    }
+}
+location /upstream {
+    echo "OK";
+}
+--- request
+GET /upstream_prx
+--- error_code: 200
+--- response_body
+OK
+--- no_error_log
+[error]

@@ -382,10 +382,13 @@ local function fetch_from_origin(self)
         local httpc = http.new()
         httpc:set_timeout(config.upstream_connect_timeout)
 
-        local ok, err = httpc:connect(
-            config.upstream_host,
-            config.upstream_port
-        )
+        local port = tonumber(config.upstream_port)
+        local ok, err
+        if port then
+            ok, err = httpc:connect(config.upstream_host, port)
+        else
+            ok, err = httpc:connect(config.upstream_host)
+        end
 
         if not ok then
             ngx_log(ngx_ERR, "upstream connection failed: ", err)
