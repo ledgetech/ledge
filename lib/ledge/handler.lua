@@ -375,7 +375,7 @@ local function fetch_from_origin(self)
     end
 
     emit(self, "before_upstream_connect", self)
-        
+
     local config = self.config
 
     if not next(self.upstream_client) then
@@ -400,7 +400,7 @@ local function fetch_from_origin(self)
         httpc:set_timeout(config.upstream_read_timeout)
 
         if config.upstream_use_ssl == true then
-            -- treat an empty ("") ssl_server_name as nil 
+            -- treat an empty ("") ssl_server_name as nil
             local ssl_server_name = config.upstream_ssl_server_name
             if type(ssl_server_name) ~= "string" or
                 str_len(ssl_server_name) == 0 then
