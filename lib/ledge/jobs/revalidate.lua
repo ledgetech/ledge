@@ -111,7 +111,10 @@ function _M.perform(job)
             local chunk, err = reader()
         until not chunk
 
-        httpc:set_keepalive()
+        httpc:set_keepalive(
+            reval_params.keepalive_timeout,
+            reval_params.keepalive_poolsize
+        )
     end
 end
 

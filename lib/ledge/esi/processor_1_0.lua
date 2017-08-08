@@ -488,7 +488,11 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
                 end
             end
 
-            httpc:set_keepalive()
+            local config = self.handler.config
+            httpc:set_keepalive(
+                config.upstream_keepalive_timeout,
+                config.upstream_keepalive_poolsize
+            )
         end
     end
 end
