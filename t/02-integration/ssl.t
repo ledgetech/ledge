@@ -161,3 +161,36 @@ GET /upstream_prx
 [errror]
 --- response_body
 OK https
+
+
+=== TEST 4: Empty SSL name treated as nil
+--- http_config eval: $::HttpConfig
+--- config
+listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+location /upstream_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            upstream_ssl_server_name = "",
+        }):run()
+    }
+}
+location /upstream {
+    content_by_lua_block {
+        ngx.say("OK ", ngx.var.scheme)
+    }
+}
+--- user_files eval
+">>> rootca.pem
+$::RootCACert
+>>> example.com.key
+$::ExampleKey
+>>> example.com.crt
+$::ExampleCert"
+--- request
+GET /upstream_prx
+--- error_code: 200
+--- no_error_log
+[errror]
+--- response_body
+OK https
