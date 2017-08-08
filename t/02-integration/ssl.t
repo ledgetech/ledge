@@ -34,6 +34,50 @@ init_by_lua_block {
         require("luacov.runner").init()
     end
 
+
+	-- SSL helper function
+	function do_ssl(ssl_opts, params)
+		local ssl_opts = ssl_opts or {}
+
+		if not ssl_opts.verify then
+			ssl_opts.verify = false
+		end
+
+		if not ssl_opts.send_status_req then
+			ssl_opts.send_status_req = false
+		end
+
+		local httpc_ssl = require("resty.http").new()
+		local ok, err =
+			httpc_ssl:connect("unix:$ENV{TEST_NGINX_HTML_DIR}/nginx-ssl.sock")
+
+		if not ok then
+			ngx.say("Unable to connect to sock, ", err)
+			return ngx.exit(ngx.status)
+		end
+
+		session, err = httpc_ssl:ssl_handshake(
+			nil,
+			ssl_opts.sni_name,
+            ssl_opts.verify,
+            ssl_opts.send_status_req
+        )
+
+		if err then
+			ngx.say("Unable to sslhandshake, ", err)
+			return ngx.exit(ngx.status)
+		end
+
+		httpc_ssl:set_timeout(2000)
+
+		if params then
+			return httpc_ssl:request(params)
+		else
+			return httpc_ssl:proxy_request()
+		end
+	end
+
+
     require("ledge").configure({
         redis_connector_params = {
             db = $ENV{TEST_LEDGE_REDIS_DATABASE},
@@ -92,7 +136,7 @@ $::ExampleCert"
 GET /upstream_prx
 --- error_code: 200
 --- no_error_log
-[errror]
+[error]
 --- response_body
 OK https
 
@@ -158,7 +202,7 @@ $::ExampleCert"
 GET /upstream_prx
 --- error_code: 200
 --- no_error_log
-[errror]
+[error]
 --- response_body
 OK https
 
@@ -191,6 +235,121 @@ $::ExampleCert"
 GET /upstream_prx
 --- error_code: 200
 --- no_error_log
-[errror]
+[error]
 --- response_body
 OK https
+
+
+=== TEST 9a: Prime another key
+--- http_config eval: $::HttpConfig
+--- config
+listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+location /purge_ssl_entry {
+    rewrite ^(.*)_entry$ $1_prx break;
+    content_by_lua_block {
+        local res, err = do_ssl(nil)
+        ngx.print(res:read_body())
+    }
+}
+location /purge_ssl_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_ssl {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 9: ", ngx.req.get_headers()["Cookie"])
+    }
+}
+--- user_files eval
+">>> rootca.pem
+$::RootCACert
+>>> example.com.key
+$::ExampleKey
+>>> example.com.crt
+$::ExampleCert"
+--- more_headers
+Cookie: primed
+--- request
+GET /purge_ssl_entry
+--- no_error_log
+[error]
+--- response_body
+TEST 9: primed
+
+
+=== TEST 9b: Purge with X-Purge: revalidate
+--- http_config eval: $::HttpConfig
+--- config
+listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+location /purge_ssl_entry {
+    rewrite ^(.*)_entry$ $1_prx break;
+    content_by_lua_block {
+        local res, err = do_ssl(nil)
+        ngx.print(res:read_body())
+    }
+}
+location /purge_ssl_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /purge_ssl {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 9 Revalidated: ", ngx.req.get_headers()["Cookie"])
+    }
+}
+--- user_files eval
+">>> rootca.pem
+$::RootCACert
+>>> example.com.key
+$::ExampleKey
+>>> example.com.crt
+$::ExampleCert"
+--- more_headers
+X-Purge: revalidate
+--- request
+PURGE /purge_ssl_entry
+--- wait: 2
+--- no_error_log
+[error]
+--- response_body_like: "result":"purged"
+--- error_code: 200
+
+
+=== TEST 9c: Confirm cache was revalidated
+--- http_config eval: $::HttpConfig
+--- config
+listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+location /purge_ssl_entry {
+    rewrite ^(.*)_entry$ $1_prx break;
+    content_by_lua_block {
+        local res, err = do_ssl(nil)
+        ngx.print(res:read_body())
+    }
+}
+location /purge_ssl_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+--- user_files eval
+">>> rootca.pem
+$::RootCACert
+>>> example.com.key
+$::ExampleKey
+>>> example.com.crt
+$::ExampleCert"
+--- request
+GET /purge_ssl_entry
+--- no_error_log
+[error]
+--- response_body
+TEST 9 Revalidated: primed
