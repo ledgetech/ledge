@@ -56,8 +56,14 @@ local handler_defaults = setmetatable({
     storage_driver_config = {},
 
     origin_mode = _M.ORIGIN_MODE_NORMAL,  -- TODO rename upstream mode?
+
+    -- Note that upstream timeout and keepalive config is shared with outbound
+    -- ESI request, which are not necessarily configured to use this "upstream"
     upstream_connect_timeout = 500,  -- (ms)
     upstream_read_timeout = 5000,    -- (ms)
+    upstream_keepalive_timeout = 75000,  -- (ms)
+    upstream_keepalive_poolsize = 64,
+
     upstream_host = "",
     upstream_port = 80,
     upstream_use_ssl = false,

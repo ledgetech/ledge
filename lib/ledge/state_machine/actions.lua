@@ -31,7 +31,11 @@ return {
         local upstream_client = handler.upstream_client
         if next(upstream_client) then
             if type(upstream_client.set_keepalive) == "function" then
-                return upstream_client:set_keepalive() -- TODO: Get keepalive settings from handler config
+                local config = handler.config
+                return upstream_client:set_keepalive(
+                    config.upstream_keepalive_timeout,
+                    config.upstream_keepalive_poolsize
+                )
             end
         end
     end,

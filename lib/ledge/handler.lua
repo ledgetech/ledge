@@ -521,13 +521,16 @@ _M.fetch_from_origin = fetch_from_origin
 -- request, as two tables; reval_params and reval_headers.
 local function revalidation_data(self)
     -- Everything that a headless revalidation job would need to connect
+    local config = self.config
     local reval_params = {
         server_addr = ngx_var.server_addr,
         server_port = ngx_var.server_port,
         scheme = ngx_var.scheme,
         uri = ngx_var.request_uri,
-        connect_timeout = self.config.upstream_connect_timeout,
-        read_timeout = self.config.upstream_read_timeout,
+        connect_timeout = config.upstream_connect_timeout,
+        read_timeout = config.upstream_read_timeout,
+        keepalive_timeout = config.upstream_keepalive_timeout,
+        keepalive_poolsize = config.upstream_keepalive_poolsize,
     }
 
     local h = ngx_req_get_headers()
