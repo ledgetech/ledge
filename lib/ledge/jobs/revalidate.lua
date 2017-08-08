@@ -13,7 +13,8 @@ local _M = {
 local function hgetall(redis, key)
     local res, err = redis:hgetall(key)
     if not res then
-        return nil, "could not retrieve " .. (key or "") .. " data:" .. (err or "")
+        return nil,
+            "could not retrieve " .. tostring(key) .. " data:" .. tostring(err)
     end
 
     local hash = {}
@@ -32,17 +33,21 @@ function _M.perform(job)
     local key_chain = job.data.key_chain
 
     -- Normal background revalidation operates on stored metadata.
-    -- A background fetch due to partial content from upstream however, uses the current
-    -- request metadata for reval_headers / reval_params and passes it through as job data.
+    -- A background fetch due to partial content from upstream however, uses the
+    -- current request metadata for reval_headers / reval_params and passes it
+    -- through as job data.
     local reval_params = job.data.reval_params
     local reval_headers = job.data.reval_headers
 
-    -- If we don't have the metadata in job data, this is a background revalidation using
-    -- stored metadata.
+    -- If we don't have the metadata in job data, this is a background
+    -- revalidation using stored metadata.
     if not reval_params and not reval_headers then
         local err
         reval_params, err = hgetall(redis, key_chain.reval_params)
-        if not reval_params or reval_params == ngx_null or not reval_params.server_addr then
+        if  not reval_params or
+            reval_params == ngx_null or
+            not reval_params.server_addr then
+
             return nil, "job-error",
                 "Revalidation parameters are missing, presumed evicted. " ..
                 tostring(err)
@@ -50,7 +55,8 @@ function _M.perform(job)
 
         reval_headers, err = hgetall(redis, key_chain.reval_req_headers)
         if not reval_headers or reval_headers == ngx_null then
-            return nil, "job-error", "Revalidation headers are missing, presumed evicted. "
+            return nil, "job-error",
+                 "Revalidation headers are missing, presumed evicted."
         end
     end
 
@@ -58,15 +64,23 @@ function _M.perform(job)
     local httpc = http.new()
     httpc:set_timeout(reval_params.connect_timeout)
 
-    local ok, err = httpc:connect(reval_params.server_addr, reval_params.server_port)
+    local port = tonumber(reval_params.server_port)
+    local ok, err
+    if port then
+        ok, err = httpc:connect(reval_params.server_addr, port)
+    else
+        ok, err = httpc:connect(reval_params.server_addr)
+    end
+
     if not ok then
-        return nil, "job-error", "could not connect to server: " .. err
+        return nil, "job-error",
+            "could not connect to server: " .. tostring(err)
     end
 
     if reval_params.scheme == "https" then
         local ok, err = httpc:ssl_handshake(false, nil, false)
         if not ok then
-            return nil, "job-error", "ssl handshake failed: " .. err
+            return nil, "job-error", "ssl handshake failed: " .. tostring(err)
         end
     end
 
@@ -74,7 +88,8 @@ function _M.perform(job)
 
     local headers = http_headers.new() -- Case-insensitive header table
     headers["Cache-Control"] = "max-stale=0, stale-if-error=0"
-    headers["User-Agent"] = httpc._USER_AGENT .. " ledge_revalidate/" .. _M._VERSION
+    headers["User-Agent"] =
+        httpc._USER_AGENT .. " ledge_revalidate/" .. _M._VERSION
 
     -- Add additional headers from parent
     for k,v in pairs(reval_headers) do
@@ -88,7 +103,7 @@ function _M.perform(job)
     }
 
     if not res then
-        return nil, "job-error", "revalidate failed: " .. err
+        return nil, "job-error", "revalidate failed: " .. tostring(err)
     else
         local reader = res.body_reader
         -- Read and discard the body
@@ -99,5 +114,6 @@ function _M.perform(job)
         httpc:set_keepalive()
     end
 end
+
 
 return _M

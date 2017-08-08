@@ -25,6 +25,7 @@ local ngx_parse_http_time = ngx.parse_http_time
 local ngx_re_find = ngx.re.find
 
 local str_lower = string.lower
+local str_len = string.len
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 
@@ -375,13 +376,15 @@ local function fetch_from_origin(self)
 
     emit(self, "before_upstream_connect", self)
 
+    local config = self.config
+
     if not next(self.upstream_client) then
         local httpc = http.new()
-        httpc:set_timeout(self.config.upstream_connect_timeout)
+        httpc:set_timeout(config.upstream_connect_timeout)
 
         local ok, err = httpc:connect(
-            self.config.upstream_host,
-            self.config.upstream_port
+            config.upstream_host,
+            config.upstream_port
         )
 
         if not ok then
@@ -394,13 +397,21 @@ local function fetch_from_origin(self)
             return res
         end
 
-        httpc:set_timeout(self.config.upstream_read_timeout)
+        httpc:set_timeout(config.upstream_read_timeout)
 
-        if self.config.upstream_use_ssl == true then
+        if config.upstream_use_ssl == true then
+            -- treat an empty ("") ssl_server_name as nil
+            local ssl_server_name = config.upstream_ssl_server_name
+            if type(ssl_server_name) ~= "string" or
+                str_len(ssl_server_name) == 0 then
+
+                ssl_server_name = nil
+            end
+
             local ok, err = httpc:ssl_handshake(
                 false,
-                self.config.upstream_ssl_server_name,
-                self.config.upstream_ssl_verify
+                ssl_server_name,
+                config.upstream_ssl_verify
             )
 
             if not ok then
@@ -421,7 +432,7 @@ local function fetch_from_origin(self)
     end
 
     -- Advertise ESI surrogate capabilities
-    if self.config.esi_enabled then
+    if config.esi_enabled then
         local capability_entry =
             (ngx_var.visible_hostname or ngx_var.hostname)  ..
             '="' .. esi_capabilities() .. '"'
@@ -436,7 +447,7 @@ local function fetch_from_origin(self)
     end
 
     local client_body_reader, err =
-        upstream_client:get_client_body_reader(self.config.buffer_size)
+        upstream_client:get_client_body_reader(config.buffer_size)
 
     if err then
         ngx_log(ngx_ERR, "error getting client body reader: ", err)
