@@ -195,13 +195,15 @@ GET /t
 location /t {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
         local filter_esi_args = require("ledge.esi").filter_esi_args
 
         local args = ngx.req.get_uri_args()
         assert(args.a == "1" and args.esi_foo == "bar bar" and args.b == "2",
             "request args should be intact")
 
-        filter_esi_args("esi_")
+        filter_esi_args(handler)
 
         local args = ngx.req.get_uri_args()
         assert(args.a == "1" and not args.esi_foo and args.b == "2",

@@ -166,9 +166,11 @@ function _M.can_delegate_to_surrogate(surrogates, processor_token)
 end
 
 
-function _M.filter_esi_args(esi_args_prefix)
+function _M.filter_esi_args(handler)
+    local config = handler.config
+    local esi_args_prefix = config.esi_args_prefix
     if esi_args_prefix then
-        local args = ngx_req_get_uri_args()
+        local args = ngx_req_get_uri_args(config.max_uri_args)
         local esi_args = {}
         local has_esi_args = false
         local non_esi_args = {}

@@ -56,7 +56,7 @@ return {
     -- cache key) and stash them in the custom ESI variables table.
     filter_esi_args = function(handler)
         if handler.config.esi_enabled then
-            esi.filter_esi_args(handler.config.esi_args_prefix)
+            esi.filter_esi_args(handler)
         end
     end,
 
