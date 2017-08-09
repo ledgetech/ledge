@@ -143,8 +143,7 @@ location /ledge_6 {
 }
 --- request
 GET /ledge_6
---- error_log
-Connection refused
+--- error_log eval: qr/connect\(\)( to 127.0.0.1:0)? failed/
 
 
 === TEST 7: Create storage connection
