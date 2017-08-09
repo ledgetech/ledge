@@ -190,8 +190,7 @@ location /ledge_8 {
 }
 --- request
 GET /ledge_8
---- error_log
-Connection refused
+--- error_log eval: qr/connect\(\)( to 127.0.0.1:0)? failed/
 
 
 === TEST 9: Create qless connection
