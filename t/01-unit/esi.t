@@ -207,11 +207,11 @@ location /t {
         assert(args.a == "1" and not args.esi_foo and args.b == "2",
             "esi args should be removed")
 
-        assert(ngx.ctx.ledge_esi_custom_variables["ESI_ARGS"].foo == "bar bar",
-            "custom vars should have foo: bar bar")
+        assert(ngx.ctx.__ledge_esi_args.foo == "bar bar",
+            "esi args should have foo: bar bar")
 
-        assert(ngx.ctx.ledge_esi_args_encoded == "esi_foo=bar%20bar",
-            "esi_args_encoded should be foo=bar%20bar")
+        assert(tostring(ngx.ctx.__ledge_esi_args) == "esi_foo=bar%20bar",
+            "esi_args as a string should be foo=bar%20bar")
 
     }
 }

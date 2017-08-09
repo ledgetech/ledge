@@ -191,20 +191,17 @@ function _M.filter_esi_args(esi_args_prefix)
         end
 
         if has_esi_args then
-            -- Add them to esi_custom_variables
-            local custom_variables = ngx.ctx.ledge_esi_custom_variables
-            if not custom_variables then custom_variables = {} end
-            custom_variables["ESI_ARGS"] = esi_args
-            ngx.ctx.ledge_esi_custom_variables = custom_variables
-
-            -- Also keep them in encoded querystring form, so that $(ESI_ARGS)
-            -- works as a string.
-            ngx.ctx.ledge_esi_args_prefix = esi_args_prefix
-            local args = {}
-            for k,v in pairs(esi_args) do
-                args[esi_args_prefix .. k] = v
-            end
-            ngx.ctx.ledge_esi_args_encoded = ngx_encode_args(args)
+            -- Add them to ctx to be read by the esi processor, along with a
+            -- __tostsring metamethod for the $(ESI_ARGS) string case
+            ngx.ctx.__ledge_esi_args = setmetatable(esi_args, {
+                __tostring = function(t)
+                    local args = {}
+                    for k,v in pairs(t) do
+                        args[esi_args_prefix .. k] = v
+                    end
+                    return ngx_encode_args(args)
+                end
+            })
 
             -- Set the request args to the ones left over
             ngx_req_set_uri_args(non_esi_args)

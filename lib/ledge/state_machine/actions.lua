@@ -52,8 +52,8 @@ return {
     end,
 
     -- If ESI is enabled and we have an esi_args prefix, weed uri args
-    -- beginning with the prefix (knows as ESI_ARGS) out of the URI (and thus cache key)
-    -- and stash them in the custom ESI variables table.
+    -- beginning with the prefix (knows as ESI_ARGS) out of the URI (and thus
+    -- cache key) and stash them in the custom ESI variables table.
     filter_esi_args = function(handler)
         if handler.config.esi_enabled then
             esi.filter_esi_args(handler.config.esi_args_prefix)
