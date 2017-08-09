@@ -32,6 +32,35 @@ init_by_lua_block {
             },
         }
     })
+
+    function format_json(json, prefix)
+        local decode = require("cjson").decode
+        if type(json) == "string" then
+            local ok
+            ok, json = pcall(decode, json)
+            if not ok then return "" end
+        end
+        local keys = {}
+        for k, v in pairs(json) do
+            table.insert(keys, k)
+        end
+        table.sort(keys)
+
+        local fmt = "%s: %s\\n"
+        local out = ""
+        for i, k in ipairs(keys) do
+            key = k
+            if prefix then
+                key = prefix.."."..k
+            end
+            if type(json[k]) == "table" then
+                out = out .. format_json(json[k], key)
+            else
+                out = out .. fmt:format(key, json[k])
+            end
+        end
+        return out
+    end
 }
 
 init_worker_by_lua_block {
@@ -76,6 +105,10 @@ location /purge_cached {
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 
 --- request eval
@@ -83,8 +116,13 @@ location /purge_cached {
 --- no_error_log
 [error]
 --- response_body eval
-['{"result":"purged","purge_mode":"invalidate"}',
-'{"result":"already expired","purge_mode":"invalidate"}']
+[
+'purge_mode: invalidate
+result: purged
+',
+'purge_mode: invalidate
+result: already expired
+']
 --- error_code eval
 [200, 404]
 
@@ -119,13 +157,20 @@ location /foobar {
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 
 --- request
 PURGE /foobar
 --- no_error_log
 [error]
---- response_body: {"result":"nothing to purge","purge_mode":"invalidate"}
+--- response_body
+purge_mode: invalidate
+result: nothing to purge
+
 --- error_code: 404
 
 
@@ -161,13 +206,24 @@ location /purge_cached {
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 --- request
 PURGE /purge_cached*
 --- wait: 1
 --- no_error_log
 [error]
---- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":\{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
+--- response_body_like
+purge_mode: invalidate
+qless_job.jid: [a-f0-9]{32}
+qless_job.klass: ledge.jobs.purge
+qless_job.options.jid: [a-f0-9]{32}
+qless_job.options.priority: 5
+qless_job.options.tags.1: purge
+result: scheduled
 --- error_code: 200
 
 
@@ -228,12 +284,22 @@ location /purge_c {
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 --- request
 PURGE /purge_c*
 --- wait: 3
 --- error_code: 200
---- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":\{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
+--- response_body_like
+purge_mode: invalidate
+qless_job.jid: [a-f0-9]{32}
+qless_job.klass: ledge.jobs.purge
+qless_job.options.jid: [a-f0-9]{32}
+qless_job.options.priority: 5
+qless_job.options.tags.1: purge
 --- no_error_log
 [error]
 
@@ -289,13 +355,24 @@ location /purge_c {
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 --- request
 PURGE /purge_ca*ed
 --- wait: 1
 --- no_error_log
 [error]
---- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":\{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
+--- response_body_like
+purge_mode: invalidate
+qless_job.jid: [a-f0-9]{32}
+qless_job.klass: ledge.jobs.purge
+qless_job.options.jid: [a-f0-9]{32}
+qless_job.options.priority: 5
+qless_job.options.tags.1: purge
+result: scheduled
 --- error_code: 200
 
 
@@ -350,13 +427,24 @@ location /purge_cached_8 {
             keyspace_scan_count = 1,
         }):run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 --- request
 PURGE /purge_cached_8*
 --- wait: 1
 --- no_error_log
 [error]
---- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[a-f0-9]{32}","options":\{"tags":\["purge"\],"jid":"[a-f0-9]{32}","priority":5}},"purge_mode":"invalidate"}
+--- response_body_like
+purge_mode: invalidate
+qless_job.jid: [a-f0-9]{32}
+qless_job.klass: ledge.jobs.purge
+qless_job.options.jid: [a-f0-9]{32}
+qless_job.options.priority: 5
+qless_job.options.tags.1: purge
+result: scheduled
 --- error_code: 200
 
 
@@ -419,6 +507,10 @@ location /purge_cached_9_prx {
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 location /purge_cached_9 {
     content_by_lua_block {
@@ -433,7 +525,14 @@ PURGE /purge_cached_9_prx
 --- wait: 2
 --- no_error_log
 [error]
---- response_body_like: \{"result":"purged","qless_job":\{"klass":"ledge\.jobs\.revalidate","jid":"[a-f0-9]{32}","options":\{"tags":\["revalidate"\],"jid":"[a-z0-f]{32}","priority":4}},"purge_mode":"revalidate"}
+--- response_body_like
+purge_mode: revalidate
+qless_job.jid: [a-f0-9]{32}
+qless_job.klass: ledge.jobs.revalidate
+qless_job.options.jid: [a-f0-9]{32}
+qless_job.options.priority: 4
+qless_job.options.tags.1: revalidate
+result: purged
 --- error_code: 200
 
 
@@ -488,6 +587,10 @@ location /purge_cached_10_prx {
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 location /purge_cached_10 {
     rewrite ^(.*)$ $1_origin break;
@@ -503,7 +606,14 @@ PURGE /purge_cached_10_prx?*
 --- wait: 2
 --- no_error_log
 [error]
---- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[0-9a-f]{32}","options":\{"tags":\["purge"\],"jid":"[0-9a-f]{32}","priority":5}},"purge_mode":"revalidate"}
+--- response_body_like
+purge_mode: revalidate
+qless_job.jid: [a-f0-9]{32}
+qless_job.klass: ledge.jobs.purge
+qless_job.options.jid: [a-f0-9]{32}
+qless_job.options.priority: 5
+qless_job.options.tags.1: purge
+result: scheduled
 --- error_log
 TEST 10 Revalidated: 1 primed
 TEST 10 Revalidated: 2 primed
@@ -544,6 +654,10 @@ location /purge_cached_11_prx {
             keep_cache_for = 3600,
         }):run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 --- more_headers
 X-Purge: delete
@@ -551,7 +665,9 @@ X-Purge: delete
 PURGE /purge_cached_11_prx
 --- no_error_log
 [error]
---- response_body: {"result":"deleted","purge_mode":"delete"}
+--- response_body
+purge_mode: delete
+result: deleted
 --- error_code: 200
 
 
@@ -616,6 +732,10 @@ location /purge_cached_12_prx {
             keep_cache_for = 3600,
         }):run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 --- more_headers
 X-Purge: delete
@@ -624,7 +744,14 @@ PURGE /purge_cached_12_prx?*
 --- wait: 2
 --- no_error_log
 [error]
---- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[0-9a-f]{32}","options":\{"tags":\["purge"\],"jid":"[0-9a-f]{32}","priority":5}},"purge_mode":"delete"}
+--- response_body_like
+purge_mode: delete
+qless_job.jid: [a-f0-9]{32}
+qless_job.klass: ledge.jobs.purge
+qless_job.options.jid: [a-f0-9]{32}
+qless_job.options.priority: 5
+qless_job.options.tags.1: purge
+result: scheduled
 --- error_code: 200
 
 
@@ -714,6 +841,10 @@ location /purge_cached_13_prx {
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
+    body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
 }
 location /purge_cached_13 {
     rewrite ^(.*)$ $1_origin break;
@@ -729,5 +860,12 @@ PURGE /purge_cached_13_prx?*
 --- wait: 2
 --- error_log
 TEST 13 Revalidated: 2 primed
---- response_body_like: \{"result":"scheduled","qless_job":\{"klass":"ledge\.jobs\.purge","jid":"[0-9a-f]{32}","options":\{"tags":\["purge"\],"jid":"[0-9a-f]{32}","priority":5}},"purge_mode":"revalidate"}
+--- response_body_like
+purge_mode: revalidate
+qless_job.jid: [a-f0-9]{32}
+qless_job.klass: ledge.jobs.purge
+qless_job.options.jid: [a-f0-9]{32}
+qless_job.options.priority: 5
+qless_job.options.tags.1: purge
+result: scheduled
 --- error_code: 200
