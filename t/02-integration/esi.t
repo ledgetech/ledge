@@ -384,8 +384,15 @@ location /fragment_1 {
     content_by_lua_block {
         ngx.say("method: ", ngx.req.get_method())
         local h = ngx.req.get_headers()
+
+        local h_keys = {}
         for k,v in pairs(h) do
-            ngx.say(k, ": ", v)
+            table.insert(h_keys, k)
+        end
+        table.sort(h_keys)
+
+        for _,k in ipairs(h_keys) do
+            ngx.say(k, ": ", h[k])
         end
     }
 }
@@ -405,13 +412,13 @@ Range: bytes=0-
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body_like
 method: GET
-host: localhost
-cookie: foo
-x-esi-parent-uri: http://localhost/esi_5b_prx
 authorization: bar
-x-esi-recursion-level: 1
-user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+[\.\d]*
 cache-control: no-cache
+cookie: foo
+host: localhost
+user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+[\.\d]*
+x-esi-parent-uri: http://localhost/esi_5b_prx
+x-esi-recursion-level: 1
 --- no_error_log
 [error]
 
