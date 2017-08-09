@@ -54,6 +54,8 @@ location /upstream_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         require("ledge").create_handler({
+            upstream_send_timeout = 5000,
+            upstream_connect_timeout = 5000,
             upstream_read_timeout = 100,
         }):run()
     }

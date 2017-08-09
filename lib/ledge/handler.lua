@@ -380,7 +380,11 @@ local function fetch_from_origin(self)
 
     if not next(self.upstream_client) then
         local httpc = http.new()
-        httpc:set_timeout(config.upstream_connect_timeout)
+        httpc:set_timeouts(
+            config.upstream_connect_timeout,
+            config.upstream_send_timeout,
+            config.upstream_read_timeout
+        )
 
         local port = tonumber(config.upstream_port)
         local ok, err
@@ -399,8 +403,6 @@ local function fetch_from_origin(self)
             end
             return res
         end
-
-        httpc:set_timeout(config.upstream_read_timeout)
 
         if config.upstream_use_ssl == true then
             -- treat an empty ("") ssl_server_name as nil
@@ -528,6 +530,7 @@ local function revalidation_data(self)
         scheme = ngx_var.scheme,
         uri = ngx_var.request_uri,
         connect_timeout = config.upstream_connect_timeout,
+        send_timeout = config.upstream_send_timeout,
         read_timeout = config.upstream_read_timeout,
         keepalive_timeout = config.upstream_keepalive_timeout,
         keepalive_poolsize = config.upstream_keepalive_poolsize,

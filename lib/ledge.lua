@@ -59,8 +59,9 @@ local handler_defaults = setmetatable({
 
     -- Note that upstream timeout and keepalive config is shared with outbound
     -- ESI request, which are not necessarily configured to use this "upstream"
-    upstream_connect_timeout = 500,  -- (ms)
-    upstream_read_timeout = 5000,    -- (ms)
+    upstream_connect_timeout = 1000,  -- (ms)
+    upstream_send_timeout = 2000,  -- (ms)
+    upstream_read_timeout = 10000,  -- (ms)
     upstream_keepalive_timeout = 75000,  -- (ms)
     upstream_keepalive_poolsize = 64,
 
