@@ -199,7 +199,6 @@ function _M.filter_esi_args(esi_args_prefix)
 
             -- Also keep them in encoded querystring form, so that $(ESI_ARGS)
             -- works as a string.
-            ngx.ctx.ledge_esi_args_prefix = esi_args_prefix
             local args = {}
             for k,v in pairs(esi_args) do
                 args[esi_args_prefix .. k] = v
