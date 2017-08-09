@@ -62,7 +62,11 @@ function _M.perform(job)
 
     -- Make outbound http request to revalidate
     local httpc = http.new()
-    httpc:set_timeout(reval_params.connect_timeout)
+    httpc:set_timeouts(
+        reval_params.upstream_connect_timeout,
+        reval_params.upstream_send_timeout,
+        reval_params.upstream_read_timeout
+    )
 
     local port = tonumber(reval_params.server_port)
     local ok, err
@@ -83,8 +87,6 @@ function _M.perform(job)
             return nil, "job-error", "ssl handshake failed: " .. tostring(err)
         end
     end
-
-    httpc:set_timeout(reval_params.read_timeout)
 
     local headers = http_headers.new() -- Case-insensitive header table
     headers["Cache-Control"] = "max-stale=0, stale-if-error=0"

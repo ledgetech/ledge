@@ -427,7 +427,15 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
             port = ngx_var.server_port
         end
 
+        local config = self.handler.config
+        httpc:set_timeouts(
+            config.upstream_connect_timeout,
+            config.upstream_send_timeout,
+            config.upstream_read_timeout
+        )
+
         local res, err = httpc:connect(upstream, port)
+
         if not res then
             ngx_log(ngx_ERR, err, " connecting to ", upstream,":", port)
             return nil
@@ -488,7 +496,6 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
                 end
             end
 
-            local config = self.handler.config
             httpc:set_keepalive(
                 config.upstream_keepalive_timeout,
                 config.upstream_keepalive_poolsize
