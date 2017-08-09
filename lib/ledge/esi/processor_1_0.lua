@@ -126,9 +126,18 @@ local function esi_eval_var(var)
         else
             return value
         end
+    elseif var_name == "ESI_ARGS" then
+        local esi_args = ngx.ctx.__ledge_esi_args
+
+        if not key then
+            -- __tostring metamethod turns these back into encoded URI args
+            return tostring(esi_args)
+        else
+            return tostring(esi_args[key] or default)
+        end
     else
-        local custom_variables = ngx.ctx.ledge_esi_custom_variables
-        if custom_variables and type(custom_variables) == "table" then
+        local custom_variables = ngx.ctx.__ledge_esi_custom_variables
+        if next(custom_variables) then
             local var = custom_variables[var_name]
             if var then
                 if key then
@@ -137,17 +146,12 @@ local function esi_eval_var(var)
                     end
                 else
                     if type(var) == "table" then
-                        if var_name == "ESI_ARGS" then
-                            -- The string version is the origin querystring
-                            -- syntax (encoded)
-                            return ngx.ctx.ledge_esi_args_encoded or default
-                        else
-                            -- No sane way to stringify other tables
-                            return default
-                        end
+                        -- No sane way to stringify other tables
+                        return default
+                    else
+                        -- We're a string
+                        return var or default
                     end
-                    -- We're a string
-                    return var or default
                 end
             end
         end
@@ -766,6 +770,9 @@ function _M.get_process_filter(self, res)
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
 
     local reader = res.body_reader
+
+    -- push configured custom variables into ctx to be read by regex functions
+    ngx.ctx.__ledge_esi_custom_variables = self.handler.config.esi_custom_variables
 
     -- We use an outer coroutine to filter the processed output in case we have
     -- to abort recursive includes.

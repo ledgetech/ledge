@@ -924,12 +924,14 @@ $(QUERY_STRING{d}|unquoted values must not have spaces)
 location /esi_9f_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        ngx.ctx.ledge_esi_custom_variables = {
-            ["CUSTOM_DICTIONARY"] = { a = 1, b = 2},
-            ["CUSTOM_STRING"] = "foo"
-        }
+        local handler = require("ledge").create_handler({
+            esi_custom_variables = {
+                ["CUSTOM_DICTIONARY"] = { a = 1, b = 2},
+                ["CUSTOM_STRING"] = "foo"
+            },
+        })
 
-        run()    
+        run(handler)
     }
 }
 location /esi_9f {
@@ -972,7 +974,7 @@ location /esi_10_prx {
                 "host",
                 "uri",
             }
-        }) 
+        })
         run(handler)
     }
 }
@@ -1009,7 +1011,7 @@ location /esi_10 {
                 "host",
                 "uri",
             }
-        }) 
+        })
         run(handler)
     }
 }
@@ -1038,7 +1040,7 @@ location /esi_10_prx {
                 "host",
                 "uri",
             }
-        }) 
+        })
         run(handler)
     }
 }
@@ -1079,7 +1081,7 @@ location /esi_10_prx {
                 "host",
                 "uri",
             }
-        }) 
+        })
         run(handler)
     }
 }
