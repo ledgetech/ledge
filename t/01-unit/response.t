@@ -28,7 +28,14 @@ init_by_lua_block {
         upstream_port = TEST_NGINX_PORT,
     })
 
-    require("ledge.state_machine").set_debug(true)
+    function read_body(res)
+        repeat
+            local chunk, err = res.body_reader()
+            if chunk then
+                ngx.print(chunk)
+            end
+        until not chunk
+    end
 }
 
 }; # HttpConfig
@@ -57,7 +64,7 @@ location /t {
         )
 
         assert(res and not err, "response object should be created without error")
-        
+
         local ok, err = pcall(function()
             res.foo = "bar"
         end)
@@ -71,3 +78,28 @@ GET /t
 --- no_error_log
 [error]
 
+
+=== TEST 2: set_body
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        local res, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        read_body(res) -- will be empty
+
+        res:set_body("foo")
+
+        read_body(res) -- will print foo
+    }
+}
+--- request
+GET /t
+--- response_body: foo
+--- no_error_log
+[error]
