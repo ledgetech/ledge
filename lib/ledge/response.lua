@@ -51,6 +51,10 @@ _M.empty_body_reader = empty_body_reader
 
 
 function _M.new(redis, key_chain)
+    if not redis or not key_chain then
+        return nil, "redis and key_chain args required"
+    end
+
     return setmetatable({
         redis = redis,
         key_chain = key_chain,  -- Cache key chain
