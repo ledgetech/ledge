@@ -103,3 +103,56 @@ GET /t
 --- response_body: foo
 --- no_error_log
 [error]
+
+
+=== TEST 3: filter_body_reader
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        local res, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        res:set_body("foo")
+
+        -- turns foo to moo
+        function get_cow_filter(reader)
+            return coroutine.wrap(function()
+                repeat
+                    local chunk, err = reader()
+                    if chunk then
+                        coroutine.yield(ngx.re.gsub(chunk, "f", "m"))
+                    end
+                    
+                until not chunk
+            end)
+        end
+        
+        -- turns moo to boo
+        function get_sad_filter(reader)
+            return coroutine.wrap(function()
+                repeat
+                    local chunk, err = reader()
+                    if chunk then
+                        coroutine.yield(ngx.re.gsub(chunk, "m", "b"))
+                    end
+                    
+                until not chunk
+            end)
+        end
+
+        res:filter_body_reader("cow", get_cow_filter(res.body_reader))
+        res:filter_body_reader("sad", get_sad_filter(res.body_reader))
+
+        read_body(res)
+    }
+}
+--- request
+GET /t
+--- response_body: boo
+--- no_error_log
+[error]
