@@ -127,11 +127,10 @@ location /t {
                     if chunk then
                         coroutine.yield(ngx.re.gsub(chunk, "f", "m"))
                     end
-                    
                 until not chunk
             end)
         end
-        
+
         -- turns moo to boo
         function get_sad_filter(reader)
             return coroutine.wrap(function()
@@ -140,7 +139,6 @@ location /t {
                     if chunk then
                         coroutine.yield(ngx.re.gsub(chunk, "m", "b"))
                     end
-                    
                 until not chunk
             end)
         end
