@@ -147,6 +147,10 @@ location /t {
         res:filter_body_reader("cow", get_cow_filter(res.body_reader))
         res:filter_body_reader("sad", get_sad_filter(res.body_reader))
 
+        local ok, err = pcall(res.filter_body_reader, res, "bad", "foo")
+        assert(not ok and string.find(err, "filter must be a function"),
+            "error shoudl contain 'filter must be a function'")
+
         read_body(res)
     }
 }
