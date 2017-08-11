@@ -112,6 +112,7 @@ location /t {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
 
+        require("ledge.response").set_debug(true)
         local res, err = require("ledge.response").new(
             handler.redis,
             handler:cache_key_chain()
@@ -152,5 +153,6 @@ location /t {
 --- request
 GET /t
 --- response_body: boo
---- no_error_log
-[error]
+--- error_log
+filter_body_reader(): cow()
+filter_body_reader(): sad(cow)
