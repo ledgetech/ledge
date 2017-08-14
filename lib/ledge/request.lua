@@ -48,17 +48,6 @@ end
 _M.full_uri = full_uri
 
 
-local function visible_hostname()
-    local name = ngx_var.visible_hostname or ngx_var.hostname
-    local server_port = ngx_var.server_port
-    if server_port ~= "80" and server_port ~= "443" then
-        name = name .. ":" .. server_port
-    end
-    return name
-end
-_M.visible_hostname = visible_hostname
-
-
 local function accepts_cache()
     -- Check for no-cache
     local h = ngx_req_get_headers()

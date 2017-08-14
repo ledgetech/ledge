@@ -29,8 +29,6 @@ local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 
-local req_visible_hostname = require("ledge.request").visible_hostname
-
 local get_fixed_field_metatable_proxy =
     require("ledge.util").mt.get_fixed_field_metatable_proxy
 
@@ -414,12 +412,12 @@ local WARNINGS = {
 }
 
 
-function _M.add_warning(self, code)
+function _M.add_warning(self, code, name)
     if not self.header["Warning"] then
         self.header["Warning"] = {}
     end
 
-    local header = code .. ' ' .. req_visible_hostname()
+    local header = code .. ' ' .. name
     header = header .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(self.header["Warning"], header)
 end
