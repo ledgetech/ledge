@@ -156,7 +156,56 @@ location /t {
 }
 --- request
 GET /t
---- response_body: boo
---- error_log
-filter_body_reader(): cow()
-filter_body_reader(): sad(cow)
+
+
+=== TEST 4: is_cacheable
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        require("ledge.response").set_debug(true)
+        local res, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        assert(not res:is_cacheable())
+
+        res.header = {
+            ["Cache-Control"] = "max-age=60",
+        }
+        assert(res:is_cacheable())
+
+        res.header = {
+            ["Cache-Control"] = "max-age=60",
+            ["Pragma"] = "no-cache",
+        }
+        assert(not res:is_cacheable())
+
+        res.header = {
+            ["Cache-Control"] = "s-maxage=60, private",
+        }
+        assert(not res:is_cacheable())
+
+        res.header = {
+            ["Cache-Control"] = "max-age=60, no-store",
+        }
+        assert(not res:is_cacheable())
+
+        res.header = {
+            ["Cache-Control"] = "max-age=60, no-cache",
+        }
+        assert(not res:is_cacheable())
+
+        res.header = {
+            ["Cache-Control"] = "max-age=60, no-cache=X-Foo",
+        }
+        assert(res:is_cacheable())
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
