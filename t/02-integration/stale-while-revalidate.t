@@ -297,7 +297,7 @@ X-Cache: MISS from .*
 location /stale_4_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        require("ledge").create_handler():run()
+        require("ledge").create_handler({ visible_hostname = "ledge.example.com" }):run()
     }
 }
 location /stale_4 {
@@ -313,7 +313,7 @@ ORIGIN
 --- response_headers_like
 X-Cache: MISS from .*
 --- raw_response_headers_unlike
-Warning: .*
+Warning: ledge\.example\.com .*
 --- no_error_log
 [error]
 

@@ -140,32 +140,7 @@ GET /t
 [error]
 
 
-=== TEST 5: visible_hostname
---- http_config eval: $::HttpConfig
---- config
-location /t {
-    set $visible_hostname $hostname;
-    content_by_lua_block {
-        local visible_hostname = require("ledge.request").visible_hostname
-        local host = ngx.var.hostname .. ":" .. ngx.var.server_port
-        assert(visible_hostname() == host,
-            "visible_hostname should be " .. host)
-
-        -- Test overriding the visible_hostname
-        ngx.var.visible_hostname = "example.com"
-        host = "example.com:" .. ngx.var.server_port
-        assert(visible_hostname() == host,
-            "visible_hostname should be " .. host)
-    }
-
-}
---- request
-GET /t
---- no_error_log
-[error]
-
-
-=== TEST 6: accepts_cache
+=== TEST 5: accepts_cache
 --- http_config eval: $::HttpConfig
 --- config
 location /t {
