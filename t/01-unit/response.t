@@ -209,3 +209,39 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 5: ttl
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        require("ledge.response").set_debug(true)
+        local res, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        assert(res:ttl() == 0, "ttl should be 0")
+
+        res.header = {
+            ["Expires"] = ngx.http_time(ngx.time() + 10)
+        }
+        assert(res:ttl() == 10, "Expires was 10 seconds in the future")
+
+        res.header["Cache-Control"] = "max-age=20"
+        assert(res:ttl() == 20, "max-age overrides to 20 seconds")
+
+        res.header["Cache-Control"] = "s-maxage=30"
+        assert(res:ttl() == 30, "s-maxage overrides to 30 seconds")
+
+        res.header["Cache-Control"] = "max-age=20, s-maxage=30"
+        assert(res:ttl() == 30, "s-maxage still overrides to 30 seconds")
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
