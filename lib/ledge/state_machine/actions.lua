@@ -177,15 +177,15 @@ return {
     end,
 
     add_stale_warning = function(handler)
-        return handler.response:add_warning("110")
+        return handler:add_warning("110")
     end,
 
     add_transformation_warning = function(handler)
-        return handler.response:add_warning("214")
+        return handler:add_warning("214")
     end,
 
     add_disconnected_warning = function(handler)
-        return handler.response:add_warning("112")
+        return handler:add_warning("112")
     end,
 
     serve = function(handler)

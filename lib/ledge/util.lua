@@ -1,3 +1,4 @@
+local ngx_var = ngx.var
 local ffi = require "ffi"
 
 local type, next, setmetatable, getmetatable, error, tostring, select =
@@ -15,11 +16,17 @@ local ffi_string = ffi.string
 local C = ffi.C
 
 
-ffi_cdef[[
+local ok, err = pcall(ffi_cdef, [[
 typedef unsigned char u_char;
 u_char * ngx_hex_dump(u_char *dst, const u_char *src, size_t len);
 int RAND_pseudo_bytes(u_char *buf, int num);
-]]
+]])
+if not ok then ngx.log(ngx.ERR, err) end
+
+local ok, err = pcall(ffi_cdef, [[
+int gethostname (char *name, size_t size);
+]])
+if not ok then ngx.log(ngx.ERR, err) end
 
 
 local _M = {
@@ -203,6 +210,25 @@ local function co_wrap(func)
     end
 end
 _M.coroutine.wrap = co_wrap
+
+
+local function get_hostname()
+    local name = ffi_new("char[?]", 255)
+    C.gethostname(name, 255)
+    return ffi_string(name)
+end
+_M.get_hostname = get_hostname
+
+
+local function append_server_port(name)
+    -- TODO: compare with scheme?
+    local server_port = ngx_var.server_port
+    if server_port ~= "80" and server_port ~= "443" then
+        name = name .. ":" .. server_port
+    end
+    return name
+end
+_M.append_server_port = append_server_port
 
 
 return _M

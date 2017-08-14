@@ -6,6 +6,7 @@ plan tests => repeat_each() * (blocks() * 2);
 my $pwd = cwd();
 
 $ENV{TEST_COVERAGE} ||= 0;
+$ENV{TEST_NGINX_PORT} |= 1984;
 
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;;";
@@ -14,6 +15,7 @@ init_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
         require("luacov.runner").init()
     end
+    TEST_NGINX_PORT = $ENV{TEST_NGINX_PORT}
 }
 
 }; # HttpConfig
@@ -374,6 +376,39 @@ location /t {
 
         assert(run() == "1-2-3-4-5-6-7-8-9-10-finished",
             "run() should return 1-2-3-4-5-6-7-8-9-10-finished")
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
+
+
+=== TEST 9: get_hostname
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local get_hostname = require("ledge.util").get_hostname
+        assert(get_hostname() == ngx.var.hostname,
+            "get_hostname "..tostring(get_hostname()).." should be "..ngx.var.hostname)
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
+
+=== TEST 10: append_server_port
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local append_server_port = require("ledge.util").append_server_port
+        local host = "example.com"
+        local default = host..":"..TEST_NGINX_PORT
+        assert(append_server_port(host) == default,
+            "append_server_port should be "..default)
     }
 }
 --- request

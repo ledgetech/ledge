@@ -31,8 +31,6 @@ local ngx_re_find = ngx.re.find
 
 local header_has_directive = require("ledge.header_util").header_has_directive
 
-local req_visible_hostname = require("ledge.request").visible_hostname
-
 local get_fixed_field_metatable_proxy =
     require("ledge.util").mt.get_fixed_field_metatable_proxy
 
@@ -425,12 +423,12 @@ local WARNINGS = {
 }
 
 
-function _M.add_warning(self, code)
+function _M.add_warning(self, code, name)
     if not self.header["Warning"] then
         self.header["Warning"] = {}
     end
 
-    local header = code .. ' ' .. req_visible_hostname()
+    local header = code .. ' ' .. name
     header = header .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(self.header["Warning"], header)
 end

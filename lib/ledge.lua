@@ -71,8 +71,10 @@ local handler_defaults = setmetatable({
     upstream_ssl_server_name = "",
     upstream_ssl_verify = true,
 
-    buffer_size = 2^16,
     advertise_ledge = true,
+    visible_hostname = util.get_hostname(),
+
+    buffer_size = 2^16,
     keep_cache_for  = 86400 * 30,  -- (sec)
     minimum_old_entity_download_rate = 56,
 
