@@ -17,16 +17,19 @@ local mt = {
 }
 
 
-function _M.header_has_directive(header, directive)
+-- Returns true if the directive appears in the header field value.
+-- Set without_token to true to only return bare directives - i.e.
+-- directives appearing with no =value part.
+function _M.header_has_directive(header, directive, without_token)
     if header then
         if type(header) == "table" then header = tbl_concat(header, ", ") end
 
-        -- Just checking the directive appears in the header, e.g. no-cache, private etc.
-        return ngx_re_find(
-            header,
-            [[(?:\s*|,?)(]] .. directive .. [[)\s*(?:$|=|,)]],
-            "ioj"
-        ) ~= nil
+        local pattern = [[(?:\s*|,?)(]] .. directive .. [[)\s*(?:$|=|,)]]
+        if without_token then
+            pattern = [[(?:\s*|,?)(]] .. directive .. [[)\s*(?:$|,)]]
+        end
+
+        return ngx_re_find(header, pattern, "ioj") ~= nil
     end
     return false
 end

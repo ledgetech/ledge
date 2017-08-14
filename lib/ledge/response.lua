@@ -29,6 +29,8 @@ local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 
+local header_has_directive = require("ledge.header_util").header_has_directive
+
 local get_fixed_field_metatable_proxy =
     require("ledge.util").mt.get_fixed_field_metatable_proxy
 
@@ -49,6 +51,10 @@ _M.empty_body_reader = empty_body_reader
 
 
 function _M.new(redis, key_chain)
+    if not redis or not next(redis) or not key_chain or not next(key_chain) then
+        return nil, "redis and key_chain args required"
+    end
+
     return setmetatable({
         redis = redis,
         key_chain = key_chain,  -- Cache key chain
@@ -111,16 +117,6 @@ function _M.filter_body_reader(self, filter_name, filter)
 end
 
 
-local NOCACHE_HEADERS = {
-    ["Pragma"] = { "no-cache" },
-    ["Cache-Control"] = {
-        "no-cache",
-        "no-store",
-        "private",
-    }
-}
-
-
 function _M.is_cacheable(self)
     -- Never cache partial content
     local status = self.status
@@ -128,12 +124,14 @@ function _M.is_cacheable(self)
         return false
     end
 
-    for k,v in pairs(NOCACHE_HEADERS) do
-        for i,h in ipairs(v) do
-            if self.header[k] and self.header[k] == h then
-                return false
-            end
-        end
+    local h = self.header
+    local directives = "(no-cache|no-store|private)"
+    if header_has_directive(h["Cache-Control"], directives, true) then
+        return false
+    end
+
+    if header_has_directive(h["Pragma"], "no-cache", true) then
+        return false
     end
 
     if self:ttl() > 0 then
@@ -349,6 +347,8 @@ end
 
 
 function _M.save(self, keep_cache_for)
+    if not keep_cache_for then keep_cache_for = 0 end
+
     -- Create a new entity id
     self.entity_id = str_randomhex(32)
 
@@ -356,7 +356,13 @@ function _M.save(self, keep_cache_for)
     local time = ngx_time()
 
     local redis = self.redis
+    if not next(redis) then return nil, "no redis" end
     local key_chain = self.key_chain
+
+    if not self.header["Date"] then
+        self.header["Date"] = ngx_http_time(ngx_time())
+    end
+
     local ok, err = redis:hmset(key_chain.main,
         "entity",       self.entity_id,
         "status",       self.status,
@@ -400,7 +406,12 @@ end
 function _M.set_and_save(self, field, value)
     local redis = self.redis
     local ok, err = redis:hset(self.key_chain.main, field, tostring(value))
-    if not ok then ngx_log(ngx_ERR, err) end
+    if not ok then
+        ngx_log(ngx_ERR, err)
+        return nil, err
+    end
+
+    self[field] = value
     return ok
 end
 
