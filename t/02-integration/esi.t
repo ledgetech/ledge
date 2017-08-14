@@ -1806,6 +1806,31 @@ GET /esi_20_prx
 --- no_error_log
 [error]
 
+=== TEST 20b: Surrogate-Capability using visible_hostname
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_20_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            visible_hostname = "ledge.example.com"
+        })
+        run(handler)
+    }
+}
+location /esi_20 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.print(ngx.req.get_headers()["Surrogate-Capability"])
+    }
+}
+--- request
+GET /esi_20_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body: ledge.example.com="ESI/1.0"
+--- no_error_log
+[error]
+
 
 === TEST 21: Test Surrogate-Capability is appended when needed
 --- http_config eval: $::HttpConfig

@@ -85,3 +85,25 @@ GET /events_1_prx
 --- raw_response_headers_unlike: Via: \d+\.\d+ .+ \(ledge/\d+\.\d+[\.\d]*\)
 --- no_error_log
 [error]
+
+
+=== TEST 3: Via header uses visible_hostname config
+--- http_config eval: $::HttpConfig
+--- config
+location /events_1_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            visible_hostname = "ledge.example.com"
+        }):run()
+    }
+}
+location /events_1 {
+    echo "ORIGIN";
+}
+--- request
+GET /events_1_prx
+--- response_headers_like
+Via: \d+\.\d+ ledge.example.com:\d+ \(ledge/\d+\.\d+[\.\d]*\)
+--- no_error_log
+[error]

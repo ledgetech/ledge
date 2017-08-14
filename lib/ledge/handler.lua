@@ -37,9 +37,10 @@ local cjson_decode = require("cjson").decode
 
 local esi_capabilities = require("ledge.esi").esi_capabilities
 
+local append_server_port = require("ledge.util").append_server_port
+
 local req_relative_uri = require("ledge.request").relative_uri
 local req_full_uri = require("ledge.request").full_uri
-local req_visible_hostname = require("ledge.request").visible_hostname
 local req_args_sorted = require("ledge.request").args_sorted
 local req_default_args = require("ledge.request").default_args
 
@@ -438,9 +439,8 @@ local function fetch_from_origin(self)
 
     -- Advertise ESI surrogate capabilities
     if config.esi_enabled then
-        local capability_entry =
-            (ngx_var.visible_hostname or ngx_var.hostname)  ..
-            '="' .. esi_capabilities() .. '"'
+        local capability_entry = self.config.visible_hostname  .. '="' 
+            .. esi_capabilities() .. '"'
 
         local sc = headers["Surrogate-Capability"]
 
@@ -844,10 +844,10 @@ end
 local function serve(self)
     if not ngx.headers_sent then
         local res = self.response
-        local visible_hostname = req_visible_hostname()
+        local name = append_server_port(self.config.visible_hostname)
 
         -- Via header
-        local via = "1.1 " .. visible_hostname
+        local via = "1.1 " .. name
         if self.config.advertise_ledge then
             via = via .. " (ledge/" .. _M._VERSION .. ")"
         end
@@ -865,12 +865,12 @@ local function serve(self)
         local event_history = self.state_machine.event_history
 
         if not event_history["response_not_cacheable"] then
-            local x_cache = "HIT from " .. visible_hostname
+            local x_cache = "HIT from " .. name
             if not event_history["can_serve_disconnected"]
                 and not event_history["can_serve_stale"]
                 and state_history["fetching"] then
 
-                x_cache = "MISS from " .. visible_hostname
+                x_cache = "MISS from " .. name
             end
 
             local res_x_cache = res.header["X-Cache"]
@@ -899,6 +899,15 @@ local function serve(self)
     end
 end
 _M.serve = serve
+
+
+local function add_warning(self, code)
+    return self.response:add_warning(
+            code,
+            append_server_port(self.config.visible_hostname)
+        )
+end
+_M.add_warning = add_warning
 
 
 return setmetatable(_M, fixed_field_metatable)
