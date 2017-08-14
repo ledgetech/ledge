@@ -29,6 +29,8 @@ local ngx_time = ngx.time
 local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 
+local header_has_directive = require("ledge.header_util").header_has_directive
+
 local req_visible_hostname = require("ledge.request").visible_hostname
 
 local get_fixed_field_metatable_proxy =
@@ -117,16 +119,6 @@ function _M.filter_body_reader(self, filter_name, filter)
 end
 
 
-local NOCACHE_HEADERS = {
-    ["Pragma"] = { "no-cache" },
-    ["Cache-Control"] = {
-        "no-cache",
-        "no-store",
-        "private",
-    }
-}
-
-
 function _M.is_cacheable(self)
     -- Never cache partial content
     local status = self.status
@@ -134,12 +126,14 @@ function _M.is_cacheable(self)
         return false
     end
 
-    for k,v in pairs(NOCACHE_HEADERS) do
-        for i,h in ipairs(v) do
-            if self.header[k] and self.header[k] == h then
-                return false
-            end
-        end
+    local h = self.header
+    local directives = "(no-cache|no-store|private)"
+    if header_has_directive(h["Cache-Control"], directives, true) then
+        return false
+    end
+
+    if header_has_directive(h["Pragma"], "no-cache", true) then
+        return false
     end
 
     if self:ttl() > 0 then
