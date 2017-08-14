@@ -53,7 +53,7 @@ _M.empty_body_reader = empty_body_reader
 
 
 function _M.new(redis, key_chain)
-    if not redis or not key_chain then
+    if not redis or not next(redis) or not key_chain or not next(key_chain) then
         return nil, "redis and key_chain args required"
     end
 
@@ -349,6 +349,8 @@ end
 
 
 function _M.save(self, keep_cache_for)
+    if not keep_cache_for then keep_cache_for = 0 end
+
     -- Create a new entity id
     self.entity_id = str_randomhex(32)
 
@@ -356,7 +358,13 @@ function _M.save(self, keep_cache_for)
     local time = ngx_time()
 
     local redis = self.redis
+    if not next(redis) then return nil, "no redis" end
     local key_chain = self.key_chain
+
+    if not self.header["Date"] then
+        self.header["Date"] = ngx_http_time(ngx_time())
+    end
+
     local ok, err = redis:hmset(key_chain.main,
         "entity",       self.entity_id,
         "status",       self.status,
@@ -400,7 +408,12 @@ end
 function _M.set_and_save(self, field, value)
     local redis = self.redis
     local ok, err = redis:hset(self.key_chain.main, field, tostring(value))
-    if not ok then ngx_log(ngx_ERR, err) end
+    if not ok then
+        ngx_log(ngx_ERR, err)
+        return nil, err
+    end
+
+    self[field] = value
     return ok
 end
 

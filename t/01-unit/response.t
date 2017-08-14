@@ -57,6 +57,8 @@ location /t {
             "err should contain 'redis and key_chian args required'")
 
         local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
 
         local res, err = require("ledge.response").new(
             handler.redis,
@@ -85,6 +87,8 @@ GET /t
 location /t {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
 
         local res, err = require("ledge.response").new(
             handler.redis,
@@ -111,6 +115,8 @@ GET /t
 location /t {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
 
         require("ledge.response").set_debug(true)
         local res, err = require("ledge.response").new(
@@ -164,6 +170,8 @@ GET /t
 location /t {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
 
         require("ledge.response").set_debug(true)
         local res, err = require("ledge.response").new(
@@ -217,6 +225,8 @@ GET /t
 location /t {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
 
         require("ledge.response").set_debug(true)
         local res, err = require("ledge.response").new(
@@ -245,3 +255,68 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 6: save / read / set_and_save
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local res, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        res.uri = "http://example.com"
+        res.status = 200
+
+        local ok, err = res:save(60)
+        assert(ok and not err, "res should save without err")
+
+
+        local res2, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        local ok, err = res2:read()
+        assert(ok and not err)
+
+        assert(res2.uri == "http://example.com")
+
+        res2.header["X-Save-Me"] = "ok"
+        res2:save(60)
+
+        local res3, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+        res3:read()
+
+        assert(res3.header["X-Save-Me"] == "ok")
+
+        local ok, err = res3:set_and_save("size", 99)
+        assert(ok and not err, "set_and_save should return positively")
+
+        assert(res3.size == 99, "res3.size should be 99")
+
+        local res4, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+        res4:read()
+
+        assert(res4.size == 99, "res3.size should be 99")
+
+        local ok, err = res4:set_and_save(nil, 2)
+        assert(not ok and err, "set_and_save should fail with bad params")
+    }
+}
+--- request
+GET /t
+--- error_log
+set_and_save(): ERR wrong number of arguments for 'hset' command
