@@ -1,5 +1,4 @@
 local ledge = require("ledge")
-local h_util = require("ledge.header_util") -- TODO pull in functions needed?
 local esi = require("ledge.esi")
 local range = require("ledge.range")
 
@@ -16,6 +15,8 @@ local ngx_req_get_headers = ngx.req.get_headers
 
 local ngx_re_find = ngx.re.find
 local ngx_re_match = ngx.re.match
+
+local header_has_directive = require("ledge.header_util").header_has_directive
 
 local can_revalidate_locally =
     require("ledge.validation").can_revalidate_locally
@@ -37,7 +38,6 @@ local create_purge_response = require("ledge.purge").create_purge_response
 local acquire_lock = require("ledge.collapse").acquire_lock
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
-
 
 
 local _M = {
@@ -110,7 +110,7 @@ return {
 
         -- If the response is gzip encoded and the client doesn't support it, then inflate
         if res.header["Content-Encoding"] == "gzip" then
-            local accepts_gzip = h_util.header_has_directive(accept_encoding, "gzip")
+            local accepts_gzip = header_has_directive(accept_encoding, "gzip")
 
             if handler.esi_scan_enabled or
                 (handler.config.gunzip_enabled and accepts_gzip == false) then
@@ -208,7 +208,7 @@ return {
            return sm:e "http_service_unavailable"
         end
 
-        if h_util.header_has_directive(
+        if header_has_directive(
             ngx_req_get_headers()["Cache-Control"], "only-if-cached"
         ) then
             return sm:e "http_gateway_timeout"
