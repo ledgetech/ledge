@@ -371,7 +371,7 @@ location /storage {
         }, 2, storage)
 
         assert(not storage:exists(res.entity_id),
-            "entity should not exist")
+            "entity should not yet exist")
 
         -- Attach the writer, and run sink
         res.body_reader = storage:get_writer(
@@ -381,9 +381,11 @@ location /storage {
         )
         sink(res.body_reader)
 
-        -- Prove entity wasn't written (rolled back)
-        assert(not storage:exists(res.entity_id),
-            "entity should not exist")
+        if backend ~= "redis_notransact" then
+            -- Prove entity wasn't written (rolled back)
+            assert(not storage:exists(res.entity_id),
+                "entity should still not exist")
+        end
     }
 }
 --- request eval

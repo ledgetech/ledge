@@ -383,12 +383,12 @@ function _M.save(self, keep_cache_for)
     if not ok then ngx_log(ngx_ERR, err) end
 
     -- Mark the keys as eventually volatile (the body is set by the body writer)
-    local keep_cache_for = ttl + tonumber(keep_cache_for)
+    local expiry = ttl + tonumber(keep_cache_for)
 
-    ok, err = redis:expire(key_chain.main, keep_cache_for)
+    ok, err = redis:expire(key_chain.main, expiry)
     if not ok then ngx_log(ngx_ERR, err) end
 
-    ok, err = redis:expire(key_chain.headers, keep_cache_for)
+    ok, err = redis:expire(key_chain.headers, expiry)
     if not ok then ngx_log(ngx_ERR, err) end
 
     local ok, err = redis:sadd(key_chain.entities, self.entity_id)
@@ -396,7 +396,7 @@ function _M.save(self, keep_cache_for)
         ngx_log(ngx_ERR, "error adding entity to set: ", err)
     end
 
-    ok, err = redis:expire(key_chain.entities, keep_cache_for)
+    ok, err = redis:expire(key_chain.entities, expiry)
     if not ok then ngx_log(ngx_ERR, err) end
 
     return true

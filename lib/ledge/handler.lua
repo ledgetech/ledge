@@ -287,7 +287,6 @@ end
 _M.cache_key_chain = cache_key_chain
 
 
--- TODO response?
 function _M.entity_id(self, key_chain)
     if not key_chain and key_chain.main then return nil end
     local redis = self.redis
@@ -438,7 +437,7 @@ local function fetch_from_origin(self)
 
     -- Advertise ESI surrogate capabilities
     if config.esi_enabled then
-        local capability_entry = self.config.visible_hostname  .. '="' 
+        local capability_entry = self.config.visible_hostname  .. '="'
             .. esi_capabilities() .. '"'
 
         local sc = headers["Surrogate-Capability"]
@@ -700,11 +699,11 @@ local function save_to_cache(self, res)
     end
 
 
-    -- TODO: Is this supposed to be total ttl + keep_cache_for?
-    local keep_cache_for = self.config.keep_cache_for
-
     res.uri = req_full_uri()
+
+    local keep_cache_for = self.config.keep_cache_for
     local ok, err = res:save(keep_cache_for)
+
     -- TODO: Do somethign with this err?
 
     -- Set revalidation parameters from this request
@@ -713,12 +712,14 @@ local function save_to_cache(self, res)
     -- TODO: Catch errors
     redis:del(key_chain.reval_params)
     redis:hmset(key_chain.reval_params, reval_params)
-    redis:expire(key_chain.reval_params, keep_cache_for)
 
     -- TODO: Catch errors
     redis:del(key_chain.reval_req_headers)
     redis:hmset(key_chain.reval_req_headers, reval_headers)
-    redis:expire(key_chain.reval_req_headers, keep_cache_for)
+
+    local expiry = res:ttl() + keep_cache_for
+    redis:expire(key_chain.reval_params, expiry)
+    redis:expire(key_chain.reval_req_headers, expiry)
 
     -- If we have a body, we need to attach the storage writer
     -- NOTE: res.has_body is false for known bodyless repsonse types

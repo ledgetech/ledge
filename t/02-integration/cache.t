@@ -642,3 +642,64 @@ X-Cache: HIT from .*
 [error]
 --- response_body
 TEST 14
+
+
+=== TEST 15a: Prime a resource into cache
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_15_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 1,
+        }):run()
+    }
+}
+location /cache_15 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.say("TEST 15")
+    }
+}
+--- request
+GET /cache_15_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+TEST 15
+--- no_error_log
+[error]
+
+
+=== TEST 15b: Confim all keys exists
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_15_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local key_chain = handler:cache_key_chain()
+        local redis = require("ledge").create_redis_connection()
+
+        local res, err = redis:keys(key_chain.root .. "*")
+        if res then
+            ngx.say("Numkeys: ", #res)
+        end
+
+        -- Sleep longer than keep_cache_for, to prove all keys have ttl assigned
+        ngx.sleep(3)
+
+        local res, err = redis:keys(key_chain.root .. "*")
+        if res then
+            ngx.say("Numkeys: ", #res)
+        end
+    }
+}
+--- request
+GET /cache_15_prx
+--- timeout: 5
+--- response_body
+Numkeys: 5
+Numkeys: 5
+--- no_error_log
+[error]
