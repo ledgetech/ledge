@@ -203,6 +203,11 @@ return {
         },
     },
 
+    -- We've determined no need to scan the body for ESI.
+    esi_scan_disabled = {
+        { begin = "updating_cache", but_first = "set_esi_scan_disabled" },
+    },
+
     gzip_inflate_enabled = {
         {
             after = "updating_cache",
@@ -239,11 +244,6 @@ return {
 
     range_not_requested = {
         { begin = "preparing_response" },
-    },
-
-    -- We've determined no need to scan the body for ESI.
-    esi_scan_disabled = {
-        { begin = "updating_cache", but_first = "set_esi_scan_disabled" },
     },
 
     -- We deduced that the new response can cached. We always "save_to_cache".

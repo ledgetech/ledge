@@ -92,8 +92,7 @@ local function new(config, events)
         client_validators = {},
 
         output_buffers_enabled = true,
-        esi_scan_disabled = true,
-        esi_scan_enabled = false, -- TODO: errrr, both?
+        esi_scan_enabled = false,
         esi_process_enabled = false,
 
     -- private:

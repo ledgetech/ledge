@@ -89,7 +89,7 @@ return {
 
     set_esi_scan_enabled = function(handler)
         handler.esi_scan_enabled = true
-        handler.esi_scan_disabled = false
+        --handler.esi_scan_disabled = false
         handler.response.esi_scanned = true
     end,
 
@@ -107,7 +107,6 @@ return {
 
     set_esi_scan_disabled = function(handler)
         local res = handler.response
-        handler.esi_scan_disabled = true
         handler.esi_scan_enabled = false
         res.esi_scanned = false
     end,

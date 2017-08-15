@@ -700,7 +700,6 @@ function _M.get_scan_filter(self, res)
                             co_yield(tag.whole, nil, true)
 
                             -- On first time, set res:set_and_save("has_esi", parser)
-                            -- TODO: Need to get parser from somewhere?
                             if not esi_detected then
                                 res:set_and_save("has_esi", self.token)
                                 esi_detected = true
