@@ -74,10 +74,14 @@ function _M.connect(self, user_params)
     user_params = tbl_copy_merge_defaults(user_params, defaults)
     self.params = user_params
 
-    local redis, err = redis_connector.new(
+    local rc, err = redis_connector.new(
         user_params.redis_connector_params
-    ):connect()
+    )
+    if not rc then
+        return nil, err
+    end
 
+    local redis, err = rc:connect()
     if not redis then
         return nil, err
     else

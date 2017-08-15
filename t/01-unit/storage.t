@@ -26,6 +26,12 @@ init_by_lua_block {
                     db = $ENV{TEST_LEDGE_REDIS_DATABASE},
                 },
             },
+            bad_params = {
+                redis_connector_params = {
+                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    foobar = "broken!"
+                },
+            }
         },
         redis_notransact = {
             module = "ledge.storage.redis",
@@ -36,6 +42,13 @@ init_by_lua_block {
                 },
                 supports_transactions = false,
             },
+            bad_params = {
+                redis_connector_params = {
+                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    foobar = "broken!"
+                },
+                supports_transactions = false,
+            }
         },
     }
 
@@ -824,6 +837,38 @@ wrote 9 bytes
 789:nil:false
 wrote 9 bytes
 ",
+]
+--- no_error_log
+[error]
+
+=== TEST 12: Bad params should return an error
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    content_by_lua_block {
+        local config = get_backend(ngx.req.get_uri_args()["backend"])
+        local storage = require(config.module).new()
+
+        local ok, err = storage:connect(config.bad_params)
+
+        assert(not ok,
+            "storage:connect should not return positively")
+        assert(type(err) == "string",
+            "storage:connect should return an error string")
+
+        ngx.log(ngx.INFO, err)
+        ngx.print(ngx.req.get_uri_args()["backend"], " OK")
+    }
+}
+--- request eval
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
+--- response_body eval
+[
+    "redis OK",
+    "redis_notransact OK",
 ]
 --- no_error_log
 [error]
