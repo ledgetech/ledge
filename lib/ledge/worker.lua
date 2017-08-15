@@ -49,14 +49,10 @@ local function run(self)
     -- Runs around job exectution, to instantiate necessary connections
     ql_worker.middleware = function(job)
         job.redis = ledge.create_redis_connection()
-        -- TODO This needs to be dynamic based on the storage used.
-        --      Maybe it need not be middleware either?
-        job.storage = ledge.create_storage_connection()
 
         co_yield()  -- Perform the job
 
         ledge.close_redis_connection(job.redis)
-        ledge.close_storage_connection(job.storage)
     end
 
     -- Start a worker for each fo the queues
