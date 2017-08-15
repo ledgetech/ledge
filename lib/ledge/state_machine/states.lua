@@ -39,6 +39,8 @@ local acquire_lock = require("ledge.collapse").acquire_lock
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 
+local parse_content_range = require("ledge.range").parse_content_range
+
 
 local _M = {
     _VERSION = "1.28.3",
@@ -336,15 +338,9 @@ return {
         else
             local content_range = res.header["Content-Range"]
             if content_range then
-                -- TODO: move this to a range util
-                local m, err = ngx_re_match(
-                    content_range,
-                    [[bytes\s+(?:\d+|\*)-(?:\d+|\*)/(\d+)]],
-                    "oj"
-                )
+                local _, _, size = parse_content_range(content_range)
 
-                if m then
-                    local size = tonumber(m[1])
+                if size then
                     local max_size = handler.storage:get_max_size()
                     if type(max_size) == "number" and max_size > size then
                         return sm:e "can_fetch_in_background"

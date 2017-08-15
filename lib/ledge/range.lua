@@ -11,6 +11,8 @@ local tbl_sort = table.sort
 local tbl_remove = table.remove
 local tbl_concat = table.concat
 
+local ngx_re_match = ngx.re.match
+
 local get_header_token = require("ledge.header_util").get_header_token
 
 local co_yield = coroutine.yield
@@ -69,6 +71,22 @@ local function sort_byte_ranges(first, second)
     end
     return first.from <= second.from
 end
+
+
+local function parse_content_range(content_range)
+    local m, err = ngx_re_match(
+        content_range,
+        [[bytes\s+(\d+|\*)-(\d+|\*)/(\d+)]],
+        "oj"
+    )
+
+    if not m then
+        return nil
+    else
+        return tonumber(m[1]), tonumber(m[2]), tonumber(m[3])
+    end
+end
+_M.parse_content_range = parse_content_range
 
 
 -- Modifies the response based on range request headers.

@@ -329,3 +329,26 @@ location /t {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 4: parse_content_range
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local parse_content_range = require("ledge.range").parse_content_range
+
+        local from, to, size = parse_content_range("bytes 1-2/3")
+        assert(from == 1 and to == 2 and size == 3)
+
+        from, to, size = parse_content_range("byte 1-2/3")
+        assert(not from and not to and not size)
+
+        from, to, size = parse_content_range("bytes 123-1234/12345")
+        assert(from == 123 and to == 1234 and size == 12345)
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
