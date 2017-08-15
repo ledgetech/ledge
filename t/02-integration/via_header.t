@@ -49,17 +49,17 @@ __DATA__
 === TEST 1: Ledge version advertised by default
 --- http_config eval: $::HttpConfig
 --- config
-location /events_1_prx {
+location /t_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         require("ledge").create_handler():run()
     }
 }
-location /events_1 {
+location /t {
     echo "ORIGIN";
 }
 --- request
-GET /events_1_prx
+GET /t_prx
 --- response_headers_like
 Via: \d+\.\d+ .+ \(ledge/\d+\.\d+[\.\d]*\)
 --- no_error_log
@@ -69,7 +69,7 @@ Via: \d+\.\d+ .+ \(ledge/\d+\.\d+[\.\d]*\)
 === TEST 2: Ledge version not advertised
 --- http_config eval: $::HttpConfig
 --- config
-location /events_1_prx {
+location /t_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         require("ledge").create_handler({
@@ -77,11 +77,11 @@ location /events_1_prx {
         }):run()
     }
 }
-location /events_1 {
+location /t {
     echo "ORIGIN";
 }
 --- request
-GET /events_1_prx
+GET /t_prx
 --- raw_response_headers_unlike: Via: \d+\.\d+ .+ \(ledge/\d+\.\d+[\.\d]*\)
 --- no_error_log
 [error]
@@ -90,7 +90,7 @@ GET /events_1_prx
 === TEST 3: Via header uses visible_hostname config
 --- http_config eval: $::HttpConfig
 --- config
-location /events_1_prx {
+location /t_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         require("ledge").create_handler({
@@ -98,11 +98,11 @@ location /events_1_prx {
         }):run()
     }
 }
-location /events_1 {
+location /t {
     echo "ORIGIN";
 }
 --- request
-GET /events_1_prx
+GET /t_prx
 --- response_headers_like
 Via: \d+\.\d+ ledge.example.com:\d+ \(ledge/\d+\.\d+[\.\d]*\)
 --- no_error_log
