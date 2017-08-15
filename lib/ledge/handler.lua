@@ -852,9 +852,16 @@ local function serve(self)
         if self.config.advertise_ledge then
             via = via .. " (ledge/" .. _M._VERSION .. ")"
         end
+
+        -- Append upstream Via
         local res_via = res.header["Via"]
-        if  (res_via ~= nil) then
-            res.header["Via"] = via .. ", " .. res_via
+        if (res_via ~= nil) then
+            -- Fix multiple upstream Via headers into list form
+            if (type(res_via) == "table") then
+                res.header["Via"] = via .. ", " .. tbl_concat(res_via, ", ")
+            else
+                res.header["Via"] = via .. ", " .. res_via
+            end
         else
             res.header["Via"] = via
         end
