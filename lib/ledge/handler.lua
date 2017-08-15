@@ -703,19 +703,20 @@ local function save_to_cache(self, res)
 
     local keep_cache_for = self.config.keep_cache_for
     local ok, err = res:save(keep_cache_for)
-
-    -- TODO: Do somethign with this err?
+    if not ok then ngx_log(ngx_ERR, err) end
 
     -- Set revalidation parameters from this request
     local reval_params, reval_headers = revalidation_data(self)
 
-    -- TODO: Catch errors
-    redis:del(key_chain.reval_params)
-    redis:hmset(key_chain.reval_params, reval_params)
+    local _, err = redis:del(key_chain.reval_params)
+    if err then ngx_log(ngx_ERR, err) end
+    _, err = redis:hmset(key_chain.reval_params, reval_params)
+    if err then ngx_log(ngx_ERR, err) end
 
-    -- TODO: Catch errors
-    redis:del(key_chain.reval_req_headers)
-    redis:hmset(key_chain.reval_req_headers, reval_headers)
+    _, err = redis:del(key_chain.reval_req_headers)
+    if err then ngx_log(ngx_ERR, err) end
+    _, err = redis:hmset(key_chain.reval_req_headers, reval_headers)
+    if err then ngx_log(ngx_ERR, err) end
 
     local expiry = res:ttl() + keep_cache_for
     redis:expire(key_chain.reval_params, expiry)
