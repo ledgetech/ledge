@@ -127,9 +127,8 @@ delete_sentinel_config:
 	-@rm -f $(SENTINEL_CONFIG_PREFIX)-*.conf
 
 flush_db:
-	-@echo "Flushing Redis databases"
-	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_DATABASE) flushdb
-	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) flushdb
+	-@echo "Flushing all Redis databases"
+	@$(REDIS_CLI) flushall
 
 check_ports:
 	-@echo "Checking ports $(REDIS_PORTS)"
