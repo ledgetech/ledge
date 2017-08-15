@@ -852,17 +852,20 @@ local function serve(self)
         if self.config.advertise_ledge then
             via = via .. " (ledge/" .. _M._VERSION .. ")"
         end
+
+        -- Append upstream Via
         local res_via = res.header["Via"]
-        if  (res_via ~= nil) then
+        if (res_via ~= nil) then
+            -- Fix multiple upstream Via headers into list form
             if (type(res_via) == "table") then
-              res.header["Via"] = via .. ", " .. table.concat(res_via, ", ")
+                res.header["Via"] = via .. ", " .. tbl_concat(res_via, ", ")
             else
-              res.header["Via"] = via .. ", " .. res_via
+                res.header["Via"] = via .. ", " .. res_via
             end
         else
             res.header["Via"] = via
         end
-       
+
         -- X-Cache header
         -- Don't set if this isn't a cacheable response. Set to MISS is we
         -- fetched.
