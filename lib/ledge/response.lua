@@ -286,7 +286,7 @@ function _M.read(self)
 
     -- "touch" other keys not needed for read, so that they are
     -- less likely to be unfairly evicted ahead of time
-    -- TODO: From Redis 3.2.1 this can be one TOUCH command
+    -- Note: From Redis 3.2.1 this could be one TOUCH command
     local _ = redis:hlen(key_chain.reval_params)
     local _ = redis:hlen(key_chain.reval_req_headers)
     if self.size > 0 then

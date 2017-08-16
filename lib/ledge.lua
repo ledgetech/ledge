@@ -55,7 +55,7 @@ local handler_defaults = setmetatable({
     storage_driver = "ledge.storage.redis",
     storage_driver_config = {},
 
-    origin_mode = _M.ORIGIN_MODE_NORMAL,  -- TODO rename upstream mode?
+    origin_mode = _M.ORIGIN_MODE_NORMAL,
 
     -- Note that upstream timeout and keepalive config is shared with outbound
     -- ESI request, which are not necessarily configured to use this "upstream"
