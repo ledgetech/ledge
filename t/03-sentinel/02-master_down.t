@@ -26,7 +26,7 @@ init_by_lua_block {
     local sentinel_port = $ENV{TEST_LEDGE_SENTINEL_PORT}
 
     local redis_connector_params = {
-        url = "sentinel://" .. master_name .. ":a/" .. tostring(db),
+        url = "sentinel://" .. master_name .. ":s/" .. tostring(db),
         sentinels = {
             { host = "127.0.0.1", port = sentinel_port },
         },
