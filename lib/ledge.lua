@@ -158,6 +158,17 @@ end
 _M.create_redis_connection = create_redis_connection
 
 
+local function create_redis_slave_connection()
+    local params = tbl_copy_merge_defaults(
+        { role = "slave" },
+        config.redis_connector_params
+    )
+
+    return redis_connector.new(params):connect()
+end
+_M.create_redis_slave_connection = create_redis_slave_connection
+
+
 local function close_redis_connection(redis)
     return redis_connector.new(
         config.redis_connector_params
