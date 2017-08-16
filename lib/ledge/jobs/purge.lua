@@ -10,6 +10,8 @@ local ngx_md5 = ngx.md5
 local tbl_getn = table.getn
 
 local purge = require("ledge.purge").purge
+local create_redis_slave_connection = require("ledge").create_redis_slave_connection
+local close_redis_connection = require("ledge").close_redis_connection
 
 local _M = {
     _VERSION = '1.28.6',
@@ -23,9 +25,20 @@ function _M.perform(job)
         return nil, "job-error", "no redis connection provided"
     end
 
+    local slave, err = create_redis_slave_connection()
+    if not slave then
+        job.redis_slave = job.redis
+    else
+        job.redis_slave = slave
+    end
+
     -- This runs recursively using the SCAN cursor, until the entire keyspace
     -- has been scanned.
     local res, err = _M.expire_pattern(0, job)
+
+    if slave then
+        close_redis_connection(slave)
+    end
 
     if not res then
         return nil, "redis-error", err
@@ -42,7 +55,7 @@ function _M.expire_pattern(cursor, job)
     end
 
     -- Scan using the "main" key to get a single key per cache entry
-    local res, err = job.redis:scan(
+    local res, err = job.redis_slave:scan(
         cursor,
         "MATCH", job.data.key_chain.main,
         "COUNT", job.data.keyspace_scan_count
