@@ -186,7 +186,7 @@ Note that multiple functions can be bound to a single event, either globally or 
 
 Binding a function globally means it will fire for the given event, on all requests. This is perhaps useful if you have many different `location` blocks, but need to always perform the same logic.
 
-```nginx
+```lua
 init_by_lua_block {
     require("ledge"):bind("before_serve", function(res)
         res.header["X-Foo"] = "bar"   -- always set X-Foo to bar
@@ -198,7 +198,7 @@ init_by_lua_block {
 
 More commonly, we just want to alter behaviour for a given Nginx `location`. 
 
-```nginx
+```lua
 location /foo_location {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
@@ -218,7 +218,7 @@ Writing simple logic for events is not expensive at all (and in many cases will 
 
 If you have lots of event handlers, consider that creating closures in Lua is relatively expensive. A good solution would be to make your own module, and pass the defined functions in.
 
-```nginx
+```lua
 location /foo_location {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
