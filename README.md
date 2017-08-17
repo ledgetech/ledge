@@ -106,7 +106,7 @@ There are four different layers to the `configuration` system. Firstly there is 
 
 This is specified during the Nginx `init` phase, passing a configuration table to the `ledge.configure()` method.
 
-```nginx
+```lua
 init_by_lua_block {
     require("ledge").configure({
         redis_connector_params = {
