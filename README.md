@@ -7,6 +7,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 
 * [Overview](#overview)
 * [Installation](#installation)
+* [Minimal configuration](#minimal-configuration)
 * [Configuration options](#configuration-options)
 * [Binding to events](#events)
 * [Background workers](#background-workers)
@@ -48,7 +49,7 @@ This will install the latest stable release, and all other Lua module dependenci
 Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx. If you are new to OpenResty, it's probably important to take the time to do this properly, as the environment is quite specific. Specifcally, it's useful to understand the meaning of the different Nginx phase hooks, `init_by_lua` / `content_by_lua` and so on.
 
 
-### Minimal configuration
+## Minimal configuration
 
 Assuming you have Redis running on `localhost:6379`.
 
@@ -80,9 +81,13 @@ http {
 }
 ```
 
-## Configuration
+## Nomenclature
 
+The central module is called `ledge`, and provides factory methods for creating `handler` instances (for handling a request) and `worker` instances (for running background tasks). The `ledge` module is also where global configuration is managed.
 
+A `handler` is short lived. It is typically created at the beginning of the Nginx `content` phase for a request, and when its `run()` method is called, takes responsibility for processing the current request and delivering a response. When `run()` has completed, HTTP status, headers and body will have been delivered.
+
+A `worker` is long lived, and there is one per Nginx worker process. It is created when Nginx starts a worker process, and dies when the Nginx worker dies. The `worker` pops queued background tasks, and processes them.
 
 
 ## Handler configuration options
