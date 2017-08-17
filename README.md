@@ -26,30 +26,30 @@ fragments where their TTL differs, serving stale content whilst [revalidating in
 
 ## Installation
 
-Ledge is a Lua module for [OpenResty](https://openresty.org). It is not designed to work in a pure Lua environment, and depends completely upon Redis data structures to function.
-
-Download and install:
+### 1. Download and install:
 
 * [OpenResty](http://openresty.org/) >= 1.11.x
 * [Redis](http://redis.io/download) >= 2.8.x
-* [LuaRocks](https://luarocks.org/) *(Not required, but simplifies installation)*
+* [LuaRocks](https://luarocks.org/)
 
-To install run:
+### 2. Install Ledge and its dependencies:
 
 ```
 luarocks install ledge
 ```
 
-This will install the latest stable release, and all other Lua module dependencies, which if installing without LuaRocks are:
+This will install the latest stable release, and all other Lua module dependencies, which if installing manually without LuaRocks are:
 
 * [lua-resty-http](https://github.com/pintsized/lua-resty-http)
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector)
 * [lua-resty-qless](https://github.com/pintsized/lua-resty-qless)
 * [lua-resty-cookie](https://github.com/cloudflare/lua-resty-cookie)
 * [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib)
-* [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) *optional, for load balancing / healthchecking upstreams*
+* [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) *(optional, for load balancing / healthchecking upstreams)*
 
-Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx. If you are new to OpenResty, it's quite important to take the time to do this properly, as the environment is unusual. Specifcally, it's useful to understand the meaning of the different Nginx phase hooks such as `init_by_lua` and `content_by_lua`, as well as how the `lua-nginx-module` locates Lua modules with the [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path) directive.
+### 3. Review OpenResty documentation
+
+If you are new to OpenResty, it's quite important to review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx, as the environment is unusual. Specifcally, it's useful to understand the meaning of the different Nginx phase hooks such as `init_by_lua` and `content_by_lua`, as well as how the `lua-nginx-module` locates Lua modules with the [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path) directive.
 
 
 ## Nomenclature
@@ -58,7 +58,7 @@ The central module is called `ledge`, and provides factory methods for creating 
 
 A `handler` is short lived. It is typically created at the beginning of the Nginx `content` phase for a request, and when its `run()` method is called, takes responsibility for processing the current request and delivering a response. When `run()` has completed, HTTP status, headers and body will have been delivered to the client.
 
-A `worker` is long lived, and there is one per Nginx worker process. It is created when Nginx starts a worker process, and dies when the Nginx worker dies. The `worker` pops queued background tasks, and processes them.
+A `worker` is long lived, and there is one per Nginx worker process. It is created when Nginx starts a worker process, and dies when the Nginx worker dies. The `worker` pops queued background jobs (using [qless](https://github.com/pintsized/lua-resty-qless)), and processes them.
 
 An `upstream` is the only thing which must be manually configured, and points to another HTTP host where actual content lives. Typically one would use DNS to resolve client connections to the Nginx server running Ledge, and tell Ledge where to fetch from with the `upstream` configuration. As such, Ledge isn't designed to work as a forwarding proxy.
 
@@ -66,12 +66,10 @@ An `upstream` is the only thing which must be manually configured, and points to
 
 Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a driver system making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
 
-There are four different layers to the `configuration` system. Firstly there is `metadata` and default `handler`config, which are global and must be set during the Nginx `init` phase. `metadata` config is simply the Redis connection details, but the default `handler` config can be any `handler` configuration which you want to be pre-set for all spawned request `handler` instances. Beyond this, you can specify `handler` config on an Nginx `location` block basis, which override any defaults given. And finally, there are some performance tuning config options for the `worker` instances.
-
 
 ## Minimal configuration
 
-Assuming you have Redis running on `localhost:6379`.
+Assuming you have Redis running on `localhost:6379`, and your upstream is at `localhost:8080`.
 
 ```nginx
 http {
@@ -80,7 +78,8 @@ http {
 
     init_by_lua_block {
         require("ledge").set_handler_defaults({
-            upstream_host = "upstream.example.com",
+            upstream_host = "127.0.0.1",
+            upstream_port = 8080,
         })
     }
 
@@ -104,10 +103,36 @@ http {
 
 ## Config systems
 
+There are four different layers to the `configuration` system. Firstly there is `metadata` and default `handler` config, which are global and must be set during the Nginx `init` phase. `metadata` config is simply the Redis connection details, but the default `handler` config can be any `handler` configuration which you want to be pre-set for all spawned request `handler` instances. Beyond this, you can specify `handler` config on an Nginx `location` block basis, which will override any defaults given. And finally, there are some performance tuning config options for the `worker` instances.
 
 
+### Metadata config
 
-## Handler configuration options
+```nginx
+init_by_lua_block {
+    require("ledge").configure({
+        redis_connector_params = {
+            url = "redis://mypassword@127.0.0.1:6380/3",
+        }
+        qless_db = 4,
+    })
+}
+```
+
+#### redis_connector_params
+
+`default: {}`
+
+Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to `lua-resty-redis-connector`.
+
+#### qless_db
+
+`default: 1`
+
+Specifies the Redis DB number to store [qless](https://github.com/pintsized/lua-resty-qless) background job data.
+
+
+### Handler config
 
 Options can be specified globally by calling `ledge:set_handler_defaults()`
 inside the `init_by_lua_block` directive, or when creating a handler in a
