@@ -58,7 +58,7 @@ The central module is called `ledge`, and provides factory methods for creating 
 
 A `handler` is short lived. It is typically created at the beginning of the Nginx `content` phase for a request, and when its `run()` method is called, takes responsibility for processing the current request and delivering a response. When `run()` has completed, HTTP status, headers and body will have been delivered to the client.
 
-A `worker` is long lived, and there is one per Nginx worker process. It is created when Nginx starts a worker process, and dies when the Nginx worker dies. The `worker` pops queued background jobs (using [qless](https://github.com/pintsized/lua-resty-qless)), and processes them.
+A `worker` is long lived, and there is one per Nginx worker process. It is created when Nginx starts a worker process, and dies when the Nginx worker dies. The `worker` pops queued background jobs and processes them.
 
 An `upstream` is the only thing which must be manually configured, and points to another HTTP host where actual content lives. Typically one would use DNS to resolve client connections to the Nginx server running Ledge, and tell Ledge where to fetch from with the `upstream` configuration. As such, Ledge isn't designed to work as a forwarding proxy.
 
@@ -76,13 +76,6 @@ http {
     if_modified_since Off;
     lua_check_client_abort On;
 
-    init_by_lua_block {
-        require("ledge").set_handler_defaults({
-            upstream_host = "127.0.0.1",
-            upstream_port = 8080,
-        })
-    }
-
     init_worker_by_lua_block {
         require("ledge").create_worker():run()
     }
@@ -93,7 +86,10 @@ http {
 
         location / {
             content_by_lua_block {
-                require("ledge").create_handler():run()
+                require("ledge").create_handler({
+                    upstream_host = "127.0.0.1",
+                    upstream_port = 8080,
+                }):run()
             }
         }
     }
@@ -107,6 +103,8 @@ There are four different layers to the `configuration` system. Firstly there is 
 
 
 ### Metadata config
+
+This is specified during the Nginx `init` phase, passing a configuration table to the `ledge.configure()` method.
 
 ```nginx
 init_by_lua_block {
