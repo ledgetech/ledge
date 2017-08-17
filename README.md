@@ -13,6 +13,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 * [Events system](#events-system)
 * [Caching basics](#caching-basics)
 * [Purging](#purging)
+    * [Wildcard purging](#wildcard-purging)
 * [Serving stale content](#serving-stale-content)
 * [ESI](#esi)
 * [Licence](#licence)
@@ -235,7 +236,7 @@ location /foo_location {
 
 ## Caching basics
 
-For normal HTTP caching operation, no additional configuration is required. If the HTTP response indicates the resource can be cached, then it will cache it. If the HTTP request indicates it accepts cache, it will be served cache. Note that these two conditions aren't mutually exclusive -- a request could specify `no-cache`, and this will indeed trigger a fetch upstream, but if the response is cacheable then it will be saved and served to subsequent cache-accepting requests.
+For normal HTTP caching operation, no additional configuration is required. If the HTTP response indicates the resource can be cached, then it will cache it. If the HTTP request indicates it accepts cache, it will be served cache. Note that these two conditions aren't mutually exclusive - a request could specify `no-cache`, and this will indeed trigger a fetch upstream, but if the response is cacheable then it will be saved and served to subsequent cache-accepting requests.
 
 For more information on the myriad factors affecting this, including end-to-end revalidation and so on, please refer to [RFC 7234](https://tools.ietf.org/html/rfc7234).
 
@@ -281,10 +282,50 @@ There are three purge modes, selectable by setting the `X-Purge` request header 
 }
 ```
 
+Background revalidation jobs can be tracked in the qless metadata. See [managing qless](#managing-qless) for more information.
+
+In general, `PURGE` is considered an administration task and probably shouldn't be allowed from the internet. Consider limiting it by IP address for example:
+
+```nginx
+limit_except GET POST PUT DELETE {
+    allow   127.0.0.1;
+    deny    all;
+}
+```
+
+### Wildcard purging
+
+Wildcard (\*) patterns are also supported in `PURGE` URIs, which will always return a status of `200` and a JSON body detailing a background job. Wildcard purges involve scanning the entire keyspace, and so can take a little while. See [keyspace\_scan\_count](#keyspace_scan_count) for tuning help.
+
+In addition, the `X-Purge` mode will propagate to all URIs purged as a result of the wildcard, making it possible to trigger site / section wide revalidation for example. Be careful what you wish for.
+
+`$> curl -v -X PURGE -H "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/* | jq .`
+
+```json
+{
+  "purge_mode": "revalidate",
+  "qless_job": {
+    "options": {
+      "priority": 5,
+      "jid": "b2697f7cb2e856cbcad1f16682ee20b0",
+      "tags": [
+        "purge"
+      ]
+    },
+    "jid": "b2697f7cb2e856cbcad1f16682ee20b0",
+    "klass": "ledge.jobs.purge"
+  },
+  "result": "scheduled"
+}
+```
+
 
 ## Serving stale content
 
 ## ESI
+
+
+## Managing Qless
 
 
 ## Author
