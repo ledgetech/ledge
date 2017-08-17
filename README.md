@@ -1,20 +1,11 @@
 # Ledge
 
-An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for
-[Nginx](http://nginx.org), backed by [Redis](http://redis.io).
+An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://nginx.org) / [OpenResty](https://openresty.org), backed by [Redis](http://redis.io).
 
 
 ## Table of Contents
 
-* [Status](#status)
-* [Features](#features)
-    * [Dynamic configuration](#dynamic-configuration)
-    * [Serving stale content](#serving-stale-content)
-    * [PURGE API](#purge-api)
-    * [Load balancing upstreams](#load-balancing-upstreams)
-    * [Redis failover with Sentinel](#redis-sentinel)
-    * [Collapsed forwarding](#collapsed-forwarding)
-    * [Edge Side Includes](#edge-side-includes-esi)
+* [Overview](#overview)
 * [Installation](#installation)
 * [Configuration options](#configuration-options)
 * [Binding to events](#events)
@@ -23,367 +14,22 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for
 * [Licence](#licence)
 
 
-## Status
+## Overview
 
-This branch contains work towards `v2`, and as such should be considered
-experimental with functionality changing without much notice. The latest `v1.*`
-tag is considered more stable.
+Ledge aims to be an RFC compliant HTTP reverse proxy cache, providing a fast, robust and scalable alternative to Squid / Varnish etc.
 
-
-## Features
-
-Ledge aims to be an RFC compliant HTTP reverse proxy cache, providing a fast and
-robust alternative to Squid / Varnish etc.
-
-There are exceptions and omissions. Please raise an
-[issue](https://github.com/pintsized/ledge/issues) if something doesn't work as
-expected.
-
-Moreover, it is particularly suited to applications where the origin is
-expensive or distant, making it desirable to serve from cache as optimistically
-as possible. For example, using [ESI](#edge-side-includes-esi) to separate page
-fragments where their TTL differs, serving stale content whilst
-[revalidating in the background](#stale--background-revalidation),
-[collapsing](#collapsed-forwarding) concurrent similar upstream requests,
-dynamically modifying the cache key specification, and
-[automatically revalidating](#revalidate-on-purge) content with a PURGE API.
-
-
-### Dynamic configuration
-
-Default behaviours aim to be as RFC compliant as possible, but whilst many
-advanced features can be [configured](#configuration-options), often in the real
-world it can be hard to coerce an origin server to cooperate properly with HTTP
-caching semantics.
-
-By [binding to events](#events), it's possible to dynamically alter behaviours
-of Ledge by, for example, adjusting a given response to include a `Cache-Control`
-header, only when fetching from the upstream (i.e. on a cache MISS).
-
-```lua
-handler:bind("after_upstream_request", function(res)
-    res.header["Cache-Control"] = "public, max-age=3600"
-end)
-```
-
-### Serving stale content
-
-Content is considered "stale" when its age is beyond its TTL. However, depending
-on the value of [keep_cache_for](#keep_cache_for) (which defaults to 1 month),
-we don't actually expire content in Redis straight away.
-
-This allows us to implement the stale cache control extensions described in
-[RFC5861](https://tools.ietf.org/html/rfc5861), which provides request and
-response header semantics for describing how stale something can be served, when
-it should be revalidated in the background, and how long we can serve stale
-content in the event of upstream errors.
-
-This can be very effective in ensuring a fast user experience. For example, if
-your content has a `max-age` of 24 hours, consider changing this to 1 hour, and
-adding `stale-while-revalidate` for 23 hours. The net TTL is therefore the same,
-but the first request after the first hour will trigger backgrounded
-revalidation, extending the TTL for a further 1 hour + 23 hours.
-
-If your origin server cannot be configured in this way, you can always override
-by [binding](#events) to the `before_save` event.
-
-```lua
-handler:bind("before_save", function(res)
-    -- Valid for 1 hour, stale-while-revalidate for 23 hours,
-    -- stale-if-error for three days
-    res.header["Cache-Control"]
-        = "max-age=3600, stale-while-revalidate=82800, stale-if-error=259200"
-end)
-```
-
-In other words, set the TTL to the highest comfortable frequency of requests at
-the origin, and `stale-while-revalidate` to the longest comfortable TTL, to
-increase the chances of background revalidation occurring. Note that the first
-stale request will obviously get stale content, and so very long values can
-result in very out of data content for one request.
-
-All stale behaviours are constrained by normal cache control semantics. For
-example, if the origin is down, and the response could be served stale due to
-the upstream error, but the request contains `Cache-Control: no-cache` or even
-`Cache-Control: max-age=60` where the content is older than 60 seconds, they
-will be served the error, rather than the stale content.
-
-
-### PURGE API
-
-Cache can be invalidated using the PURGE method. This will return a status of
-`200` indicating success, or `404` if there was nothing to purge. A JSON
-response body is returned with more information.
-
-`$> curl -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
-```json
-{
-  "purge_mode": "invalidate",
-  "result": "nothing to purge"
-}
-```
-
-In addition, PURGE requests accept an `X-Purge` request header, to alter the
-purge mode. Supported values are `invalidate` (default), `delete` (to actually
-hard remove the item and all metadata), and `revalidate`.
-
-
-#### Revalidate-on-purge
-
-When specifying `X-Purge: revalidate`, a JSON response is returned detailing a
-background [Qless](https://github.com/pintsized/lua-resty-qless) job ID
-scheduled to revalidate the cache item.
-
-Note that `X-Cache: revalidate, delete` has no useful meaning because
-revalidation requires metadata to be present (`delete` overrides).
-
-`$> curl -X PURGE -H "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/page1 | jq .`
-
-```json
-{
-  "purge_mode": "revalidate",
-  "qless_job": {
-    "options": {
-      "priority": 4,
-      "jid": "5eeabecdc75571d1b93e9c942dfcebcb",
-      "tags": [
-        "revalidate"
-      ]
-    },
-    "jid": "5eeabecdc75571d1b93e9c942dfcebcb",
-    "klass": "ledge.jobs.revalidate"
-  },
-  "result": "already expired"
-}
-```
-
-
-#### Wildcard PURGE
-
-Wildcard (\*) patterns are also supported in URIs, which will always return a
-status of `200` and a JSON body detailing a background job ID. Wildcard purges
-involve scanning the entire keyspace, and so can take a little while. See
-[keyspace_scan_count](#keyspace_scan_count) for tuning help.
-
-In addition, the `X-Purge` request header will propagate to all URIs purged as
-a result of the wildcard, making it possible to trigger site / section wide
-revalidation for example. Again, be careful what you wish for.
-
-`$> curl -v -X PURGE -H "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/* | jq .`
-
-```json
-{
-  "purge_mode": "revalidate",
-  "qless_job": {
-    "options": {
-      "priority": 5,
-      "jid": "b2697f7cb2e856cbcad1f16682ee20b0",
-      "tags": [
-        "purge"
-      ]
-    },
-    "jid": "b2697f7cb2e856cbcad1f16682ee20b0",
-    "klass": "ledge.jobs.purge"
-  },
-  "result": "scheduled"
-}
-```
-
-
-### Load balancing upstreams
-
-Multiple upstreams can be load balanced (and optionally health-checked) by
-passing a configured instance of
-[lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) and
-setting [use_resty_upstream](#use_resty_upstream) to `true`.
-
-
-### Redis Sentinel
-
-Support for Redis [Sentinel](http://redis.io/topics/sentinel) is fully
-integrated, making it possible to run master / slave pairs, where Sentinel
-promotes the slave to master in the event of failure, without losing cache.
-
-Cache reads will be served from the slave in the window between the master
-failing and the slave being promoted, whilst writes are temporarily proxied
-without cache.
-
-
-### Collapsed forwarding
-
-With [collapsed forwarding](#enable_collapsed_forwarding) enabled, Ledge will
-attempt to collapse concurrent origin requests for known (previously) cacheable
-resources into single upstream requests.
-
-This is particularly useful to reduce load at the origin if a spike of traffic
-occurs for expired and slow content (since the chances of concurrent requests
-is higher).
-
-
-### Edge Side Includes (ESI)
-
-Almost complete support for the
-[ESI 1.0 Language Specification](https://www.w3.org/TR/esi-lang) is included,
-with a few exceptions, and a few enhancements.
-
-```html
-<html>
-<esi:include="/header" />
-<body>
-
-   <esi:choose>
-      <esi:when test="$(QUERY_STRING{foo}) == 'bar'">
-         Hi
-      </esi:when>
-      <esi:otherwise>
-         <esi:choose>
-            <esi:when test="$(HTTP_COOKIE{mycookie}) == 'yep'">
-               <esi:include src="http://example.com/_fragments/fragment1" />
-            </esi:when>
-         </esi:choose>
-      </esi:otherwise>
-   </esi:choose>
-
-</body>
-</html>
-```
-
-#### Enabling ESI
-
-Note that simply [enabling](#esi_enabled) ESI might not be enough. We also check
-the [content type](#esi_content_types) against the allowed types specified, but
-more importantly ESI processing is contingent upon the
-[Edge Architecture Specification](https://www.w3.org/TR/edge-arch/). When
-enabled, Ledge will advertise capabilities upstream with the
-`Surrogate-Capability` request header, and expect the origin to include a
-`Surrogate-Control` header delegating ESI processing to Ledge.
-
-If your origin is not ESI aware, a common approach is to bind to the
-[after_upstream_request](#after_upstream_request) event in order to add the `Surrogate-Control`
-header manually. E.g.
-
-```lua
-handler:bind("after_upstream_request", function(res)
-    -- Don't enable ESI on redirect responses
-    -- Don't override Surrogate Control if it already exists
-    local status = res.status
-    if not res.header["Surrogate-Control"] and not (status > 300 and status < 303) then
-        res.header["Surrogate-Control"] = 'content="ESI/1.0"'
-    end
-end)
-```
-
-Note that if ESI is processed, downstream cache-ability is automatically dropped
-since you don't want other intermediaries or browsers caching the result
-downstream.
-
-It's therefore best to only set `Surrogate-Control` for content which you know
-has ESI instructions. Whilst Ledge will detect the presence of ESI instructions
-when saving (and do nothing on cache HITs if no instructions are present), on a
-cache MISS it will have already dropped downstream cache headers before reading
-/ saving the body. This is a side-effect of the
-[streaming architecture](#streaming-architecture).
-
-#### Regular expressions in conditions
-
-In addition to the operators defined in the
-[ESI specification](https://www.w3.org/TR/esi-lang), we also support regular
-expressions in conditions (as string literals), using the `=~` operator.
-
-```html
-<esi:choose>
-   <esi:when test="$(QUERY_STRING{name}) =~ '/james|john/i'">
-      Hi James or John
-   </esi:when>
-</esi:choose>
-```
-
-Supported modifiers are as per the
-[ngx.re.\*](https://github.com/openresty/lua-nginx-module#ngxrematch)
-documentation.
-
-#### Custom ESI variables
-
-In addition to the variables defined in the
-[ESI specification](https://www.w3.org/TR/esi-lang), it is possible to stuff
-custom variables into a special table before running Ledge.
-
-A common use case is to combine the
-[Geo IP](http://nginx.org/en/docs/http/ngx_http_geoip_module.html) module
-variables for use in ESI conditions.
-
-```lua
-content_by_lua_block {
-   ngx.ctx.ledge_esi_custom_variables = {
-      messages = {
-         foo = "bar",
-      }
-   }
-   ledge:run()
-}
-```
-
-```html
-<esi:vars>$(MESSAGES{foo})</esi:vars>
-```
-
-#### ESI Args
-
-ESI args are query string parameters identified by a configurable prefix, which
-defaults to `esi_`. With ESI enabled, query string parameters with this prefix
-are removed from the cache key and also from upstream requests, and instead
-stuffed into the `$(ESI_ARGS{foo})` variable for use in ESI, typically in
-conditions.
-
-This has the effect of allowing query string parameters to alter the page layout
-without splitting the cache, since variables are used exclusively by the ESI
-processor, downstream of cache.
-
-`$> curl -H "Host: example.com" http://cache.example.com/page1?esi_display_mode=summary`
-
-```html
-<esi:choose>
-   <esi:when test="$(ESI_ARGS{display_mode}) == 'summary'">
-      <!-- SUMMARY -->
-   </esi:when>
-   <esi:when test="$(ESI_ARGS{display_mode}) == 'details'">
-      <!-- DETAILS -->
-   </esi:when>
-</esi:choose>
-```
-
-In this example, the `esi_display_mode` values of `summary` or `details` will
-return the same cache HIT, but display different content.
-
-If `$(ESI_ARGS)` is used without a field key, it renders the original query
-string arguments, e.g. `esi_foo=bar&esi_display_mode=summary`, URL encoded.
-
-#### Missing ESI features
-
-The following parts of the
-[ESI specification](https://www.w3.org/TR/esi-lang) are not supported, but could
-be in due course if a need is identified.
-
-* `<esi:inline>` not implemented (or advertised as a capability).
-* No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
-* `<esi:try | attempt | except>` not implemented.
-* The "dictionary (special)" substructure variable type for `HTTP_USER_AGENT` is not implemented.
+Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible. For example, using [ESI](#edge-side-includes-esi) to separate page
+fragments where their TTL differs, serving stale content whilst [revalidating in the background](#stale--background-revalidation), [collapsing](#collapsed-forwarding) concurrent similar upstream requests, dynamically modifying the cache key specification, and [automatically revalidating](#revalidate-on-purge) content with a PURGE API.
 
 
 ## Installation
 
-Ledge is a Lua module for OpenResty. It is not designed to work in a pure Lua
-environment, and depends completely upon Redis data structures to function.
-
-*Note: Currently all cache and metadata is stored in Redis, and thus in
-**memory**. This is an important consideration if you plan on having a very
-large cache. There are longer term plans to optionally move response body
-storage to a disk-backed system.*
+Ledge is a Lua module for [OpenResty](https://openresty.org). It is not designed to work in a pure Lua environment, and depends completely upon Redis data structures to function.
 
 Download and install:
 
-* [OpenResty](http://openresty.org/) >= 1.9.x *(With LuaJIT enabled)*
-* [Redis](http://redis.io/download) >= 2.8.x *(Note: Redis 3.2.x is not yet supported)*
+* [OpenResty](http://openresty.org/) >= 1.11.x
+* [Redis](http://redis.io/download) >= 2.8.x
 * [LuaRocks](https://luarocks.org/) *(Not required, but simplifies installation)*
 
 ```
@@ -399,23 +45,12 @@ This will install the latest stable release, and all other Lua module dependenci
 * [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib)
 * [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream)
 
-Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module)
-documentation on how to run Lua code in Nginx. If you are new to OpenResty, it's
-important to take the time to do this properly, as the environment is quite
-specific.
-
-In your `nginx.conf` file:
-
-1. Ensure that [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path) is set correctly to locate Lua modules installed by LuaRocks. In most cases the default will be fine.
-
-2. Enable the [lua_check_client_abort](https://github.com/openresty/lua-nginx-module#lua_check_client_abort) directive to avoid orphaned connections to both the origin and Redis.
-
-3. Ensure [if_modified_since](http://nginx.org/en/docs/http/ngx_http_core_module.html#if_modified_since) is set to `Off` otherwise Nginx's own conditional validation will interfere.
+Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx. If you are new to OpenResty, it's important to take the time to do this properly, as the environment is quite specific.
 
 
 ### Minimal configuration
 
-Assuming you have Redis running on the the default `localhost:6379`.
+Assuming you have Redis running on `localhost:6379`.
 
 ```nginx
 nginx {
@@ -444,6 +79,10 @@ nginx {
 	}
 }
 ```
+
+## Configuration
+
+
 
 
 ## Handler configuration options
