@@ -45,7 +45,7 @@ This will install the latest stable release, and all other Lua module dependenci
 * [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib)
 * [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream)
 
-Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx. If you are new to OpenResty, it's important to take the time to do this properly, as the environment is quite specific.
+Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx. If you are new to OpenResty, it's probably important to take the time to do this properly, as the environment is quite specific. Specifcally, it's useful to understand the meaning of the different Nginx phase hooks, `init_by_lua` / `content_by_lua` and so on.
 
 
 ### Minimal configuration
@@ -53,9 +53,9 @@ Review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) doc
 Assuming you have Redis running on `localhost:6379`.
 
 ```nginx
-nginx {
-	if_modified_since Off;
-	lua_check_client_abort On;
+http {
+    if_modified_since Off;
+    lua_check_client_abort On;
 
     init_by_lua_block {
         require("ledge").set_handler_defaults({
@@ -63,20 +63,20 @@ nginx {
         })
     }
 
-	init_worker_by_lua_block {
-		require("ledge").create_worker():run()
-	}
+    init_worker_by_lua_block {
+        require("ledge").create_worker():run()
+    }
 
-	server {
-		server_name example.com;
-		listen 80;
+    server {
+        server_name example.com;
+        listen 80;
 
-		location / {
-			content_by_lua_block {
-				require("ledge").create_handler():run()
-			}
-		}
-	}
+        location / {
+            content_by_lua_block {
+                require("ledge").create_handler():run()
+            }
+        }
+    }
 }
 ```
 
