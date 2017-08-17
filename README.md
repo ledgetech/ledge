@@ -69,7 +69,7 @@ Cache body data is handled by the `storage` system, and as mentioned, by default
 
 Assuming you have Redis running on `localhost:6379`, and your upstream is at `localhost:8080`.
 
-```nginx
+```lua
 http {
     if_modified_since Off;
     lua_check_client_abort On;
@@ -106,7 +106,7 @@ In addition, there is an [events system](#events-system) for binding Lua functio
 
 The `ledge.configure()` method provides Ledge with Redis connection details for `metadata`. This is global and cannot be specified or adjusted outside the Nginx `init` phase.
 
-```nginx
+```lua
 init_by_lua_block {
     require("ledge").configure({
         redis_connector_params = {
@@ -121,7 +121,7 @@ init_by_lua_block {
 
 The `ledge.set_handler_defaults()` method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but defaults can be overriden on a per `handler` basis.
 
-```nginx
+```lua
 init_by_lua_block {
     require("ledge").set_handler_defaults({
         upstream_host = "127.0.0.1",
@@ -134,7 +134,7 @@ init_by_lua_block {
 
 Config given to `ledge.create_handler()` will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
 
-```nginx
+```lua
 server {
     server_name example.com;
     listen 80;
@@ -153,7 +153,7 @@ server {
 
 Background job queues can be run at varying amounts of concurrency per worker. See [managing qless](#managing-qless) for more details.
 
-```nginx
+```lua
 init_worker_by_lua_block {
     require("ledge").create_worker({
         interval = 1,
