@@ -99,14 +99,16 @@ http {
 
 ## Config systems
 
-There are four different layers to the `configuration` system. Firstly there is `metadata` and default `handler` config, which are global and must be set during the Nginx `init` phase. `metadata` config is simply the Redis connection details, but the default `handler` config can be any `handler` configuration which you want to be pre-set for all spawned request `handler` instances. Beyond this, you can specify `handler` config on an Nginx `location` block basis, which will override any defaults given. And finally, there are some performance tuning config options for the `worker` instances.
+There are four different layers to the `configuration` system. Firstly there is the `metadata` location config and default `handler` config, which are global and must be set during the Nginx `init` phase. Beyond this, you can specify `handler` config on an Nginx `location` block basis, which will override any defaults given. And finally, there are some performance tuning config options for the `worker` instances.
+
+In addition, there is an [events](#events) system for binding Lua functions to mid-request events, proving opportunities to dynamically alter configuration.
 
 
 ### Metadata config
 
-This is specified during the Nginx `init` phase, passing a configuration table to the `ledge.configure()` method.
+The `ledge.configure()` method provides Ledge with Redis connection details for `metadata`. This is global and cannot be specified or adjusted outside the Nginx `init` phase.
 
-```lua
+```nginx
 init_by_lua_block {
     require("ledge").configure({
         redis_connector_params = {
@@ -117,18 +119,52 @@ init_by_lua_block {
 }
 ```
 
-#### redis_connector_params
+### Handler default
 
-`default: {}`
+The `ledge.set_handler_defaults()` method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but defaults can be overriden on a per `handler` basis.
 
-Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to `lua-resty-redis-connector`.
+```nginx
+init_by_lua_block {
+    require("ledge").set_handler_defaults({
+        upstream_host = "127.0.0.1",
+        upstream_port = 8080,
+    })
+}
+```
 
-#### qless_db
+### Handler instance config
 
-`default: 1`
+Config given to `ledge.create_handler()` will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
 
-Specifies the Redis DB number to store [qless](https://github.com/pintsized/lua-resty-qless) background job data.
+```nginx
+server {
+    server_name example.com;
+    listen 80;
 
+    location / {
+        content_by_lua_block {
+            require("ledge").create_handler({
+                upstream_port = 8081,
+            }):run()
+        }
+    }
+}
+```
+
+### Worker config
+
+Background job queues can be run at varying amounts of concurrency per worker. See [managing qless](#managing-qless) for more details.
+
+```nginx
+init_worker_by_lua_block {
+    require("ledge").create_worker({
+        interval = 1,
+        gc_queue_concurrency = 1,
+        purge_queue_concurrency = 2,
+        revalidate_queue_concurrency = 5,
+    }):run()
+}
+```
 
 ### Handler config
 
