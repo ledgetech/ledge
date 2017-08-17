@@ -10,10 +10,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 * [Nomenclature](#nomenclature)
 * [Minimal configuration](#minimal-configuration)
 * [Config systems](#config-systems)
-* [Configuration options](#configuration-options)
-* [Binding to events](#events)
-* [Background workers](#background-workers)
-* [Logging](#logging)
+* [Events system](#events-system)
 * [Licence](#licence)
 
 
@@ -66,7 +63,6 @@ An `upstream` is the only thing which must be manually configured, and points to
 [Redis](http://redis.io) is used for much more than cache storage. We rely heavily on its data structures to maintain cache `metadata`, as well as embedded Lua scripts for atomic task management and so on. By default, all cache body data and `metadata` will be stored in the same Redis instance. The location of cache `metadata` is global, set when Nginx starts up.
 
 Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a driver system making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
-
 
 
 ## Minimal configuration
@@ -231,196 +227,6 @@ location /foo_location {
     }
 }
 ```
-
-
-## Event types
-
-* [after_cache_read](#after_cache_read)
-* [before_upstream_connect](#before_upstream_connect)
-* [before_upstream_request](#before_upstream_request)
-* [before_esi_inclulde_request"](#before_esi_include_request)
-* [after_upstream_request](#after_upstream_request)
-* [before_save](#before_save)
-* [before_serve](#before_serve)
-* [before_save_revalidation_data](#before_save_revalidation_data)
-
-### after_cache_read
-
-syntax: `handler:bind("after_cache_read", function(res) -- end)`
-
-params: `res` The cached `ledge.response` instance.
-
-Fires directly after the response was successfully loaded from cache.
-
-
-### before_upstream_connect
-
-syntax: `ledge:bind("before_upstream_connect", function(handler) -- end)`
-
-params: `handler`. The current handler instance.
-
-Fires before the default `handler.upstream_client` is created.  
-Use to override the default `resty.http` client and provide a pre-connected client module compatible with `resty.httpc`
-
-
-### before_upstream_request
-
-syntax: `ledge:bind("before_upstream_request", function(req_params) -- end)`
-
-params: `req_params`. The table of request params about to send to the
-[httpc:request](https://github.com/pintsized/lua-resty-http#request) method.
-
-Fires when about to perform an upstream request.
-
-
-### before_esi_include_request
-
-syntax: `ledge:bind("before_esi_include_request", function(req_params) -- end)`
-
-params: `req_params`. The table of request params about to be used for an ESI
-include.
-
-Fires when about to perform a HTTP request on behalf of an ESI include
-instruction.
-
-
-### after_upstream_request
-
-syntax: `ledge:bind("after_upstream_request", function(res) -- end)`
-
-params: `res` The `ledge.response` object.
-
-Fires when the status/headers have been fetched, but before it is stored.
-Typically used to override cache headers before we decide what to do with this
-response.
-
-*Note: unlike `before_save` below, this fires for all fetched content, not just
-cacheable content.*
-
-
-### before_save
-
-syntax: `ledge:bind("before_save", function(res) -- end)`
-
-params: `res` The `ledge.response` object.
-
-Fires when we're about to save the response.
-
-
-### before_serve
-
-syntax: `ledge:bind("before_serve", function(res) -- end)`
-
-params: `res` The `ledge.response` object.
-
-Fires when we're about to serve. Often used to modify downstream headers.
-
-
-### before_save_revalidation_data
-
-syntax: `ledge:bind("before_save_revalidation_data", function(reval_params, reval_headers) -- end)`
-
-params: `reval_params`. Table of revalidation params.
-
-params: `reval_headers`. Table of revalidation headers.
-
-Fires when a background revalidation is triggered or when cache is being saved.
-Allows for modifying the headers and paramters (such as connection parameters)
-which are inherited by the background revalidation.
-
-The `reval_params` are values derived from the current running configuration for:
-
-* server_addr
-* server_port
-* scheme
-* uri
-* connect_timeout
-* read_timeout
-* ssl_server_name
-* ssl_verify
-
-
-## Background workers
-
-Ledge uses [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) to
-schedule and process background tasks, which are stored in Redis (usually in a
-separate DB to cache data).
-
-Jobs are scheduled for background revalidation requests as well as wildcard
-PURGE requests, but most importantly for garbage collection of replaced body
-entities.
-
-That is, it's very important that jobs are being run properly and in a timely
-fashion.
-
-Installing the
-[web user interface](https://github.com/hamishforbes/lua-resty-qless-web) can be
-very helpful to check this.
-
-You may also wish to tweak the
-[qless job history](https://github.com/pintsized/lua-resty-qless#configuration-options)
-settings if it takes up too much space.
-
-### run_workers
-
-syntax: `init_worker_by_lua_block { ledge:create_worker(options):run() }`
-
-default options: `{ interval = 10, concurrency = 1, purge_concurrency = 1, revalidate_concurrency = 1 }`
-
-Starts the Ledge workers within each Nginx worker process. When no jobs are left
-to be processed, each worker will wait for `interval` before checking again.
-
-You can have many worker "light threads" per worker process, by upping the
-concurrency. They will yield to each other when doing i/o. Concurrency can be
-adjusted for each job type indepedently:
-
-* __concurrency__: Controls core job concurrency, which currently is just the garbage collection jobs.
-* __purge_concurrency__: Controls job concurrency for backgrounded purge requests.
-* __revalidate_concurrency__: Controls job concurrency for backgrounded revalidation.
-
-The default options are quite conservative. You probably want to up the
-`*concurrency` options and lower the `interval` on busy systems.
-
-
-## Logging
-
-For cacheable responses, Ledge will add headers indicating the cache status.
-These can be added to your Nginx log file in the normal way.
-
-An example using the default combined format plus the available headers:
-
-```
-    log_format ledge '$remote_addr - $remote_user [$time_local] '
-                    '"$request" $status $body_bytes_sent '
-                    '"$http_referer" "$http_user_agent" '
-                    '"Cache:$sent_http_x_cache"  "Age:$sent_http_age" "Via:$sent_http_via"'
-                    ;
-
-    access_log /var/log/nginx/access_log ledge;
-```
-
-Result:
-```
-   192.168.59.3 - - [23/May/2016:22:22:18 +0000] "GET /x/y/z HTTP/1.1" 200 57840 "-" "curl/7.37.1""Cache:HIT from 159e8241f519:8080"  "Age:724"
-```
-
-
-### X-Cache
-
-This header follows the convention set by other HTTP cache servers. It indicates
-simply `HIT` or `MISS` and the host name in question, preserving upstream values
-when more than one cache server is in play.
-
-If a resource is considered not cacheable, the `X-Cache` header will not be
-present in the response.
-
-For example:
-
-* `X-Cache: HIT from ledge.tld` *A cache hit, with no (known) cache layer upstream.*
-* `X-Cache: HIT from ledge.tld, HIT from proxy.upstream.tld` *A cache hit, also hit upstream.*
-* `X-Cache: MISS from ledge.tld, HIT from proxy.upstream.tld` *A cache miss, but hit upstream.*
-* `X-Cache: MISS from ledge.tld, MISS from proxy.upstream.tld` *Regenerated at the origin.*
-
 
 
 ## Author
