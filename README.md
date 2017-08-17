@@ -11,6 +11,10 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 * [Minimal configuration](#minimal-configuration)
 * [Config systems](#config-systems)
 * [Events system](#events-system)
+* [Caching basics](#caching-basics)
+* [Purging](#purging)
+* [Serving stale content](#serving-stale-content)
+* [ESI](#esi)
 * [Licence](#licence)
 
 
@@ -67,7 +71,7 @@ Cache body data is handled by the `storage` system, and as mentioned, by default
 
 ## Minimal configuration
 
-Assuming you have Redis running on `localhost:6379`, and your upstream is at `localhost:8080`.
+Assuming you have Redis running on `localhost:6379`, and your upstream is at `localhost:8080`, add the following to the `nginx.conf` file in your OpenResty installation.
 
 ```lua
 http {
@@ -227,6 +231,60 @@ location /foo_location {
     }
 }
 ```
+
+
+## Caching basics
+
+For normal HTTP caching operation, no additional configuration is required. If the HTTP response indicates the resource can be cached, then it will cache it. If the HTTP request indicates it accepts cache, it will be served cache. Note that these two conditions aren't mutually exclusive -- a request could specify `no-cache`, and this will indeed trigger a fetch upstream, but if the response is cacheable then it will be saved and served to subsequent cache-accepting requests.
+
+For more information on the myriad factors affecting this, including end-to-end revalidation and so on, please refer to [RFC 7234](https://tools.ietf.org/html/rfc7234).
+
+The goal is to be 100% RFC compliant, but with some extensions to allow more agressive caching in certain cases. If something doesn't work as you expect, please do feel free to [raise an issue](https://github.com/pintsized/ledge).
+
+
+## Purging
+
+To manually invalidate a cache item (or purge), we support the non-standard `PURGE` method familiar to users of Squid. Send a HTTP request to the URI with the method set, and Ledge will attempt to invalidate the item, returing status `200` on success and `404` if the URI was not found in cache, along with a JSON body for more details.
+
+`$> curl -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
+
+```json
+{
+    "purge_mode": "invalidate",
+    "result": "nothing to purge"
+}
+```
+
+There are three purge modes, selectable by setting the `X-Purge` request header with one or more of the following values:
+
+* `invalidate`: (default) marks the item as expired, but doesn't delete anything.
+* `delete`: hard removes the item from cache
+* `revalidate`: invalidates but then schedules a background revalidation to re-prime the cache.
+
+`$> curl -X PURGE -H "X-Purge: revalidate" -H "Host: example.com" http://cache.example.com/page1 | jq .`
+
+```json
+{
+  "purge_mode": "revalidate",
+  "qless_job": {
+    "options": {
+      "priority": 4,
+      "jid": "5eeabecdc75571d1b93e9c942dfcebcb",
+      "tags": [
+        "revalidate"
+      ]
+    },
+    "jid": "5eeabecdc75571d1b93e9c942dfcebcb",
+    "klass": "ledge.jobs.revalidate"
+  },
+  "result": "already expired"
+}
+```
+
+
+## Serving stale content
+
+## ESI
 
 
 ## Author
