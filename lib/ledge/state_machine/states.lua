@@ -234,31 +234,40 @@ return {
         local key_chain = handler:cache_key_chain()
         local lock_key = key_chain.fetching_lock
 
-        -- Watch the lock key before we attempt to lock. If we fail to lock, we
-        -- need to subscribe for updates, but there's a chance we might miss the
-        -- message. This "watch" allows us to abort the "subscribe" transaction
-        -- if we've missed the opportunity.
-        --
-        -- We must unwatch later for paths without transactions, else subsequent
-        -- transactions on this connection could fail.
-        redis:watch(lock_key)
-
         local res, err = acquire_lock(redis, lock_key, timeout)
 
         if res == nil then -- Lua script failed
-            redis:unwatch()
             ngx_log(ngx_ERR, err)
             return sm:e "collapsed_forwarding_failed"
         elseif res then -- We have the lock
-            redis:unwatch()
             return sm:e "obtained_collapsed_forwarding_lock"
-        else -- Lock is busy
-            redis:multi()
-            redis:subscribe(key_chain.root)
-            if redis:exec() ~= ngx_null then -- We subscribed before the lock was freed
+        else
+            -- We didn't get the lock, try to collapse
+            -- Create a new Redis connection and put it into subscribe mode
+            -- Then check if the lock still exists as it may have been freed
+            -- in the time between attempting to acquire and subscribing.
+            -- In which case we have missed the publish event
+
+            local redis_subscriber = ledge.create_redis_connection()
+            local ok, err = redis_subscriber:subscribe(key_chain.root)
+            if not ok or ok == ngx_null then
+                -- Failed to enter subscribe mode
+                ngx_log(ngx_ERR, err)
+                return sm:e "collapsed_forwarding_failed"
+            end
+
+            local ok, err = redis:exists(lock_key)
+            if ok == 1 then
+                -- We subscribed before the lock was freed
+                handler.redis_subscriber = redis_subscriber
                 return sm:e "subscribed_to_collapsed_forwarding_channel"
-            else -- Lock was freed before we subscribed
+            elseif ok == 0 then
+                -- Lock was freed before we subscribed
                 return sm:e "collapsed_forwarding_channel_closed"
+            else
+                -- Error checking lock still exists
+                ngx_log(ngx_ERR, err)
+                return sm:e "collapsed_forwarding_failed"
             end
         end
     end,
@@ -292,7 +301,7 @@ return {
     end,
 
     waiting_on_collapsed_forwarding_channel = function(sm, handler)
-        local redis = handler.redis
+        local redis = handler.redis_subscriber
 
         -- Extend the timeout to the size of the window
         redis:set_timeout(handler.config.collapsed_forwarding_window)
@@ -303,6 +312,7 @@ return {
             -- TODO this config is now in the singleton
             redis:set_timeout(60) --handler.config.redis_read_timeout)
             redis:unsubscribe()
+            ledge.close_redis_connection(redis)
 
             -- This is overly explicit for the sake of state machine introspection. That is
             -- we never call sm:e() without a literal event string.
