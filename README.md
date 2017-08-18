@@ -11,6 +11,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
     * [Cache keys](#cache-keys)
     * [Streaming design](#streaming-design)
     * [Collapsed forwarding](#collapsed-forwarding)
+    * [Advanced cache patterns](#advanced-cache-patterns)
     * [Performance characteristics](#performance-characteristics)
 * [Minimal configuration](#minimal-configuration)
 * [Config systems](#config-systems)
