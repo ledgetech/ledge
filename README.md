@@ -10,6 +10,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 * [Philosophy and Nomenclature](#philosophy-and-nomenclature)
     * [Cache keys](#cache-keys)
     * [Streaming design](#streaming-design)
+    * [Collapsed forwarding](#collapsed-forwarding)
     * [Performance characteristics](#performance-characteristics)
 * [Minimal configuration](#minimal-configuration)
 * [Config systems](#config-systems)
@@ -17,7 +18,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 * [Caching basics](#caching-basics)
 * [Purging](#purging)
     * [Wildcard purging](#wildcard-purging)
-* [Serving stale content](#serving-stale-content)
+* [Serving stale](#serving-stale)
 * [Edge Side Includes](#edge-side-includes)
 * [Administration](#administration)
     * [Managing Qless](#managing-qless)
@@ -95,6 +96,19 @@ It's also true (mostly) when processing [ESI](#edge-size-includes) instructions,
 
 This streaming design also improves latency, since we start serving the first `buffer` to the client request as soon as we're done with it, rather than fetching and saving an entire resource prior to serving. The `buffer` size can be [tuned](#buffer_size) even on a per `location` basis.
 
+
+### Collapsed forwarding
+
+By default, Ledge will attempt to collapse concurrent origin requests for known (previously) cacheable resources into a single upstream request. That is, if an upstream request for a resource is in progress, subsequent concurrent requests will not bother the upstream, and instead wait for the first request to finish.
+
+This is particularly useful to reduce upstream load if a spike of traffic occurs for expired and expensive content (since the chances of concurrent requests is higher on slower content).
+
+
+### Advanced cache patterns
+
+Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Include](#edge-side-includes) and [serving stale](#serving-stale) for more information.
+
+
 ### Performance characteristics
 
 
@@ -136,7 +150,7 @@ There are four different layers to the configuration system. Firstly there is th
 In addition, there is an [events system](#events-system) for binding Lua functions to mid-request events, proving opportunities to dynamically alter configuration.
 
 
-### Metadata config
+### Redis config
 
 The `ledge.configure()` method provides Ledge with Redis connection details for `metadata`. This is global and cannot be specified or adjusted outside the Nginx `init` phase.
 
