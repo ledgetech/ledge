@@ -721,31 +721,90 @@ Lowering this is fairer on slow clients, but widens the potential window for mul
 
 default: `false`
 
-With collapsed forwarding enabled, Ledge will attempt to collapse concurrent origin requests for known (previously) cacheable resources into single upstream requests.
-
-This is useful in reducing load at the origin if requests are expensive. The longer the origin request, the more useful this is, since the greater the chance of concurrent requests.
-
-Ledge wont collapse requests for resources that it hasn't seen before and weren't cacheable last time. If the resource has become non-cacheable since the last request, the waiting requests will go to the origin themselves (having waited on the first request to find this out).
-
 #### collapsed_forwarding_window
+
+When collapsed forwarding is enabled, if a fatal error occurs during the origin request, the collapsed requests may never receive the response they are waiting for. This setting puts a limit on how long they will wait, and how long before new requests will decide to try the origin for themselves.
+
+If this is set shorter than your origin takes to respond, then you may get more upstream requests than desired. Fatal errors (server reboot etc) may result in hanging connections for up to the maximum time set. Normal errors (such as upstream timeouts) work independently of this setting.
+
 
 #### gunzip_enabled
 
+default: `true`
+
+With this enabled, gzipped responses will be uncompressed on the fly for clients that do not set `Accept-Encoding: gzip`. Note that if we receive a gzipped response for a resource containing ESI instructions, we gunzip whilst saving and store uncompressed, since we need to read the ESI instructions.
+
+Also note that `Range` requests for gzipped content must be ignored - the full response will be returned.
+
 #### buffer_size
+
+default: `2^16 (64KB in bytes)`
+
+Specifies the internal buffer size (in bytes) used for data to be read/written/served. Upstream responses are read in chunks of this maximum size, preventing allocation of large amounts of memory in the event of receiving large files. Data is also stored internally as a list of chunks, and delivered to the Nginx output chain buffers in the same fashion.
+
+The only exception is if ESI is configured, and Ledge has determined there are ESI instructions to process, and any of these instructions span a given chunk. In this case, buffers are concatenated until a complete instruction is found, and then ESI operates on this new buffer, up to a maximum of [esi_max_size](#esi_max_size).
+
 #### keyspace_scan_count
+
+default: `1000`
+
+Tunes the behaviour of keyspace scans, which occur when sending a PURGE request with wildcard syntax. A higher number may be better if latency to Redis is high and the keyspace is large.
+
 #### max_uri_args
 
+default: `100`
+
+Limits the number of URI arguments returned in calls to [ngx.req.get_uri_args()](https://github.com/openresty/lua-nginx-module#ngxreqget_uri_args), to protect against DOS attacks.
+
 #### esi_enabled
+
+default: `false`
+
+Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though behaviour is also contingent upon [esi_content_types](#esi_content_types) and [esi_surrogate_delegation](#esi_surrogate_delegation) settings, as well as `Surrogate-Control` / `Surrogate-Capability` headers.
+
+ESI instructions are detected on the slow path (i.e. when fetching from the origin), so only instructions which are known to be present are processed on cache HITs.
+
 #### esi_content_types
+
+default: `{ text/html }`
+
+Specifies content types to perform ESI processing on. All other content types will not be considered for processing.
+
 #### esi_allow_surrogate_delegation
+
+default: false
+
+[ESI Surrogate Delegation](http://www.w3.org/TR/edge-arch) allows for downstream intermediaries to advertise a capability to process ESI instructions nearer to the client. By setting this to `true` any downstream offering this will disable ESI processing in Ledge, delegating it downstream.
+
+When set to a Lua table of IP address strings, delegation will only be allowed to this specific hosts. This may be important if ESI instructions contain sensitive data which must be removed.
+
 #### esi_recursion_limit
+
+default: 10
+
+Limits fragment inclusion nesting, to avoid accidental infinite recursion.
+
 #### esi_args_prefix
+
+default: "esi\_"
+
+URI args prefix for parameters to be ignored from the cache key (and not proxied upstream), for use exclusively with ESI rendering logic. Set to nil to disable the feature.
+
 #### esi_custom_variables
+
+defualt: `{}`
+
+Any variables supplied here will be available anywhere ESI vars can be used evaluated. See [Custom ESI variables](#custom-esi-variables).
+
 #### esi_max_size
+
+default: `1024 * 1024 (bytes)`
 
 #### advertise_ledge
 
+default `true`
 
+If set to false, disables advertising the software name and version, e.g. `(ledge/2.01)` from the `Via` response header.
 
 ### Events
 
