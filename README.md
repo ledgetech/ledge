@@ -96,6 +96,7 @@ This is tricky to generalise, and so by default Ledge puts sane defaults from th
 
 URI arguments are sorted alphabetically by default, so `http://example.com?a=1&b=2` would hit the same cache entry as `http://example.com?b=2&a=1`.
 
+[Back to TOC](#table-of-contents)
 
 ### Streaming design
 
@@ -108,6 +109,7 @@ It's also true (mostly) when processing [ESI](#edge-size-includes) instructions,
 
 This streaming design also improves latency, since we start serving the first `buffer` to the client request as soon as we're done with it, rather than fetching and saving an entire resource prior to serving. The `buffer` size can be [tuned](#buffer_size) even on a per `location` basis.
 
+[Back to TOC](#table-of-contents)
 
 ### Collapsed forwarding
 
@@ -115,6 +117,7 @@ By default, Ledge will attempt to collapse concurrent origin requests for known 
 
 This is particularly useful to reduce upstream load if a spike of traffic occurs for expired and expensive content (since the chances of concurrent requests is higher on slower content).
 
+[Back to TOC](#table-of-contents)
 
 ### Advanced cache patterns
 
@@ -194,6 +197,7 @@ Note that multiple functions can be bound to a single event, either globally or 
 
 See the [events](#events) section for a complete list of events and their definitions.
 
+[Back to TOC](#table-of-contents)
 
 ### Binding globally
 
@@ -206,6 +210,8 @@ init_by_lua_block {
     end)
 }
 ```
+
+[Back to TOC](#table-of-contents)
 
 ### Binding to handlers
 
@@ -224,6 +230,8 @@ location /foo_location {
     }
 }
 ```
+
+[Back to TOC](#table-of-contents)
 
 ### Performance implications
 
@@ -305,6 +313,8 @@ limit_except GET POST PUT DELETE {
 }
 ```
 
+[Back to TOC](#table-of-contents)
+
 ### Wildcard purging
 
 Wildcard (\*) patterns are also supported in `PURGE` URIs, which will always return a status of `200` and a JSON body detailing a background job. Wildcard purges involve scanning the entire keyspace, and so can take a little while. See [keyspace\_scan\_count](#keyspace_scan_count) for tuning help.
@@ -385,6 +395,8 @@ Almost complete support for the [ESI 1.0 Language Specification](https://www.w3.
 </html>
 ```
 
+[Back to TOC](#table-of-contents)
+
 ### Enabling ESI
 
 Note that simply [enabling](#esi_enabled) ESI might not be enough. We also check the [content type](#esi_content_types) against the allowed types specified, but more importantly ESI processing is contingent upon the [Edge Architecture Specification](https://www.w3.org/TR/edge-arch/). When enabled, Ledge will advertise capabilities upstream with the `Surrogate-Capability` request header, and expect the upstream response to include a `Surrogate-Control` header delegating ESI processing to Ledge.
@@ -406,6 +418,8 @@ Note that if ESI is processed, downstream cache-ability is automatically dropped
 
 It's therefore best to only set `Surrogate-Control` for content which you know has ESI instructions. Whilst Ledge will detect the presence of ESI instructions when saving (and do nothing on cache HITs if no instructions are present), on a cache MISS it will have already dropped downstream cache headers before reading / saving the body. This is a side-effect of the [streaming design](#streaming-design).
 
+[Back to TOC](#table-of-contents)
+
 ### Regular expressions in conditions
 
 In addition to the operators defined in the
@@ -422,6 +436,7 @@ expressions in conditions (as string literals), using the `=~` operator.
 
 Supported modifiers are as per the [ngx.re.\*](https://github.com/openresty/lua-nginx-module#ngxrematch) documentation.
 
+[Back to TOC](#table-of-contents)
 
 ### Custom ESI variables
 
@@ -442,6 +457,8 @@ content_by_lua_block {
 ```html
 <esi:vars>$(MESSAGES{foo})</esi:vars>
 ```
+
+[Back to TOC](#table-of-contents)
 
 ### ESI Args
 
@@ -466,6 +483,7 @@ In this example, the `esi_display_mode` values of `summary` or `details` will re
 
 If `$(ESI_ARGS)` is used without a field key, it renders the original query string arguments, e.g. `esi_foo=bar&esi_display_mode=summary`, URL encoded.
 
+[Back to TOC](#table-of-contents)
 
 ### Missing ESI features
 
@@ -500,6 +518,8 @@ init_by_lua_block {
 
 `config` is a table with the following options (unrecognised config will error hard on start up).
 
+[Back to TOC](#table-of-contents)
+
 
 #### redis_connector_params
 
@@ -513,6 +533,7 @@ Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-re
 
 Specifies the Redis DB number to store [qless](https://github.com/pintsized/lua-resty-qless) background job data.
 
+[Back to TOC](#table-of-contents)
 
 
 ### ledge.set\_handler\_defaults
@@ -529,6 +550,9 @@ init_by_lua_block {
     })
 }
 ```
+
+[Back to TOC](#table-of-contents)
+
 
 ### ledge.create\_handler
 
@@ -551,6 +575,9 @@ server {
 }
 ```
 
+[Back to TOC](#table-of-contents)
+
+
 ### ledge.create\_worker
 
 syntax: `local worker = ledge.create_worker(config)`
@@ -570,11 +597,17 @@ init_worker_by_lua_block {
 }
 ```
 
+[Back to TOC](#table-of-contents)
+
+
 ### ledge.bind
 
 syntax: `ledge.bind(event_name, callback)`
 
 Binds the `callback` function to the event given in `event_name`, globally for all requests on this system. Arguments to `callback` vary based on the event. See [below](#events) for event definitions.
+
+[Back to TOC](#table-of-contents)
+
 
 ### handler.bind
 
@@ -584,11 +617,17 @@ Binds the `callback` function to the event given in `event_name` for this handle
 
 Arguments to `callback` vary based on the event. See [below](#events) for event definitions.
 
+[Back to TOC](#table-of-contents)
+
+
 ### handler.run
 
 syntax: `handler:run()`
 
 Must be called during the `content_by_lua` phase. It processes the current request and serves a response. If you fail to call this method in your `location` block, nothing will happen.
+
+[Back to TOC](#table-of-contents)
+
 
 ### worker.run
 
@@ -661,6 +700,8 @@ This is a `string` value, which will be used to attempt to load a storage driver
 
 Storage configuration can vary based on the driver. Currently we only have a Redis driver.
 
+[Back to TOC](#handler-configuration-options)
+
 ##### Redis Storage driver config
 
 * `redis_connector_params` Redis params table, as per [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector)
@@ -669,6 +710,7 @@ Storage configuration can vary based on the driver. Currently we only have a Red
 
 If `supports_transactions` is set to `false`, cache bodies are not written atomically. However, if there is an error writing, the main Redis system will be notified and the overall transaction will be aborted. The result being potentially orphaned body entities in the storage system, which will hopefully eventually expire. The only reason to turn this off is if you are using a Redis proxy, as any transaction related commands will break the connection.
 
+[Back to TOC](#handler-configuration-options)
 
 #### upstream_connect_timeout
 
@@ -676,11 +718,15 @@ default: `1000 (ms)`
 
 Maximum time to wait for an upstream connection (in milliseconds). If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
 
+[Back to TOC](#handler-configuration-options)
+
 #### upstream_send_timeout
 
 default: `2000 (ms)`
 
 Maximum time to wait sending data on a connected upstream socket (in milliseconds). If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
+
+[Back to TOC](#handler-configuration-options)
 
 #### upstream_read_timeout
 
@@ -688,13 +734,19 @@ default: `10000 (ms)`
 
 Maximum time to wait on a connected upstream socket (in milliseconds). If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
 
+[Back to TOC](#handler-configuration-options)
+
 #### upstream_keepalive_timeout
 
 default: `75000`
 
+[Back to TOC](#handler-configuration-options)
+
 #### upstream_keepalive_poolsize
 
 default: `64`
+
+[Back to TOC](#handler-configuration-options)
 
 #### upstream_host
 
@@ -706,11 +758,15 @@ Specifies the hostname or IP address of the upstream host. If a hostname is spec
 resolver 8.8.8.8;
 ```
 
+[Back to TOC](#handler-configuration-options)
+
 #### upstream_port
 
 default: `80`
 
 Specifies the port of the upstream host.
+
+[Back to TOC](#handler-configuration-options)
 
 #### upstream_use_ssl
 
@@ -718,17 +774,23 @@ default: `false`
 
 Toggles the use of SSL on the upstream connection. Other `upstream_ssl_*` options will be ignored if this is not set to `true`.
 
+[Back to TOC](#handler-configuration-options)
+
 #### upstream_ssl_server_name
 
 default: `""`
 
 Specifies the SSL server name used for Server Name Indication (SNI). See [sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake) for more information.
 
+[Back to TOC](#handler-configuration-options)
+
 #### upstream_ssl_verify
 
 default: `false`
 
 Toggles SSL verification. See [sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake) for more information.
+
+[Back to TOC](#handler-configuration-options)
 
 #### cache_key_spec
 
@@ -768,6 +830,8 @@ require("ledge").create_handler({
 }):run()
 ```
 
+[Back to TOC](#handler-configuration-options)
+
 
 #### origin_mode
 
@@ -778,6 +842,8 @@ Determines the overall behaviour for connecting to the origin. `ORIGIN_MODE_NORM
 `ORIGIN_MODE_AVOID` is similar to Squid's `offline_mode`, where any retained cache (expired or not) will be served rather than trying the origin, regardless of cache-control headers, but the origin will be tried if there is no cache to serve.
 
 `ORIGIN_MODE_BYPASS` is the same as `AVOID`, except if there is no cache to serve we send a `503 Service Unavailable` status code to the client and never attempt an upstream connection.
+
+[Back to TOC](#handler-configuration-options)
 
 
 #### keep_cache_for
@@ -790,6 +856,8 @@ Items will be evicted when under memory pressure provided you are using one of t
 
 Items at the extreme end of this (i.e. nearly a month old) are clearly very rarely requested, or more likely, have been removed at the origin.
 
+[Back to TOC](#handler-configuration-options)
+
 
 #### minimum_old_entity_download_rate
 
@@ -799,16 +867,23 @@ Clients reading slower than this who are also unfortunate enough to have started
 
 Lowering this is fairer on slow clients, but widens the potential window for multiple old entities to stack up, which in turn could threaten Redis storage space and force evictions.
 
+[Back to TOC](#handler-configuration-options)
+
 
 #### enable_collapsed_forwarding
 
 default: `false`
+
+[Back to TOC](#handler-configuration-options)
+
 
 #### collapsed_forwarding_window
 
 When collapsed forwarding is enabled, if a fatal error occurs during the origin request, the collapsed requests may never receive the response they are waiting for. This setting puts a limit on how long they will wait, and how long before new requests will decide to try the origin for themselves.
 
 If this is set shorter than your origin takes to respond, then you may get more upstream requests than desired. Fatal errors (server reboot etc) may result in hanging connections for up to the maximum time set. Normal errors (such as upstream timeouts) work independently of this setting.
+
+[Back to TOC](#handler-configuration-options)
 
 
 #### gunzip_enabled
@@ -819,6 +894,9 @@ With this enabled, gzipped responses will be uncompressed on the fly for clients
 
 Also note that `Range` requests for gzipped content must be ignored - the full response will be returned.
 
+[Back to TOC](#handler-configuration-options)
+
+
 #### buffer_size
 
 default: `2^16 (64KB in bytes)`
@@ -827,17 +905,26 @@ Specifies the internal buffer size (in bytes) used for data to be read/written/s
 
 The only exception is if ESI is configured, and Ledge has determined there are ESI instructions to process, and any of these instructions span a given chunk. In this case, buffers are concatenated until a complete instruction is found, and then ESI operates on this new buffer, up to a maximum of [esi_max_size](#esi_max_size).
 
+[Back to TOC](#handler-configuration-options)
+
+
 #### keyspace_scan_count
 
 default: `1000`
 
 Tunes the behaviour of keyspace scans, which occur when sending a PURGE request with wildcard syntax. A higher number may be better if latency to Redis is high and the keyspace is large.
 
+[Back to TOC](#handler-configuration-options)
+
+
 #### max_uri_args
 
 default: `100`
 
 Limits the number of URI arguments returned in calls to [ngx.req.get_uri_args()](https://github.com/openresty/lua-nginx-module#ngxreqget_uri_args), to protect against DOS attacks.
+
+[Back to TOC](#handler-configuration-options)
+
 
 #### esi_enabled
 
@@ -847,11 +934,17 @@ Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though beh
 
 ESI instructions are detected on the slow path (i.e. when fetching from the origin), so only instructions which are known to be present are processed on cache HITs.
 
+[Back to TOC](#handler-configuration-options)
+
+
 #### esi_content_types
 
 default: `{ text/html }`
 
 Specifies content types to perform ESI processing on. All other content types will not be considered for processing.
+
+[Back to TOC](#handler-configuration-options)
+
 
 #### esi_allow_surrogate_delegation
 
@@ -861,11 +954,17 @@ default: false
 
 When set to a Lua table of IP address strings, delegation will only be allowed to this specific hosts. This may be important if ESI instructions contain sensitive data which must be removed.
 
+[Back to TOC](#handler-configuration-options)
+
+
 #### esi_recursion_limit
 
 default: 10
 
 Limits fragment inclusion nesting, to avoid accidental infinite recursion.
+
+[Back to TOC](#handler-configuration-options)
+
 
 #### esi_args_prefix
 
@@ -873,21 +972,33 @@ default: "esi\_"
 
 URI args prefix for parameters to be ignored from the cache key (and not proxied upstream), for use exclusively with ESI rendering logic. Set to nil to disable the feature.
 
+[Back to TOC](#handler-configuration-options)
+
+
 #### esi_custom_variables
 
 defualt: `{}`
 
 Any variables supplied here will be available anywhere ESI vars can be used evaluated. See [Custom ESI variables](#custom-esi-variables).
 
+[Back to TOC](#handler-configuration-options)
+
+
 #### esi_max_size
 
 default: `1024 * 1024 (bytes)`
+
+[Back to TOC](#handler-configuration-options)
+
 
 #### advertise_ledge
 
 default `true`
 
 If set to false, disables advertising the software name and version, e.g. `(ledge/2.01)` from the `Via` response header.
+
+[Back to TOC](#handler-configuration-options)
+
 
 ### Events
 
@@ -915,6 +1026,9 @@ The `res` table given contains:
 
 *Note; there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
 
+[Back to TOC](#events)
+
+
 #### before_upstream_connect
 
 syntax: `bind("before_upstream_connect", function(handler) -- end)`
@@ -922,6 +1036,8 @@ syntax: `bind("before_upstream_connect", function(handler) -- end)`
 params: `handler`. The current handler instance.
 
 Fires before the default `handler.upstream_client` is created, allowing a pre-connected HTTP client to be externally provided. The client must be API compatible with [lua-resty-http](https://github.com/pintsized/lua-resty-http). For example, using [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) for load balancing.
+
+[Back to TOC](#events)
 
 
 #### before_upstream_request
@@ -932,6 +1048,8 @@ params: `req_params`. The table of request params about to send to the [request]
 
 Fires when about to perform an upstream request.
 
+[Back to TOC](#events)
+
 
 #### before_esi_include_request
 
@@ -940,6 +1058,8 @@ syntax: `bind("before_esi_include_request", function(req_params) -- end)`
 params: `req_params`. The table of request params about to be used for an ESI include, via the [request](https://github.com/pintsized/lua-resty-http#request) method.
 
 Fires when about to perform a HTTP request on behalf of an ESI include instruction.
+
+[Back to TOC](#events)
 
 
 #### after_upstream_request
@@ -959,6 +1079,8 @@ The `res` table given contains:
 
 *Note: unlike `before_save` below, this fires for all fetched content, not just cacheable content.*
 
+[Back to TOC](#events)
+
 
 #### before_save
 
@@ -975,6 +1097,9 @@ The `res` table given contains:
 
 *Note; there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
 
+[Back to TOC](#events)
+
+
 #### before_serve
 
 syntax: `ledge:bind("before_serve", function(res) -- end)`
@@ -989,6 +1114,8 @@ The `res` table given contains:
 * `res.status` the HTTP response status code
 
 *Note; there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
+
+[Back to TOC](#events)
 
 
 #### before_save_revalidation_data
@@ -1012,11 +1139,65 @@ The `reval_params` are values derived from the current running configuration for
 * ssl_server_name
 * ssl_verify
 
+[Back to TOC](#events)
+
 
 ## Administration
 
+
+### X-Cache
+
+Ledge adds the non-standard `X-Cache` header, familiar to users of other caches. It indicates simply `HIT` or `MISS` and the host name in question, preserving upstream values when more than one cache server is in play.
+
+If a resource is considered not cacheable, the `X-Cache` header will not be present in the response.
+
+For example:
+
+* `X-Cache: HIT from ledge.tld` *A cache hit, with no (known) cache layer upstream.*
+* `X-Cache: HIT from ledge.tld, HIT from proxy.upstream.tld` *A cache hit, also hit upstream.*
+* `X-Cache: MISS from ledge.tld, HIT from proxy.upstream.tld` *A cache miss, but hit upstream.*
+* `X-Cache: MISS from ledge.tld, MISS from proxy.upstream.tld` *Regenerated at the origin.*
+
+[Back to TOC](#table-of-contents)
+
+
+### Logging
+
+It's often useful to add some extra headers to your Nginx logs, for example
+
+```
+log_format ledge  '$remote_addr - $remote_user [$time_local] '
+                  '"$request" $status $body_bytes_sent '
+                  '"$http_referer" "$http_user_agent" '
+                  '"Cache:$sent_http_x_cache"  "Age:$sent_http_age" "Via:$sent_http_via"'
+                  ;
+
+access_log /var/log/nginx/access_log ledge;
+```
+
+Will give log lines such as:
+
+```
+192.168.59.3 - - [23/May/2016:22:22:18 +0000] "GET /x/y/z HTTP/1.1" 200 57840 "-" "curl/7.37.1""Cache:HIT from 159e8241f519:8080"  "Age:724"
+
+```
+[Back to TOC](#table-of-contents)
+
+
 ### Managing Qless
 
+Ledge uses [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) to schedule and process background tasks, which are stored in Redis.
+
+Jobs are scheduled for background revalidation requests as well as wildcard PURGE requests, but most importantly for garbage collection of replaced body entities.
+
+That is, it's very important that jobs are being run properly and in a timely fashion.
+
+Installing the [web user interface](https://github.com/hamishforbes/lua-resty-qless-web) can be very helpful to check this.
+
+You may also wish to tweak the [qless job history](https://github.com/pintsized/lua-resty-qless#configuration-options) settings if it takes up too much space.
+
+
+[Back to TOC](#table-of-contents)
 
 ## Author
 
