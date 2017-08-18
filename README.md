@@ -628,8 +628,7 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 
 #### after_cache_read
 
-syntax: `ledge.bind("after_cache_read", function(res) -- end)`
-syntax: `handler:bind("after_cache_read", function(res) -- end)`
+syntax: `bind("after_cache_read", function(res) -- end)`
 
 params: `res`. The cached response table.
 
@@ -644,8 +643,7 @@ The `res` table given contains:
 
 #### before_upstream_connect
 
-syntax: `ledge.bind("before_upstream_connect", function(handler) -- end)`
-syntax: `handler:bind("before_upstream_connect", function(handler) -- end)`
+syntax: `bind("before_upstream_connect", function(handler) -- end)`
 
 params: `handler`. The current handler instance.
 
@@ -654,8 +652,7 @@ Fires before the default `handler.upstream_client` is created, allowing a pre-co
 
 #### before_upstream_request
 
-syntax: `ledge.bind("before_upstream_request", function(req_params) -- end)`
-syntax: `handler:bind("before_upstream_request", function(req_params) -- end)`
+syntax: `bind("before_upstream_request", function(req_params) -- end)`
 
 params: `req_params`. The table of request params about to send to the [request](https://github.com/pintsized/lua-resty-http#request) method.
 
@@ -664,8 +661,7 @@ Fires when about to perform an upstream request.
 
 #### before_esi_include_request
 
-syntax: `ledge.bind("before_esi_include_request", function(req_params) -- end)`
-syntax: `handler:bind("before_esi_include_request", function(req_params) -- end)`
+syntax: `bind("before_esi_include_request", function(req_params) -- end)`
 
 params: `req_params`. The table of request params about to be used for an ESI include, via the [request](https://github.com/pintsized/lua-resty-http#request) method.
 
@@ -674,25 +670,36 @@ Fires when about to perform a HTTP request on behalf of an ESI include instructi
 
 #### after_upstream_request
 
-syntax: `ledge.bind("after_upstream_request", function(res) -- end)`
-syntax: `handler:bind("after_upstream_request", function(res) -- end)`
+syntax: `bind("after_upstream_request", function(res) -- end)`
 
 params: `res` The response table.
 
 Fires when the status / headers have been fetched, but before the body it is stored. Typically used to override cache headers before we decide what to do with this response.
 
+The `res` table given contains:
+
+* `res.header` the table of case-insenitive HTTP response headers
+* `res.status` the HTTP response status code
+
+*Note; there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
+
 *Note: unlike `before_save` below, this fires for all fetched content, not just cacheable content.*
-*Note: there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
 
 
 #### before_save
 
-syntax: `ledge:bind("before_save", function(res) -- end)`
+syntax: `bind("before_save", function(res) -- end)`
 
-params: `res` The `ledge.response` object.
+params: `res` The response table.
 
 Fires when we're about to save the response.
 
+The `res` table given contains:
+
+* `res.header` the table of case-insenitive HTTP response headers
+* `res.status` the HTTP response status code
+
+*Note; there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
 
 #### before_serve
 
@@ -702,18 +709,23 @@ params: `res` The `ledge.response` object.
 
 Fires when we're about to serve. Often used to modify downstream headers.
 
+The `res` table given contains:
+
+* `res.header` the table of case-insenitive HTTP response headers
+* `res.status` the HTTP response status code
+
+*Note; there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
+
 
 #### before_save_revalidation_data
 
-syntax: `ledge:bind("before_save_revalidation_data", function(reval_params, reval_headers) -- end)`
+syntax: `bind("before_save_revalidation_data", function(reval_params, reval_headers) -- end)`
 
 params: `reval_params`. Table of revalidation params.
 
-params: `reval_headers`. Table of revalidation headers.
+params: `reval_headers`. Table of revalidation HTTP headers.
 
-Fires when a background revalidation is triggered or when cache is being saved.
-Allows for modifying the headers and paramters (such as connection parameters)
-which are inherited by the background revalidation.
+Fires when a background revalidation is triggered or when cache is being saved. Allows for modifying the headers and paramters (such as connection parameters) which are inherited by the background revalidation.
 
 The `reval_params` are values derived from the current running configuration for:
 
