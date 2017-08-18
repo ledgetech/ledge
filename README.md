@@ -582,36 +582,6 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 
 ### Handler configuration options
 
-* [storage_driver](#storage_driver)
-* [storage_driver_config](#storage_driver_config)
-* [origin_mode](#origin_mode)
-* [upstream_connect_timeout](#upstream_connect_timeout)
-* [upstream_send_timeout](#upstream_send_timeout)
-* [upstream_read_timeout](#upstream_read_timeout)
-* [upstream_keepalive_timeout](#upstream_keepalive_timeout)
-* [upstream_keepalive_poolsize](#upstream_keepalive_poolsize)
-* [upstream_host](#upstream_host)
-* [upstream_port](#upstream_port)
-* [upstream_use_ssl](#upstream_use_ssl)
-* [upstream_ssl_server_name](#upstream_ssl_server_name)
-* [upstream_ssl_verify](#upstream_ssl_verify)
-* [buffer_size](#buffer_size)
-* [advertise_ledge](#buffer_size)
-* [keep_cache_for](#buffer_size)
-* [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
-* [esi_enabled](#esi_enabled)
-* [esi_content_types](#esi_content_types)
-* [esi_allow_surrogate_delegation](#esi_allow_surrogate_delegation)
-* [esi_recursion_limit](#esi_recursion_limit)
-* [esi_args_prefix](#esi_args_prefix)
-* [esi_custom_variables](#esi_custom_variables)
-* [esi_max_size](#esi_max_size)
-* [enable_collapsed_forwarding](#enable_collapsed_forwarding)
-* [collapsed_forwarding_window](#collapsed_forwarding_window)
-* [gunzip_enabled](#gunzip_enabled)
-* [keyspace_scan_count](#keyspace_scan_count)
-* [cache_key_spec](#cache_key_spec)
-* [max_uri_args](#max_uri_args)
 
 
 #### storage_driver
@@ -673,11 +643,90 @@ Specifies the SSL server name used for Server Name Indication (SNI). See [sslhan
 
 #### upstream_ssl_verify
 
+default: `false`
+
+Toggles SSL verification. See [sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake) for more information.
+
 #### cache_key_spec
+
+`default: cache_key_spec = { "scheme", "host", "uri", "args" },`
+
+Specifies the format for creating cache keys. The default spec, shown above will create keys in Redis similar to:
+
+```
+ledge:cache:http:example.com:/about::
+ledge:cache:http:example.com:/about:p=2&q=foo:
+```
+
+The list of available string identifieres in the spec is:
+
+* `scheme` either http or https
+* `host` the hostname of the current request
+* `port` the public port of the current request
+* `uri` the URI (without args)
+* `args` the URI args, sorted alphabetically
+
+In addition to these string identifiers, dynamic parameters can be added to the cache key by providing functions. Any functions given must expect no arguments and return a string value.
+
+```lua
+local function get_device_type()
+    -- dynamically work out device type
+    return "tablet"
+end
+
+require("ledge").create_handler({
+    cache_key_spec = {
+        get_device_type,
+        "scheme",
+        "host",
+        "uri",
+        "args",
+    }
+}):run()
+```
+
+
 #### origin_mode
+
+default: `ledge.ORIGIN_MODE_NORMAL`
+
+Determines the overall behaviour for connecting to the origin. `ORIGIN_MODE_NORMAL` will assume the origin is up, and connect as necessary.
+
+`ORIGIN_MODE_AVOID` is similar to Squid's `offline_mode`, where any retained cache (expired or not) will be served rather than trying the origin, regardless of cache-control headers, but the origin will be tried if there is no cache to serve.
+
+`ORIGIN_MODE_BYPASS` is the same as `AVOID`, except if there is no cache to serve we send a `503 Service Unavailable` status code to the client and never attempt an upstream connection.
+
+
 #### keep_cache_for
+
+default: `86400 * 30 (1 month in seconds)`
+
+Specifies how long to retain cache data past its expiry date. This allows us to serve stale cache in the event of upstream failure with [stale_if_error](#stale_if_error) or [origin_mode](#origin_mode) settings.
+
+Items will be evicted when under memory pressure provided you are using one of the Redis [volatile eviction policies](http://redis.io/topics/lru-cache), so there should generally be no real need to lower this for space reasons.
+
+Items at the extreme end of this (i.e. nearly a month old) are clearly very rarely requested, or more likely, have been removed at the origin.
+
+
 #### minimum_old_entity_download_rate
+
+default: `56 (kbps)`
+
+Clients reading slower than this who are also unfortunate enough to have started reading from an entity which has been replaced (due to another client causing a revalidation for example), may have their entity garbage collected before they finish, resulting in an incomplete resource being delivered.
+
+Lowering this is fairer on slow clients, but widens the potential window for multiple old entities to stack up, which in turn could threaten Redis storage space and force evictions.
+
+
 #### enable_collapsed_forwarding
+
+default: `false`
+
+With collapsed forwarding enabled, Ledge will attempt to collapse concurrent origin requests for known (previously) cacheable resources into single upstream requests.
+
+This is useful in reducing load at the origin if requests are expensive. The longer the origin request, the more useful this is, since the greater the chance of concurrent requests.
+
+Ledge wont collapse requests for resources that it hasn't seen before and weren't cacheable last time. If the resource has become non-cacheable since the last request, the waiting requests will go to the origin themselves (having waited on the first request to find this out).
+
 #### collapsed_forwarding_window
 
 #### gunzip_enabled
