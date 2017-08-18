@@ -7,8 +7,9 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 
 * [Overview](#overview)
 * [Installation](#installation)
-* [Nomenclature](#nomenclature)
-* [Performance characteristics](#performance-characteristics)
+* [Philosophy and Nomenclature](#philosophy-and-nomenclature)
+   * [Streaming design](#streaming-design)
+   * [Performance characteristics](#performance-characteristics)
 * [Minimal configuration](#minimal-configuration)
 * [Config systems](#config-systems)
 * [Events system](#events-system)
@@ -58,7 +59,7 @@ This will install the latest stable release, and all other Lua module dependenci
 If you are new to OpenResty, it's quite important to review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx, as the environment is unusual. Specifcally, it's useful to understand the meaning of the different Nginx phase hooks such as `init_by_lua` and `content_by_lua`, as well as how the `lua-nginx-module` locates Lua modules with the [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path) directive.
 
 
-## Nomenclature
+## Philosophy and Nomenclature
 
 The central module is called `ledge`, and provides factory methods for creating `handler` instances (for handling a request) and `worker` instances (for running background tasks). The `ledge` module is also where global configuration is managed.
 
@@ -72,7 +73,20 @@ An `upstream` is the only thing which must be manually configured, and points to
 
 Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a driver system making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
 
-## Performance characteristics
+
+### Streaming design
+
+HTTP response sizes can be wildly different, sometimes tiny and sometimes huge, and it's not always possible to know the total size up front.
+
+To guarantee predictable memory usage regardless of response sizes Ledge operates a streaming design, meaning it only ever operates on a single `buffer` per request at a time. This is equally true when fetching upstream to when reading from cache or 
+serving to the client request.
+
+It's also true (mostly) when processing [ESI](#edge-size-includes) instructions, except for in the case where instructions are found to span multiple buffers. In this case, we continue buffering until a complete instruction can be understood, up to a [configurable limit](#esi_max_size).
+
+This streaming design also improves latency, since we start serving the first `buffer` to the client request as soon as we're done with it, rather than fetching and saving an entire resource prior to serving. The `buffer` size can be [tuned](#buffer_size) even on a per `location` basis.
+
+### Performance characteristics
+
 
 
 ## Minimal configuration
