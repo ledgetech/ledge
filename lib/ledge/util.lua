@@ -4,7 +4,8 @@ local ffi = require "ffi"
 local type, next, setmetatable, getmetatable, error, tostring, select =
         type, next, setmetatable, getmetatable, error, tostring, select
 
-local str_gmatch = string.gmatch
+local str_find = string.find
+local str_sub = string.sub
 local tbl_insert = table.insert
 local co_create = coroutine.create
 local co_status = coroutine.status
@@ -55,19 +56,23 @@ _M.string.randomhex = randomhex
 
 
 local function str_split(str, delim)
-    if not str or not delim then return nil end
-    local it, err = str_gmatch(str, "([^"..delim.."]+)")
-    if it then
-        local output = {}
-        while true do
-            local m, err = it()
-            if not m then
-                break
+    local pos, endpos, prev, i = 0, 0, 0, 0
+    local out = {}
+    repeat
+        pos, endpos = str_find(str, delim, prev, true)
+        i = i+1
+        if pos then
+            out[i] = str_sub(str, prev, pos-1)
+        else
+            if prev <= #str then
+                out[i] = str_sub(str, prev, -1)
             end
-            tbl_insert(output, m)
+            break
         end
-        return output
-    end
+        prev = endpos +1
+    until pos == nil
+
+    return out
 end
 _M.string.split = str_split
 

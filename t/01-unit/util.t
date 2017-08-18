@@ -335,7 +335,7 @@ location /t {
         assert(t[4] == " ", "t[4] should be ' '")
 
         local t = str_split(str1, ", ")
-        assert(#t == 3, "#t should be 4")
+        assert(#t == 3, "#t should be 3")
         assert(t[1] == "comma", "t[1] should be 'comma'")
         assert(t[2] == "separated", "t[2] should be ' separated'")
         assert(t[3] == "string", "t[3] should be ' string'")

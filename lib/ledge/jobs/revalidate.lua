@@ -2,8 +2,6 @@ local http = require "resty.http"
 local http_headers = require "resty.http_headers"
 local ngx_null = ngx.null
 
-local str_match = string.match
-
 local _M = {
     _VERSION = '1.28.6',
 }
