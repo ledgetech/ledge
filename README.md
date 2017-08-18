@@ -488,7 +488,7 @@ init_by_lua_block {
 
 `default: {}`
 
-Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to `lua-resty-redis-connector`.
+Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to `lua-resty-redis-connector`, so review the documentation there for options, including how use [Redis Sentinel](https://redis.io/topics/sentinel).
 
 #### qless_db
 
@@ -502,7 +502,7 @@ Specifies the Redis DB number to store [qless](https://github.com/pintsized/lua-
 
 syntax: `ledge.set_handler_defaults(config)`
 
-The `set_handler_defaults()` method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but these defaults can be overriden on a per `handler` basis.
+This method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but these defaults can be overriden on a per `handler` basis. See [below](#handler-configuration-options) for a complete list of configuration options.
 
 ```lua
 init_by_lua_block {
@@ -515,7 +515,9 @@ init_by_lua_block {
 
 ### ledge.create\_handler
 
-Config given here will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
+syntax: `local handler = ledge.create_handler(config)`
+
+Creates a `handler` instance for the current reqiest. Config given here will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
 
 ```lua
 server {
@@ -534,7 +536,11 @@ server {
 
 ### ledge.create\_worker
 
-Background job queues can be run at varying amounts of concurrency per worker. See [managing qless](#managing-qless) for more details.
+syntax: `local worker = ledge.create_worker(config)`
+
+Creates a `worker` instance inside the current Nginx worker process, for processing background jobs.
+
+Job queues can be run at varying amounts of concurrency per worker, which can be set by providing `config` here. See [managing qless](#managing-qless) for more details.
 
 ```lua
 init_worker_by_lua_block {
@@ -549,16 +555,32 @@ init_worker_by_lua_block {
 
 ### ledge.bind
 
+syntax: `ledge.bind(event_name, callback)`
 
+Binds the `callback` function to the event given in `event_name`, globally for all requests on this system. Arguments to `callback` vary based on the event. See [below](#events) for event definitions.
 
 ### handler.bind
 
+syntax: `handler:bind(event_name, callback)`
+
+Binds the `callback` function to the event given in `event_name` for this handler only. Note the `:` in `handler:bind()` which differs to the global `ledge.bind()`.
+
+Arguments to `callback` vary based on the event. See [below](#events) for event definitions.
+
 ### handler.run
+
+syntax: `handler:run()`
+
+Must be called during the `content_by_lua` phase. It processes the current request and serves a response. If you fail to call this method in your `location` block, nothing will happen.
 
 ### worker.run
 
-### Handler configuration options
+syntax: `handler:run()`
 
+Must be called during the `init_worker` phase, otherwise background tasks will not be run, including garbage collection which is very importatnt.
+
+
+### Handler configuration options
 
 * [storage_driver](#storage_driver)
 * [storage_driver_config](#storage_driver_config)
