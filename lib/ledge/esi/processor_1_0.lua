@@ -438,7 +438,13 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
             config.upstream_read_timeout
         )
 
-        local res, err = httpc:connect(upstream, port)
+        local res, err
+        port = tonumber(port)
+        if port then
+            res, err = httpc:connect(upstream, port)
+        else
+            res, err = httpc:connect(upstream)
+        end
 
         if not res then
             ngx_log(ngx_ERR, err, " connecting to ", upstream,":", port)
