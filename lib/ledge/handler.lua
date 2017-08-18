@@ -202,7 +202,6 @@ local function cache_key(self)
         key_spec = {
             "scheme",
             "host",
-            "port",
             "uri",
             "args",
         }
