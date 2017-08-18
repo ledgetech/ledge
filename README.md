@@ -25,9 +25,16 @@ Moreover, it is particularly suited to applications where the origin is expensiv
 * [Serving stale](#serving-stale)
 * [Edge Side Includes](#edge-side-includes)
 * [API](#api)
-   * [ledge](#ledge)
-      * [ledge.configure](#ledge-configure)
-      * [ledge.set_handler_defaults)(#ledge.set_handler_defaults)
+    * [ledge.configure](#ledgeconfigure)
+    * [ledge.set_handler_defaults)(#ledgeset_handler_defaults)
+    * [ledge.create_handler)(#ledgecreate_handler)
+    * [ledge.create_worker)(#ledgecreate_worker)
+    * [ledge.bind)(#ledgebind)
+    * [handler.bind)(#handlerbind)
+    * [handler.run)(#handlerrun)
+    * [worker.run)(#workerrun)
+    * [Handler configuration options](#handler-configuration-options)
+    * [Events](#events)
 * [Administration](#administration)
     * [Managing Qless](#managing-qless)
 * [Licence](#licence)
@@ -458,9 +465,7 @@ be in due course if a need is identified.
 
 ## API
 
-### ledge
-
-#### ledge.configure
+### ledge.configure
 
 The `configure()` function provides Ledge with Redis connection details for all cache `metadata` and background jobs. This is global and cannot be specified or adjusted outside the Nginx `init` phase.
 
@@ -475,7 +480,7 @@ init_by_lua_block {
 }
 ```
 
-#### ledge.set\_handler\_defaults
+### ledge.set\_handler\_defaults
 
 The `set_handler_defaults()` method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but defaults can be overriden on a per `handler` basis.
 
@@ -488,7 +493,7 @@ init_by_lua_block {
 }
 ```
 
-#### ledge.create\_handler
+### ledge.create\_handler
 
 Config given to `ledge.create_handler()` will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
 
@@ -507,7 +512,7 @@ server {
 }
 ```
 
-#### ledge.create\_worker
+### ledge.create\_worker
 
 Background job queues can be run at varying amounts of concurrency per worker. See [managing qless](#managing-qless) for more details.
 
@@ -522,25 +527,15 @@ init_worker_by_lua_block {
 }
 ```
 
+### ledge.bind
 
-#### ledge.bind
+### handler.bind
 
+### handler.run
 
-### handler
-
-#### handler.bind
-
-#### handler.run
-
-
-### worker
-
-#### worker.run
-
-
+### worker.run
 
 ### Handler configuration options
-
 
 ### Events
 
