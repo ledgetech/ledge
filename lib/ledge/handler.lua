@@ -83,6 +83,7 @@ local function new(config, events)
 
         -- Slots for composed objects
         redis = {},
+        redis_subscriber = {},
         storage = {},
         state_machine = {},
         range = {},
