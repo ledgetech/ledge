@@ -100,7 +100,7 @@ This streaming design also improves latency, since we start serving the first `b
 
 ### Collapsed forwarding
 
-By default, Ledge will attempt to collapse concurrent origin requests for known (previously) cacheable resources into a single upstream request. That is, if an upstream request for a resource is in progress, subsequent concurrent requests will not bother the upstream, and instead wait for the first request to finish.
+By default, Ledge will attempt to collapse concurrent origin requests for known (previously) cacheable resources into a single upstream request. That is, if an upstream request for a resource is in progress, subsequent concurrent requests for the same resource will not bother the upstream, and instead wait for the first request to finish.
 
 This is particularly useful to reduce upstream load if a spike of traffic occurs for expired and expensive content (since the chances of concurrent requests is higher on slower content).
 
@@ -122,6 +122,14 @@ Assuming you have Redis running on `localhost:6379`, and your upstream is at `lo
 http {
     if_modified_since Off;
     lua_check_client_abort On;
+    
+    init_by_lua_block {
+        require("ledge").configure({
+            redis_connector_params = {
+                url = "redis://127.0.0.1:6379/0",
+            },
+        })
+    }
 
     init_worker_by_lua_block {
         require("ledge").create_worker():run()
@@ -364,7 +372,7 @@ In addition, the `X-Purge` mode will propagate to all URIs purged as a result of
 ```
 
 
-## Serving stale content
+## Serving stale
 
 Content is considered "stale" when its age is beyond its TTL. However, depending on the value of [keep_cache_for](#keep_cache_for) (which defaults to 1 month), we don't actually expire content in Redis straight away.
 
