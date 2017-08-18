@@ -15,7 +15,6 @@ Moreover, it is particularly suited to applications where the origin is expensiv
     * [Streaming design](#streaming-design)
     * [Collapsed forwarding](#collapsed-forwarding)
     * [Advanced cache patterns](#advanced-cache-patterns)
-    * [Performance characteristics](#performance-characteristics)
 * [Minimal configuration](#minimal-configuration)
 * [Config systems](#config-systems)
 * [Events system](#events-system)
@@ -77,7 +76,7 @@ If you are new to OpenResty, it's quite important to review the [lua-nginx-modul
 
 The central module is called `ledge`, and provides factory methods for creating `handler` instances (for handling a request) and `worker` instances (for running background tasks). The `ledge` module is also where global configuration is managed.
 
-A `handler` is short lived. It is typically created at the beginning of the Nginx `content` phase for a request, and when its `run()` method is called, takes responsibility for processing the current request and delivering a response. When `run()` has completed, HTTP status, headers and body will have been delivered to the client.
+A `handler` is short lived. It is typically created at the beginning of the Nginx `content` phase for a request, and when its [run()](#handlerrun) method is called, takes responsibility for processing the current request and delivering a response. When [run()](#handlerrun) has completed, HTTP status, headers and body will have been delivered to the client.
 
 A `worker` is long lived, and there is one per Nginx worker process. It is created when Nginx starts a worker process, and dies when the Nginx worker dies. The `worker` pops queued background jobs and processes them.
 
@@ -85,7 +84,7 @@ An `upstream` is the only thing which must be manually configured, and points to
 
 [Redis](http://redis.io) is used for much more than cache storage. We rely heavily on its data structures to maintain cache `metadata`, as well as embedded Lua scripts for atomic task management and so on. By default, all cache body data and `metadata` will be stored in the same Redis instance. The location of cache `metadata` is global, set when Nginx starts up.
 
-Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a driver system making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
+Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a [driver system](#storage_driver_config) making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
 
 
 ### Cache keys
@@ -118,7 +117,7 @@ This is particularly useful to reduce upstream load if a spike of traffic occurs
 
 ### Advanced cache patterns
 
-Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Include](#edge-side-includes), [serving stale](#serving-stale) and [revalidating on purge](#purging) for more information.
+Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Includes](#edge-side-includes), [serving stale](#serving-stale) and [revalidating on purge](#purging) for more information.
 
 
 ## Minimal configuration
@@ -163,9 +162,9 @@ http {
 
 ## Config systems
 
-There are four different layers to the configuration system. Firstly there is the main [Redis config](#configure) and [handler defaults](#set_handler_defaults) config, which are global and must be set during the Nginx `init` phase.
+There are four different layers to the configuration system. Firstly there is the main [Redis config](#ledgeconfigure) and [handler defaults](#ledgeset_handler_defaults) config, which are global and must be set during the Nginx `init` phase.
 
-Beyond this, you can specify [handler instance config](#create_handler) on an Nginx `location` block basis, and finally there are some performance tuning config options for the [worker](#create_worker) instances.
+Beyond this, you can specify [handler instance config](#ledgecreate_handler) on an Nginx `location` block basis, and finally there are some performance tuning config options for the [worker](#ledgecreate_worker) instances.
 
 In addition, there is an [events system](#events-system) for binding Lua functions to mid-request events, proving opportunities to dynamically alter configuration.
 
@@ -186,6 +185,8 @@ end)
 This particular event fires after we've fetched upstream, but before Ledge makes any decisions about whether the content can be cached or not. Once we've adjustead our headers, Ledge will read them as if they came from the upstream itself.
 
 Note that multiple functions can be bound to a single event, either globally or per handler, and they will be called in the order they were bound. There is also currently no means to inspect which functions have been bound, or to unbind them.
+
+See the [events](#events) section for a complete list of events and their definitions.
 
 
 ### Binding globally
@@ -329,7 +330,7 @@ This allows us to implement the stale cache control extensions described in [RFC
 
 This can be very effective in ensuring a fast user experience. For example, if your content has a genuine `max-age` of 24 hours, consider changing this to 1 hour, and adding `stale-while-revalidate` for 23 hours. The total TTL is therefore the same, but the first request after the first hour will trigger backgrounded revalidation, extending the TTL for a further 1 hour + 23 hours.
 
-If your origin server cannot be configured in this way, you can always override by [binding](#events) to the `before_save` event.
+If your origin server cannot be configured in this way, you can always override by [binding](#events) to the [before_save](#before_save) event.
 
 ```lua
 handler:bind("before_save", function(res)
@@ -409,7 +410,7 @@ Supported modifiers are as per the [ngx.re.\*](https://github.com/openresty/lua-
 
 ### Custom ESI variables
 
-In addition to the variables defined in the [ESI specification](https://www.w3.org/TR/esi-lang), it is possible to stuff custom variables into a special table before running Ledge.
+In addition to the variables defined in the [ESI specification](https://www.w3.org/TR/esi-lang), it is possible to provide run time custom variables using the [esi_custom_variables](#esi_custom_variables) handler config option.
 
 ```lua
 content_by_lua_block {
@@ -431,7 +432,7 @@ content_by_lua_block {
 
 It can be tempting to use URI arguments to pages using ESI in order to change layout dynamically, but this comes at the cost of generating multiple cache items - one for each permutation of URI arguments.
 
-ESI args is a neat feature to get around this, by using a configurable prefix, which defaults to `esi_`. URI arguments with this prefix are removed from the cache key and also from upstream requests, and instead stuffed into the `$(ESI_ARGS{foo})` variable for use in ESI, typically in conditions. That is, think of them as magic URI arguments which have meaning for the ESI processor only, and should never affect cacheability or upstream content generation.
+ESI args is a neat feature to get around this, by using a configurable [prefix](#esi_args_prefix), which defaults to `esi_`. URI arguments with this prefix are removed from the cache key and also from upstream requests, and instead stuffed into the `$(ESI_ARGS{foo})` variable for use in ESI, typically in conditions. That is, think of them as magic URI arguments which have meaning for the ESI processor only, and should never affect cacheability or upstream content generation.
 
 `$> curl -H "Host: example.com" http://cache.example.com/page1?esi_display_mode=summary`
 
@@ -453,9 +454,7 @@ If `$(ESI_ARGS)` is used without a field key, it renders the original query stri
 
 ### Missing ESI features
 
-The following parts of the
-[ESI specification](https://www.w3.org/TR/esi-lang) are not supported, but could
-be in due course if a need is identified.
+The following parts of the [ESI specification](https://www.w3.org/TR/esi-lang) are not supported, but could be in due course if a need is identified.
 
 * `<esi:inline>` not implemented (or advertised as a capability).
 * No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
@@ -467,7 +466,9 @@ be in due course if a need is identified.
 
 ### ledge.configure
 
-The `configure()` function provides Ledge with Redis connection details for all cache `metadata` and background jobs. This is global and cannot be specified or adjusted outside the Nginx `init` phase.
+syntax: `ledge.configure(config)`
+
+This function provides Ledge with Redis connection details for all cache `metadata` and background jobs. This is global and cannot be specified or adjusted outside the Nginx `init` phase.
 
 ```lua
 init_by_lua_block {
@@ -480,9 +481,28 @@ init_by_lua_block {
 }
 ```
 
+`config` is a table with the following options (unrecognised config will error hard on start up).
+
+
+#### redis_connector_params
+
+`default: {}`
+
+Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to `lua-resty-redis-connector`.
+
+#### qless_db
+
+`default: 1`
+
+Specifies the Redis DB number to store [qless](https://github.com/pintsized/lua-resty-qless) background job data.
+
+
+
 ### ledge.set\_handler\_defaults
 
-The `set_handler_defaults()` method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but defaults can be overriden on a per `handler` basis.
+syntax: `ledge.set_handler_defaults(config)`
+
+The `set_handler_defaults()` method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but these defaults can be overriden on a per `handler` basis.
 
 ```lua
 init_by_lua_block {
@@ -495,7 +515,7 @@ init_by_lua_block {
 
 ### ledge.create\_handler
 
-Config given to `ledge.create_handler()` will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
+Config given here will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
 
 ```lua
 server {
@@ -528,6 +548,8 @@ init_worker_by_lua_block {
 ```
 
 ### ledge.bind
+
+
 
 ### handler.bind
 
