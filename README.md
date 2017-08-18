@@ -322,6 +322,26 @@ In addition, the `X-Purge` mode will propagate to all URIs purged as a result of
 
 ## Serving stale content
 
+Content is considered "stale" when its age is beyond its TTL. However, depending on the value of [keep_cache_for](#keep_cache_for) (which defaults to 1 month), we don't actually expire content in Redis straight away.
+
+This allows us to implement the stale cache control extensions described in [RFC5861](https://tools.ietf.org/html/rfc5861), which provides request and response header semantics for describing how stale something can be served, when it should be revalidated in the background, and how long we can serve stale content in the event of upstream errors.
+
+This can be very effective in ensuring a fast user experience. For example, if your content has a genuine `max-age` of 24 hours, consider changing this to 1 hour, and adding `stale-while-revalidate` for 23 hours. The total TTL is therefore the same, but the first request after the first hour will trigger backgrounded revalidation, extending the TTL for a further 1 hour + 23 hours.
+
+If your origin server cannot be configured in this way, you can always override by [binding](#events) to the `before_save` event.
+
+```lua
+handler:bind("before_save", function(res)
+    -- Valid for 1 hour, stale-while-revalidate for 23 hours, stale-if-error for three days
+    res.header["Cache-Control"] = "max-age=3600, stale-while-revalidate=82800, stale-if-error=259200"
+end)
+```
+
+In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of data content for one request.
+
+All stale behaviours are constrained by normal cache control semantics. For example, if the origin is down, and the response could be served stale due to the upstream error, but the request contains `Cache-Control: no-cache` or even `Cache-Control: max-age=60` where the content is older than 60 seconds, they will be served the error, rather than the stale content.
+
+
 ## ESI
 
 
