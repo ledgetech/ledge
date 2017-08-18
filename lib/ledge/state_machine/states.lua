@@ -312,7 +312,7 @@ return {
             -- TODO this config is now in the singleton
             redis:set_timeout(60) --handler.config.redis_read_timeout)
             redis:unsubscribe()
-            redis:set_keepalive()
+            ledge.close_redis_connection(redis)
 
             -- This is overly explicit for the sake of state machine introspection. That is
             -- we never call sm:e() without a literal event string.
