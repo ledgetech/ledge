@@ -20,7 +20,6 @@ Moreover, it is particularly suited to applications where the origin is expensiv
 * [Events system](#events-system)
 * [Caching basics](#caching-basics)
 * [Purging](#purging)
-    * [Wildcard purging](#wildcard-purging)
 * [Serving stale](#serving-stale)
 * [Edge Side Includes](#edge-side-includes)
 * [API](#api)
@@ -615,7 +614,38 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 
 
 #### storage_driver
+
+default: `ledge.storage.redis`
+
+This is a `string` value, which will be used to attempt to load a storage driver. Any third party driver here can accept its own config options (see below), but must provide the following interface:
+
+* `bool new()`
+* `bool connect()`
+* `bool close()`
+* `number get_max_size()` *(return nil for no max)*
+* `bool exists(string entity_id)`
+* `bool delete(string entity_id)`
+* `bool set_ttl(string entity_id, number ttl)`
+* `number get_ttl(string entity_id)`
+* `function get_reader(object response)`
+* `function get_writer(object response, number ttl, function onsuccess, function onfailure)`
+
+*Note, whilst it is possible to configure storage drivers on a per `location` basis, it is **strongly** recommended that you never do this, and consider storage drivers to be system wide, much like the main Redis config. If you really need differenet storage driver configurations for different locations, then it will work, but features such as purging using wildcards will silently not work. YMMV.*
+
 #### storage_driver_config
+
+`default: {}`
+
+Storage configuration can vary based on the driver. Currently we only have a Redis driver.
+
+##### Redis Storage driver config
+
+* `redis_connector_params` Redis params table, as per [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector)
+* `max_size` (bytes), defaults to `1MB`
+* `supports_transactions` defaults to `true`, set to false if using a Redis proxy.
+
+If `supports_transactions` is set to `false`, cache bodies are not written atomically. However, if there is an error writing, the main Redis system will be notified and the overall transaction will be aborted. The result being potentially orphaned body entities in the storage system, which will hopefully eventually expire. The only reason to turn this off is if you are using a Redis proxy, as any transaction related commands will break the connection.
+
 
 #### upstream_connect_timeout
 
