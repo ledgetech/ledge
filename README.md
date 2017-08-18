@@ -614,6 +614,89 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 * [max_uri_args](#max_uri_args)
 
 
+#### storage_driver
+#### storage_driver_config
+
+#### upstream_connect_timeout
+
+default: `1000 (ms)`
+
+Maximum time to wait for an upstream connection (in milliseconds). If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
+
+#### upstream_send_timeout
+
+default: `2000 (ms)`
+
+Maximum time to wait sending data on a connected upstream socket (in milliseconds). If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
+
+#### upstream_read_timeout
+
+default: `10000 (ms)`
+
+Maximum time to wait on a connected upstream socket (in milliseconds). If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
+
+#### upstream_keepalive_timeout
+
+default: `75000`
+
+#### upstream_keepalive_poolsize
+
+default: `64`
+
+#### upstream_host
+
+default: `""`
+
+Specifies the hostname or IP address of the upstream host. If a hostname is specified, you must configure the Nginx [resolver](http://nginx.org/en/docs/http/ngx_http_core_module.html#resolver) somewhere, for example:
+
+```nginx
+resolver 8.8.8.8;
+```
+
+#### upstream_port
+
+default: `80`
+
+Specifies the port of the upstream host.
+
+#### upstream_use_ssl
+
+default: `false`
+
+Toggles the use of SSL on the upstream connection. Other `upstream_ssl_*` options will be ignored if this is not set to `true`.
+
+#### upstream_ssl_server_name
+
+default: `""`
+
+Specifies the SSL server name used for Server Name Indication (SNI). See [sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake) for more information.
+
+#### upstream_ssl_verify
+
+#### cache_key_spec
+#### origin_mode
+#### keep_cache_for
+#### minimum_old_entity_download_rate
+#### enable_collapsed_forwarding
+#### collapsed_forwarding_window
+
+#### gunzip_enabled
+
+#### buffer_size
+#### keyspace_scan_count
+#### max_uri_args
+
+#### esi_enabled
+#### esi_content_types
+#### esi_allow_surrogate_delegation
+#### esi_recursion_limit
+#### esi_args_prefix
+#### esi_custom_variables
+#### esi_max_size
+
+#### advertise_ledge
+
+
 
 ### Events
 
