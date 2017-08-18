@@ -537,6 +537,40 @@ init_worker_by_lua_block {
 
 ### Handler configuration options
 
+
+* [storage_driver](#storage_driver)
+* [storage_driver_config](#storage_driver_config)
+* [origin_mode](#origin_mode)
+* [upstream_connect_timeout](#upstream_connect_timeout)
+* [upstream_send_timeout](#upstream_send_timeout)
+* [upstream_read_timeout](#upstream_read_timeout)
+* [upstream_keepalive_timeout](#upstream_keepalive_timeout)
+* [upstream_keepalive_poolsize](#upstream_keepalive_poolsize)
+* [upstream_host](#upstream_host)
+* [upstream_port](#upstream_port)
+* [upstream_use_ssl](#upstream_use_ssl)
+* [upstream_ssl_server_name](#upstream_ssl_server_name)
+* [upstream_ssl_verify](#upstream_ssl_verify)
+* [buffer_size](#buffer_size)
+* [advertise_ledge](#buffer_size)
+* [keep_cache_for](#buffer_size)
+* [minimum_old_entity_download_rate](#minimum_old_entity_download_rate)
+* [esi_enabled](#esi_enabled)
+* [esi_content_types](#esi_content_types)
+* [esi_allow_surrogate_delegation](#esi_allow_surrogate_delegation)
+* [esi_recursion_limit](#esi_recursion_limit)
+* [esi_args_prefix](#esi_args_prefix)
+* [esi_custom_variables](#esi_custom_variables)
+* [esi_max_size](#esi_max_size)
+* [enable_collapsed_forwarding](#enable_collapsed_forwarding)
+* [collapsed_forwarding_window](#collapsed_forwarding_window)
+* [gunzip_enabled](#gunzip_enabled)
+* [keyspace_scan_count](#keyspace_scan_count)
+* [cache_key_spec](#cache_key_spec)
+* [max_uri_args](#max_uri_args)
+
+
+
 ### Events
 
 * [after_cache_read](#after_cache_read)
