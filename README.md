@@ -1,11 +1,14 @@
 # Ledge
 
-An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://nginx.org) / [OpenResty](https://openresty.org), backed by [Redis](http://redis.io).
+An RFC compliant and [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://nginx.org) / [OpenResty](https://openresty.org), backed by [Redis](http://redis.io).
+
+Ledge can be utilised as a fast, robust and scalable alternative to Squid / Varnish etc, either installed standalone or integrated into an existing Nginx server or load balancer.
+
+Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible.
 
 
 ## Table of Contents
 
-* [Overview](#overview)
 * [Installation](#installation)
 * [Philosophy and Nomenclature](#philosophy-and-nomenclature)
     * [Cache keys](#cache-keys)
@@ -26,14 +29,10 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 * [Licence](#licence)
 
 
-## Overview
-
-Ledge aims to be an RFC compliant HTTP reverse proxy cache, providing a fast, robust and scalable alternative to Squid / Varnish etc.
-
-Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible.
-
-
 ## Installation
+
+[OpenResty](http://openresty.org/) is a superset of [Nginx](http://nginx.org), bundling [LuaJIT](http://luajit.org/) and the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) as well as many other things. Whilst it is possible to build all of these things into Nginx yourself, we recommend using the latest OpenResty.
+
 
 ### 1. Download and install:
 
@@ -41,7 +40,8 @@ Moreover, it is particularly suited to applications where the origin is expensiv
 * [Redis](http://redis.io/download) >= 2.8.x
 * [LuaRocks](https://luarocks.org/)
 
-### 2. Install Ledge and its dependencies:
+
+### 2. Install Ledge using LuaRocks:
 
 ```
 luarocks install ledge
@@ -55,6 +55,7 @@ This will install the latest stable release, and all other Lua module dependenci
 * [lua-resty-cookie](https://github.com/cloudflare/lua-resty-cookie)
 * [lua-ffi-zlib](https://github.com/hamishforbes/lua-ffi-zlib)
 * [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) *(optional, for load balancing / healthchecking upstreams)*
+
 
 ### 3. Review OpenResty documentation
 
