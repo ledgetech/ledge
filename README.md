@@ -30,8 +30,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 
 Ledge aims to be an RFC compliant HTTP reverse proxy cache, providing a fast, robust and scalable alternative to Squid / Varnish etc.
 
-Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible. For example, using [ESI](#edge-side-includes-esi) to separate page
-fragments where their TTL differs, serving stale content whilst [revalidating in the background](#stale--background-revalidation), [collapsing](#collapsed-forwarding) concurrent similar upstream requests, dynamically modifying the cache key specification, and [automatically revalidating](#revalidate-on-purge) content with a PURGE API.
+Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible.
 
 
 ## Installation
@@ -107,7 +106,7 @@ This is particularly useful to reduce upstream load if a spike of traffic occurs
 
 ### Advanced cache patterns
 
-Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Include](#edge-side-includes) and [serving stale](#serving-stale) for more information.
+Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Include](#edge-side-includes), [serving stale](#serving-stale) and [revalidating on purge](#purging) for more information.
 
 
 ### Performance characteristics
