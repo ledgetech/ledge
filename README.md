@@ -24,6 +24,10 @@ Moreover, it is particularly suited to applications where the origin is expensiv
     * [Wildcard purging](#wildcard-purging)
 * [Serving stale](#serving-stale)
 * [Edge Side Includes](#edge-side-includes)
+* [API](#api)
+   * [ledge](#ledge)
+      * [ledge.configure](#ledge-configure)
+      * [ledge.set_handler_defaults)(#ledge.set_handler_defaults)
 * [Administration](#administration)
     * [Managing Qless](#managing-qless)
 * [Licence](#licence)
@@ -110,10 +114,6 @@ This is particularly useful to reduce upstream load if a spike of traffic occurs
 Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Include](#edge-side-includes), [serving stale](#serving-stale) and [revalidating on purge](#purging) for more information.
 
 
-### Performance characteristics
-
-
-
 ## Minimal configuration
 
 Assuming you have Redis running on `localhost:6379`, and your upstream is at `localhost:8080`, add the following to the `nginx.conf` file in your OpenResty installation.
@@ -156,72 +156,12 @@ http {
 
 ## Config systems
 
-There are four different layers to the configuration system. Firstly there is the `metadata` location config and default `handler` config, which are global and must be set during the Nginx `init` phase. Beyond this, you can specify `handler` config on an Nginx `location` block basis, which will override any defaults given. And finally, there are some performance tuning config options for the `worker` instances.
+There are four different layers to the configuration system. Firstly there is the main [Redis config](#configure) and [handler defaults](#set_handler_defaults) config, which are global and must be set during the Nginx `init` phase.
+
+Beyond this, you can specify [handler instance config](#create_handler) on an Nginx `location` block basis, and finally there are some performance tuning config options for the [worker](#create_worker) instances.
 
 In addition, there is an [events system](#events-system) for binding Lua functions to mid-request events, proving opportunities to dynamically alter configuration.
 
-
-### Redis config
-
-The `ledge.configure()` method provides Ledge with Redis connection details for `metadata`. This is global and cannot be specified or adjusted outside the Nginx `init` phase.
-
-```lua
-init_by_lua_block {
-    require("ledge").configure({
-        redis_connector_params = {
-            url = "redis://mypassword@127.0.0.1:6380/3",
-        }
-        qless_db = 4,
-    })
-}
-```
-
-### Handler defaults
-
-The `ledge.set_handler_defaults()` method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but defaults can be overriden on a per `handler` basis.
-
-```lua
-init_by_lua_block {
-    require("ledge").set_handler_defaults({
-        upstream_host = "127.0.0.1",
-        upstream_port = 8080,
-    })
-}
-```
-
-### Handler instance config
-
-Config given to `ledge.create_handler()` will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
-
-```lua
-server {
-    server_name example.com;
-    listen 80;
-
-    location / {
-        content_by_lua_block {
-            require("ledge").create_handler({
-                upstream_port = 8081,
-            }):run()
-        }
-    }
-}
-```
-
-### Worker config
-
-Background job queues can be run at varying amounts of concurrency per worker. See [managing qless](#managing-qless) for more details.
-
-```lua
-init_worker_by_lua_block {
-    require("ledge").create_worker({
-        interval = 1,
-        gc_queue_concurrency = 1,
-        purge_queue_concurrency = 2,
-        revalidate_queue_concurrency = 5,
-    }):run()
-}
-```
 
 
 ## Events system
@@ -514,6 +454,199 @@ be in due course if a need is identified.
 * No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
 * `<esi:try | attempt | except>` not implemented.
 * The "dictionary (special)" substructure variable type for `HTTP_USER_AGENT` is not implemented.
+
+
+## API
+
+### ledge
+
+#### ledge.configure
+
+The `configure()` function provides Ledge with Redis connection details for all cache `metadata` and background jobs. This is global and cannot be specified or adjusted outside the Nginx `init` phase.
+
+```lua
+init_by_lua_block {
+    require("ledge").configure({
+        redis_connector_params = {
+            url = "redis://mypassword@127.0.0.1:6380/3",
+        }
+        qless_db = 4,
+    })
+}
+```
+
+#### ledge.set\_handler\_defaults
+
+The `set_handler_defaults()` method overrides the default configuration used for all spawned request `handler` instances. This is global and cannot be specified or adjusted outside the Nginx `init` phase, but defaults can be overriden on a per `handler` basis.
+
+```lua
+init_by_lua_block {
+    require("ledge").set_handler_defaults({
+        upstream_host = "127.0.0.1",
+        upstream_port = 8080,
+    })
+}
+```
+
+#### ledge.create\_handler
+
+Config given to `ledge.create_handler()` will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
+
+```lua
+server {
+    server_name example.com;
+    listen 80;
+
+    location / {
+        content_by_lua_block {
+            require("ledge").create_handler({
+                upstream_port = 8081,
+            }):run()
+        }
+    }
+}
+```
+
+#### ledge.create\_worker
+
+Background job queues can be run at varying amounts of concurrency per worker. See [managing qless](#managing-qless) for more details.
+
+```lua
+init_worker_by_lua_block {
+    require("ledge").create_worker({
+        interval = 1,
+        gc_queue_concurrency = 1,
+        purge_queue_concurrency = 2,
+        revalidate_queue_concurrency = 5,
+    }):run()
+}
+```
+
+
+#### ledge.bind
+
+
+### handler
+
+#### handler.bind
+
+#### handler.run
+
+
+### worker
+
+#### worker.run
+
+
+
+### Handler configuration options
+
+
+### Events
+
+* [after_cache_read](#after_cache_read)
+* [before_upstream_connect](#before_upstream_connect)
+* [before_upstream_request](#before_upstream_request)
+* [before_esi_inclulde_request"](#before_esi_include_request)
+* [after_upstream_request](#after_upstream_request)
+* [before_save](#before_save)
+* [before_serve](#before_serve)
+* [before_save_revalidation_data](#before_save_revalidation_data)
+
+#### after_cache_read
+
+syntax: `handler:bind("after_cache_read", function(res) -- end)`
+
+params: `res` The cached `ledge.response` instance.
+
+Fires directly after the response was successfully loaded from cache.
+
+
+#### before_upstream_connect
+
+syntax: `ledge:bind("before_upstream_connect", function(handler) -- end)`
+
+params: `handler`. The current handler instance.
+
+Fires before the default `handler.upstream_client` is created.  
+Use to override the default `resty.http` client and provide a pre-connected client module compatible with `resty.httpc`
+
+
+#### before_upstream_request
+
+syntax: `ledge:bind("before_upstream_request", function(req_params) -- end)`
+
+params: `req_params`. The table of request params about to send to the
+[httpc:request](https://github.com/pintsized/lua-resty-http#request) method.
+
+Fires when about to perform an upstream request.
+
+
+#### before_esi_include_request
+
+syntax: `ledge:bind("before_esi_include_request", function(req_params) -- end)`
+
+params: `req_params`. The table of request params about to be used for an ESI
+include.
+
+Fires when about to perform a HTTP request on behalf of an ESI include
+instruction.
+
+
+#### after_upstream_request
+
+syntax: `ledge:bind("after_upstream_request", function(res) -- end)`
+
+params: `res` The `ledge.response` object.
+
+Fires when the status/headers have been fetched, but before it is stored.
+Typically used to override cache headers before we decide what to do with this
+response.
+
+*Note: unlike `before_save` below, this fires for all fetched content, not just
+cacheable content.*
+
+
+#### before_save
+
+syntax: `ledge:bind("before_save", function(res) -- end)`
+
+params: `res` The `ledge.response` object.
+
+Fires when we're about to save the response.
+
+
+#### before_serve
+
+syntax: `ledge:bind("before_serve", function(res) -- end)`
+
+params: `res` The `ledge.response` object.
+
+Fires when we're about to serve. Often used to modify downstream headers.
+
+
+#### before_save_revalidation_data
+
+syntax: `ledge:bind("before_save_revalidation_data", function(reval_params, reval_headers) -- end)`
+
+params: `reval_params`. Table of revalidation params.
+
+params: `reval_headers`. Table of revalidation headers.
+
+Fires when a background revalidation is triggered or when cache is being saved.
+Allows for modifying the headers and paramters (such as connection parameters)
+which are inherited by the background revalidation.
+
+The `reval_params` are values derived from the current running configuration for:
+
+* server_addr
+* server_port
+* scheme
+* uri
+* connect_timeout
+* read_timeout
+* ssl_server_name
+* ssl_verify
 
 
 ## Administration
