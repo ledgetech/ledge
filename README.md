@@ -129,6 +129,11 @@ http {
                 url = "redis://127.0.0.1:6379/0",
             },
         })
+        
+        require("ledge").set_handler_defaults({
+            upstream_host = "127.0.0.1",
+            upstream_port = 8080,
+        })
     }
 
     init_worker_by_lua_block {
@@ -141,10 +146,7 @@ http {
 
         location / {
             content_by_lua_block {
-                require("ledge").create_handler({
-                    upstream_host = "127.0.0.1",
-                    upstream_port = 8080,
-                }):run()
+                require("ledge").create_handler():run()
             }
         }
     }
