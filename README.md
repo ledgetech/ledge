@@ -441,12 +441,13 @@ In addition to the variables defined in the [ESI specification](https://www.w3.o
 
 ```lua
 content_by_lua_block {
-    require("ledge").create_handler({
-    esi_custom_variables = {
-        messages = {
+   require("ledge").create_handler({
+      esi_custom_variables = {
+         messages = {
             foo = "bar",
-        }
-    }:run()
+         },
+      },
+   }):run()
 }
 ```
 
