@@ -85,7 +85,7 @@ An `upstream` is the only thing which must be manually configured, and points to
 
 [Redis](http://redis.io) is used for much more than cache storage. We rely heavily on its data structures to maintain cache `metadata`, as well as embedded Lua scripts for atomic task management and so on. By default, all cache body data and `metadata` will be stored in the same Redis instance. The location of cache `metadata` is global, set when Nginx starts up.
 
-Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a [driver system](#storage_driver_config) making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
+Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a [driver system](#storage_driver) making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
 
 
 ### Cache keys
@@ -105,7 +105,7 @@ HTTP response sizes can be wildly different, sometimes tiny and sometimes huge, 
 To guarantee predictable memory usage regardless of response sizes Ledge operates a streaming design, meaning it only ever operates on a single `buffer` per request at a time. This is equally true when fetching upstream to when reading from cache or 
 serving to the client request.
 
-It's also true (mostly) when processing [ESI](#edge-size-includes) instructions, except for in the case where instructions are found to span multiple buffers. In this case, we continue buffering until a complete instruction can be understood, up to a [configurable limit](#esi_max_size).
+It's also true (mostly) when processing [ESI](#edge-size-includes) instructions, except for in the case where an instruction is found to span multiple buffers. In this case, we continue buffering until a complete instruction can be understood, up to a [configurable limit](#esi_max_size).
 
 This streaming design also improves latency, since we start serving the first `buffer` to the client request as soon as we're done with it, rather than fetching and saving an entire resource prior to serving. The `buffer` size can be [tuned](#buffer_size) even on a per `location` basis.
 
@@ -113,7 +113,7 @@ This streaming design also improves latency, since we start serving the first `b
 
 ### Collapsed forwarding
 
-By default, Ledge will attempt to collapse concurrent origin requests for known (previously) cacheable resources into a single upstream request. That is, if an upstream request for a resource is in progress, subsequent concurrent requests for the same resource will not bother the upstream, and instead wait for the first request to finish.
+Ledge can attempt to collapse concurrent origin requests for known (previously) cacheable resources into a single upstream request. That is, if an upstream request for a resource is in progress, subsequent concurrent requests for the same resource will not bother the upstream, and instead wait for the first request to finish.
 
 This is particularly useful to reduce upstream load if a spike of traffic occurs for expired and expensive content (since the chances of concurrent requests is higher on slower content).
 
@@ -525,7 +525,7 @@ init_by_lua_block {
 
 `default: {}`
 
-Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to `lua-resty-redis-connector`, so review the documentation there for options, including how use [Redis Sentinel](https://redis.io/topics/sentinel).
+Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector), so review the documentation there for options, including how to use [Redis Sentinel](https://redis.io/topics/sentinel).
 
 #### qless_db
 
@@ -582,7 +582,7 @@ server {
 
 syntax: `local worker = ledge.create_worker(config)`
 
-Creates a `worker` instance inside the current Nginx worker process, for processing background jobs.
+Creates a `worker` instance inside the current Nginx worker process, for processing background jobs. You only need to call this once inside a single `init_worker` block, and it will be called for each Nginx worker that is configured.
 
 Job queues can be run at varying amounts of concurrency per worker, which can be set by providing `config` here. See [managing qless](#managing-qless) for more details.
 
@@ -702,7 +702,7 @@ Storage configuration can vary based on the driver. Currently we only have a Red
 
 [Back to TOC](#handler-configuration-options)
 
-##### Redis Storage driver config
+##### Redis storage driver config
 
 * `redis_connector_params` Redis params table, as per [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector)
 * `max_size` (bytes), defaults to `1MB`
@@ -796,14 +796,14 @@ Toggles SSL verification. See [sslhandshake](https://github.com/openresty/lua-ng
 
 `default: cache_key_spec = { "scheme", "host", "uri", "args" },`
 
-Specifies the format for creating cache keys. The default spec, shown above will create keys in Redis similar to:
+Specifies the format for creating cache keys. The default spec above will create keys in Redis similar to:
 
 ```
 ledge:cache:http:example.com:/about::
 ledge:cache:http:example.com:/about:p=2&q=foo:
 ```
 
-The list of available string identifieres in the spec is:
+The list of available string identifiers in the spec is:
 
 * `scheme` either http or https
 * `host` the hostname of the current request
