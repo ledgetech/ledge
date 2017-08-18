@@ -70,6 +70,8 @@ This will install the latest stable release, and all other Lua module dependenci
 
 If you are new to OpenResty, it's quite important to review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx, as the environment is unusual. Specifcally, it's useful to understand the meaning of the different Nginx phase hooks such as `init_by_lua` and `content_by_lua`, as well as how the `lua-nginx-module` locates Lua modules with the [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path) directive.
 
+[Back to TOC](#table-of-contents)
+
 
 ## Philosophy and Nomenclature
 
@@ -119,6 +121,9 @@ This is particularly useful to reduce upstream load if a spike of traffic occurs
 Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Includes](#edge-side-includes), [serving stale](#serving-stale) and [revalidating on purge](#purging) for more information.
 
 
+[Back to TOC](#table-of-contents)
+
+
 ## Minimal configuration
 
 Assuming you have Redis running on `localhost:6379`, and your upstream is at `localhost:8080`, add the following to the `nginx.conf` file in your OpenResty installation.
@@ -158,6 +163,7 @@ http {
 }
 ```
 
+[Back to TOC](#table-of-contents)
 
 ## Config systems
 
@@ -167,6 +173,7 @@ Beyond this, you can specify [handler instance config](#ledgecreate_handler) on 
 
 In addition, there is an [events system](#events-system) for binding Lua functions to mid-request events, proving opportunities to dynamically alter configuration.
 
+[Back to TOC](#table-of-contents)
 
 
 ## Events system
@@ -234,6 +241,8 @@ location /foo_location {
 }
 ```
 
+[Back to TOC](#table-of-contents)
+
 
 ## Caching basics
 
@@ -242,6 +251,8 @@ For normal HTTP caching operation, no additional configuration is required. If t
 For more information on the myriad factors affecting this, including end-to-end revalidation and so on, please refer to [RFC 7234](https://tools.ietf.org/html/rfc7234).
 
 The goal is to be 100% RFC compliant, but with some extensions to allow more agressive caching in certain cases. If something doesn't work as you expect, please do feel free to [raise an issue](https://github.com/pintsized/ledge).
+
+[Back to TOC](#table-of-contents)
 
 
 ## Purging
@@ -320,6 +331,8 @@ In addition, the `X-Purge` mode will propagate to all URIs purged as a result of
 }
 ```
 
+[Back to TOC](#table-of-contents)
+
 
 ## Serving stale
 
@@ -341,6 +354,9 @@ end)
 In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of date content for one request.
 
 All stale behaviours are constrained by normal cache control semantics. For example, if the origin is down, and the response could be served stale due to the upstream error, but the request contains `Cache-Control: no-cache` or even `Cache-Control: max-age=60` where the content is older than 60 seconds, they will be served the error, rather than the stale content.
+
+
+[Back to TOC](#table-of-contents)
 
 
 ## Edge Side Includes
@@ -459,6 +475,8 @@ The following parts of the [ESI specification](https://www.w3.org/TR/esi-lang) a
 * No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
 * `<esi:try | attempt | except>` not implemented.
 * The "dictionary (special)" substructure variable type for `HTTP_USER_AGENT` is not implemented.
+
+[Back to TOC](#table-of-contents)
 
 
 ## API
@@ -579,6 +597,9 @@ syntax: `handler:run()`
 Must be called during the `init_worker` phase, otherwise background tasks will not be run, including garbage collection which is very importatnt.
 
 
+[Back to TOC](#table-of-contents)
+
+
 ### Handler configuration options
 
 * [storage_driver](#storage_driver)
@@ -631,6 +652,8 @@ This is a `string` value, which will be used to attempt to load a storage driver
 * `function get_writer(object response, number ttl, function onsuccess, function onfailure)`
 
 *Note, whilst it is possible to configure storage drivers on a per `location` basis, it is **strongly** recommended that you never do this, and consider storage drivers to be system wide, much like the main Redis config. If you really need differenet storage driver configurations for different locations, then it will work, but features such as purging using wildcards will silently not work. YMMV.*
+
+[Back to TOC](#handler-configuration-options)
 
 #### storage_driver_config
 
