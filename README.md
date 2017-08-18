@@ -628,56 +628,61 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 
 #### after_cache_read
 
+syntax: `ledge.bind("after_cache_read", function(res) -- end)`
 syntax: `handler:bind("after_cache_read", function(res) -- end)`
 
-params: `res` The cached `ledge.response` instance.
+params: `res`. The cached response table.
 
-Fires directly after the response was successfully loaded from cache.
+Fires directly after the response was successfully loaded from cache. 
 
+The `res` table given contains:
+
+* `res.header` the table of case-insenitive HTTP response headers
+* `res.status` the HTTP response status code
+
+*Note; there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
 
 #### before_upstream_connect
 
-syntax: `ledge:bind("before_upstream_connect", function(handler) -- end)`
+syntax: `ledge.bind("before_upstream_connect", function(handler) -- end)`
+syntax: `handler:bind("before_upstream_connect", function(handler) -- end)`
 
 params: `handler`. The current handler instance.
 
-Fires before the default `handler.upstream_client` is created.  
-Use to override the default `resty.http` client and provide a pre-connected client module compatible with `resty.httpc`
+Fires before the default `handler.upstream_client` is created, allowing a pre-connected HTTP client to be externally provided. The client must be API compatible with [lua-resty-http](https://github.com/pintsized/lua-resty-http). For example, using [lua-resty-upstream](https://github.com/hamishforbes/lua-resty-upstream) for load balancing.
 
 
 #### before_upstream_request
 
-syntax: `ledge:bind("before_upstream_request", function(req_params) -- end)`
+syntax: `ledge.bind("before_upstream_request", function(req_params) -- end)`
+syntax: `handler:bind("before_upstream_request", function(req_params) -- end)`
 
-params: `req_params`. The table of request params about to send to the
-[httpc:request](https://github.com/pintsized/lua-resty-http#request) method.
+params: `req_params`. The table of request params about to send to the [request](https://github.com/pintsized/lua-resty-http#request) method.
 
 Fires when about to perform an upstream request.
 
 
 #### before_esi_include_request
 
-syntax: `ledge:bind("before_esi_include_request", function(req_params) -- end)`
+syntax: `ledge.bind("before_esi_include_request", function(req_params) -- end)`
+syntax: `handler:bind("before_esi_include_request", function(req_params) -- end)`
 
-params: `req_params`. The table of request params about to be used for an ESI
-include.
+params: `req_params`. The table of request params about to be used for an ESI include, via the [request](https://github.com/pintsized/lua-resty-http#request) method.
 
-Fires when about to perform a HTTP request on behalf of an ESI include
-instruction.
+Fires when about to perform a HTTP request on behalf of an ESI include instruction.
 
 
 #### after_upstream_request
 
-syntax: `ledge:bind("after_upstream_request", function(res) -- end)`
+syntax: `ledge.bind("after_upstream_request", function(res) -- end)`
+syntax: `handler:bind("after_upstream_request", function(res) -- end)`
 
-params: `res` The `ledge.response` object.
+params: `res` The response table.
 
-Fires when the status/headers have been fetched, but before it is stored.
-Typically used to override cache headers before we decide what to do with this
-response.
+Fires when the status / headers have been fetched, but before the body it is stored. Typically used to override cache headers before we decide what to do with this response.
 
-*Note: unlike `before_save` below, this fires for all fetched content, not just
-cacheable content.*
+*Note: unlike `before_save` below, this fires for all fetched content, not just cacheable content.*
+*Note: there are other fields and methods attached, but it is strongly advised to never adjust anything other than the above*
 
 
 #### before_save
