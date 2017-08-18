@@ -71,8 +71,8 @@ location /t {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
 
-        assert(handler:cache_key() == "ledge:cache:http:localhost:1984:/t:a=1",
-            "cache_key should be ledge:cache:http:localhost:1984:/t:a=1")
+        assert(handler:cache_key() == "ledge:cache:http:localhost:/t:a=1",
+            "cache_key should be ledge:cache:http:localhost:/t:a=1")
 
         local handler = require("ledge").create_handler({
             cache_key_spec = {
@@ -179,15 +179,15 @@ location /t {
 ]
 --- response_body eval
 [
-    "ledge:cache:http:localhost:1984:/t:",
-    "ledge:cache:http:localhost:1984:/t:a=1",
-    "ledge:cache:http:localhost:1984:/t:aab=2&aba=1",
-    "ledge:cache:http:localhost:1984:/t:a=1&b=2&c=3",
-    "ledge:cache:http:localhost:1984:/t:a=1&b=2&c=3",
-    "ledge:cache:http:localhost:1984:/t:a=1&b=2&c=3",
-    "ledge:cache:http:localhost:1984:/t:a=1&b&c=3",
-    "ledge:cache:http:localhost:1984:/t:a=1&b=&c=3",
-    "ledge:cache:http:localhost:1984:/t:a=1&b=2&b=4&c=3",
+    "ledge:cache:http:localhost:/t:",
+    "ledge:cache:http:localhost:/t:a=1",
+    "ledge:cache:http:localhost:/t:aab=2&aba=1",
+    "ledge:cache:http:localhost:/t:a=1&b=2&c=3",
+    "ledge:cache:http:localhost:/t:a=1&b=2&c=3",
+    "ledge:cache:http:localhost:/t:a=1&b=2&c=3",
+    "ledge:cache:http:localhost:/t:a=1&b&c=3",
+    "ledge:cache:http:localhost:/t:a=1&b=&c=3",
+    "ledge:cache:http:localhost:/t:a=1&b=2&b=4&c=3",
 ]
 --- no_error_log
 [error]
@@ -214,10 +214,10 @@ location /t {
 ]
 --- response_body eval
 [
-    "ledge:cache:http:localhost:1984:/t:",
-    "ledge:cache:http:localhost:1984:/t:a=1",
-    "ledge:cache:http:localhost:1984:/t:a=1&b=2",
-    "ledge:cache:http:localhost:1984:/t:b=2&c=3",
+    "ledge:cache:http:localhost:/t:",
+    "ledge:cache:http:localhost:/t:a=1",
+    "ledge:cache:http:localhost:/t:a=1&b=2",
+    "ledge:cache:http:localhost:/t:b=2&c=3",
 ]
 --- no_error_log
 [error]
@@ -242,10 +242,10 @@ location /t {
 ]
 --- response_body eval
 [
-    "ledge:cache:http:localhost:1984:/t*:*",
-    "ledge:cache:http:localhost:1984:/t:*",
-    "ledge:cache:http:localhost:1984:/t:a=1*",
-    "ledge:cache:http:localhost:1984:/t:a=*",
+    "ledge:cache:http:localhost:/t*:*",
+    "ledge:cache:http:localhost:/t:*",
+    "ledge:cache:http:localhost:/t:a=1*",
+    "ledge:cache:http:localhost:/t:a=*",
 ]
 --- no_error_log
 [error]
