@@ -246,7 +246,7 @@ The goal is to be 100% RFC compliant, but with some extensions to allow more agr
 
 ## Purging
 
-To manually invalidate a cache item (or purge), we support the non-standard `PURGE` method familiar to users of Squid. Send a HTTP request to the URI with the method set, and Ledge will attempt to invalidate the item, returing status `200` on success and `404` if the URI was not found in cache, along with a JSON body for more details.
+To manually invalidate a cache item (or purge), we support the non-standard `PURGE` method familiar to users of Squid. Send a HTTP request to the URI with the method set, and Ledge will attempt to invalidate the item, returning status `200` on success and `404` if the URI was not found in cache, along with a JSON body for more details.
 
 `$> curl -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
 
@@ -338,7 +338,7 @@ handler:bind("before_save", function(res)
 end)
 ```
 
-In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of data content for one request.
+In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of date content for one request.
 
 All stale behaviours are constrained by normal cache control semantics. For example, if the origin is down, and the response could be served stale due to the upstream error, but the request contains `Cache-Control: no-cache` or even `Cache-Control: max-age=60` where the content is older than 60 seconds, they will be served the error, rather than the stale content.
 
