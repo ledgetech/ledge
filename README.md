@@ -8,6 +8,7 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 * [Overview](#overview)
 * [Installation](#installation)
 * [Nomenclature](#nomenclature)
+* [Performance characteristics](#performance-characteristics)
 * [Minimal configuration](#minimal-configuration)
 * [Config systems](#config-systems)
 * [Events system](#events-system)
@@ -15,7 +16,9 @@ An [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://n
 * [Purging](#purging)
     * [Wildcard purging](#wildcard-purging)
 * [Serving stale content](#serving-stale-content)
-* [ESI](#esi)
+* [Edge Side Includes](#edge-side-includes)
+* [Administration](#administration)
+   * [Managing Qless](#managing-qless)
 * [Licence](#licence)
 
 
@@ -68,6 +71,8 @@ An `upstream` is the only thing which must be manually configured, and points to
 [Redis](http://redis.io) is used for much more than cache storage. We rely heavily on its data structures to maintain cache `metadata`, as well as embedded Lua scripts for atomic task management and so on. By default, all cache body data and `metadata` will be stored in the same Redis instance. The location of cache `metadata` is global, set when Nginx starts up.
 
 Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a driver system making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
+
+## Performance characteristics
 
 
 ## Minimal configuration
@@ -342,10 +347,142 @@ In other words, set the TTL to the highest comfortable frequency of requests at 
 All stale behaviours are constrained by normal cache control semantics. For example, if the origin is down, and the response could be served stale due to the upstream error, but the request contains `Cache-Control: no-cache` or even `Cache-Control: max-age=60` where the content is older than 60 seconds, they will be served the error, rather than the stale content.
 
 
-## ESI
+## Edge Side Includes
+
+Almost complete support for the [ESI 1.0 Language Specification](https://www.w3.org/TR/esi-lang) is included, with a few exceptions, and a few enhancements.
+
+```html
+<html>
+<esi:include="/header" />
+<body>
+
+   <esi:choose>
+      <esi:when test="$(QUERY_STRING{foo}) == 'bar'">
+         Hi
+      </esi:when>
+      <esi:otherwise>
+         <esi:choose>
+            <esi:when test="$(HTTP_COOKIE{mycookie}) == 'yep'">
+               <esi:include src="http://example.com/_fragments/fragment1" />
+            </esi:when>
+         </esi:choose>
+      </esi:otherwise>
+   </esi:choose>
+
+</body>
+</html>
+```
+
+### Enabling ESI
+
+Note that simply [enabling](#esi_enabled) ESI might not be enough. We also check the [content type](#esi_content_types) against the allowed types specified, but more importantly ESI processing is contingent upon the [Edge Architecture Specification](https://www.w3.org/TR/edge-arch/). When enabled, Ledge will advertise capabilities upstream with the `Surrogate-Capability` request header, and expect the origin to include a `Surrogate-Control` header delegating ESI processing to Ledge.
+
+If your origin is not ESI aware, a common approach is to bind to the [after\_upstream\_request](#after_upstream_request) event in order to add the `Surrogate-Control` header manually. E.g.
+
+```lua
+handler:bind("after_upstream_request", function(res)
+    -- Don't enable ESI on redirect responses
+    -- Don't override Surrogate Control if it already exists
+    local status = res.status
+    if not res.header["Surrogate-Control"] and not (status > 300 and status < 303) then
+        res.header["Surrogate-Control"] = 'content="ESI/1.0"'
+    end
+end)
+```
+
+Note that if ESI is processed, downstream cache-ability is automatically dropped since you don't want other intermediaries or browsers caching the result downstream.
+
+It's therefore best to only set `Surrogate-Control` for content which you know has ESI instructions. Whilst Ledge will detect the presence of ESI instructions when saving (and do nothing on cache HITs if no instructions are present), on a cache MISS it will have already dropped downstream cache headers before reading / saving the body. This is a side-effect of the [streaming\_architecture](#streaming-architecture).
+
+### Regular expressions in conditions
+
+In addition to the operators defined in the
+[ESI specification](https://www.w3.org/TR/esi-lang), we also support regular
+expressions in conditions (as string literals), using the `=~` operator.
+
+```html
+<esi:choose>
+   <esi:when test="$(QUERY_STRING{name}) =~ '/james|john/i'">
+      Hi James or John
+   </esi:when>
+</esi:choose>
+```
+
+Supported modifiers are as per the
+[ngx.re.\*](https://github.com/openresty/lua-nginx-module#ngxrematch)
+documentation.
+
+### Custom ESI variables
+
+In addition to the variables defined in the
+[ESI specification](https://www.w3.org/TR/esi-lang), it is possible to stuff
+custom variables into a special table before running Ledge.
+
+A common use case is to combine the
+[Geo IP](http://nginx.org/en/docs/http/ngx_http_geoip_module.html) module
+variables for use in ESI conditions.
+
+```lua
+content_by_lua_block {
+   ngx.ctx.ledge_esi_custom_variables = {
+      messages = {
+         foo = "bar",
+      }
+   }
+   ledge:run()
+}
+```
+
+```html
+<esi:vars>$(MESSAGES{foo})</esi:vars>
+```
+
+### ESI Args
+
+ESI args are query string parameters identified by a configurable prefix, which
+defaults to `esi_`. With ESI enabled, query string parameters with this prefix
+are removed from the cache key and also from upstream requests, and instead
+stuffed into the `$(ESI_ARGS{foo})` variable for use in ESI, typically in
+conditions.
+
+This has the effect of allowing query string parameters to alter the page layout
+without splitting the cache, since variables are used exclusively by the ESI
+processor, downstream of cache.
+
+`$> curl -H "Host: example.com" http://cache.example.com/page1?esi_display_mode=summary`
+
+```html
+<esi:choose>
+   <esi:when test="$(ESI_ARGS{display_mode}) == 'summary'">
+      <!-- SUMMARY -->
+   </esi:when>
+   <esi:when test="$(ESI_ARGS{display_mode}) == 'details'">
+      <!-- DETAILS -->
+   </esi:when>
+</esi:choose>
+```
+
+In this example, the `esi_display_mode` values of `summary` or `details` will
+return the same cache HIT, but display different content.
+
+If `$(ESI_ARGS)` is used without a field key, it renders the original query
+string arguments, e.g. `esi_foo=bar&esi_display_mode=summary`, URL encoded.
+
+### Missing ESI features
+
+The following parts of the
+[ESI specification](https://www.w3.org/TR/esi-lang) are not supported, but could
+be in due course if a need is identified.
+
+* `<esi:inline>` not implemented (or advertised as a capability).
+* No support for the `onerror` or `alt` attributes for `<esi:include>`. Instead, we "continue" on error by default.
+* `<esi:try | attempt | except>` not implemented.
+* The "dictionary (special)" substructure variable type for `HTTP_USER_AGENT` is not implemented.
 
 
-## Managing Qless
+## Administration
+
+### Managing Qless
 
 
 ## Author
