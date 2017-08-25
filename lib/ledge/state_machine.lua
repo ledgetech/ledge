@@ -41,7 +41,7 @@ local function t(self, state)
             if _DEBUG then ngx_log(ngx_DEBUG, "#a: ", action) end
             local ok, err = pcall(actions[action], self.handler)
             if not ok then
-                ngx_log(ngx_ERR, "failed to call action: ", tostring(err))
+                ngx_log(ngx_ERR, "state '", state, "' failed to call action '", action, "': ", tostring(err))
             end
         end
     end
