@@ -108,6 +108,10 @@ _M.new = new
 
 
 local function run(self)
+    -- Instantiate state machine
+    local sm = state_machine.new(self)
+    self.state_machine = sm
+
     -- Install the client abort handler
     local ok, err = ngx_on_abort(function()
         return self.state_machine:e "aborted"
@@ -136,10 +140,6 @@ local function run(self)
     else
         self.storage = storage
     end
-
-    -- Instantiate state machine
-    local sm = state_machine.new(self)
-    self.state_machine = sm
 
     return sm:e "init"
 end
