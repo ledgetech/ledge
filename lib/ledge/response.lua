@@ -38,7 +38,7 @@ local get_fixed_field_metatable_proxy =
 local _DEBUG = false
 
 local _M = {
-    _VERSION = "1.28.3",
+    _VERSION = "2.0.0",
     set_debug = function(debug) _DEBUG = debug end,
 }
 

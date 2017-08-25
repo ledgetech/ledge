@@ -11,7 +11,7 @@ local put_background_job = require("ledge.background").put_background_job
 
 
 local _M = {
-    _VERSION = '1.28.3',
+    _VERSION = "2.0.0",
 }
 
 
