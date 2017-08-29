@@ -736,8 +736,8 @@ local function save_to_cache(self, res)
                     -- Transaction likely failed due to watch on main key
                     -- Tell storage to clean up too
                     ok, e = storage:delete(res.entity_id)
-                    if not ok or ok == ngx_null then
-                        ngx_log(ngx.ERR, "failed to cleanup storage: ", e)
+                    if e then
+                        ngx_log(ngx_ERR, "failed to cleanup storage: ", e)
                     end
                 end
             elseif previous_entity_id then
