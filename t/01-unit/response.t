@@ -320,3 +320,55 @@ location /t {
 GET /t
 --- error_log
 set_and_save(): ERR wrong number of arguments for 'hset' command
+
+=== TEST 7: read differentiates between redis failure and broken cache entry
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local res, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        -- Ensure entry exists
+        res.uri = "http://example.com"
+        res.status = 200
+        res.size = 1
+        assert(res:save(60), "res should save without err")
+
+        -- Break entities
+        redis:del(handler:cache_key_chain().entities)
+
+        local ok, err = res:read()
+        assert(ok == nil and not err, "read should return no error with broken entities")
+
+
+        -- Break headers
+        redis:del( handler:cache_key_chain().headers)
+
+        local ok, err = res:read()
+        assert(ok == nil and not err, "read should return no error with broken headers")
+
+        -- Missing main key
+        redis:del( handler:cache_key_chain().main)
+
+        local ok, err = res:read()
+        assert(ok == nil and not err, "read should return no error  with missing main key")
+
+        -- Break Redis instance
+        res.redis.hgetall = function() return ngx.null end
+
+        local ok, err = res:read()
+        assert(ok or not err, "read should return error on redis error")
+    }
+}
+--- request
+GET /t
+--- error_code: 200
+--- no_error_log
+[error]
