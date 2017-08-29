@@ -681,28 +681,9 @@ local function save_to_cache(self, res)
     if not ok then ngx_log(ngx_ERR, err) end
 
     if previous_entity_id then
-        put_background_job(
-            "ledge_gc",
-            "ledge.jobs.collect_entity",
-            {
-                entity_id = previous_entity_id,
-                storage_driver = self.config.storage_driver,
-                storage_driver_config = self.config.storage_driver_config,
-            },
-            {
-                delay = gc_wait(
-                    previous_entity_size,
-                    self.config.minimum_old_entity_download_rate
-                ),
-                tags = { "collect_entity" },
-                priority = 10,
-            }
-        )
-
         local ok, err = redis:srem(key_chain.entities, previous_entity_id)
         if not ok then ngx_log(ngx_ERR, err) end
     end
-
 
     res.uri = req_full_uri()
 
@@ -749,7 +730,36 @@ local function save_to_cache(self, res)
 
             ok, e = redis:exec()
             if not ok or ok == ngx_null then
-                ngx_log(ngx_ERR, "failed to complete transaction: ", e)
+                if e then
+                    ngx_log(ngx_ERR, "failed to complete transaction: ", e)
+                else
+                    -- Transaction likely failed due to watch on main key
+                    -- Tell storage to clean up too
+                    ok, e = storage:delete(res.entity_id)
+                    if not ok or ok == ngx_null then
+                        ngx_log(ngx.ERR, "failed to cleanup storage: ", e)
+                    end
+                end
+            elseif previous_entity_id then
+                -- Everything has completed and we have an old entity
+                -- Schedule GC to clean it up
+                put_background_job(
+                    "ledge_gc",
+                    "ledge.jobs.collect_entity",
+                    {
+                        entity_id = previous_entity_id,
+                        storage_driver = self.config.storage_driver,
+                        storage_driver_config = self.config.storage_driver_config,
+                    },
+                    {
+                        delay = gc_wait(
+                            previous_entity_size,
+                            self.config.minimum_old_entity_download_rate
+                        ),
+                        tags = { "collect_entity" },
+                        priority = 10,
+                    }
+                )
             end
         end
 
