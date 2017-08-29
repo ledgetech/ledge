@@ -20,6 +20,7 @@ local str_split = util.string.split
 local ngx_null = ngx.null
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
+local ngx_INFO = ngx.INFO
 local ngx_DEBUG = ngx.DEBUG
 local ngx_re_gmatch = ngx.re.gmatch
 local ngx_re_match = ngx.re.match
@@ -184,6 +185,10 @@ function _M.has_expired(self)
 end
 
 
+-- Return nil and an error on an actual Redis error, this indicates that Redis
+-- has failed and we aren't going to be able to proceed normally.
+-- Return nil and *no* error if this is just a broken/partial cache entry
+-- so we MISS and update the entry.
 function _M.read(self)
     local redis = self.redis
     local key_chain = self.key_chain
@@ -191,17 +196,13 @@ function _M.read(self)
     -- Read main metdata
     local cache_parts, err = redis:hgetall(key_chain.main)
     if not cache_parts or cache_parts == ngx_null then
-        if err then
-            return nil, err
-        else
-            return nil
-        end
+        return nil, err
     end
 
     -- No cache entry for this key
     local cache_parts_len = #cache_parts
     if not cache_parts_len then
-        ngx_log(ngx_ERR, "live entity has no data")
+        ngx_log(ngx_INFO, "live entity has no data")
         return nil
     end
 
@@ -249,16 +250,13 @@ function _M.read(self)
     -- Read headers
     local headers, err = redis:hgetall(key_chain.headers)
     if not headers or headers == ngx_null then
-        if err then
-            return nil, err
-        else
-            return nil
-        end
+        return nil, err
     end
 
     local headers_len = tbl_getn(headers)
     if headers_len == 0 then
-        return nil  -- "headers appear evicted"
+        ngx_log(ngx_INFO, "headers missing")
+        return nil
     end
 
     for i = 1, headers_len, 2 do
@@ -294,7 +292,8 @@ function _M.read(self)
         if not entities or entities == ngx_null then
             return nil, "could not read entities set: " .. err
         elseif entities == 0 then
-            return nil, "entities set is empty"
+            ngx_log(ngx_INFO, "entities set is empty")
+            return nil
         end
     end
 

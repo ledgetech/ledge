@@ -703,3 +703,35 @@ Numkeys: 5
 Numkeys: 5
 --- no_error_log
 [error]
+
+
+=== TEST 15c: Partial entry misses
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_15_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local key_chain = handler:cache_key_chain()
+        local redis = require("ledge").create_redis_connection()
+
+        -- Break entities
+        redis:del(handler:cache_key_chain().entities)
+
+        handler:run()
+    }
+}
+location /cache_15 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.say("TEST 15c")
+    }
+}
+--- request
+GET /cache_15_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+TEST 15c
+--- no_error_log
+[error]

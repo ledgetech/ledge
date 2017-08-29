@@ -303,13 +303,15 @@ end
 local function read_from_cache(self)
     local res = response.new(self.redis, cache_key_chain(self))
     local ok, err = res:read()
+
+    if err then
+        -- Error, abort request
+        ngx_log(ngx_ERR, "could not read response: ", err)
+        return self.state_machine:e "http_internal_server_error"
+    end
+
     if not ok then
-        if err then
-            ngx_log(ngx_ERR, "could not read from Redis: ", err)
-            return self.state_machine:e "http_internal_server_error"
-        else
-            return {} -- MISS
-        end
+        return {} -- MISS
     end
 
     if res.size > 0 then
