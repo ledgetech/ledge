@@ -2629,3 +2629,41 @@ Surrogate-Capability: esi.example.com="ESI/1.0"
 Surrogate-Control: content="ESI/1.0"
 --- no_error_log
 [error]
+
+
+=== TEST 35: ESI_ARGS instruction with no args in query string
+    reach the origin
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_35_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            esi_enabled = true,
+            esi_args_prefix = "_esi_",
+        })
+        run(handler)
+    }
+}
+location /esi_35 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>")
+        ngx.say("<esi:vars>$(ESI_ARGS{b}|noarg)</esi:vars>")
+        ngx.say("<esi:vars>$(ESI_ARGS|noarg)</esi:vars>")
+        ngx.say("OK")
+    }
+}
+--- request
+GET /esi_35_prx?foo=bar
+--- response_body
+noarg
+noarg
+noarg
+OK
+--- error_code: 200
+--- response_headers_like
+X-Cache: MISS from .*
+--- no_error_log
+[error]
