@@ -743,7 +743,9 @@ local function save_to_cache(self, res)
             end
 
             ok, e = redis:exec()
-            if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+            if not ok or ok == ngx_null then
+                ngx_log(ngx_ERR, "failed to complete transaction: ", e)
+            end
         end
 
         -- Storage callback for write failure. We roll back our transaction.
@@ -771,7 +773,9 @@ local function save_to_cache(self, res)
         -- No body and thus no storage filter
         -- We can run our transaction immediately
         local ok, e = redis:exec()
-        if not ok or ok == ngx_null then ngx_log(ngx_ERR, e) end
+        if not ok or ok == ngx_null then
+            ngx_log(ngx_ERR, "failed to complete transaction: ", e)
+        end
     end
 end
 _M.save_to_cache = save_to_cache
