@@ -129,6 +129,11 @@ local function esi_eval_var(var)
     elseif var_name == "ESI_ARGS" then
         local esi_args = ngx.ctx.__ledge_esi_args
 
+        if not esi_args then
+            -- No ESI args in request
+            return default
+        end
+
         if not key then
             -- __tostring metamethod turns these back into encoded URI args
             return tostring(esi_args)
