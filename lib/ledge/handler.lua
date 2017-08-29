@@ -690,7 +690,10 @@ local function save_to_cache(self, res)
                 storage_driver_config = self.config.storage_driver_config,
             },
             {
-                delay = previous_entity_size,
+                delay = gc_wait(
+                    previous_entity_size,
+                    self.config.minimum_old_entity_download_rate
+                ),
                 tags = { "collect_entity" },
                 priority = 10,
             }
