@@ -19,7 +19,7 @@ local redis_connector = require("resty.redis.connector")
 
 
 local _M = {
-    _VERSION = "1.28.3",
+    _VERSION = "2.0.0",
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible
@@ -151,9 +151,11 @@ _M.create_handler = create_handler
 
 
 local function create_redis_connection()
-    return redis_connector.new(
-        config.redis_connector_params
-    ):connect()
+    local rc, err = redis_connector.new(config.redis_connector_params)
+    if not rc then
+        return nil, err
+    end
+    return rc:connect()
 end
 _M.create_redis_connection = create_redis_connection
 
@@ -164,15 +166,22 @@ local function create_redis_slave_connection()
         config.redis_connector_params
     )
 
-    return redis_connector.new(params):connect()
+    local rc, err = redis_connector.new(params)
+    if not rc then
+        return nil, err
+    end
+    return rc:connect()
 end
 _M.create_redis_slave_connection = create_redis_slave_connection
 
 
 local function close_redis_connection(redis)
-    return redis_connector.new(
-        config.redis_connector_params
-    ):set_keepalive(redis)
+    local rc, err = redis_connector.new(config.redis_connector_params)
+    if not rc then
+        return nil, err
+    end
+    return rc:set_keepalive(redis)
+
 end
 _M.close_redis_connection = close_redis_connection
 

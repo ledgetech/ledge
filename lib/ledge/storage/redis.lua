@@ -19,7 +19,7 @@ local get_fixed_field_metatable_proxy =
 
 
 local _M = {
-    _VERSION = '1.28.3',
+    _VERSION = "2.0.0",
 }
 
 
@@ -100,9 +100,13 @@ function _M.close(self)
 
     local redis = self.redis
     if redis then
-        return redis_connector.new(
+        local rc, err = redis_connector.new(
             self.params.redis_connector_params
-        ):set_keepalive(redis)
+        )
+        if not rc then
+            return nil, err
+        end
+        return rc:set_keepalive(redis)
     end
 end
 
