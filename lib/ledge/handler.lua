@@ -568,6 +568,7 @@ local function revalidate_in_background(self, update_revalidation_data)
 
         local ttl, err = redis:ttl(key_chain.reval_params)
         if not ttl or ttl == ngx_null or ttl < 0 then
+            if err then ngx_log(ngx_ERR, err) end
             ngx_log(ngx_ERR,
                 "Could not determine expiry for revalidation params. " ..
                 "Will fallback to 3600 seconds."
@@ -577,18 +578,25 @@ local function revalidate_in_background(self, update_revalidation_data)
         end
 
         -- Delete and update reval request headers
-        redis:multi()
+        local _, e
+        _, e = redis:multi()
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:del(key_chain.reval_params)
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:hmset(key_chain.reval_params, reval_params)
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:expire(key_chain.reval_params, ttl)
+        if e then ngx_log(ngx_ERR, e) end
 
-        redis:del(key_chain.reval_params)
-        redis:hmset(key_chain.reval_params, reval_params)
-        redis:expire(key_chain.reval_params, ttl)
-
-        redis:del(key_chain.reval_req_headers)
-        redis:hmset(key_chain.reval_req_headers, reval_headers)
-        redis:expire(key_chain.reval_req_headers, ttl)
+        _, e = redis:del(key_chain.reval_req_headers)
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:hmset(key_chain.reval_req_headers, reval_headers)
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:expire(key_chain.reval_req_headers, ttl)
+        if e then ngx_log(ngx_ERR, e) end
 
         local res, err = redis:exec()
-        if not res then
+        if not res or res == ngx_null then
             ngx_log(ngx_ERR, "Could not update revalidation params: ", err)
         end
     end
@@ -596,7 +604,7 @@ local function revalidate_in_background(self, update_revalidation_data)
     local uri, err = redis:hget(key_chain.main, "uri")
     if not uri or uri == ngx_null then
         ngx_log(ngx_ERR,
-            "Cache key has no 'uri' field, aborting revalidation"
+            "Cache key has no 'uri' field, aborting revalidation: ", err
         )
         return nil
     end
