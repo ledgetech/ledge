@@ -222,3 +222,79 @@ GET /ledge_9
 dog
 --- no_error_log
 [error]
+
+=== TEST 10: Bad redis-connector params are caught
+--- http_config
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+
+init_by_lua_block {
+    require("ledge").configure({
+        redis_connector_params = {
+            bad_time = true
+        },
+    })
+    require("ledge").set_handler_defaults({
+        storage_driver_config = {
+            redis_connector_params = {
+                bad_time2 = true
+            },
+        }
+    })
+}
+--- config
+location /ledge_10 {
+    content_by_lua_block {
+        local ok, err = require("ledge").create_redis_connection()
+        assert(ok == nil and err ~= nil,
+            "create_redis_connection() should return negatively with error")
+
+        local ok, err = require("ledge").create_storage_connection()
+        ngx.log(ngx.DEBUG, ok, " ", err)
+        assert(ok == nil and err ~= nil,
+            "create_storage_connection() should return negatively with error")
+
+        local ok, err = require("ledge").create_qless_connection()
+        assert(ok == nil and err ~= nil,
+            "create_qless_connection() should return negatively with error")
+
+        local ok, err = require("ledge").create_redis_slave_connection()
+        assert(ok == nil and err ~= nil,
+            "create_redis_slave_connection() should return negatively with error")
+
+        -- Test broken redis-connector params are caught when closing redis somehow
+        local ok, err = require("ledge").close_redis_connection({dummy = true})
+        assert(ok == nil and err ~= nil,
+            "close_redis_connection() should return negatively with error")
+
+        -- Test trying to close a non-existent redis instance
+        local ok, err = require("ledge").close_redis_connection({})
+        assert(ok == nil and err ~= nil,
+            "close_redis_connection() should return negatively with error")
+
+        ngx.say("OK")
+    }
+}
+--- request
+GET /ledge_10
+--- error_code: 200
+--- response_body
+OK
+
+=== TEST 11: Closing an empty redis instance
+--- ONLY
+--- http_config eval: $::HttpConfig
+--- config
+location /ledge_11 {
+    content_by_lua_block {
+        local ok, err = require("ledge").close_redis_connection({})
+        assert(ok == nil,
+            "close_redis_connection() should return negatively")
+
+        ngx.say("OK")
+    }
+}
+--- request
+GET /ledge_11
+--- error_code: 200
+--- response_body
+OK
