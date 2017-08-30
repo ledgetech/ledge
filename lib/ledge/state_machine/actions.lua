@@ -168,27 +168,12 @@ return {
         ngx_req_set_header("If-None-Match", client_validators["If-None-Match"])
     end,
 
-    add_validators_from_cache = function(handler)
-        local cached_res = handler.response
-
-        ngx_req_set_header("If-Modified-Since", cached_res.header["Last-Modified"])
-        ngx_req_set_header("If-None-Match", cached_res.header["Etag"])
-    end,
-
     add_stale_warning = function(handler)
         return handler:add_warning("110")
     end,
 
-    add_transformation_warning = function(handler)
-        return handler:add_warning("214")
-    end,
-
     add_disconnected_warning = function(handler)
         return handler:add_warning("112")
-    end,
-
-    serve = function(handler)
-        return handler:serve()
     end,
 
     set_json_response = function(handler)
@@ -219,10 +204,6 @@ return {
         return handler:delete_from_cache()
     end,
 
-    release_collapse_lock = function(handler)
-        handler.redis:del(handler:cache_key_chain().fetching_lock)
-    end,
-
     disable_output_buffers = function(handler)
         handler.output_buffers_enabled = false
     end,
@@ -245,10 +226,6 @@ return {
 
     set_http_gateway_timeout = function(handler)
         ngx.status = ngx.HTTP_GATEWAY_TIMEOUT
-    end,
-
-    set_http_connection_timed_out = function(handler)
-        ngx.status = 524
     end,
 
     set_http_internal_server_error = function(handler)
