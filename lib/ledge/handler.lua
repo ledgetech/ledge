@@ -301,9 +301,10 @@ end
 
 
 local function read_from_cache(self)
-    local res = response.new(self.redis, cache_key_chain(self))
-    local ok, err = res:read()
+    local res, err = response.new(self.redis, cache_key_chain(self))
+    if not res then return nil, err end
 
+    local ok, err = res:read()
     if err then
         -- Error, abort request
         ngx_log(ngx_ERR, "could not read response: ", err)
