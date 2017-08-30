@@ -176,6 +176,11 @@ _M.create_redis_slave_connection = create_redis_slave_connection
 
 
 local function close_redis_connection(redis)
+    if not next(redis) then
+        -- Possible for this to be called before we've created a redis conn
+        -- Ensure we actually have a resty-redis instance to close
+        return nil
+    end
     local rc, err = redis_connector.new(config.redis_connector_params)
     if not rc then
         return nil, err
