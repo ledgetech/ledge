@@ -569,7 +569,7 @@ local function revalidate_in_background(self, update_revalidation_data)
         local ttl, err = redis:ttl(key_chain.reval_params)
         if not ttl or ttl == ngx_null or ttl < 0 then
             if err then ngx_log(ngx_ERR, err) end
-            ngx_log(ngx_ERR,
+            ngx_log(ngx_INFO,
                 "Could not determine expiry for revalidation params. " ..
                 "Will fallback to 3600 seconds."
             )
@@ -603,9 +603,13 @@ local function revalidate_in_background(self, update_revalidation_data)
 
     local uri, err = redis:hget(key_chain.main, "uri")
     if not uri or uri == ngx_null then
-        ngx_log(ngx_ERR,
-            "Cache key has no 'uri' field, aborting revalidation: ", err
-        )
+        if err then
+            ngx_log(ngx_ERR, "Failed to get main key while revalidating: ", err)
+        else
+            ngx_log(ngx_WARN,
+                "Cache key has no 'uri' field, aborting revalidation"
+            )
+        end
         return nil
     end
 
@@ -673,7 +677,7 @@ local function save_to_cache(self, res)
     -- and the size.
     local previous_entity_id = self:entity_id(key_chain)
 
-    local previous_entity_size, err
+    local previous_entity_size, err, gc_job_spec
     if previous_entity_id then
         previous_entity_size, err = redis:hget(key_chain.main, "size")
         if previous_entity_size == ngx_null then
@@ -682,6 +686,24 @@ local function save_to_cache(self, res)
                 ngx_log(ngx_ERR, err)
             end
         end
+        -- Define GC job here, used later if required
+        gc_job_spec = {
+            "ledge_gc",
+            "ledge.jobs.collect_entity",
+            {
+                entity_id = previous_entity_id,
+                storage_driver = self.config.storage_driver,
+                storage_driver_config = self.config.storage_driver_config,
+            },
+            {
+                delay = gc_wait(
+                    previous_entity_size,
+                    self.config.minimum_old_entity_download_rate
+                ),
+                tags = { "collect_entity" },
+                priority = 10,
+            }
+        }
     end
 
     -- Start the transaction
@@ -751,23 +773,7 @@ local function save_to_cache(self, res)
             elseif previous_entity_id then
                 -- Everything has completed and we have an old entity
                 -- Schedule GC to clean it up
-                put_background_job(
-                    "ledge_gc",
-                    "ledge.jobs.collect_entity",
-                    {
-                        entity_id = previous_entity_id,
-                        storage_driver = self.config.storage_driver,
-                        storage_driver_config = self.config.storage_driver_config,
-                    },
-                    {
-                        delay = gc_wait(
-                            previous_entity_size,
-                            self.config.minimum_old_entity_download_rate
-                        ),
-                        tags = { "collect_entity" },
-                        priority = 10,
-                    }
-                )
+                put_background_job(unpack(gc_job_spec))
             end
         end
 
@@ -798,6 +804,10 @@ local function save_to_cache(self, res)
         local ok, e = redis:exec()
         if not ok or ok == ngx_null then
             ngx_log(ngx_ERR, "failed to complete transaction: ", e)
+        elseif previous_entity_id then
+            -- Everything has completed and we have an old entity
+            -- Schedule GC to clean it up
+            put_background_job(unpack(gc_job_spec))
         end
     end
 end
