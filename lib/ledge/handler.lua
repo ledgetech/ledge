@@ -368,7 +368,8 @@ local hop_by_hop_headers = {
 
 -- Fetches a resource from the origin server.
 local function fetch_from_origin(self)
-    local res = response.new(self.redis, cache_key_chain(self))
+    local res, err = response.new(self.redis, cache_key_chain(self))
+    if not res then return nil, err end
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
     if not method then
@@ -655,6 +656,7 @@ _M.fetch_in_background = fetch_in_background
 
 
 local function save_to_cache(self, res)
+    if not res then return nil, "no response to save" end
     emit(self, "before_save", res)
 
     -- Length is only set if there was a Content-Length header
@@ -812,6 +814,7 @@ local function save_to_cache(self, res)
             put_background_job(unpack(gc_job_spec))
         end
     end
+    return true
 end
 _M.save_to_cache = save_to_cache
 
