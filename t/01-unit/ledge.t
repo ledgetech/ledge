@@ -281,7 +281,6 @@ GET /ledge_10
 OK
 
 === TEST 11: Closing an empty redis instance
---- ONLY
 --- http_config eval: $::HttpConfig
 --- config
 location /ledge_11 {
