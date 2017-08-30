@@ -73,6 +73,32 @@ TEST 1
 --- no_error_log
 [error]
 
+=== TEST 1b: Subzero request; X-Cache: MISS is prepended
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+
+location /cache {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["X-Cache"] = "HIT from example.com"
+        ngx.say("TEST 1")
+    }
+}
+--- request
+GET /cache_prx?append
+--- response_headers_like
+X-Cache: MISS from .+, HIT from example.com
+--- response_body
+TEST 1
+--- no_error_log
+[error]
+
 
 === TEST 2: Hot request; X-Cache: HIT
 --- http_config eval: $::HttpConfig

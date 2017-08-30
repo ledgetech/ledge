@@ -105,11 +105,14 @@ function 3
 
 
 === TEST 3: Default binds
---- http_config
+--- http_config eval
+qq {
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
 init_by_lua_block {
-    require("luacov.runner").init()
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
 
     require("ledge").bind("after_cache_read", function(arg)
         ngx.say("default 1: ", arg)
@@ -118,6 +121,7 @@ init_by_lua_block {
     require("ledge").bind("after_cache_read", function(arg)
         ngx.say("default 2: ", arg)
     end)
+}
 }
 --- config
 location /t {

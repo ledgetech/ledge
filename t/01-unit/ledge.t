@@ -66,12 +66,17 @@ GET /ledge_2
 
 
 === TEST 3: Non existent params cannot be set
---- http_config
+--- http_config eval
+qq {
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
     local ok, err = pcall(require("ledge").configure, { foo = "bar" })
     assert(string.find(err, "field foo does not exist"),
         "error 'field foo does not exist' should be thrown")
+}
 }
 --- config
 location /ledge_3 {
@@ -124,15 +129,20 @@ dog
 
 
 === TEST 6: Create bad redis connection
---- http_config
+--- http_config eval
+qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
     require("ledge").configure({
         redis_connector_params = {
             port = 0, -- bad port
         },
     })
+}
 }
 --- config
 location /ledge_6 {
@@ -169,10 +179,14 @@ false
 
 
 === TEST 8: Create bad storage connection
---- http_config
+--- http_config eval
+qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
     require("ledge").set_handler_defaults({
         storage_driver_config = {
             redis_connector_params = {
@@ -180,6 +194,7 @@ init_by_lua_block {
             },
         }
     })
+}
 }
 --- config
 location /ledge_8 {
@@ -224,10 +239,14 @@ dog
 [error]
 
 === TEST 10: Bad redis-connector params are caught
---- http_config
+--- http_config eval
+qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
     require("ledge").configure({
         redis_connector_params = {
             bad_time = true
@@ -241,6 +260,7 @@ init_by_lua_block {
         }
     })
 }
+}
 --- config
 location /ledge_10 {
     content_by_lua_block {
@@ -249,7 +269,6 @@ location /ledge_10 {
             "create_redis_connection() should return negatively with error")
 
         local ok, err = require("ledge").create_storage_connection()
-        ngx.log(ngx.DEBUG, ok, " ", err)
         assert(ok == nil and err ~= nil,
             "create_storage_connection() should return negatively with error")
 
