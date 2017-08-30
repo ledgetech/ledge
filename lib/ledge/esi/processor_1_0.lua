@@ -8,7 +8,6 @@ local   tostring, type, tonumber, next, unpack, pcall, setfenv =
 
 local str_sub = string.sub
 local str_find = string.find
-local str_len = string.len
 
 local tbl_concat = table.concat
 local tbl_insert = table.insert
@@ -19,12 +18,9 @@ local co_wrap = util.coroutine.wrap
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub
 local ngx_re_match = ngx.re.match
-local ngx_re_gmatch = ngx.re.gmatch
 local ngx_re_find = ngx.re.find
 local ngx_req_get_headers = ngx.req.get_headers
-local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_uri_args = ngx.req.get_uri_args
-local ngx_crc32_long = ngx.crc32_long
 local ngx_flush = ngx.flush
 local ngx_var = ngx.var
 local ngx_log = ngx.log
