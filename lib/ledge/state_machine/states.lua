@@ -308,8 +308,8 @@ return {
         -- Extend the timeout to the size of the window
         redis:set_timeout(handler.config.collapsed_forwarding_window)
         local res, _ = redis:read_reply() -- block until we hear something or timeout
-        if not res then
-            return sm:e "http_gateway_timeout"
+        if not res or res == ngx_null then
+            return sm:e "collapsed_forwarding_failed"
         else
             -- TODO this config is now in the singleton
             redis:set_timeout(60) --handler.config.redis_read_timeout)
