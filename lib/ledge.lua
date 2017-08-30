@@ -220,11 +220,13 @@ local function create_storage_connection(driver_module, storage_driver_config)
     local ok, module = pcall(require, driver_module)
     if not ok then return nil, module end
 
-    local ok, driver = pcall(module.new)
+    local ok, driver, err = pcall(module.new)
     if not ok then return nil, driver end
+    if not driver then return nil, err end
 
-    local ok, conn = pcall(driver.connect, driver, storage_driver_config)
+    local ok, conn, err = pcall(driver.connect, driver, storage_driver_config)
     if not ok then return nil, conn end
+    if not conn then return nil, err end
 
     return conn, nil
 end
