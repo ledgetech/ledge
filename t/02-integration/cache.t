@@ -11,6 +11,8 @@ $ENV{TEST_COVERAGE} ||= 0;
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
+lua_shared_dict ledge_test 1m;
+
 init_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
         require("luacov.runner").init()
@@ -705,10 +707,104 @@ Numkeys: 5
 [error]
 
 
-=== TEST 15c: Partial entry misses
+=== TEST 16: Prime a resource into cache
 --- http_config eval: $::HttpConfig
 --- config
-location /cache_15_prx {
+location /cache_16_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /cache_16 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.say("TEST 16")
+    }
+}
+--- request
+GET /cache_16_prx
+--- response_headers_like
+X-Cache: MISS from .*
+--- response_body
+TEST 16
+--- no_error_log
+[error]
+
+=== TEST 16b: Modified main key aborts transaction and cleans up entity
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_16_check {
+    content_by_lua_block {
+        local entity_id = ngx.shared.ledge_test:get("entity_id")
+        local redis = require("ledge").create_storage_connection()
+        local ok, err = redis:exists(entity_id)
+        ngx.print(ok, " ", err)
+    }
+}
+location /cache_16_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        handler:bind("before_serve", function(res)
+            -- Create a new connection
+            local redis = require("ledge").create_redis_connection()
+            -- Set a new key on the main key
+            redis:hset(handler:cache_key_chain().main, "foo", "bar")
+
+            ngx.shared.ledge_test:set("entity_id", res.entity_id)
+        end)
+
+        handler:run()
+    }
+}
+location /cache_16 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.print("TEST 16b")
+    }
+}
+--- request eval
+["GET /cache_16_prx", "GET /cache_16_check"]
+--- more_headers
+Cache-Control: no-cache
+--- response_headers_like eval
+["X-Cache: MISS from .*", ""]
+--- response_body eval
+["TEST 16b", "false nil"]
+--- wait: 3
+--- no_error_log
+[error]
+
+=== TEST 16c: Modified main key aborts transaction - HIT
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_16_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /cache_16 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.say("TEST 16b")
+    }
+}
+--- request
+GET /cache_16_prx
+--- response_headers_like
+X-Cache: HIT from .*
+--- response_body
+TEST 16
+--- no_error_log
+[error]
+
+
+=== TEST 16d: Partial entry misses
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_16_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler()
@@ -721,17 +817,17 @@ location /cache_15_prx {
         handler:run()
     }
 }
-location /cache_15 {
+location /cache_16 {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=60"
-        ngx.say("TEST 15c")
+        ngx.say("TEST 16d")
     }
 }
 --- request
-GET /cache_15_prx
+GET /cache_16_prx
 --- response_headers_like
 X-Cache: MISS from .*
 --- response_body
-TEST 15c
+TEST 16d
 --- no_error_log
 [error]

@@ -568,7 +568,8 @@ local function revalidate_in_background(self, update_revalidation_data)
 
         local ttl, err = redis:ttl(key_chain.reval_params)
         if not ttl or ttl == ngx_null or ttl < 0 then
-            ngx_log(ngx_ERR,
+            if err then ngx_log(ngx_ERR, err) end
+            ngx_log(ngx_INFO,
                 "Could not determine expiry for revalidation params. " ..
                 "Will fallback to 3600 seconds."
             )
@@ -577,27 +578,38 @@ local function revalidate_in_background(self, update_revalidation_data)
         end
 
         -- Delete and update reval request headers
-        redis:multi()
+        local _, e
+        _, e = redis:multi()
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:del(key_chain.reval_params)
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:hmset(key_chain.reval_params, reval_params)
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:expire(key_chain.reval_params, ttl)
+        if e then ngx_log(ngx_ERR, e) end
 
-        redis:del(key_chain.reval_params)
-        redis:hmset(key_chain.reval_params, reval_params)
-        redis:expire(key_chain.reval_params, ttl)
-
-        redis:del(key_chain.reval_req_headers)
-        redis:hmset(key_chain.reval_req_headers, reval_headers)
-        redis:expire(key_chain.reval_req_headers, ttl)
+        _, e = redis:del(key_chain.reval_req_headers)
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:hmset(key_chain.reval_req_headers, reval_headers)
+        if e then ngx_log(ngx_ERR, e) end
+        _, e = redis:expire(key_chain.reval_req_headers, ttl)
+        if e then ngx_log(ngx_ERR, e) end
 
         local res, err = redis:exec()
-        if not res then
+        if not res or res == ngx_null then
             ngx_log(ngx_ERR, "Could not update revalidation params: ", err)
         end
     end
 
     local uri, err = redis:hget(key_chain.main, "uri")
     if not uri or uri == ngx_null then
-        ngx_log(ngx_ERR,
-            "Cache key has no 'uri' field, aborting revalidation"
-        )
+        if err then
+            ngx_log(ngx_ERR, "Failed to get main key while revalidating: ", err)
+        else
+            ngx_log(ngx_WARN,
+                "Cache key has no 'uri' field, aborting revalidation"
+            )
+        end
         return nil
     end
 
@@ -665,7 +677,7 @@ local function save_to_cache(self, res)
     -- and the size.
     local previous_entity_id = self:entity_id(key_chain)
 
-    local previous_entity_size, err
+    local previous_entity_size, err, gc_job_spec
     if previous_entity_id then
         previous_entity_size, err = redis:hget(key_chain.main, "size")
         if previous_entity_size == ngx_null then
@@ -674,14 +686,9 @@ local function save_to_cache(self, res)
                 ngx_log(ngx_ERR, err)
             end
         end
-    end
 
-    -- Start the transaction
-    local ok, err = redis:multi()
-    if not ok then ngx_log(ngx_ERR, err) end
-
-    if previous_entity_id then
-        put_background_job(
+        -- Define GC job here, used later if required
+        gc_job_spec = {
             "ledge_gc",
             "ledge.jobs.collect_entity",
             {
@@ -697,12 +704,17 @@ local function save_to_cache(self, res)
                 tags = { "collect_entity" },
                 priority = 10,
             }
-        )
+        }
+    end
 
+    -- Start the transaction
+    local ok, err = redis:multi()
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    if previous_entity_id then
         local ok, err = redis:srem(key_chain.entities, previous_entity_id)
         if not ok then ngx_log(ngx_ERR, err) end
     end
-
 
     res.uri = req_full_uri()
 
@@ -749,7 +761,20 @@ local function save_to_cache(self, res)
 
             ok, e = redis:exec()
             if not ok or ok == ngx_null then
-                ngx_log(ngx_ERR, "failed to complete transaction: ", e)
+                if e then
+                    ngx_log(ngx_ERR, "failed to complete transaction: ", e)
+                else
+                    -- Transaction likely failed due to watch on main key
+                    -- Tell storage to clean up too
+                    ok, e = storage:delete(res.entity_id)
+                    if e then
+                        ngx_log(ngx_ERR, "failed to cleanup storage: ", e)
+                    end
+                end
+            elseif previous_entity_id then
+                -- Everything has completed and we have an old entity
+                -- Schedule GC to clean it up
+                put_background_job(unpack(gc_job_spec))
             end
         end
 
@@ -780,6 +805,10 @@ local function save_to_cache(self, res)
         local ok, e = redis:exec()
         if not ok or ok == ngx_null then
             ngx_log(ngx_ERR, "failed to complete transaction: ", e)
+        elseif previous_entity_id then
+            -- Everything has completed and we have an old entity
+            -- Schedule GC to clean it up
+            put_background_job(unpack(gc_job_spec))
         end
     end
 end
