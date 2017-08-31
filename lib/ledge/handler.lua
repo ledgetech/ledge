@@ -686,6 +686,7 @@ local function save_to_cache(self, res)
                 ngx_log(ngx_ERR, err)
             end
         end
+
         -- Define GC job here, used later if required
         gc_job_spec = {
             "ledge_gc",

@@ -155,6 +155,7 @@ local function create_redis_connection()
     if not rc then
         return nil, err
     end
+
     return rc:connect()
 end
 _M.create_redis_connection = create_redis_connection
@@ -170,6 +171,7 @@ local function create_redis_slave_connection()
     if not rc then
         return nil, err
     end
+
     return rc:connect()
 end
 _M.create_redis_slave_connection = create_redis_slave_connection
@@ -181,12 +183,13 @@ local function close_redis_connection(redis)
         -- Ensure we actually have a resty-redis instance to close
         return nil
     end
+
     local rc, err = redis_connector.new(config.redis_connector_params)
     if not rc then
         return nil, err
     end
-    return rc:set_keepalive(redis)
 
+    return rc:set_keepalive(redis)
 end
 _M.close_redis_connection = close_redis_connection
 
