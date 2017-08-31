@@ -134,7 +134,11 @@ local function esi_eval_var(var)
             -- __tostring metamethod turns these back into encoded URI args
             return tostring(esi_args)
         else
-            return tostring(esi_args[key] or default)
+            local value = esi_args[key] or default
+            if type(value) == "table" then
+                return tbl_concat(value, ",")
+            end
+            return tostring(value)
         end
     else
         local custom_variables = ngx.ctx.__ledge_esi_custom_variables
@@ -159,6 +163,7 @@ local function esi_eval_var(var)
         return default
     end
 end
+_M.esi_eval_var = esi_eval_var
 
 
 -- Used in esi_replace_vars. Declared locally to avoid runtime closure
