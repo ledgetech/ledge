@@ -370,3 +370,59 @@ If-None-Match: test7b
 GET /concurrent_collapsed
 --- error_code: 200
 --- response_body
+
+=== TEST 8a: Prime cache (collapsed forwardind requires having seen a previously cacheable response)
+--- http_config eval: $::HttpConfig
+--- config
+location /collapsed8_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /collapsed8 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("OK")
+    }
+}
+--- request eval
+["GET /collapsed8_prx", "PURGE /collapsed8_prx"]
+--- no_error_log
+[error]
+
+
+=== TEST 8b: Collapse window timed out
+--- http_config eval: $::HttpConfig
+--- config
+location /concurrent_collapsed {
+    rewrite_by_lua_block {
+        ngx.shared.test:set("test_8", 0)
+    }
+
+    echo_location_async "/collapsed8_prx";
+    echo_sleep 0.05;
+    echo_location_async "/collapsed8_prx";
+}
+location /collapsed8_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            enable_collapsed_forwarding = true,
+            collapsed_forwarding_window = 500, -- (ms)
+        }):run()
+    }
+}
+location /collapsed8 {
+    content_by_lua_block {
+        ngx.sleep(0.8)
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("OK " .. ngx.shared.test:incr("test_8", 1))
+    }
+}
+--- request
+GET /concurrent_collapsed
+--- error_code: 200
+--- response_body
+OK 1
+OK 2
