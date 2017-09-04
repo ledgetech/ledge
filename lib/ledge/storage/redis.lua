@@ -247,6 +247,7 @@ function _M.get_reader(self, res)
                     "entity removed during read, ",
                     entity_keys.body
                 )
+                chunk = nil
             end
 
             return chunk, nil, has_esi == "true"
