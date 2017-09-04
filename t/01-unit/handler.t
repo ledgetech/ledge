@@ -192,3 +192,154 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+=== TEST 6: read from cache
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        local res, err = handler:read_from_cache()
+        assert(res == nil and err ~= nil,
+            "read_from_cache should error with no redis connections")
+
+        handler.redis = require("ledge").create_redis_connection()
+        handler.storage = require("ledge").create_storage_connection(
+            handler.config.storage_driver,
+            handler.config.storage_driver_config
+        )
+        local res, err = handler:read_from_cache()
+        assert(res and not err, "read_from_cache should return positively")
+    }
+
+}
+--- request
+GET /t
+--- no_error_log
+[error]
+
+
+=== TEST 7: Call run with bad redis details
+--- http_config eval
+qq{
+lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
+
+init_by_lua_block {
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
+
+    require("ledge").configure({
+        redis_connector_params = {
+            url = "redis://127.0.0.1:0/",
+        },
+        qless_db = 123,
+    })
+
+    require("ledge").set_handler_defaults({
+        upstream_host = "127.0.0.1",
+        upstream_port = 1234,
+    })
+
+    require("ledge.state_machine").set_debug(true)
+}
+}
+--- config
+location /t {
+    content_by_lua_block {
+        local ok, err = require("ledge").create_handler():run()
+        assert(ok == nil and err ~= nil,
+            "run should return negatively with an error")
+        ngx.say("OK")
+    }
+}
+--- request
+GET /t
+--- response_body
+OK
+--- no_error_log
+[error]
+
+=== TEST 8: save to cache
+--- http_config eval: $::HttpConfig
+--- config
+location /t_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        local res, err = handler:save_to_cache()
+        assert(res == nil and err ~= nil,
+            "read_from_cache should error with no response")
+
+        local res, err = handler:fetch_from_origin()
+        assert(res == nil and err ~= nil,
+            "fetch_from_origin should error with no redis")
+
+        handler.redis = require("ledge").create_redis_connection()
+        handler.storage = require("ledge").create_storage_connection(
+            handler.config.storage_driver,
+            handler.config.storage_driver_config
+        )
+        local res, err = handler:fetch_from_origin()
+        assert(res and not err, "fetch_from_origin should return positively")
+
+        local res, err = handler:save_to_cache(res)
+        ngx.log(ngx.DEBUG, res, " ", err)
+        assert(res and not err, "save_to_cache should return positively")
+
+        ngx.say("OK")
+    }
+
+}
+location /t {
+    echo "origin";
+}
+--- request
+GET /t_prx
+--- no_error_log
+[error]
+--- response_body
+OK
+
+=== TEST 8: save to cache, no body
+--- http_config eval: $::HttpConfig
+--- config
+location /t_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+
+        local res, err = handler:save_to_cache()
+        assert(res == nil and err ~= nil,
+            "read_from_cache should error with no response")
+
+        handler.redis = require("ledge").create_redis_connection()
+        handler.storage = require("ledge").create_storage_connection(
+            handler.config.storage_driver,
+            handler.config.storage_driver_config
+        )
+
+        local res, err = handler:fetch_from_origin()
+        assert(res and not err, "fetch_from_origin should return positively")
+
+        res.has_body = false
+
+        local res, err = handler:save_to_cache(res)
+        ngx.log(ngx.DEBUG, res, " ", err)
+        assert(res and not err, "save_to_cache should return positively")
+
+        ngx.say("OK")
+    }
+
+}
+location /t {
+    echo "origin";
+}
+--- request
+GET /t_prx
+--- no_error_log
+[error]
+--- response_body
+OK

@@ -8,7 +8,6 @@ local   tostring, type, tonumber, next, unpack, pcall, setfenv =
 
 local str_sub = string.sub
 local str_find = string.find
-local str_len = string.len
 
 local tbl_concat = table.concat
 local tbl_insert = table.insert
@@ -19,12 +18,9 @@ local co_wrap = util.coroutine.wrap
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub
 local ngx_re_match = ngx.re.match
-local ngx_re_gmatch = ngx.re.gmatch
 local ngx_re_find = ngx.re.find
 local ngx_req_get_headers = ngx.req.get_headers
-local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_uri_args = ngx.req.get_uri_args
-local ngx_crc32_long = ngx.crc32_long
 local ngx_flush = ngx.flush
 local ngx_var = ngx.var
 local ngx_log = ngx.log
@@ -138,7 +134,11 @@ local function esi_eval_var(var)
             -- __tostring metamethod turns these back into encoded URI args
             return tostring(esi_args)
         else
-            return tostring(esi_args[key] or default)
+            local value = esi_args[key] or default
+            if type(value) == "table" then
+                return tbl_concat(value, ",")
+            end
+            return tostring(value)
         end
     else
         local custom_variables = ngx.ctx.__ledge_esi_custom_variables
@@ -163,6 +163,7 @@ local function esi_eval_var(var)
         return default
     end
 end
+_M.esi_eval_var = esi_eval_var
 
 
 -- Used in esi_replace_vars. Declared locally to avoid runtime closure

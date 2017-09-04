@@ -872,3 +872,32 @@ location /storage {
 ]
 --- no_error_log
 [error]
+
+=== TEST 13: Handler run with bad config should return an error
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    content_by_lua_block {
+        local config = get_backend(ngx.req.get_uri_args()["backend"])
+        local ok, err = require("ledge").create_handler({
+            storage_driver = config.module,
+            storage_driver_config = config.bad_params
+        }):run()
+        assert(ok == nil and err ~= nil,
+            "run should return negatively with an error")
+
+        ngx.print(ngx.req.get_uri_args()["backend"], " OK")
+    }
+}
+--- request eval
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
+--- response_body eval
+[
+    "redis OK",
+    "redis_notransact OK",
+]
+--- no_error_log
+[error]
