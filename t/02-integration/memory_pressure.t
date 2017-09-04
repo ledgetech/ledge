@@ -169,3 +169,41 @@ GET /mem_pressure_2_prx
 --- response_body: ORIGIN
 --- no_error_log
 [error]
+
+=== TEST 3: Prime and break active entity during read
+--- http_config eval: $::HttpConfig
+--- config
+location "/mem_pressure_3_prx" {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        if not ngx.req.get_uri_args()["prime"] then
+            handler:bind("before_serve", function(res)
+                ngx.log(ngx.DEBUG, "Deleting: ", res.entity_id)
+                handler.storage:delete(res.entity_id)
+            end)
+        else
+            -- Dummy log for prime request
+            ngx.log(ngx.DEBUG, "entity removed during read")
+        end
+        ngx.req.set_uri_args({})
+        handler:run()
+    }
+}
+location "/mem_pressure_3" {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("ORIGIN")
+    }
+}
+--- request eval
+["GET /mem_pressure_3_prx?prime=true", "GET /mem_pressure_3_prx"]
+--- response_body eval
+["ORIGIN", ""]
+--- response_headers_like eval
+["X-Cache: MISS from .*", "X-Cache: HIT from .*"]
+--- no_error_log
+[error]
+--- error_log
+entity removed during read
