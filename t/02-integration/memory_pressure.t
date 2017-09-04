@@ -110,10 +110,12 @@ location "/mem_pressure_1" {
 }
 --- request eval
 ["GET /mem_pressure_1_prx?key=main",
-"GET /mem_pressure_1_prx?key=headers"]
+"GET /mem_pressure_1_prx?key=headers",
+"GET /mem_pressure_1_prx?key=entities"]
 --- response_body eval
 ["MISSED: main",
-"MISSED: headers"]
+"MISSED: headers",
+"MISSED: entities"]
 --- no_error_log
 [error]
 
