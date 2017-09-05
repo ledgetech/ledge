@@ -556,6 +556,7 @@ local function process_escaping(chunk, res, recursion)
         return chunk
     end
 end
+_M.process_escaping = process_escaping
 
 
 -- Assumed chunk contains a complete conditional instruction set. Handles

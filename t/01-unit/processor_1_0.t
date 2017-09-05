@@ -508,3 +508,44 @@ GET /t?test_param=test
 --- response_body
 OK
 
+
+=== TEST 12: process_escaping
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local processor = require("ledge.esi.processor_1_0")
+        local tests = {
+            {
+                ["chunk"] = [[Lorem ipsum dolor sit amet, consectetur adipiscing elit.]],
+                ["res"]   = [[Lorem ipsum dolor sit amet, consectetur adipiscing elit.]],
+                ["msg"]   = "nothing to escape"
+            },
+            {
+                ["chunk"] = [[Lorem<!--esi ipsum dolor sit amet, -->consectetur adipiscing elit.]],
+                ["res"]   = [[Lorem ipsum dolor sit amet, consectetur adipiscing elit.]],
+                ["msg"]   = "no esi inside"
+            },
+            {
+                ["chunk"] = [[Lorem<!--esi <esi:vars>$(QUERY_STRING)</esi:vars>ipsum dolor sit amet, -->consectetur adipiscing elit.]],
+                ["res"]   = [[Lorem <esi:vars>$(QUERY_STRING)</esi:vars>ipsum dolor sit amet, consectetur adipiscing elit.]],
+                ["msg"]   = "esi:vars inside"
+            },
+
+        }
+        for _, t in pairs(tests) do
+            local output = processor.process_escaping(t["chunk"])
+            ngx.log(ngx.DEBUG, "'", output, "'")
+            assert(output == t["res"], "process_escaping mismatch: "..t["msg"] )
+        end
+        ngx.say("OK")
+    }
+}
+
+--- request
+GET /t?test_param=test
+--- no_error_log
+[error]
+--- response_body
+OK
+
