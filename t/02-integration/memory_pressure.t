@@ -207,3 +207,75 @@ location "/mem_pressure_3" {
 [error]
 --- error_log
 entity removed during read
+
+=== TEST 4: Prime some cache - stale headers
+--- http_config eval: $::HttpConfig
+--- config
+location "/mem_pressure_4_prx" {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location "/mem_pressure_4" {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600, stale-if-error=2592000, stale-while-revalidate=129600"
+        ngx.header["Surrogate-Control"] = [[content="ESI/1.0"]]
+        ngx.print("<esi:vars></esi:vars>Key: ", ngx.req.get_uri_args()["key"])
+    }
+}
+--- request eval
+["GET /mem_pressure_4_prx?key=main",
+"GET /mem_pressure_4_prx?key=headers",
+"GET /mem_pressure_4_prx?key=entities"]
+--- response_body eval
+["Key: main",
+"Key: headers",
+"Key: entities"]
+--- no_error_log
+[error]
+
+
+=== TEST 4b: Break each key, in a different way for each, then try to serve
+--- http_config eval: $::HttpConfig
+--- config
+location "/mem_pressure_4_prx" {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local handler = require("ledge").create_handler()
+        local key_chain = handler:cache_key_chain()
+
+        local evict = ngx.req.get_uri_args()["key"]
+        local key = key_chain[evict]
+        ngx.log(ngx.DEBUG, "will evict: ", key)
+        local res, err = redis:del(key)
+        if not res then
+            ngx.log(ngx.ERR, "could not evict: ", err)
+        end
+        redis:set(evict, "true")
+        ngx.log(ngx.DEBUG, tostring(res))
+
+        redis:close()
+
+        handler:run()
+    }
+}
+
+location "/mem_pressure_4" {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=0"
+        ngx.print("MISSED: ", ngx.req.get_uri_args()["key"])
+    }
+}
+--- request eval
+["GET /mem_pressure_4_prx?key=main",
+"GET /mem_pressure_4_prx?key=headers",
+"GET /mem_pressure_4_prx?key=entities"]
+--- response_body eval
+["MISSED: main",
+"MISSED: headers",
+"MISSED: entities"]
+--- no_error_log
+[error]
