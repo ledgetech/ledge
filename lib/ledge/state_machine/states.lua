@@ -43,7 +43,7 @@ local parse_content_range = require("ledge.range").parse_content_range
 
 
 local _M = {
-    _VERSION = "2.0.0",
+    _VERSION = "2.0.1",
 }
 
 

@@ -3,7 +3,7 @@ local http_headers = require "resty.http_headers"
 local ngx_null = ngx.null
 
 local _M = {
-    _VERSION = "2.0.0",
+    _VERSION = "2.0.1",
 }
 
 
