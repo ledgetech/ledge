@@ -362,6 +362,9 @@ function _M.save(self, keep_cache_for)
         self.header["Date"] = ngx_http_time(ngx_time())
     end
 
+    local ok, err = redis:del(key_chain.main)
+    if not ok then ngx_log(ngx_ERR, err) end
+
     local ok, err = redis:hmset(key_chain.main,
         "entity",       self.entity_id,
         "status",       self.status,
