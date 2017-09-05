@@ -259,7 +259,7 @@ local function _esi_condition_lexer(condition)
                     )
                     if not re then
                         ngx_log(ngx_INFO,
-                            "Parse error: could not parse regular expression",
+                            "Parse error: could not parse regular expression ",
                             "in: \"", condition, "\""
                         )
                         return nil
@@ -345,6 +345,7 @@ local function _esi_evaluate_condition(condition)
         return false
     end
 end
+_M._esi_evaluate_condition = _esi_evaluate_condition
 
 
 -- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
