@@ -865,7 +865,6 @@ TEST 16d
 location /cache_17_modify {
     rewrite ^(.*)_modify$ $1 break;
     content_by_lua_block {
-    local handler = require("ledge").create_handler()
         local handler = require("ledge").create_handler()
         local key = handler:cache_key_chain().main
         local redis = require("ledge").create_redis_connection()
@@ -883,7 +882,6 @@ location /cache_17_modify {
 location /cache_17_check {
     rewrite ^(.*)_check$ $1 break;
     content_by_lua_block {
-    local handler = require("ledge").create_handler()
         local handler = require("ledge").create_handler()
         local key = handler:cache_key_chain().main
         local redis = require("ledge").create_redis_connection()
