@@ -427,3 +427,84 @@ default_quoted
 default
 ",
 ]
+
+=== TEST 9: esi_replace_vars
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local processor = require("ledge.esi.processor_1_0")
+        local tests = {
+        -- When tags
+            {
+                ["chunk"] = [[<esi:when test="$(QUERY_STRING{test_param})" >]],
+                ["res"]   = [[<esi:when test="'test'" >]],
+                ["msg"]   = "vars in when tag"
+            },
+            {
+                ["chunk"] = [[<esi:when   test="$(QUERY_STRING{test_param})"     >]],
+                ["res"]   = [[<esi:when   test="'test'"     >]],
+                ["msg"]   = "vars in when tag - whitespace"
+            },
+            {
+                ["chunk"] = [[<esi:when   test="$(QUERY_STRING{test_param})]],
+                ["res"]   = [[<esi:when   test="$(QUERY_STRING{test_param})]],
+                ["msg"]   = "vars in when tag - incomplete"
+            },
+            {
+                ["chunk"] = [[<esi:when test="$(QUERY_STRING{test_param})" == 'foobar'>]],
+                ["res"]   = [[<esi:when test="test" == 'foobar'>]],
+                ["msg"]   = "vars in when tag - quoting"
+            },
+
+        -- vars tags
+            {
+                ["chunk"] = [[<esi:vars>$(QUERY_STRING)</esi:vars>]],
+                ["res"]   = [[test_param=test]],
+                ["msg"]   = "vars tag"
+            },
+            {
+                ["chunk"] = [[   <esi:vars>   $(QUERY_STRING{test_param})   </esi:vars>   ]],
+                ["res"]   = [[      test      ]],
+                ["msg"]   = "vars tag - whitespace"
+            },
+            {
+                ["chunk"] = [[<esi:vars><h1>$(QUERY_STRING)</h1></esi:vars>]],
+                ["res"]   = [[<h1>test_param=test</h1>]],
+                ["msg"]   = "vars tag - html tags"
+            },
+            {
+                ["chunk"] = [[<esi:vars></esi:vars>]],
+                ["res"]   = [[]],
+                ["msg"]   = "empty vars tags removed"
+            },
+            {
+                ["chunk"] = [[<esi:vars><p>foo</p></esi:vars>]],
+                ["res"]   = [[<p>foo</p>]],
+                ["msg"]   = "empty vars tags removed - content preserved"
+            },
+
+        -- other esi tags
+            {
+                ["chunk"] = [[<esi:foo>$(QUERY_STRING)</esi:foo>]],
+                ["res"]   = [[<esi:foo>test_param=test</esi:foo>]],
+                ["msg"]   = "foo tag"
+            },
+
+        }
+        for _, t in pairs(tests) do
+            local output = processor.esi_replace_vars(t["chunk"])
+            ngx.log(ngx.DEBUG, "'", output, "'")
+            assert(output == t["res"], "esi_replace_vars mismatch: "..t["msg"] )
+        end
+        ngx.say("OK")
+    }
+}
+
+--- request
+GET /t?test_param=test
+--- no_error_log
+[error]
+--- response_body
+OK
+

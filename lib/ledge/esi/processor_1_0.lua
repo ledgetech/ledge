@@ -317,6 +317,7 @@ local function _esi_condition_lexer(condition)
 
     return true, tbl_concat(tokens or {}, " ")
 end
+_M._esi_condition_lexer = _esi_condition_lexer
 
 
 local function _esi_evaluate_condition(condition)
@@ -381,6 +382,7 @@ local function esi_replace_vars(chunk)
 
     return chunk
 end
+_M.esi_replace_vars = esi_replace_vars
 
 
 function _M.esi_fetch_include(self, include_tag, buffer_size)
