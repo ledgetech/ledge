@@ -5,7 +5,7 @@ local create_storage_connection = require("ledge").create_storage_connection
 
 
 local _M = {
-    _VERSION = "2.0.1",
+    _VERSION = "2.0.2",
 }
 
 
