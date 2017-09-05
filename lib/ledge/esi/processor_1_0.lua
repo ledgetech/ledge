@@ -259,7 +259,7 @@ local function _esi_condition_lexer(condition)
                     )
                     if not re then
                         ngx_log(ngx_INFO,
-                            "Parse error: could not parse regular expression",
+                            "Parse error: could not parse regular expression ",
                             "in: \"", condition, "\""
                         )
                         return nil
