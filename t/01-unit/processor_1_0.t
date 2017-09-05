@@ -610,3 +610,136 @@ GET /t
 ]
 --- response_body
 OK
+
+=== TEST 11: _esi_evaluate_condition
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local processor = require("ledge.esi.processor_1_0")
+        local tests = {
+        -- Basic operators
+            {
+                ["condition"] = [[1 == 1]],
+                ["res"]       = true,
+                ["msg"]       = "equality"
+            },
+            {
+                ["condition"] = [[1 == 2]],
+                ["res"]       = false,
+                ["msg"]       = "equality - negative"
+            },
+            {
+                ["condition"] = [['foo' == 'foo']],
+                ["res"]       = true,
+                ["msg"]       = "equality string"
+            },
+            {
+                ["condition"] = [['foo' == 'bar']],
+                ["res"]       = false,
+                ["msg"]       = "equality string - negative"
+            },
+
+            {
+                ["condition"] = [[1 != 1]],
+                ["res"]       = false,
+                ["msg"]       = "inverse equality"
+            },
+            {
+                ["condition"] = [[1 != 2]],
+                ["res"]       = true,
+                ["msg"]       = "inverse equality - negative"
+            },
+            {
+                ["condition"] = [['foo' != 'foo']],
+                ["res"]       = false,
+                ["msg"]       = "inverse equality string"
+            },
+            {
+                ["condition"] = [['foo' != 'bar']],
+                ["res"]       = true,
+                ["msg"]       = "inverse equality string - negative"
+            },
+
+            {
+                ["condition"] = [[1 | 2]],
+                --["res"]       = true,
+                ["res"]       = 1,
+                ["msg"]       = "or"
+            },
+            {
+                ["condition"] = [['foo' | 'bar']],
+                --["res"]       = true,
+                ["res"]       = 'foo',
+                ["msg"]       = "string or"
+            },
+           --[===[
+            {
+                ["condition"] = [[false | false]],
+                ["res"]       = false,
+                ["msg"]       = "or - negative"
+            },
+            --]===]
+
+
+            {
+                ["condition"] = [[1 && 2]],
+                --["res"]       = true,
+                ["res"]       = 2,
+                ["msg"]       = "and"
+            },
+            {
+                ["condition"] = [['foo' && 'bar']],
+                --["res"]       = true,
+                ["res"]       = 'bar',
+                ["msg"]       = "and string"
+            },
+           --[===[ {
+                ["condition"] = [[1 && false]],
+                ["res"]       = false,
+                ["msg"]       = "and - negative"
+            },
+            --]===]
+
+           --[===[ {
+                ["condition"] = [[!true]],
+                --["res"]       = true,
+                ["res"]       = nil,
+                ["msg"]       = "boolean not"
+            },
+
+            {
+                ["condition"] = [[ ! false]],
+                ["res"]       = false,
+                ["msg"]       = "boolean not - negative"
+            },
+            --]===]
+        -- regex operator
+            {
+                ["condition"] = [['foo' =~ '/(foo|bar)/']],
+                --["res"]       = true,
+                ["res"]       = 1,
+                ["msg"]       = "regex"
+            },
+            {
+                ["condition"] = [['foo' =~ '/(qux|baz)/']],
+                --["res"]       = false,
+                ["res"]       = nil,
+                ["msg"]       = "regex"
+            },
+        }
+        for _, t in pairs(tests) do
+            local ok = processor._esi_evaluate_condition(t["condition"])
+            ngx.log(ngx.DEBUG, "'", t["condition"], "' = ", ok)
+            assert(ok == t["res"], "_esi_evaluate_condition mismatch: "..t["msg"] )
+        end
+        ngx.say("OK")
+    }
+}
+
+--- request
+GET /t
+--- no_error_log
+[error]
+--- response_body
+OK

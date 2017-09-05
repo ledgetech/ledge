@@ -345,6 +345,7 @@ local function _esi_evaluate_condition(condition)
         return false
     end
 end
+_M._esi_evaluate_condition = _esi_evaluate_condition
 
 
 -- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
