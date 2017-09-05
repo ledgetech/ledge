@@ -168,7 +168,14 @@ return {
             -- yet, so we must do that now
             -- TODO: Perhaps the state machine can load the processor to avoid this weird check
             if res.has_esi then
-                handler.esi_processor = esi.choose_esi_processor(handler)
+                local p, err = esi.choose_esi_processor(handler)
+                if not p then
+                    -- This shouldn't happen
+                    -- if res.has_esi is set then a processor should be selectedable
+                    return sm:e "esi_process_not_required"
+                else
+                    handler.esi_processor = p
+                end
             else
                 -- We know there's nothing to do
                 return sm:e "esi_process_not_required"
