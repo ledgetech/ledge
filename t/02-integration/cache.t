@@ -857,3 +857,76 @@ X-Cache: MISS from .*
 TEST 16d
 --- no_error_log
 [error]
+
+
+=== TEST 17: Main key is completely overriden
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_17_modify {
+    rewrite ^(.*)_modify$ $1 break;
+    content_by_lua_block {
+    local handler = require("ledge").create_handler()
+        local handler = require("ledge").create_handler()
+        local key = handler:cache_key_chain().main
+        local redis = require("ledge").create_redis_connection()
+
+        -- Add new field to main key
+        redis:hset(key, "bogus_field", "foobar")
+
+        -- Print result from redis
+        local main, err = redis:hgetall(key)
+        main = redis:array_to_hash(main)
+        ngx.print(key, " bogus_field: ", main["bogus_field"])
+
+    }
+}
+location /cache_17_check {
+    rewrite ^(.*)_check$ $1 break;
+    content_by_lua_block {
+    local handler = require("ledge").create_handler()
+        local handler = require("ledge").create_handler()
+        local key = handler:cache_key_chain().main
+        local redis = require("ledge").create_redis_connection()
+
+        -- Print result from redis
+        local main, err = redis:hgetall(key)
+        main = redis:array_to_hash(main)
+        ngx.print(key, " bogus_field: ", main["bogus_field"])
+    }
+}
+location /cache_17_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /cache_17 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.print("TEST 17")
+    }
+}
+--- request eval
+[
+"GET /cache_17_prx",
+"GET /cache_17_modify",
+"GET /cache_17_prx",
+"GET /cache_17_check",
+]
+--- more_headers eval
+[
+"",
+"",
+"Cache-Control: no-cache",
+"",
+]
+--- response_body eval
+[
+"TEST 17",
+"ledge:cache:http:localhost:/cache_17:::main bogus_field: foobar",
+"TEST 17",
+"ledge:cache:http:localhost:/cache_17:::main bogus_field: nil",
+]
+
+--- no_error_log
+[error]

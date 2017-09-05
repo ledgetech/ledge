@@ -284,9 +284,9 @@ location /t {
         )
 
         local ok, err = res2:read()
-        assert(ok and not err)
+        assert(ok and not err, "res2 should save without err")
 
-        assert(res2.uri == "http://example.com")
+        assert(res2.uri == "http://example.com", "res2 uri")
 
         res2.header["X-Save-Me"] = "ok"
         res2:save(60)
@@ -297,7 +297,7 @@ location /t {
         )
         res3:read()
 
-        assert(res3.header["X-Save-Me"] == "ok")
+        assert(res3.header["X-Save-Me"] == "ok", "res3 headers")
 
         local ok, err = res3:set_and_save("size", 99)
         assert(ok and not err, "set_and_save should return positively")
@@ -370,5 +370,57 @@ location /t {
 --- request
 GET /t
 --- error_code: 200
+--- no_error_log
+[error]
+
+=== TEST 8: save should replace the has_esi flag
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local res, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        res.uri = "http://example.com"
+        res.status = 200
+
+        local ok, err = res:save(60)
+        assert(ok and not err, "res should save without err")
+
+        res:set_and_save("has_esi", "dummy")
+
+        local res2, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+
+        local ok, err = res2:read()
+        assert(ok and not err, "res2 should save without err")
+
+        assert(res2.uri == "http://example.com", "res2 uri")
+        assert(res2.has_esi == "dummy", "res2 has_esi")
+
+        res2.header["X-Save-Me"] = "ok"
+        res2:save(60)
+
+        local res3, err = require("ledge.response").new(
+            handler.redis,
+            handler:cache_key_chain()
+        )
+        res3:read()
+
+        assert(res3.header["X-Save-Me"] == "ok", "res3 headers")
+        assert(res3.has_esi == false, "res3 has_esi: "..tostring(res3.has_esi))
+
+    }
+}
+--- request
+GET /t
 --- no_error_log
 [error]
