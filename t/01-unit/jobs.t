@@ -112,3 +112,181 @@ location /cache {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 2: Revalidate
+Prime, Purge, revalidate
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^ /cache2 break;
+    content_by_lua_block {
+        local revalidate = require("ledge.jobs.revalidate")
+        local redis = require("ledge").create_redis_connection()
+
+        local handler = require("ledge").create_handler()
+
+
+        local job = {
+            redis = redis,
+            data = {
+                key_chain = handler:cache_key_chain()
+            }
+        }
+
+
+        local ok, err, msg = revalidate.perform(job)
+        assert(err == nil, "revalidate should not return an error")
+
+        assert(ngx.shared.ledge_test:get("test2") == "Revalidate Request received",
+                "Revalidate request was not received!"
+            )
+
+
+    }
+}
+location /cache2_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        handler:run()
+    }
+}
+
+location /cache2 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=10"
+        ngx.print("TEST 2")
+        if string.find(ngx.req.get_headers().user_agent, "revalidate", 1, true) then
+            ngx.shared.ledge_test:set("test2", "Revalidate Request received")
+        end
+    }
+}
+--- request eval
+[
+"GET /cache2_prx",
+"PURGE /cache2_prx",
+"GET /t"
+]
+--- no_error_log
+[error]
+
+=== TEST 3: Revalidate - inline params
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local revalidate = require("ledge.jobs.revalidate")
+
+        local job = {
+            data = {
+                reval_params =  {
+                    server_addr = ngx.var.server_addr,
+                    server_port = ngx.var.server_port,
+                    scheme = ngx.var.scheme,
+                    uri = "/cache3",
+                    connect_timeout = 1000,
+                    send_timeout = 1000,
+                    read_timeout = 1000,
+                    keepalive_timeout = 60,
+                    keepalive_poolsize = 10,
+                },
+                reval_headers = {
+                    ["X-Test"] = "test_header"
+                }
+            }
+        }
+
+        local ok, err, msg = revalidate.perform(job)
+        assert(err == nil, "revalidate should not return an error")
+
+        assert(ngx.shared.ledge_test:get("test3") == "test_header",
+                "Revalidate request was not received!"
+            )
+
+        local job = {
+            data = {
+                reval_params =  {
+                    server_addr = ngx.var.server_addr,
+                    server_port = ngx.var.server_port,
+                    scheme = ngx.var.scheme,
+                    uri = "/cache_slow",
+                    connect_timeout = 1000,
+                    send_timeout = 100,
+                    read_timeout = 100,
+                    keepalive_timeout = 60,
+                    keepalive_poolsize = 10,
+                },
+                reval_headers = {
+                    ["X-Test"] = "test_header"
+                }
+            }
+        }
+
+        local ok, err, msg = revalidate.perform(job)
+        assert(err == "job-error" and msg ~= nil, "revalidate should return an error")
+
+        local job = {
+            data = {
+                reval_params =  {
+                    server_addr = ngx.var.server_addr,
+                    server_port = ngx.var.server_port+1,
+                    scheme = ngx.var.scheme,
+                    uri = "/cache3",
+                    connect_timeout = 1000,
+                    send_timeout = 1000,
+                    read_timeout = 1000,
+                    keepalive_timeout = 60,
+                    keepalive_poolsize = 10,
+                },
+                reval_headers = {
+                    ["X-Test"] = "test_header"
+                }
+            }
+        }
+
+        local ok, err, msg = revalidate.perform(job)
+        ngx.log(ngx.DEBUG, msg)
+        assert(err == "job-error" and msg ~= nil, "revalidate should return an error")
+
+        local job = {
+            redis = {
+                hgetall = function(...) return ngx.null end
+            },
+            data = {
+                key_chain = {}
+            }
+        }
+
+        local ok, err, msg = revalidate.perform(job)
+        ngx.log(ngx.DEBUG, msg)
+        assert(err == "job-error" and msg ~= nil, "revalidate should return an error")
+
+        local job = {
+            redis = {
+                hgetall = function(...) return nil, "dummy error" end
+            },
+            data = {
+                key_chain = {}
+            }
+        }
+
+        local ok, err, msg = revalidate.perform(job)
+        ngx.log(ngx.DEBUG, msg)
+        assert(err == "job-error" and msg ~= nil, "revalidate should return an error")
+    }
+}
+location /cache3 {
+    content_by_lua_block {
+        ngx.shared.ledge_test:set("test3", ngx.req.get_headers()["X-Test"])
+    }
+}
+location /cache_slow {
+    content_by_lua_block{
+        ngx.sleep(1)
+        ngx.print("OK")
+    }
+}
+--- request
+GET /t
+--- error_code: 200
