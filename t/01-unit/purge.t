@@ -86,3 +86,91 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+=== TEST 2: expire keys
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^ /cache break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis   = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local storage = require("ledge").create_storage_connection(
+                handler.config.storage_driver,
+                handler.config.storage_driver_config
+            )
+        handler.storage = storage
+
+        local key_chain = handler:cache_key_chain()
+        local entity_id = handler:entity_id(key_chain)
+
+        local ttl, err = redis:ttl(key_chain.main)
+
+        local expire_keys = require("ledge.purge").expire_keys
+
+        local ok, err = expire_keys(redis, storage, key_chain, entity_id)
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok, "expire_keys should return positively")
+
+        local expires, err = redis:hget(key_chain.main, "expires")
+        ngx.log(ngx.DEBUG,"expires: ", expires, " <= ", ngx.now())
+        assert(tonumber(expires) <= ngx.now(), "Key not expired")
+
+        local new_ttl = redis:ttl(key_chain.main)
+        ngx.log(ngx.DEBUG, "ttl: ", tonumber(ttl), " > ", tonumber(new_ttl))
+        assert(tonumber(ttl) > tonumber(new_ttl), "TTL not reduced")
+
+        -- non-existent key
+        local ok, err = expire_keys(redis, storage, {main = "bogus_key"}, entity_id)
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == false and err == nil, "return false with no error on missing key")
+
+        -- Stub out a partial main key
+        redis:hset("bogus_key", "key", "value")
+
+        local ok, err = expire_keys(redis, storage, {main = "bogus_key"}, entity_id)
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == nil and err ~= nil, "return nil with error on broken key")
+
+        -- String expires value
+        redis:hset("bogus_key", "expires", "now!")
+
+        local ok, err = expire_keys(redis, storage, {main = "bogus_key"}, entity_id)
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == nil and err ~= nil, "return nil with error on string expires")
+
+        -- No TTL
+        redis:hset("bogus_key", "expires", ngx.now()+3600)
+
+        local ok, err = expire_keys(redis, storage, {main = "bogus_key"}, entity_id)
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == nil and err ~= nil, "return nil with error when no ttl")
+
+    }
+}
+location /cache_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        handler:bind("before_serve", function(res)
+            ngx.log(ngx.DEBUG, "primed entity: ", res.entity_id)
+        end)
+        handler:run()
+    }
+}
+
+location /cache {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 2")
+    }
+}
+--- request eval
+[
+"GET /cache_prx",
+"GET /t"
+]
+--- no_error_log
+[error]
