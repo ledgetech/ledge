@@ -290,3 +290,77 @@ location /cache_slow {
 --- request
 GET /t
 --- error_code: 200
+
+=== TEST 4: purge
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^ /cache break;
+    content_by_lua_block {
+        local purge_job = require("ledge.jobs.purge")
+        local handler = require("ledge").create_handler()
+        local heartbeat_flag = false
+
+        local job = {
+            redis = require("ledge").create_redis_connection(),
+            data = {
+                key_chain = { main = "*::main" },
+                keyspace_scan_count = 2,
+                purge_mode = "invalidate",
+                storage_driver = handler.config.storage_driver,
+                storage_driver_config = handler.config.storage_driver_config,
+            },
+            ttl       = function() return 5 end,
+            heartbeat = function()
+                heartbeat_flag = true
+                return heartbeat_flag
+            end,
+        }
+
+        -- Failure cases
+        job.data.storage_driver = "bad"
+        local ok, err, msg = purge_job.perform(job)
+        ngx.log(ngx.DEBUG, msg)
+        assert(err == "redis-error" and msg ~= nil, "purge should return redis-error")
+
+        job.data.storage_driver = handler.config.storage_driver
+        job.data.storage_driver_config = { bad_config = "here" }
+        local ok, err, msg = purge_job.perform(job)
+        ngx.log(ngx.DEBUG, msg)
+        assert(err == "redis-error" and msg ~= nil, "purge should return redis-error")
+
+        -- Passing case
+        job.data.storage_driver_config = handler.config.storage_driver_config
+
+        local ok, err, msg = purge_job.perform(job)
+        assert(err == nil, "purge should not return an error")
+        assert(heartbeat_flag == true, "Purge should heartbeat")
+
+
+    }
+}
+location /cache4_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler():run()
+    }
+}
+
+location /cache4 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 4")
+    }
+}
+--- request eval
+[
+"GET /cache4_prx","GET /cache4_prx?a=1","GET /cache4_prx?a=2","GET /cache4_prx?a=3","GET /cache4_prx?a=4","GET /cache4_prx?a=5",
+"GET /t",
+"GET /cache4_prx?a=3"
+]
+--- response_headers_like eval
+["X-Cache: MISS from .*", "X-Cache: MISS from .*","X-Cache: MISS from .*","X-Cache: MISS from .*","X-Cache: MISS from .*","X-Cache: MISS from .*",
+"",
+"X-Cache: MISS from .*"]
+--- no_error_log
+[error]
