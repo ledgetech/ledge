@@ -202,7 +202,6 @@ function _M.read(self)
     -- No cache entry for this key
     local cache_parts_len = #cache_parts
     if not cache_parts_len or cache_parts_len == 0 then
-        ngx_log(ngx_INFO, "live entity has no data")
         return nil
     end
 
