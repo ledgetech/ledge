@@ -10,26 +10,16 @@ local _M = {
 -- Utility to return all items in a Redis hash as a Lua table.
 local function hgetall(redis, key)
     local res, err = redis:hgetall(key)
-    if not res then
+    if not res or res == ngx_null then
         return nil,
             "could not retrieve " .. tostring(key) .. " data:" .. tostring(err)
     end
 
-    local hash = {}
-
-    local len = #res
-    for i = 1, len, 2 do
-        hash[res[i]] = res[i + 1]
-    end
-
-    return hash
+    return redis:array_to_hash(res)
 end
 
 
 function _M.perform(job)
-    local redis = job.redis
-    local key_chain = job.data.key_chain
-
     -- Normal background revalidation operates on stored metadata.
     -- A background fetch due to partial content from upstream however, uses the
     -- current request metadata for reval_headers / reval_params and passes it
@@ -40,19 +30,17 @@ function _M.perform(job)
     -- If we don't have the metadata in job data, this is a background
     -- revalidation using stored metadata.
     if not reval_params and not reval_headers then
-        local err
-        reval_params, err = hgetall(redis, key_chain.reval_params)
-        if  not reval_params or
-            reval_params == ngx_null or
-            not reval_params.server_addr then
+        local key_chain, redis, err = job.data.key_chain, job.redis, nil
 
+        reval_params, err = hgetall(redis, key_chain.reval_params)
+        if not reval_params or not next(reval_params) then
             return nil, "job-error",
                 "Revalidation parameters are missing, presumed evicted. " ..
                 tostring(err)
         end
 
         reval_headers, err = hgetall(redis, key_chain.reval_req_headers)
-        if not reval_headers or reval_headers == ngx_null then
+        if not reval_headers or not next(reval_headers) then
             return nil, "job-error",
                  "Revalidation headers are missing, presumed evicted."
         end
@@ -61,9 +49,9 @@ function _M.perform(job)
     -- Make outbound http request to revalidate
     local httpc = http.new()
     httpc:set_timeouts(
-        reval_params.upstream_connect_timeout,
-        reval_params.upstream_send_timeout,
-        reval_params.upstream_read_timeout
+        reval_params.connect_timeout,
+        reval_params.send_timeout,
+        reval_params.read_timeout
     )
 
     local port = tonumber(reval_params.server_port)
