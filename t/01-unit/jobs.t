@@ -143,6 +143,13 @@ location /t {
             )
 
 
+        redis:del(job.data.key_chain.reval_req_headers)
+        local ok, err, msg = revalidate.perform(job)
+        assert(err == "job-error" and msg ~= nil, "revalidate should return an error")
+
+        redis:del(job.data.key_chain.reval_params)
+        local ok, err, msg = revalidate.perform(job)
+        assert(err == "job-error" and msg ~= nil, "revalidate should return an error")
     }
 }
 location /cache2_prx {
@@ -335,6 +342,19 @@ location /t {
         local ok, err, msg = purge_job.perform(job)
         assert(err == nil, "purge should not return an error")
         assert(heartbeat_flag == true, "Purge should heartbeat")
+
+        -- Heartbeat failure
+        job.heartbeat = function() return false end
+        local ok, err, msg = purge_job.perform(job)
+        ngx.log(ngx.DEBUG, msg)
+        assert(err == "redis-error" and msg == "Failed to heartbeat job", "purge should return heartbeat error")
+        job.heartbeat = function() return true end
+
+        -- Missing redis driver
+        job.redis = nil
+        local ok, err, msg = purge_job.perform(job)
+        ngx.log(ngx.DEBUG, msg)
+        assert(err == "job-error" and msg ~= nil, "purge should return job-error")
 
 
     }
