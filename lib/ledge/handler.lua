@@ -288,10 +288,9 @@ _M.cache_key_chain = cache_key_chain
 
 
 function _M.entity_id(self, key_chain)
-    if not key_chain and key_chain.main then return nil end
-    local redis = self.redis
+    if not key_chain or not key_chain.main then return nil end
 
-    local entity_id, err = redis:hget(key_chain.main, "entity")
+    local entity_id, err = self.redis:hget(key_chain.main, "entity")
     if not entity_id or entity_id == ngx_null then
         return nil, err
     end
