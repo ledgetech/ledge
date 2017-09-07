@@ -173,3 +173,88 @@ location /cache {
 ]
 --- no_error_log
 [error]
+
+=== TEST 3: purge
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^ /cache3 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis   = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local storage = require("ledge").create_storage_connection(
+                handler.config.storage_driver,
+                handler.config.storage_driver_config
+            )
+        handler.storage = storage
+
+        local key_chain = handler:cache_key_chain()
+
+        local purge = require("ledge.purge").purge
+
+        -- invalidate - error
+        handler.cache_key_chain = function() return {main = "bogus_key"} end
+        local ok, err = purge(handler, "invalidate")
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == false and err == "nothing to purge", "purge should return false - bad key")
+        handler.cache_key_chain = require("ledge.handler").cache_key_chain
+
+        -- invalidate
+        local ok, err = purge(handler, "invalidate")
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == true and err == "purged", "purge should return true - purged")
+
+        -- revalidate
+        local reval_job = false
+        handler.revalidate_in_background = function()
+            reval_job = true
+            return "job"
+        end
+
+        local ok, err, job = purge(handler, "revalidate")
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == false and err == "already expired", "purge should return false - already expired")
+        assert(reval_job == true, "revalidate should schedule job")
+        assert(job == "job", "revalidate should return the job "..tostring(job))
+
+        -- delete, error
+        handler.delete_from_cache = function() return nil, "delete error" end
+        local ok, err = purge(handler, "delete")
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == nil and err == "delete error", "purge should return nil, error")
+        handler.delete_from_cache = require("ledge.handler").delete_from_cache
+
+        -- delete
+        local ok, err = purge(handler, "delete")
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == true and err == "deleted", "purge should return true - deleted")
+
+        -- delete, missing
+        local ok, err = purge(handler, "delete")
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == false and err == "nothing to purge", "purge should return false - nothing to purge")
+    }
+}
+location /cache3_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        handler:run()
+    }
+}
+
+location /cache {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 3")
+    }
+}
+--- request eval
+[
+"GET /cache3_prx",
+"GET /t"
+]
+--- no_error_log
+[error]
