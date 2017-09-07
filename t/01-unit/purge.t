@@ -127,8 +127,15 @@ location /t {
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == false and err == nil, "return false with no error on missing key")
 
-        -- Stub out a partial main key
+        -- Stub out a partial main key, no ttl
         redis:hset("bogus_key", "key", "value")
+
+        local ok, err = expire_keys(redis, storage, {main = "bogus_key"}, entity_id)
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == nil and err ~= nil, "return nil with no ttl")
+
+        -- Set a TTL
+        redis:expire("bogus_key", 9000)
 
         local ok, err = expire_keys(redis, storage, {main = "bogus_key"}, entity_id)
         if err then ngx.log(ngx.DEBUG, err) end
@@ -140,14 +147,6 @@ location /t {
         local ok, err = expire_keys(redis, storage, {main = "bogus_key"}, entity_id)
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == nil and err ~= nil, "return nil with error on string expires")
-
-        -- No TTL
-        redis:hset("bogus_key", "expires", ngx.now()+3600)
-
-        local ok, err = expire_keys(redis, storage, {main = "bogus_key"}, entity_id)
-        if err then ngx.log(ngx.DEBUG, err) end
-        assert(ok == nil and err ~= nil, "return nil with error when no ttl")
-
     }
 }
 location /cache_prx {
