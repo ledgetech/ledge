@@ -405,7 +405,7 @@ function _M.set_and_save(self, field, value)
     local redis = self.redis
     local ok, err = redis:hset(self.key_chain.main, field, tostring(value))
     if not ok then
-        ngx_log(ngx_ERR, err)
+        if err then ngx_log(ngx_ERR, err) end
         return nil, err
     end
 

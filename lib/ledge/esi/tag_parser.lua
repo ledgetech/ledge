@@ -103,7 +103,7 @@ function _M.find_whole_tag(self, tag)
         self.open_pattern(tag), "soj"
     )
     if not opening_m then
-        ngx_log(ngx_ERR, err)
+        if err then ngx_log(ngx_ERR, err) end
         return nil
     end
 

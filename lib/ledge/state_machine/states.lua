@@ -239,7 +239,7 @@ return {
         local res, err = acquire_lock(redis, lock_key, timeout)
 
         if res == nil then -- Lua script failed
-            ngx_log(ngx_ERR, err)
+            if err then ngx_log(ngx_ERR, err) end
             return sm:e "collapsed_forwarding_failed"
         elseif res then -- We have the lock
             return sm:e "obtained_collapsed_forwarding_lock"
@@ -254,7 +254,7 @@ return {
             local ok, err = redis_subscriber:subscribe(key_chain.root)
             if not ok or ok == ngx_null then
                 -- Failed to enter subscribe mode
-                ngx_log(ngx_ERR, err)
+                if err then ngx_log(ngx_ERR, err) end
                 return sm:e "collapsed_forwarding_failed"
             end
 
@@ -268,7 +268,7 @@ return {
                 return sm:e "collapsed_forwarding_channel_closed"
             else
                 -- Error checking lock still exists
-                ngx_log(ngx_ERR, err)
+                if err then ngx_log(ngx_ERR, err) end
                 return sm:e "collapsed_forwarding_failed"
             end
         end
