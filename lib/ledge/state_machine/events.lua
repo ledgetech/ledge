@@ -1,4 +1,4 @@
-local _M = {
+local _M = { -- luacheck: no unused
     _VERSION = "2.0.0",
 }
 

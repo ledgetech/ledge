@@ -83,7 +83,7 @@ local function expire_keys(redis, storage, key_chain, entity_id)
     _, e = storage:set_ttl(entity_id, new_ttl)
     if e then ngx_log(ngx_ERR, e) end
 
-    local ok, err = redis:exec()
+    local ok, err = redis:exec() -- luacheck: ignore ok
     if err then
         return nil, err
     else
@@ -104,7 +104,9 @@ local function purge(handler, purge_mode)
     local redis = handler.redis
     local storage = handler.storage
     local key_chain = handler:cache_key_chain()
+
     local entity_id, err = redis:hget(key_chain.main, "entity")
+    if err then ngx_log(ngx_ERR, err) end
 
     -- We 404 if we have nothing
     if not entity_id or entity_id == ngx_null
@@ -133,7 +135,6 @@ local function purge(handler, purge_mode)
     local entity_id = handler:entity_id(key_chain)
     local ok, err = expire_keys(redis, storage, key_chain, entity_id)
 
-    local result
     if not ok and err then
         return nil, err
 
@@ -167,6 +168,7 @@ local function purge_in_background(handler, purge_mode)
             priority = 5,
         }
     )
+    if err then ngx_log(ngx_ERR, err) end
 
     -- Create a JSON payload for the response
     local res = create_purge_response(purge_mode, "scheduled", job)

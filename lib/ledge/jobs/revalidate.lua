@@ -30,7 +30,7 @@ function _M.perform(job)
     -- If we don't have the metadata in job data, this is a background
     -- revalidation using stored metadata.
     if not reval_params and not reval_headers then
-        local key_chain, redis, err = job.data.key_chain, job.redis, nil
+        local key_chain, redis, err = job.data.key_chain, job.redis
 
         reval_params, err = hgetall(redis, key_chain.reval_params)
         if not reval_params or not next(reval_params) then
@@ -42,7 +42,8 @@ function _M.perform(job)
         reval_headers, err = hgetall(redis, key_chain.reval_req_headers)
         if not reval_headers or not next(reval_headers) then
             return nil, "job-error",
-                 "Revalidation headers are missing, presumed evicted."
+                 "Revalidation headers are missing, presumed evicted." ..
+                 tostring(err)
         end
     end
 
@@ -96,7 +97,7 @@ function _M.perform(job)
         local reader = res.body_reader
         -- Read and discard the body
         repeat
-            local chunk, err = reader()
+            local chunk, _ = reader()
         until not chunk
 
         httpc:set_keepalive(

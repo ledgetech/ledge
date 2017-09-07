@@ -4,17 +4,14 @@ local range = require("ledge.range")
 
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
-local ngx_PARTIAL_CONTENT = ngx.PARTIAL_CONTENT
 local ngx_null = ngx.null
+
 local ngx_PARTIAL_CONTENT = 206
-local ngx_RANGE_NOT_SATISFIABLE = 416
-local ngx_HTTP_NOT_MODIFIED = 304
 
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_headers = ngx.req.get_headers
 
 local ngx_re_find = ngx.re.find
-local ngx_re_match = ngx.re.match
 
 local header_has_directive = require("ledge.header_util").header_has_directive
 
@@ -37,12 +34,10 @@ local create_purge_response = require("ledge.purge").create_purge_response
 
 local acquire_lock = require("ledge.collapse").acquire_lock
 
-local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
-
 local parse_content_range = require("ledge.range").parse_content_range
 
 
-local _M = {
+local _M = { -- luacheck: no unused
     _VERSION = "2.0.0",
 }
 
@@ -52,7 +47,7 @@ local _M = {
 -- calling state_machine:e(ev) with the event that has occurred. Place any
 -- further logic in actions triggered by the transition table.
 return {
-    checking_method = function(sm, handler)
+    checking_method = function(sm)
         local method = ngx_req_get_method()
         if method == "PURGE" then
             return sm:e "purge_requested"
@@ -82,11 +77,11 @@ return {
         end
     end,
 
-    accept_cache = function(sm, handler)
+    accept_cache = function(sm)
         return sm:e "cache_accepted"
     end,
 
-    checking_request = function(sm, handler)
+    checking_request = function(sm)
         if req_accepts_cache() then
             return sm:e "cache_accepted"
         else
@@ -168,7 +163,7 @@ return {
             -- yet, so we must do that now
             -- TODO: Perhaps the state machine can load the processor to avoid this weird check
             if res.has_esi then
-                local p, err = esi.choose_esi_processor(handler)
+                local p = esi.choose_esi_processor(handler)
                 if not p then
                     -- This shouldn't happen
                     -- if res.has_esi is set then a processor should be selectedable
@@ -303,7 +298,7 @@ return {
         return sm:e "published"
     end,
 
-    fetching_as_surrogate = function(sm, handler)
+    fetching_as_surrogate = function(sm)
         return sm:e "can_fetch"
     end,
 
@@ -312,7 +307,7 @@ return {
 
         -- Extend the timeout to the size of the window
         redis:set_timeout(handler.config.collapsed_forwarding_window)
-        local res, err = redis:read_reply() -- block until we hear something or timeout
+        local res, _ = redis:read_reply() -- block until we hear something or timeout
         if not res then
             return sm:e "http_gateway_timeout"
         else
@@ -411,7 +406,7 @@ return {
         end
     end,
 
-    considering_local_revalidation = function(sm, handler)
+    considering_local_revalidation = function(sm)
         if can_revalidate_locally() then
             return sm:e "can_revalidate_locally"
         else
@@ -453,7 +448,7 @@ return {
         end
     end,
 
-    preparing_response = function(sm, handler)
+    preparing_response = function(sm)
         return sm:e "response_ready"
     end,
 
@@ -467,11 +462,11 @@ return {
         return sm:e "served"
     end,
 
-    exiting = function(sm, handler)
+    exiting = function()
         ngx.exit(ngx.status)
     end,
 
-    cancelling_abort_request = function(sm, handler)
+    cancelling_abort_request = function()
         return true
     end,
 }

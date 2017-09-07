@@ -91,6 +91,7 @@ function _M.find_whole_tag(self, tag)
     -- Find the first opening tag
     local opening_f, opening_t, err = ngx_re_find(markup, self.open_pattern(tag), "soj")
     if not opening_f then
+        if err then ngx_log(ngx_ERR, err) end
         -- Nothing here
         return nil
     end

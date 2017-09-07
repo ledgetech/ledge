@@ -4,8 +4,6 @@ local esi = require("ledge.esi")
 local response = require("ledge.response")
 
 local ngx_var = ngx.var
-local ngx_log = ngx.log
-local ngx_INFO = ngx.INFO
 
 local ngx_HTTP_NOT_MODIFIED = ngx.HTTP_NOT_MODIFIED
 
@@ -13,10 +11,7 @@ local ngx_req_set_header = ngx.req.set_header
 
 local get_gzip_decoder = require("ledge.gzip").get_gzip_decoder
 
-local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
-
-
-local _M = {
+local _M = { -- luacheck: no unused
     _VERSION = "2.0.0",
 }
 
@@ -208,27 +203,27 @@ return {
         handler.output_buffers_enabled = false
     end,
 
-    set_http_ok = function(handler)
+    set_http_ok = function()
         ngx.status = ngx.HTTP_OK
     end,
 
-    set_http_not_found = function(handler)
+    set_http_not_found = function()
         ngx.status = ngx.HTTP_NOT_FOUND
     end,
 
-    set_http_not_modified = function(handler)
+    set_http_not_modified = function()
         ngx.status = ngx_HTTP_NOT_MODIFIED
     end,
 
-    set_http_service_unavailable = function(handler)
+    set_http_service_unavailable = function()
         ngx.status = ngx.HTTP_SERVICE_UNAVAILABLE
     end,
 
-    set_http_gateway_timeout = function(handler)
+    set_http_gateway_timeout = function()
         ngx.status = ngx.HTTP_GATEWAY_TIMEOUT
     end,
 
-    set_http_internal_server_error = function(handler)
+    set_http_internal_server_error = function()
         ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
     end,
 

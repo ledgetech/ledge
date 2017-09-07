@@ -1,6 +1,4 @@
-local setmetatable, pairs, type, tostring, error =
-    setmetatable, pairs, type, tostring, error
-
+local setmetatable = setmetatable
 local co_yield = coroutine.yield
 
 local ngx_get_phase = ngx.get_phase

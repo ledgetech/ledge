@@ -1,8 +1,6 @@
 local h_util = require "ledge.header_util"
-local util = require "ledge.util"
 
-local   tostring, type, tonumber, next =
-        tostring, type, tonumber, next
+local type, tonumber = type, tonumber
 
 local str_sub = string.sub
 local str_find = string.find
@@ -18,7 +16,6 @@ local ngx_req_set_uri_args = ngx.req.set_uri_args
 local ngx_var = ngx.var
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
-local ngx_INFO = ngx.INFO
 
 
 local _M = {
@@ -167,6 +164,7 @@ function _M.filter_esi_args(handler)
                 "^" .. esi_args_prefix .. "(\\S+)",
                 "oj"
             )
+            if err then ngx_log(ngx_ERR, err) end
 
             if m and m[1] then
                 has_esi_args = true

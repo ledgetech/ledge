@@ -1,9 +1,6 @@
-local setmetatable, require, error =
-    setmetatable, require, error
+local setmetatable, require =
+    setmetatable, require
 
-
-local ngx_log = ngx.log
-local ngx_ERR = ngx.ERR
 local ngx_get_phase = ngx.get_phase
 local ngx_null = ngx.null
 
@@ -13,7 +10,6 @@ local util = require("ledge.util")
 local tbl_copy = util.table.copy
 local tbl_copy_merge_defaults = util.table.copy_merge_defaults
 local fixed_field_metatable = util.mt.fixed_field_metatable
-local get_fixed_field_metatable_proxy = util.mt.get_fixed_field_metatable_proxy
 
 local redis_connector = require("resty.redis.connector")
 

@@ -12,6 +12,8 @@ local tbl_remove = table.remove
 local tbl_concat = table.concat
 
 local ngx_re_match = ngx.re.match
+local ngx_log = ngx.log
+local ngx_ERR = ngx.ERR
 
 local get_header_token = require("ledge.header_util").get_header_token
 
@@ -79,6 +81,7 @@ local function parse_content_range(content_range)
         [[bytes\s+(\d+|\*)-(\d+|\*)/(\d+)]],
         "oj"
     )
+    if err then ngx_log(ngx_ERR, err) end
 
     if not m then
         return nil
@@ -104,7 +107,7 @@ function _M.handle_range_request(self, res)
 
         local ranges = {}
 
-        for i,range in ipairs(range_request) do
+        for _,range in ipairs(range_request) do
             local range_satisfiable = true
 
             if not range.to and not range.from then
@@ -239,13 +242,14 @@ function _M.get_range_request_filter(self, reader)
 
             while true do
                 local chunk, err = reader(buffer_size)
+                if err then ngx_log(ngx_ERR, err) end
                 if not chunk then break end
 
                 local chunklen = #chunk
                 local nextplayhead = playhead + chunklen
 
-                for i, range in ipairs(ranges) do
-                    if range.from >= nextplayhead or range.to < playhead then
+                for _, range in ipairs(ranges) do
+                    if range.from >= nextplayhead or range.to < playhead then -- luacheck: ignore 542
                         -- Skip over non matching ranges (this is
                         -- algorithmically simpler)
                     else

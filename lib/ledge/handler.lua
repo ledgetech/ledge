@@ -22,18 +22,10 @@ local ngx_time = ngx.time
 local ngx_http_time = ngx.http_time
 local ngx_parse_http_time = ngx.parse_http_time
 
-local ngx_re_find = ngx.re.find
-
 local str_lower = string.lower
 local str_len = string.len
 local tbl_insert = table.insert
 local tbl_concat = table.concat
-
-local co_yield = coroutine.yield
-local co_wrap = require("ledge.util").coroutine.wrap
-
-local cjson_encode = require("cjson").encode
-local cjson_decode = require("cjson").decode
 
 local esi_capabilities = require("ledge.esi").esi_capabilities
 
@@ -768,7 +760,7 @@ local function save_to_cache(self, res)
                 else
                     -- Transaction likely failed due to watch on main key
                     -- Tell storage to clean up too
-                    ok, e = storage:delete(res.entity_id)
+                    ok, e = storage:delete(res.entity_id) -- luacheck: ignore ok
                     if e then
                         ngx_log(ngx_ERR, "failed to cleanup storage: ", e)
                     end
@@ -848,7 +840,7 @@ local function delete_from_cache(self)
 
     -- Delete everything in the keychain
     local keys = {}
-    for k, v in pairs(key_chain) do
+    for _, v in pairs(key_chain) do
         tbl_insert(keys, v)
     end
     return redis:del(unpack(keys))
@@ -865,6 +857,7 @@ local function serve_body(self, res, buffer_size)
 
     repeat
         local chunk, err = reader(buffer_size)
+        if err then ngx_log(ngx_ERR, err) end
         if chunk and self.output_buffers_enabled then
             local ok, err = ngx_print(chunk)
             if not ok then ngx_log(ngx_INFO, err) end

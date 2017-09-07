@@ -1,16 +1,14 @@
-local h_util = require "ledge.header_util"
 local http_headers = require "resty.http_headers"
 local util = require "ledge.util"
 
-local pairs, ipairs, setmetatable, tonumber, unpack =
-    pairs, ipairs, setmetatable, tonumber, unpack
+local pairs, setmetatable, tonumber, unpack =
+    pairs, setmetatable, tonumber, unpack
 
 local tbl_getn = table.getn
 local tbl_insert = table.insert
 local tbl_concat = table.concat
 
 local str_lower = string.lower
-local str_gsub = string.gsub
 local str_find = string.find
 local str_sub = string.sub
 local str_rep = string.rep
@@ -23,11 +21,9 @@ local ngx_ERR = ngx.ERR
 local ngx_INFO = ngx.INFO
 local ngx_DEBUG = ngx.DEBUG
 local ngx_re_gmatch = ngx.re.gmatch
-local ngx_re_match = ngx.re.match
 local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
-local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
 
 local header_has_directive = require("ledge.header_util").header_has_directive
@@ -205,7 +201,6 @@ function _M.read(self)
         return nil
     end
 
-    local ttl = nil
     local time_in_cache = 0
     local time_since_generated = 0
 
@@ -262,7 +257,7 @@ function _M.read(self)
         local header = headers[i]
         if str_find(header, ":") then
             -- We have multiple headers with the same field name
-            local index, key = unpack(str_split(header, ":"))
+            local _, key = unpack(str_split(header, ":"))
             if not self.header[key] then
                 self.header[key] = {}
             end
@@ -317,6 +312,8 @@ local function prepare_cacheable_headers(headers)
                 local from, to, err = ngx_re_find(cc, pattern, "jo", re_ctx, 1)
                 if from then
                     uncacheable_headers[str_sub(cc, from, to)] = true
+                elseif err then
+                    ngx_log(ngx_ERR, err)
                 end
             until not from
         end

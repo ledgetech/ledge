@@ -25,7 +25,7 @@ function _M.perform(job)
         return nil, "job-error", "no redis connection provided"
     end
 
-    local slave, err = create_redis_slave_connection()
+    local slave, _ = create_redis_slave_connection()
     if not slave then
         job.redis_slave = job.redis
     else
