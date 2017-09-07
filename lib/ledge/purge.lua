@@ -136,10 +136,10 @@ local function purge(handler, purge_mode)
     local ok, err = expire_keys(redis, storage, key_chain, entity_id)
 
     if not ok and err then
-        return nil, err
+        return nil, err, job
 
     elseif not ok then
-        return false, "already expired", nil
+        return false, "already expired", job
 
     elseif ok then
         return true, "purged", job
