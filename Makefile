@@ -155,7 +155,7 @@ coverage: flush_db
 	@rm -f luacov.stats.out
 	@$(TEST_LEDGE_REDIS_VARS) TEST_COVERAGE=1 $(PROVE) $(TEST_FILE)
 	@luacov
-	@tail -21 luacov.report.out
+	@tail -30 luacov.report.out
 
 check:
 	luacheck lib
