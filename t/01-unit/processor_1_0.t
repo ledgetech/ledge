@@ -84,7 +84,8 @@ location /t {
 [
   "GET /t",
   "GET /t?test_param=test",
-  "GET /t?other_param=test"
+  "GET /t?other_param=test",
+  "GET /t?test_param=test&test_param=test2",
 ]
 --- no_error_log
 [error]
@@ -106,6 +107,12 @@ test
 other_param=test
 default
 default_quoted
+",
+
+"test_param=test&test_param=test2
+test_param=test&test_param=test2
+test, test2
+test, test2
 ",
 ]
 
