@@ -28,7 +28,18 @@ return {
             begin = "purging",
             but_first = "set_json_response"
         },
-        { begin = "considering_wildcard_purge" },
+        {
+            when = "considering_purge_api",
+            begin = "considering_wildcard_purge"
+        },
+        { begin = "considering_purge_api" },
+    },
+
+    purge_api_requested = {
+        {
+            begin = "purging_via_api",
+            but_first = "set_json_response"
+        },
     },
 
     wildcard_purge_requested = {
@@ -42,6 +53,14 @@ return {
 
     wildcard_purge_scheduled = {
         { begin = "serving", but_first = "set_http_ok" },
+    },
+
+    purge_api_completed = {
+        { begin = "serving", but_first = "set_http_ok" },
+    },
+
+    purge_api_failed = {
+        { begin = "serving", but_first = "set_http_status_from_response" },
     },
 
     -- URI to purge was not found. Exit 404 Not Found.

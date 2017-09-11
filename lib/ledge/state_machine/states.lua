@@ -11,7 +11,8 @@ local ngx_PARTIAL_CONTENT = 206
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_headers = ngx.req.get_headers
 
-local ngx_re_find = ngx.re.find
+local str_find = string.find
+local str_lower = string.lower
 
 local header_has_directive = require("ledge.header_util").header_has_directive
 
@@ -29,6 +30,7 @@ local req_accepts_cache = require("ledge.request").accepts_cache
 local purge_mode = require("ledge.request").purge_mode
 
 local purge = require("ledge.purge").purge
+local purge_api = require("ledge.purge").purge_api
 local purge_in_background = require("ledge.purge").purge_in_background
 local create_purge_response = require("ledge.purge").create_purge_response
 
@@ -59,9 +61,18 @@ return {
         end
     end,
 
+    considering_purge_api = function(sm)
+        local ct = ngx_req_get_headers()["Content-Type"]
+        if ct and str_lower(ct) == "application/json" then
+            return sm:e "purge_api_requested"
+        else
+            return sm:e "purge_requested"
+        end
+    end,
+
     considering_wildcard_purge = function(sm, handler)
         local key_chain = handler:cache_key_chain()
-        if ngx_re_find(key_chain.root, "\\*", "soj") then
+        if str_find(key_chain.root, "*", 1, true) then
             return sm:e "wildcard_purge_requested"
         else
             return sm:e "purge_requested"
@@ -361,6 +372,15 @@ return {
             end
 
             return sm:e "background_fetch_skipped"
+        end
+    end,
+
+    purging_via_api = function(sm, handler)
+        local ok = purge_api(handler)
+        if ok then
+            return sm:e "purge_api_completed"
+        else
+            return sm:e "purge_api_failed"
         end
     end,
 

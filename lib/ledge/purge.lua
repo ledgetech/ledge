@@ -6,9 +6,13 @@ local ngx_ERR = ngx.ERR
 local ngx_null = ngx.null
 local ngx_time = ngx.time
 local ngx_md5 = ngx.md5
+local ngx_HTTP_BAD_REQUEST = ngx.HTTP_BAD_REQUEST
+
+local http = require("resty.http")
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local cjson_encode = require("cjson").encode
+local cjson_decode = require("cjson").decode
 local put_background_job = require("ledge.background").put_background_job
 
 
@@ -177,6 +181,152 @@ local function purge_in_background(handler, purge_mode)
     return true
 end
 _M.purge_in_background = purge_in_background
+
+
+local function parse_json_req()
+    ngx.req.read_body()
+    local body, err = ngx.req.get_body_data()
+    if not body then
+        return nil, "Could not read request body: " .. tostring(err)
+    end
+
+    local ok, req = pcall(cjson_decode, body)
+    if not ok then
+        return nil, "Could not parse request body: " .. tostring(req)
+    end
+
+    return req
+end
+
+
+local function validate_api_request(req)
+    local uris = req["uris"]
+    if not uris then
+        return false, "No URIs provided"
+    end
+
+    if type(uris) ~= "table" then
+        return false, "Field 'uris' must be an array"
+    end
+
+    if #uris == 0 then
+        return false, "No URIs provided"
+    end
+
+    local mode = req["purge_mode"]
+    if mode and not (
+        mode    == "invalidate"
+        or mode == "revalidate"
+        or mode == "delete"
+    ) then
+        return false, "Invalid purge_mode"
+    end
+
+    return true
+end
+
+
+local function key_chain_from_uri(handler, uri)
+    local parsed, err = http:parse_uri(uri, false)
+    if not parsed then
+        return nil, "URI Parse Error: "..err
+    end
+
+    local args = parsed[5]
+    if args then
+        args = ngx.decode_args(args, handler.config.max_uri_args or 100)
+    else
+        args = {}
+    end
+
+    --local scheme, host, port, path, query = unpack(parsed_uri)
+    local vars = {
+        ["scheme"] = parsed[1],
+        ["host"] = parsed[2],
+        ["port"] = parsed[3],
+        ["uri"] = parsed[4],
+        ["args"] = args,
+    }
+
+    -- TODO: Fix this hack to force cache_key regeneration
+    handler._cache_key_chain = {}
+    handler._cache_key = ""
+
+    -- Generate new cache_key
+    handler:cache_key(vars)
+    return handler:cache_key_chain()
+end
+
+
+-- Run the JSON PURGE API.
+-- Accepts various inputs from a JSON request body and processes purges
+-- Return true on success or false on error
+local function purge_api(handler)
+    local response = handler.response
+
+    local request, err = parse_json_req()
+    if not request then
+        response.status = ngx_HTTP_BAD_REQUEST
+        response:set_body(cjson_encode({["error"] = err}))
+        return false
+    end
+
+    local ok, err = validate_api_request(request)
+    if not ok then
+        response.status = ngx_HTTP_BAD_REQUEST
+        response:set_body(cjson_encode({["error"] = err}))
+        return false
+    end
+
+    local redis, storage = handler.redis, handler.storage
+    local purge_mode = request["purge_mode"] or "invalidate" -- Default to invalidating
+    local api_results = {}
+
+    local uris = request["uris"]
+    for _, uri in ipairs(uris) do
+        ngx.log(ngx.DEBUG, "Purging: ", uri)
+        local res = {}
+        local key_chain, err = key_chain_from_uri(handler, uri)
+        if not key_chain then
+            res["error"] = err
+
+        else
+            -- TODO: revalidate and delete
+            local entity_id, err = handler:entity_id(key_chain)
+            if not entity_id then
+                res["error"] = err
+
+            else
+                local ok, err = expire_keys(redis, storage, key_chain, entity_id)
+                if not ok and err then
+                    res["error"] = err
+
+                elseif not ok then
+                    res["result"] = "already expired"
+
+                elseif ok then
+                    res["result"] = "purged"
+                    --res["job"] = job
+                else
+                    res["wat"] = "dafuq"
+
+                end
+            end
+        end
+        api_results[uri] = res
+    end
+
+    local api_response, err = create_purge_response(purge_mode, api_results)
+    if not api_response then
+        handler.set:body(cjson_encode({["error"] = "JSON Response Error: "..tostring(err)}))
+        return false
+    end
+
+    ngx.log(ngx.DEBUG, "API Response: \n", api_response)
+    handler.response:set_body(api_response)
+    return true
+end
+_M.purge_api = purge_api
 
 
 return setmetatable(_M, fixed_field_metatable)
