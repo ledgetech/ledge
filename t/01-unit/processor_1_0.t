@@ -556,3 +556,44 @@ GET /t?test_param=test
 --- response_body
 OK
 
+=== TEST 13: fetch include
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        -- Override the normal coroutine.yield function
+        local output
+        coroutine.yield = function(chunk) output = chunk end
+
+        local processor = require("ledge.esi.processor_1_0")
+        local handler = require("ledge").create_handler()
+        local self = {
+            handler = handler
+        }
+        local buffer_size = 64*1024
+        local tests = {
+            {
+                ["tag"] = [[<esi:include src="/frag" />]],
+                ["res"]   = [[fragment]],
+                ["msg"]   = "nothing to escape"
+            },
+
+        }
+        for _, t in pairs(tests) do
+            local ret = processor.esi_fetch_include(self, t["tag"], buffer_size)
+            ngx.log(ngx.DEBUG, "'", output, "'")
+            assert(output == t["res"], "esi_fetch_include mismatch: "..t["msg"] )
+        end
+        ngx.say("OK")
+    }
+}
+location /f {
+    content_by_lua_block { ngx.print("fragment") }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
+--- response_body
+OK
+

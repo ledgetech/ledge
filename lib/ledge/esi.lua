@@ -158,6 +158,7 @@ function _M.filter_esi_args(handler)
         local non_esi_args = {}
 
         for k,v in pairs(args) do
+            -- TODO: optimise
             -- If we have the prefix, extract the suffix
             local m, err = ngx_re_match(
                 k,
