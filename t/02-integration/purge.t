@@ -902,29 +902,213 @@ location /purge_cached_14 {
 --- request eval
 [
 "GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2",
+
 'PURGE /purge_api
-{"uris": ["http://localhost/purge_cached_14?a=1","http://localhost/purge_cached_14?a=2"]}',
-"GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2"
+{"uris": ["http://localhost/purge_cached_14?a=1", "http://localhost/purge_cached_14?a=2"]}',
+
+"GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2",
 ]
 --- more_headers eval
 [
 "","",
 "Content-Type: Application/JSON",
-"",""
+"","",
 ]
 --- response_body eval
 [
 "TEST 14: 1", "TEST 14: 2",
+
 "purge_mode: invalidate
 result.http://localhost/purge_cached_14?a=1.result: purged
 result.http://localhost/purge_cached_14?a=2.result: purged
 ",
-"TEST 14: 1", "TEST 14: 2"
+
+"TEST 14: 1", "TEST 14: 2",
 ]
 --- response_headers_like eval
-["X-Cache: MISS from .+", "X-Cache: MISS from .+",
+[
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
 "Content-Type: application/json",
-"X-Cache: MISS from .+", "X-Cache: MISS from .+"]
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+]
 --- no_error_log
 [error]
 
+
+=== TEST 15: Purge API wildcard query string
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_15_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_15 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 15: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+[
+"GET /purge_cached_15_prx?a=1", "GET /purge_cached_15_prx?a=2",
+
+'PURGE /purge_api
+{"uris": ["http://localhost/purge_cached_15?a*"]}',
+]
+--- more_headers eval
+[
+"","",
+"Content-Type: Application/JSON",
+]
+--- response_body_like eval
+[
+"TEST 15: 1", "TEST 15: 2",
+
+"purge_mode: invalidate
+result.http://localhost/purge_cached_15\\?a\\*.qless_job.jid: [a-f0-9]{32}
+result.http://localhost/purge_cached_15\\?a\\*.qless_job.klass: ledge.jobs.purge
+result.http://localhost/purge_cached_15\\?a\\*.qless_job.options.jid: [a-f0-9]{32}
+result.http://localhost/purge_cached_15\\?a\\*.qless_job.options.priority: 5
+result.http://localhost/purge_cached_15\\?a\\*.qless_job.options.tags.1: purge
+result.http://localhost/purge_cached_15\\?a\\*.result: scheduled
+",
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+"Content-Type: application/json",
+]
+--- wait: 2
+--- no_error_log
+[error]
+
+=== TEST 15b: Purge API wildcard query string
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_15_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_15 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 15b: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+["GET /purge_cached_15_prx?a=1", "GET /purge_cached_15_prx?a=2"]
+--- response_body_like eval
+["TEST 15b: 1", "TEST 15b: 2"]
+--- response_headers_like eval
+["X-Cache: MISS from .+", "X-Cache: MISS from .+"]
+--- no_error_log
+[error]
+
+=== TEST 16: Purge API wildcards
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_16_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_16 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 16: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+[
+"GET /purge_cached_16_prx?a=1", "GET /purge_cached_16_prx?a=2",
+
+'PURGE /purge_api
+{"uris": ["http://localhost/purge*"]}',
+]
+--- more_headers eval
+[
+"","",
+"Content-Type: Application/JSON",
+]
+--- response_body_like eval
+[
+"TEST 16: 1", "TEST 16: 2",
+
+"purge_mode: invalidate
+result.http://localhost/purge\\*.qless_job.jid: [a-f0-9]{32}
+result.http://localhost/purge\\*.qless_job.klass: ledge.jobs.purge
+result.http://localhost/purge\\*.qless_job.options.jid: [a-f0-9]{32}
+result.http://localhost/purge\\*.qless_job.options.priority: 5
+result.http://localhost/purge\\*.qless_job.options.tags.1: purge
+result.http://localhost/purge\\*.result: scheduled
+",
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+"Content-Type: application/json",
+]
+--- wait: 2
+--- no_error_log
+[error]
+
+=== TEST 16b: Purge API wildcard check
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_16_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_16 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 16b: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+["GET /purge_cached_16_prx?a=1", "GET /purge_cached_16_prx?a=2"]
+--- response_body_like eval
+["TEST 16b: 1", "TEST 16b: 2"]
+--- response_headers_like eval
+["X-Cache: MISS from .+", "X-Cache: MISS from .+"]
+--- no_error_log
+[error]
