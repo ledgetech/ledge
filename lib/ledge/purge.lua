@@ -1,5 +1,7 @@
 local pcall, tonumber, tostring, pairs =
     pcall, tonumber, tostring, pairs
+local str_byte = string.byte
+local str_find = string.find
 
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
@@ -10,10 +12,14 @@ local ngx_HTTP_BAD_REQUEST = ngx.HTTP_BAD_REQUEST
 
 local http = require("resty.http")
 
-local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local cjson_encode = require("cjson").encode
 local cjson_decode = require("cjson").decode
+
+local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local put_background_job = require("ledge.background").put_background_job
+
+local generate_cache_key = require("ledge.cache_key").generate_cache_key
+local key_chain = require("ledge.cache_key").key_chain
 
 
 local _M = {
@@ -101,15 +107,15 @@ _M.expire_keys = expire_keys
 -- If there's nothing to do we return false which results in a 404.
 -- @param   table   handler instance
 -- @param   string  "invalidate" | "delete" | "revalidate
+-- @param   table   key_chain to purge
 -- @return  boolean success
 -- @return  string  message
 -- @return  table   qless job (for revalidate only)
-local function purge(handler, purge_mode)
+local function purge(handler, purge_mode, key_chain)
     local redis = handler.redis
     local storage = handler.storage
-    local key_chain = handler:cache_key_chain()
 
-    local entity_id, err = redis:hget(key_chain.main, "entity")
+    local entity_id, err = handler:entity_id(key_chain)
     if err then ngx_log(ngx_ERR, err) end
 
     -- We 404 if we have nothing
@@ -121,7 +127,7 @@ local function purge(handler, purge_mode)
 
     -- Delete mode overrides everything else, since you can't revalidate
     if purge_mode == "delete" then
-        local res, err = handler:delete_from_cache()
+        local res, err = handler:delete_from_cache(key_chain, entity_id)
         if not res then
             return nil, err, nil
         else
@@ -132,11 +138,10 @@ local function purge(handler, purge_mode)
     -- If we're revalidating, fire off the background job
     local job
     if purge_mode == "revalidate" then
-        job = handler:revalidate_in_background(false)
+        job = handler:revalidate_in_background(key_chain, false)
     end
 
     -- Invalidate the keys
-    local entity_id = handler:entity_id(key_chain)
     local ok, err = expire_keys(redis, storage, key_chain, entity_id)
 
     if not ok and err then
@@ -153,10 +158,8 @@ end
 _M.purge = purge
 
 
-local function purge_in_background(handler, purge_mode)
-    local key_chain = handler:cache_key_chain()
-
-    local job, err = put_background_job(
+local function schedule_purge_job(handler, purge_mode, key_chain)
+    return put_background_job(
         "ledge_purge",
         "ledge.jobs.purge",
         {
@@ -172,6 +175,11 @@ local function purge_in_background(handler, purge_mode)
             priority = 5,
         }
     )
+end
+
+
+local function purge_in_background(handler, purge_mode)
+    local job, err = schedule_purge_job(handler, purge_mode, handler:cache_key_chain())
     if err then ngx_log(ngx_ERR, err) end
 
     -- Create a JSON payload for the response
@@ -233,10 +241,20 @@ local function key_chain_from_uri(handler, uri)
     end
 
     local args = parsed[5]
-    if args then
-        args = ngx.decode_args(args, handler.config.max_uri_args or 100)
+    local uri  = parsed[4]
+
+    if args and args ~= "" then
+        -- Query string is in the URI
+        -- Check if we're purging /some/uri?*
+        if args ~= "*" then
+            args = ngx.decode_args(args, handler.config.max_uri_args or 100)
+        end
+    elseif str_byte(uri, -1) == 42 then
+        -- Purging /some/uri/* with no query string specified.
+        -- Default args to *
+        args = "*"
     else
-        args = {}
+        args = nil
     end
 
     --local scheme, host, port, path, query = unpack(parsed_uri)
@@ -244,17 +262,18 @@ local function key_chain_from_uri(handler, uri)
         ["scheme"] = parsed[1],
         ["host"] = parsed[2],
         ["port"] = parsed[3],
-        ["uri"] = parsed[4],
+        ["uri"] = uri,
         ["args"] = args,
     }
 
-    -- TODO: Fix this hack to force cache_key regeneration
-    handler._cache_key_chain = {}
-    handler._cache_key = ""
-
     -- Generate new cache_key
-    handler:cache_key(vars)
-    return handler:cache_key_chain()
+    local cache_key = generate_cache_key(
+        handler.config.cache_key_spec,
+        handler.config.max_uri_args,
+        vars
+    )
+    ngx.log(ngx.DEBUG, "CACHE KEY: ", cache_key)
+    return key_chain(cache_key)
 end
 
 
@@ -278,41 +297,41 @@ local function purge_api(handler)
         return false
     end
 
-    local redis, storage = handler.redis, handler.storage
     local purge_mode = request["purge_mode"] or "invalidate" -- Default to invalidating
     local api_results = {}
 
     local uris = request["uris"]
     for _, uri in ipairs(uris) do
-        ngx.log(ngx.DEBUG, "Purging: ", uri)
         local res = {}
         local key_chain, err = key_chain_from_uri(handler, uri)
+
         if not key_chain then
             res["error"] = err
 
         else
-            -- TODO: revalidate and delete
-            local entity_id, err = handler:entity_id(key_chain)
-            if not entity_id then
-                res["error"] = err
+            if str_find(uri, "*", 1, true) ~= nil then
+                -- Schedule wildcard purge job
+                local job, err = schedule_purge_job(handler, purge_mode, key_chain)
+                if err then
+                    res["error"] = "error"
+                else
+                    res["result"] = "scheduled"
+                    res["qless_job"] = job
+                end
 
             else
-                local ok, err = expire_keys(redis, storage, key_chain, entity_id)
-                if not ok and err then
-                    res["error"] = err
-
-                elseif not ok then
-                    res["result"] = "already expired"
-
-                elseif ok then
-                    res["result"] = "purged"
-                    --res["job"] = job
+                -- Purge the URI now
+                local ok, purge_result, job = purge(handler, purge_mode, key_chain)
+                res["qless_job"] = job
+                if ok == nil and purge_result then
+                    res["error"] = purge_result
                 else
-                    res["wat"] = "dafuq"
-
+                    res["result"] = purge_result
                 end
+
             end
         end
+
         api_results[uri] = res
     end
 
@@ -322,7 +341,6 @@ local function purge_api(handler)
         return false
     end
 
-    ngx.log(ngx.DEBUG, "API Response: \n", api_response)
     handler.response:set_body(api_response)
     return true
 end

@@ -386,7 +386,7 @@ return {
 
     purging = function(sm, handler)
         local mode = purge_mode()
-        local ok, message, job = purge(handler, mode)
+        local ok, message, job = purge(handler, mode, handler:cache_key_chain())
         local json = create_purge_response(mode, message, job)
         handler.response:set_body(json)
 

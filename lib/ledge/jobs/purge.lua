@@ -10,6 +10,8 @@ local purge = require("ledge.purge").purge
 local create_redis_slave_connection = require("ledge").create_redis_slave_connection
 local close_redis_connection = require("ledge").close_redis_connection
 
+local key_chain = require("ledge.cache_key").key_chain
+
 local _M = {
     _VERSION = "2.0.0",
 }
@@ -80,16 +82,12 @@ function _M.expire_pattern(cursor, job, handler)
     else
         for _,key in ipairs(res[2]) do
             -- Strip the "main" suffix to find the cache key
-            handler._cache_key = str_sub(key, 1, magic_len)
+            local cache_key = str_sub(key, 1, magic_len)
 
-            ngx_log(ngx_DEBUG, "Purging key: ", handler._cache_key)
+            ngx_log(ngx_DEBUG, "Purging key: ", cache_key)
 
-            local ok, err = purge(handler, job.data.purge_mode)
+            local ok, err = purge(handler, job.data.purge_mode, key_chain(cache_key))
             if ok == nil and err then ngx_log(ngx_ERR, tostring(err)) end
-
-            -- reset these so that handler can be reused
-            handler._cache_key_chain = {}
-            handler._cache_key = ""
         end
 
         local cursor = tonumber(res[1])
