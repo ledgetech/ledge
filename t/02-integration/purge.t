@@ -887,7 +887,7 @@ location /purge_api {
 location /purge_cached_14_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-    require("ledge.state_machine").set_debug(false)
+        require("ledge.state_machine").set_debug(false)
         require("ledge").create_handler({
             keep_cache_for = 3600,
         }):run()
@@ -903,8 +903,8 @@ location /purge_cached_14 {
 [
 "GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2",
 
-'PURGE /purge_api
-{"uris": ["http://localhost/purge_cached_14?a=1", "http://localhost/purge_cached_14?a=2"]}',
+qq(PURGE /purge_api
+{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=1", "http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=2"]}),
 
 "GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2",
 ]
@@ -918,10 +918,10 @@ location /purge_cached_14 {
 [
 "TEST 14: 1", "TEST 14: 2",
 
-"purge_mode: invalidate
-result.http://localhost/purge_cached_14?a=1.result: purged
-result.http://localhost/purge_cached_14?a=2.result: purged
-",
+qq(purge_mode: invalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=1.result: purged
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=2.result: purged
+),
 
 "TEST 14: 1", "TEST 14: 2",
 ]
@@ -967,8 +967,8 @@ location /purge_cached_15 {
 [
 "GET /purge_cached_15_prx?a=1", "GET /purge_cached_15_prx?a=2",
 
-'PURGE /purge_api
-{"uris": ["http://localhost/purge_cached_15?a*"]}',
+qq(PURGE /purge_api
+{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx?a*"]}),
 ]
 --- more_headers eval
 [
@@ -979,14 +979,14 @@ location /purge_cached_15 {
 [
 "TEST 15: 1", "TEST 15: 2",
 
-"purge_mode: invalidate
-result.http://localhost/purge_cached_15\\?a\\*.qless_job.jid: [a-f0-9]{32}
-result.http://localhost/purge_cached_15\\?a\\*.qless_job.klass: ledge.jobs.purge
-result.http://localhost/purge_cached_15\\?a\\*.qless_job.options.jid: [a-f0-9]{32}
-result.http://localhost/purge_cached_15\\?a\\*.qless_job.options.priority: 5
-result.http://localhost/purge_cached_15\\?a\\*.qless_job.options.tags.1: purge
-result.http://localhost/purge_cached_15\\?a\\*.result: scheduled
-",
+qq(purge_mode: invalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_job.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_job.klass: ledge.jobs.purge
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_job.options.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_job.options.priority: 5
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_job.options.tags.1: purge
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.result: scheduled
+),
 ]
 --- response_headers_like eval
 [
@@ -1038,7 +1038,7 @@ location /purge_api {
     }
 }
 location /purge_cached_16_prx {
-    rewrite ^(.*)_prx$ $1 break;
+    rewrite ^(.*)_prx(.*)? $1$2 break;
     content_by_lua_block {
     require("ledge.state_machine").set_debug(false)
         require("ledge").create_handler({
@@ -1056,8 +1056,8 @@ location /purge_cached_16 {
 [
 "GET /purge_cached_16_prx?a=1", "GET /purge_cached_16_prx?a=2",
 
-'PURGE /purge_api
-{"uris": ["http://localhost/purge*"]}',
+qq(PURGE /purge_api
+{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx*"]}),
 ]
 --- more_headers eval
 [
@@ -1068,14 +1068,14 @@ location /purge_cached_16 {
 [
 "TEST 16: 1", "TEST 16: 2",
 
-"purge_mode: invalidate
-result.http://localhost/purge\\*.qless_job.jid: [a-f0-9]{32}
-result.http://localhost/purge\\*.qless_job.klass: ledge.jobs.purge
-result.http://localhost/purge\\*.qless_job.options.jid: [a-f0-9]{32}
-result.http://localhost/purge\\*.qless_job.options.priority: 5
-result.http://localhost/purge\\*.qless_job.options.tags.1: purge
-result.http://localhost/purge\\*.result: scheduled
-",
+qq(purge_mode: invalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_job.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_job.klass: ledge.jobs.purge
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_job.options.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_job.options.priority: 5
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_job.options.tags.1: purge
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.result: scheduled
+),
 ]
 --- response_headers_like eval
 [
@@ -1110,5 +1110,62 @@ location /purge_cached_16 {
 ["TEST 16b: 1", "TEST 16b: 2"]
 --- response_headers_like eval
 ["X-Cache: MISS from .+", "X-Cache: MISS from .+"]
+--- no_error_log
+[error]
+
+=== TEST 17: Purge API - bad request
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+
+--- request eval
+[
+'PURGE /purge_api
+{"uris": ["foobar"]}',
+
+'PURGE /purge_api
+this is not valid json',
+
+'PURGE /purge_api
+{"foo": ["bar"]}',
+
+'PURGE /purge_api
+{"uris": []}',
+
+'PURGE /purge_api
+{"uris": "not an array"}',
+
+'PURGE /purge_api
+{"uris": ["http://www.example.com/"], "purge_mode": "foobar"}'
+]
+--- more_headers
+Content-Type: Application/JSON
+--- error_code eval
+[200,400,400,400,400,400]
+--- response_body eval
+[
+"purge_mode: invalidate
+result.foobar.error: bad uri: foobar
+",
+"error: Could not parse request body: Expected value but found invalid token at character 1
+",
+"error: No URIs provided
+",
+"error: No URIs provided
+",
+"error: Field 'uris' must be an array
+",
+"error: Invalid purge_mode
+",
+]
 --- no_error_log
 [error]
