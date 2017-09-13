@@ -1,8 +1,7 @@
 local pcall, tonumber, tostring, pairs =
     pcall, tonumber, tostring, pairs
-local str_byte = string.byte
-local str_find = string.find
 
+local ngx_var = ngx.var
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_null = ngx.null
@@ -17,10 +16,6 @@ local cjson_decode = require("cjson").decode
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local put_background_job = require("ledge.background").put_background_job
-
-local generate_cache_key = require("ledge.cache_key").generate_cache_key
-local key_chain = require("ledge.cache_key").key_chain
-
 
 local _M = {
     _VERSION = "2.0.0",
@@ -234,47 +229,57 @@ local function validate_api_request(req)
 end
 
 
-local function key_chain_from_uri(handler, uri, headers)
-    local parsed, err = http:parse_uri(uri, false)
-    if not parsed then
-        return nil, "URI Parse Error: "..err
+local function send_purge_request(uri, purge_mode, headers)
+    local uri_parts, err = http:parse_uri(uri)
+    if not uri_parts then
+        return nil, err
     end
 
-    local args = parsed[5]
-    local uri  = parsed[4]
+    local scheme, host, port, path = unpack(uri_parts)
 
-    if args and args ~= "" then
-        -- Query string is in the URI
-        -- Check if we're purging /some/uri?*
-        if args ~= "*" then
-            args = ngx.decode_args(args, handler.config.max_uri_args or 100)
+    -- TODO: timeouts
+    local httpc = http.new()
+    local ok, err = httpc:connect(ngx_var.server_addr, port)
+    if not ok then
+        return nil, "HTTP Connect ("..ngx_var.server_addr..":"..port.."): "..err
+    end
+
+    if scheme == "https" then
+        local ok, err = httpc:ssl_handshake(nil, host, false)
+        if not ok then
+            return nil, "SSL Handshake: "..err
         end
-    elseif str_byte(uri, -1) == 42 then
-        -- Purging /some/uri/* with no query string specified.
-        -- Default args to *
-        args = "*"
-    else
-        args = nil
     end
 
-    --local scheme, host, port, path, query = unpack(parsed_uri)
-    local vars = {
-        ["scheme"] = parsed[1],
-        ["host"] = parsed[2],
-        ["port"] = parsed[3],
-        ["uri"] = uri,
-        ["args"] = args,
-        ["headers"] = headers,
-    }
+    headers = headers or {}
+    headers["Host"] = host
+    headers["X-Purge"] = purge_mode
 
-    -- Generate new cache_key
-    local cache_key = generate_cache_key(
-        handler.config.cache_key_spec,
-        handler.config.max_uri_args,
-        vars
-    )
-    ngx.log(ngx.DEBUG, "CACHE KEY: ", cache_key)
-    return key_chain(cache_key)
+    local res, err = httpc:request({
+        method = "PURGE",
+        path = path,
+        headers = headers
+    })
+
+    if not res then
+        return nil, "HTTP Request: "..err
+    end
+
+    local body, err = res:read_body()
+    if not body then
+        return nil, "HTTP Response: "..err
+    end
+
+    local ok, err = httpc:set_keepalive()
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    if res.headers["Content-Type"] == "application/json" then
+        body = cjson_decode(body)
+    else
+        return nil, { status = res.status, body = body, headers = res.headers}
+    end
+
+    return body
 end
 
 
@@ -303,34 +308,11 @@ local function purge_api(handler)
 
     local uris = request["uris"]
     for _, uri in ipairs(uris) do
-        local res = {}
-        local key_chain, err = key_chain_from_uri(handler, uri, request["headers"])
-
-        if not key_chain then
-            res["error"] = err
-
-        else
-            if str_find(uri, "*", 1, true) ~= nil then
-                -- Schedule wildcard purge job
-                local job, err = schedule_purge_job(handler, purge_mode, key_chain)
-                if err then
-                    res["error"] = "error"
-                else
-                    res["result"] = "scheduled"
-                    res["qless_job"] = job
-                end
-
-            else
-                -- Purge the URI now
-                local ok, purge_result, job = purge(handler, purge_mode, key_chain)
-                res["qless_job"] = job
-                if ok == nil and purge_result then
-                    res["error"] = purge_result
-                else
-                    res["result"] = purge_result
-                end
-
-            end
+        local res, err = send_purge_request(uri, purge_mode, request["headers"])
+        if not res then
+            res = {["error"] = err}
+        elseif type(res) == "table" then
+            res["purge_mode"] = nil
         end
 
         api_results[uri] = res
