@@ -234,7 +234,7 @@ local function validate_api_request(req)
 end
 
 
-local function key_chain_from_uri(handler, uri)
+local function key_chain_from_uri(handler, uri, headers)
     local parsed, err = http:parse_uri(uri, false)
     if not parsed then
         return nil, "URI Parse Error: "..err
@@ -264,6 +264,7 @@ local function key_chain_from_uri(handler, uri)
         ["port"] = parsed[3],
         ["uri"] = uri,
         ["args"] = args,
+        ["headers"] = headers,
     }
 
     -- Generate new cache_key
@@ -303,7 +304,7 @@ local function purge_api(handler)
     local uris = request["uris"]
     for _, uri in ipairs(uris) do
         local res = {}
-        local key_chain, err = key_chain_from_uri(handler, uri)
+        local key_chain, err = key_chain_from_uri(handler, uri, request["headers"])
 
         if not key_chain then
             res["error"] = err
