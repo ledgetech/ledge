@@ -256,3 +256,98 @@ location /cache {
 ]
 --- no_error_log
 [error]
+
+=== TEST 4: purge api
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^ /cache4 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis   = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local storage = require("ledge").create_storage_connection(
+                handler.config.storage_driver,
+                handler.config.storage_driver_config
+            )
+        handler.storage = storage
+
+        -- Stub out response object
+        local response = {
+            status = 0,
+            body,
+            set_body = function(self, body)
+                self.body = body
+            end
+        }
+        handler.response = response
+
+        local json_body = nil
+
+        ngx.req.get_body_data = function()
+            return json_body
+        end
+
+        local purge_api = require("ledge.purge").purge_api
+
+        -- Nil body
+        local ok, err = purge_api(handler)
+        if response.body then ngx.log(ngx.DEBUG, response.body) end
+        assert(ok == false and response.body ~= nil, "nil body should return false")
+        response.body = nil
+
+        -- Invalid json
+        json_body = [[ foobar  ]]
+        local ok, err = purge_api(handler)
+        if response.body then ngx.log(ngx.DEBUG, response.body) end
+        assert(ok == false and response.body ~= nil, "nil body should return false")
+        response.body = nil
+
+        -- Valid json, bad request
+        json_body = [[{"foo": "bar"}]]
+        local ok, err = purge_api(handler)
+        if response.body then ngx.log(ngx.DEBUG, response.body) end
+        assert(ok == false and response.body ~= nil, "nil body should return false")
+        response.body = nil
+
+        -- Valid API request
+        json_body = require("cjson").encode({
+            uris = {
+                "http://"..ngx.var.host..":"..ngx.var.server_port.."/cache4_prx"
+            },
+            purge_mode = "delete"
+        })
+        local ok, err = purge_api(handler)
+        if response.body then ngx.log(ngx.DEBUG, response.body) end
+        assert(ok == true and response.body ~= nil, "nil body should return false")
+        response.body = nil
+
+        local res, err = redis:exists(handler:cache_key_chain().main)
+        if err then ngx_log(ngx.ERR, err) end
+        assert(res == 0, "Key should have been removed")
+
+    }
+}
+location /cache4_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(false)
+        local handler = require("ledge").create_handler()
+        handler:run()
+    }
+}
+
+location /cache {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=4600"
+        ngx.say("TEST 4")
+    }
+}
+--- request eval
+[
+"GET /cache4_prx",
+"GET /t"
+]
+--- no_error_log
+[error]
