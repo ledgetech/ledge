@@ -1169,3 +1169,59 @@ result.foobar.error: bad uri: foobar
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 17: Purge API passes through purge_mode
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_17_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_17 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 17: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+[
+"GET /purge_cached_17_prx?a=1",
+
+qq(PURGE /purge_api
+{"purge_mode": "revalidate", "uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx?a=1"]}),
+]
+--- more_headers eval
+[
+"", "Content-Type: Application/JSON",
+]
+--- response_body_like eval
+[
+"TEST 17: 1",
+
+qq(purge_mode: revalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_job.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_job.klass: ledge.jobs.revalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_job.options.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_job.options.priority: 4
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_job.options.tags.1: revalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.result: purged
+),
+
+]
+--- wait: 1

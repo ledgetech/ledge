@@ -301,14 +301,14 @@ location /t {
         json_body = [[ foobar  ]]
         local ok, err = purge_api(handler)
         if response.body then ngx.log(ngx.DEBUG, response.body) end
-        assert(ok == false and response.body ~= nil, "nil body should return false")
+        assert(ok == false and response.body ~= nil, "invalid json should return false")
         response.body = nil
 
         -- Valid json, bad request
         json_body = [[{"foo": "bar"}]]
         local ok, err = purge_api(handler)
         if response.body then ngx.log(ngx.DEBUG, response.body) end
-        assert(ok == false and response.body ~= nil, "nil body should return false")
+        assert(ok == false and response.body ~= nil, "bad request should return false")
         response.body = nil
 
         -- Valid API request
@@ -316,17 +316,35 @@ location /t {
             uris = {
                 "http://"..ngx.var.host..":"..ngx.var.server_port.."/cache4_prx"
             },
-            purge_mode = "delete"
+            purge_mode = "delete",
+            headers = {
+                ["X-Test"] = "Test Header"
+            }
         })
         local ok, err = purge_api(handler)
         if response.body then ngx.log(ngx.DEBUG, response.body) end
-        assert(ok == true and response.body ~= nil, "nil body should return false")
+        assert(ok == true and response.body ~= nil, "valid request should return true")
         response.body = nil
 
         local res, err = redis:exists(handler:cache_key_chain().main)
         if err then ngx_log(ngx.ERR, err) end
         assert(res == 0, "Key should have been removed")
 
+        -- Custom headers should be added to request
+        json_body = require("cjson").encode({
+            uris = {
+                "http://"..ngx.var.host..":"..ngx.var.server_port.."/hdr_test"
+            },
+            purge_mode = "delete",
+            headers = {
+                ["X-Test"] = "Test Header"
+            }
+        })
+        local ok, err = purge_api(handler)
+        if response.body then ngx.log(ngx.DEBUG, response.body) end
+        local match = response.body:find("X-Test: Test Header")
+        assert(ok == true and match ~= nil, "custom header s should pass through")
+        response.body = nil
     }
 }
 location /cache4_prx {
@@ -335,6 +353,12 @@ location /cache4_prx {
         require("ledge.state_machine").set_debug(false)
         local handler = require("ledge").create_handler()
         handler:run()
+    }
+}
+
+location /hdr_test {
+    content_by_lua_block {
+        ngx.print(ngx.DEBUG, "X-Test: ", ngx.req.get_headers()["X-Test"])
     }
 }
 
