@@ -315,6 +315,38 @@ limit_except GET POST PUT DELETE {
 
 [Back to TOC](#table-of-contents)
 
+
+### JSON API
+
+A JSON based API is also available for purging cache multiple cache items at once.  
+This requires a `PURGE` request with a `Content-Type` header set to `application/json` and a valid JSON request body.
+
+Valid parameters
+ * `uris` - Array of URIs to purge, can contain wildcard URIs
+ * `purge_mode` - As the `X-Purge` header in a normal purge request
+ * `headers` - Hash of additional headers to include in the purge request
+
+Returns a results hash keyed by URI or a JSON error response
+
+`$> curl -X PURGE -H "Content-Type: Application/JSON" http://cache.example.com/ -d '{"uris": ["http://www.example.com/1", "http://www.example.com/2"]}' | jq .`
+
+```json
+{
+  "purge_mode": "invalidate",
+  "result": {
+    "http://www.example.com/1": {
+      "result": "purged"
+    },
+    "http://www.example.com/2":{
+      "result": "nothing to purge"
+    }
+  }
+}
+```
+
+[Back to TOC](#table-of-contents)
+
+
 ### Wildcard purging
 
 Wildcard (\*) patterns are also supported in `PURGE` URIs, which will always return a status of `200` and a JSON body detailing a background job. Wildcard purges involve scanning the entire keyspace, and so can take a little while. See [keyspace\_scan\_count](#keyspace_scan_count) for tuning help.
