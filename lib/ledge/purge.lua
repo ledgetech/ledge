@@ -153,8 +153,9 @@ end
 _M.purge = purge
 
 
-local function schedule_purge_job(handler, purge_mode, key_chain)
-    return put_background_job(
+local function purge_in_background(handler, purge_mode)
+    local key_chain = handler:cache_key_chain()
+    local job, err = put_background_job(
         "ledge_purge",
         "ledge.jobs.purge",
         {
@@ -170,11 +171,6 @@ local function schedule_purge_job(handler, purge_mode, key_chain)
             priority = 5,
         }
     )
-end
-
-
-local function purge_in_background(handler, purge_mode)
-    local job, err = schedule_purge_job(handler, purge_mode, handler:cache_key_chain())
     if err then ngx_log(ngx_ERR, err) end
 
     -- Create a JSON payload for the response
