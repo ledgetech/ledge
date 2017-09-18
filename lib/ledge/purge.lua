@@ -1,16 +1,21 @@
 local pcall, tonumber, tostring, pairs =
     pcall, tonumber, tostring, pairs
 
+local ngx_var = ngx.var
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_null = ngx.null
 local ngx_time = ngx.time
 local ngx_md5 = ngx.md5
+local ngx_HTTP_BAD_REQUEST = ngx.HTTP_BAD_REQUEST
+
+local http = require("resty.http")
+
+local cjson_encode = require("cjson").encode
+local cjson_decode = require("cjson").decode
 
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
-local cjson_encode = require("cjson").encode
 local put_background_job = require("ledge.background").put_background_job
-
 
 local _M = {
     _VERSION = "2.0.0",
@@ -97,15 +102,15 @@ _M.expire_keys = expire_keys
 -- If there's nothing to do we return false which results in a 404.
 -- @param   table   handler instance
 -- @param   string  "invalidate" | "delete" | "revalidate
+-- @param   table   key_chain to purge
 -- @return  boolean success
 -- @return  string  message
 -- @return  table   qless job (for revalidate only)
-local function purge(handler, purge_mode)
+local function purge(handler, purge_mode, key_chain)
     local redis = handler.redis
     local storage = handler.storage
-    local key_chain = handler:cache_key_chain()
 
-    local entity_id, err = redis:hget(key_chain.main, "entity")
+    local entity_id, err = handler:entity_id(key_chain)
     if err then ngx_log(ngx_ERR, err) end
 
     -- We 404 if we have nothing
@@ -117,7 +122,7 @@ local function purge(handler, purge_mode)
 
     -- Delete mode overrides everything else, since you can't revalidate
     if purge_mode == "delete" then
-        local res, err = handler:delete_from_cache()
+        local res, err = handler:delete_from_cache(key_chain, entity_id)
         if not res then
             return nil, err, nil
         else
@@ -128,11 +133,10 @@ local function purge(handler, purge_mode)
     -- If we're revalidating, fire off the background job
     local job
     if purge_mode == "revalidate" then
-        job = handler:revalidate_in_background(false)
+        job = handler:revalidate_in_background(key_chain, false)
     end
 
     -- Invalidate the keys
-    local entity_id = handler:entity_id(key_chain)
     local ok, err = expire_keys(redis, storage, key_chain, entity_id)
 
     if not ok and err then
@@ -151,7 +155,6 @@ _M.purge = purge
 
 local function purge_in_background(handler, purge_mode)
     local key_chain = handler:cache_key_chain()
-
     local job, err = put_background_job(
         "ledge_purge",
         "ledge.jobs.purge",
@@ -177,6 +180,150 @@ local function purge_in_background(handler, purge_mode)
     return true
 end
 _M.purge_in_background = purge_in_background
+
+
+local function parse_json_req()
+    ngx.req.read_body()
+    local body, err = ngx.req.get_body_data()
+    if not body then
+        return nil, "Could not read request body: " .. tostring(err)
+    end
+
+    local ok, req = pcall(cjson_decode, body)
+    if not ok then
+        return nil, "Could not parse request body: " .. tostring(req)
+    end
+
+    return req
+end
+
+
+local function validate_api_request(req)
+    local uris = req["uris"]
+    if not uris then
+        return false, "No URIs provided"
+    end
+
+    if type(uris) ~= "table" then
+        return false, "Field 'uris' must be an array"
+    end
+
+    if #uris == 0 then
+        return false, "No URIs provided"
+    end
+
+    local mode = req["purge_mode"]
+    if mode and not (
+        mode    == "invalidate"
+        or mode == "revalidate"
+        or mode == "delete"
+    ) then
+        return false, "Invalid purge_mode"
+    end
+
+    return true
+end
+
+
+local function send_purge_request(uri, purge_mode, headers)
+    local uri_parts, err = http:parse_uri(uri)
+    if not uri_parts then
+        return nil, err
+    end
+
+    local scheme, host, port, path = unpack(uri_parts)
+
+    -- TODO: timeouts
+    local httpc = http.new()
+    local ok, err = httpc:connect(ngx_var.server_addr, port)
+    if not ok then
+        return nil, "HTTP Connect ("..ngx_var.server_addr..":"..port.."): "..err
+    end
+
+    if scheme == "https" then
+        local ok, err = httpc:ssl_handshake(nil, host, false)
+        if not ok then
+            return nil, "SSL Handshake: "..err
+        end
+    end
+
+    headers = headers or {}
+    headers["Host"] = host
+    headers["X-Purge"] = purge_mode
+
+    local res, err = httpc:request({
+        method = "PURGE",
+        path = path,
+        headers = headers
+    })
+
+    if not res then
+        return nil, "HTTP Request: "..err
+    end
+
+    local body, err = res:read_body()
+    if not body then
+        return nil, "HTTP Response: "..err
+    end
+
+    local ok, err = httpc:set_keepalive()
+    if not ok then ngx_log(ngx_ERR, err) end
+
+    if res.headers["Content-Type"] == "application/json" then
+        body = cjson_decode(body)
+    else
+        return nil, { status = res.status, body = body, headers = res.headers}
+    end
+
+    return body
+end
+
+
+-- Run the JSON PURGE API.
+-- Accepts various inputs from a JSON request body and processes purges
+-- Return true on success or false on error
+local function purge_api(handler)
+    local response = handler.response
+
+    local request, err = parse_json_req()
+    if not request then
+        response.status = ngx_HTTP_BAD_REQUEST
+        response:set_body(cjson_encode({["error"] = err}))
+        return false
+    end
+
+    local ok, err = validate_api_request(request)
+    if not ok then
+        response.status = ngx_HTTP_BAD_REQUEST
+        response:set_body(cjson_encode({["error"] = err}))
+        return false
+    end
+
+    local purge_mode = request["purge_mode"] or "invalidate" -- Default to invalidating
+    local api_results = {}
+
+    local uris = request["uris"]
+    for _, uri in ipairs(uris) do
+        local res, err = send_purge_request(uri, purge_mode, request["headers"])
+        if not res then
+            res = {["error"] = err}
+        elseif type(res) == "table" then
+            res["purge_mode"] = nil
+        end
+
+        api_results[uri] = res
+    end
+
+    local api_response, err = create_purge_response(purge_mode, api_results)
+    if not api_response then
+        handler.set:body(cjson_encode({["error"] = "JSON Response Error: "..tostring(err)}))
+        return false
+    end
+
+    handler.response:set_body(api_response)
+    return true
+end
+_M.purge_api = purge_api
 
 
 return setmetatable(_M, fixed_field_metatable)

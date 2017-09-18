@@ -476,9 +476,8 @@ local function revalidation_data(self)
 end
 
 
-local function revalidate_in_background(self, update_revalidation_data)
+local function revalidate_in_background(self, key_chain, update_revalidation_data)
     local redis = self.redis
-    local key_chain = cache_key_chain(self)
 
     -- Revalidation data is updated if this is a proper request, but not if
     -- it's a purge request.
@@ -736,12 +735,13 @@ end
 _M.save_to_cache = save_to_cache
 
 
-local function delete_from_cache(self)
+local function delete_from_cache(self, key_chain, entity_id)
     local redis = self.redis
-    local key_chain = cache_key_chain(self)
+
+    -- Get entity_id if not already provided
+    entity_id = entity_id or self:entity_id(key_chain)
 
     -- Schedule entity collection
-    local entity_id = self:entity_id(key_chain)
     if entity_id then
         local config = self.config
         local size = redis:hget(key_chain.main, "size")

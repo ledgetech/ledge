@@ -180,7 +180,7 @@ return {
     -- Updates the realidation_params key with data from the current request,
     -- and schedules a background revalidation job
     revalidate_in_background = function(handler)
-        return handler:revalidate_in_background(true)
+        return handler:revalidate_in_background(handler:cache_key_chain(), true)
     end,
 
     -- Triggered on upstream partial content, assumes no stored
@@ -196,7 +196,7 @@ return {
     end,
 
     delete_from_cache = function(handler)
-        return handler:delete_from_cache()
+        return handler:delete_from_cache(handler:cache_key_chain())
     end,
 
     disable_output_buffers = function(handler)
