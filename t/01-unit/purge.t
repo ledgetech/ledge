@@ -63,7 +63,7 @@ location /t {
         assert(data.result == "purged",
             "result should be purged")
 
-        assert(not data.qless_job, "qless_job should be nil")
+        assert(not data.qless_jobs, "qless_jobs should be nil")
 
 
         local json, err = create_purge_response("revalidate", "scheduled", {
@@ -73,7 +73,7 @@ location /t {
 
         assert(not err, "err should be nil")
 
-        assert(data.qless_job.jid == "12345",
+        assert(data.qless_jobs.jid == "12345",
             "qless_job.jid should be '12345'")
 
 
@@ -191,16 +191,17 @@ location /t {
         handler.storage = storage
 
         local key_chain = handler:cache_key_chain()
+        ngx.log(ngx.DEBUG, require("cjson").encode(key_chain))
 
         local purge = require("ledge.purge").purge
 
         -- invalidate - error
-        local ok, err = purge(handler, "invalidate", {main = "bogus_key"})
+        local ok, err = purge(handler, "invalidate",  "bad_key")
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == false and err == "nothing to purge", "purge should return false - bad key")
 
         -- invalidate
-        local ok, err = purge(handler, "invalidate", key_chain)
+        local ok, err = purge(handler, "invalidate", key_chain.repset)
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == true and err == "purged", "purge should return true - purged")
 
@@ -211,26 +212,26 @@ location /t {
             return "job"
         end
 
-        local ok, err, job = purge(handler, "revalidate", key_chain)
+        local ok, err, job = purge(handler, "revalidate", key_chain.repset)
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == false and err == "already expired", "purge should return false - already expired")
         assert(reval_job == true, "revalidate should schedule job")
-        assert(job == "job", "revalidate should return the job "..tostring(job))
+        assert(job[1] == "job", "revalidate should return the job "..tostring(job))
 
         -- delete, error
         handler.delete_from_cache = function() return nil, "delete error" end
-        local ok, err = purge(handler, "delete", key_chain)
+        local ok, err = purge(handler, "delete", key_chain.repset)
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == nil and err == "delete error", "purge should return nil, error")
         handler.delete_from_cache = require("ledge.handler").delete_from_cache
 
         -- delete
-        local ok, err = purge(handler, "delete", key_chain)
+        local ok, err = purge(handler, "delete", key_chain.repset)
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == true and err == "deleted", "purge should return true - deleted")
 
         -- delete, missing
-        local ok, err = purge(handler, "delete", key_chain)
+        local ok, err = purge(handler, "delete", key_chain.repset)
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == false and err == "nothing to purge", "purge should return false - nothing to purge")
     }

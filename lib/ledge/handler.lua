@@ -31,8 +31,7 @@ local esi_capabilities = require("ledge.esi").esi_capabilities
 
 local append_server_port = require("ledge.util").append_server_port
 
-local generate_cache_key = require("ledge.cache_key").generate_cache_key
-local key_chain = require("ledge.cache_key").key_chain
+local ledge_cache_key = require("ledge.cache_key")
 
 local req_relative_uri = require("ledge.request").relative_uri
 local req_full_uri = require("ledge.request").full_uri
@@ -90,8 +89,11 @@ local function new(config, events)
         esi_process_enabled = false,
 
     -- private:
-        _cache_key = "",
+        _root_key = "",
+        _vary_key = ngx_null,  -- empty string is not the same as not set
+        _vary_spec = ngx_null, -- empty table is not the same as not set
         _cache_key_chain = {},
+        _publish_key = "",
 
     }, get_fixed_field_metatable_proxy(_M))
 
@@ -184,27 +186,6 @@ end
 _M.emit = emit
 
 
-local function cache_key(self)
-    if self._cache_key == "" then
-        self._cache_key = generate_cache_key(
-                self.config.cache_key_spec,
-                self.config.max_uri_args
-            )
-    end
-    return self._cache_key
-end
-_M.cache_key = cache_key
-
-
-local function cache_key_chain(self)
-    if not next(self._cache_key_chain) then
-        self._cache_key_chain = key_chain(cache_key(self))
-    end
-    return self._cache_key_chain
-end
-_M.cache_key_chain = cache_key_chain
-
-
 function _M.entity_id(self, key_chain)
     if not key_chain or not key_chain.main then return nil end
 
@@ -217,8 +198,98 @@ function _M.entity_id(self, key_chain)
 end
 
 
+local function root_key(self)
+    if self._root_key == "" then
+        self._root_key = ledge_cache_key.generate_root_key(
+                self.config.cache_key_spec,
+                self.config.max_uri_args
+            )
+    end
+
+    return self._root_key
+end
+_M.root_key = root_key
+
+
+local function vary_spec(self, root_key)
+    if self._vary_spec == ngx_null then
+        local vary_spec, err = ledge_cache_key.read_vary_spec(
+                self.redis,
+                root_key
+            )
+        if not vary_spec then
+            ngx_log(ngx_ERR, "Read vary spec: ", err)
+            return false
+        end
+        self._vary_spec = vary_spec
+    end
+
+    return self._vary_spec
+end
+_M.vary_spec = vary_spec
+
+
+local function create_vary_key_callback(self)
+    return function(vary_key)
+            -- TODO: gunzip?
+            emit(self, "before_vary", vary_key)
+        end
+end
+_M.create_vary_key_callback = create_vary_key_callback
+
+
+local function vary_key(self, vary_spec)
+    if self._vary_key == ngx_null then
+        self._vary_key = ledge_cache_key.generate_vary_key(
+                vary_spec,
+                create_vary_key_callback(self)
+            )
+    end
+
+    return self._vary_key
+end
+_M.vary_key = vary_key
+
+
+local function cache_key_chain(self)
+    if not next(self._cache_key_chain) then
+        if not self.redis or not next(self.redis) then
+            ngx_log(ngx_ERR, "Cannot get cache key without a redis connection")
+            return nil
+        end
+
+        local rk = root_key(self)
+
+        local vs = vary_spec(self, rk)
+
+        local vk = vary_key(self, vs)
+ngx.log(ngx.DEBUG, "Vary Key: ", vk)
+        self._cache_key_chain = ledge_cache_key.key_chain(rk, vk, vs)
+    end
+
+    return self._cache_key_chain
+end
+_M.cache_key_chain = cache_key_chain
+
+
+local function reset_cache_key(self)
+    self._root_key = ""
+    self._vary_key = ngx_null
+    self._vary_spec = ngx_null
+    self._cache_key_chain = {}
+end
+_M.reset_cache_key = reset_cache_key
+
+
+local function set_vary_spec(self, vary_spec)
+    reset_cache_key(self)
+    self._vary_spec = vary_spec
+end
+_M.set_vary_spec = set_vary_spec
+
+
 local function read_from_cache(self)
-    local res, err = response.new(self.redis, cache_key_chain(self))
+    local res, err = response.new(self)
     if not res then return nil, err end
 
     local ok, err = res:read()
@@ -285,7 +356,7 @@ local hop_by_hop_headers = {
 
 -- Fetches a resource from the origin server.
 local function fetch_from_origin(self)
-    local res, err = response.new(self.redis, cache_key_chain(self))
+    local res, err = response.new(self)
     if not res then return nil, err end
 
     local method = ngx['HTTP_' .. ngx_req_get_method()]
@@ -591,6 +662,10 @@ local function save_to_cache(self, res)
     local redis = self.redis
     redis:watch(key_chain.main)
 
+ngx.log(ngx.DEBUG, "Saving: ", key_chain.main)
+
+    local repset_ttl = redis:ttl(key_chain.repset)
+
     -- We'll need to mark the old entity for expiration shortly, as reads
     -- could still be in progress. We need to know the previous entity keys
     -- and the size.
@@ -657,6 +732,15 @@ local function save_to_cache(self, res)
     local expiry = res:ttl() + keep_cache_for
     redis:expire(key_chain.reval_params, expiry)
     redis:expire(key_chain.reval_req_headers, expiry)
+
+
+    -- repset and vary TTL should be the same as the longest living represenation
+    if repset_ttl < expiry then
+        repset_ttl = expiry
+    end
+
+    -- Save updates to cache key
+    ledge_cache_key.save_key_chain(redis, key_chain, repset_ttl)
 
     -- If we have a body, we need to attach the storage writer
     -- NOTE: res.has_body is false for known bodyless repsonse types

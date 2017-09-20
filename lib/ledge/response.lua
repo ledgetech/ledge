@@ -47,14 +47,18 @@ end
 _M.empty_body_reader = empty_body_reader
 
 
-function _M.new(redis, key_chain)
-    if not redis or not next(redis) or not key_chain or not next(key_chain) then
-        return nil, "redis and key_chain args required"
+function _M.new(handler)
+    if not handler or not next(handler) then
+        return nil, "Handler is required"
+    end
+
+    if not handler.redis or not next(handler.redis) then
+        return nil, "Handler has no redis connection"
     end
 
     return setmetatable({
-        redis = redis,
-        key_chain = key_chain,  -- Cache key chain
+        redis = handler.redis,
+        handler = handler,  -- Cache key chain
 
         uri = "",
         status = 0,
@@ -131,6 +135,10 @@ function _M.is_cacheable(self)
         return false
     end
 
+    if h["Vary"] == "*" then
+       return false
+    end
+
     if self:ttl() > 0 then
         return true
     else
@@ -187,7 +195,9 @@ end
 -- so we MISS and update the entry.
 function _M.read(self)
     local redis = self.redis
-    local key_chain = self.key_chain
+    local key_chain = self.handler:cache_key_chain()
+
+    ngx.log(ngx.DEBUG, "Response Reading: ", key_chain.main)
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(key_chain.main)
@@ -352,8 +362,8 @@ function _M.save(self, keep_cache_for)
 
     local redis = self.redis
     if not next(redis) then return nil, "no redis" end
-    local key_chain = self.key_chain
-
+    local key_chain = self.handler:cache_key_chain()
+ngx.log(ngx.DEBUG, "RESPONSE saving: ", key_chain.main)
     if not self.header["Date"] then
         self.header["Date"] = ngx_http_time(ngx_time())
     end
@@ -403,7 +413,8 @@ end
 
 function _M.set_and_save(self, field, value)
     local redis = self.redis
-    local ok, err = redis:hset(self.key_chain.main, field, tostring(value))
+ngx.log(ngx.DEBUG, "RESPONSE set and saving: ", self.handler:cache_key_chain().main)
+    local ok, err = redis:hset(self.handler:cache_key_chain().main, field, tostring(value))
     if not ok then
         if err then ngx_log(ngx_ERR, err) end
         return nil, err
@@ -429,6 +440,21 @@ function _M.add_warning(self, code, name)
     local header = code .. ' ' .. name
     header = header .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(self.header["Warning"], header)
+end
+
+
+function _M.process_vary(self)
+    local vary_hdr = self.header["Vary"]
+    local vary_spec
+
+    if vary_hdr then
+        if type(vary_hdr) == "table" then
+            vary_hdr = tbl_concat(vary_hdr,",")
+        end
+        vary_spec = str_split(vary_hdr, ",")
+    end
+
+    return vary_spec
 end
 
 

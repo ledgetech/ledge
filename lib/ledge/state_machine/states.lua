@@ -38,6 +38,8 @@ local acquire_lock = require("ledge.collapse").acquire_lock
 
 local parse_content_range = require("ledge.range").parse_content_range
 
+local vary_spec_compare = require("ledge.cache_key").vary_spec_compare
+
 
 local _M = { -- luacheck: no unused
     _VERSION = "2.0.0",
@@ -262,7 +264,7 @@ return {
             -- In which case we have missed the publish event
 
             local redis_subscriber = ledge.create_redis_connection()
-            local ok, err = redis_subscriber:subscribe(key_chain.root)
+            local ok, err = redis_subscriber:subscribe(lock_key)
             if not ok or ok == ngx_null then
                 -- Failed to enter subscribe mode
                 if err then ngx_log(ngx_ERR, err) end
@@ -287,30 +289,61 @@ return {
 
     publishing_collapse_success = function(sm, handler)
         local redis = handler.redis
-        local key_chain = handler:cache_key_chain()
-        redis:del(key_chain.fetching_lock) -- Clear the lock
-        redis:publish(key_chain.root, "collapsed_response_ready")
+        local key = handler._publish_key
+        redis:del(key) -- Clear the lock
+        redis:publish(key, "collapsed_response_ready")
+
         return sm:e "published"
     end,
 
     publishing_collapse_failure = function(sm, handler)
         local redis = handler.redis
-        local key_chain = handler:cache_key_chain()
-        redis:del(key_chain.fetching_lock) -- Clear the lock
-        redis:publish(key_chain.root, "collapsed_forwarding_failed")
+        local key = handler._publish_key
+        redis:del(key) -- Clear the lock
+        redis:publish(key, "collapsed_forwarding_failed")
+
         return sm:e "published"
     end,
 
     publishing_collapse_upstream_error = function(sm, handler)
         local redis = handler.redis
-        local key_chain = handler:cache_key_chain()
-        redis:del(key_chain.fetching_lock) -- Clear the lock
-        redis:publish(key_chain.root, "collapsed_forwarding_upstream_error")
+        local key = handler._publish_key
+        redis:del(key) -- Clear the lock
+        redis:publish(key, "collapsed_forwarding_upstream_error")
+
         return sm:e "published"
     end,
 
-    fetching_as_surrogate = function(sm)
+    publishing_collapse_vary_modified = function(sm, handler)
+        local redis = handler.redis
+        local key = handler._publish_key
+        redis:del(key) -- Clear the lock
+        redis:publish(key, "collapsed_forwarding_vary_modified")
+
+        return sm:e "published"
+    end,
+
+    fetching_as_surrogate = function(sm, handler)
+        -- stash these because we might change the key
+        -- depending on vary response
+        local key_chain = handler:cache_key_chain()
+        handler._publish_key = key_chain.fetching_lock
+
         return sm:e "can_fetch"
+    end,
+
+    considering_vary = function(sm, handler)
+        local new_spec = handler.response:process_vary()
+        local key_chain = handler:cache_key_chain()
+
+        if vary_spec_compare(new_spec, key_chain.vary_spec) then
+            handler:set_vary_spec(new_spec)
+            return sm:e "vary_modified"
+
+        else
+            return sm:e "vary_unmodified"
+
+        end
     end,
 
     waiting_on_collapsed_forwarding_channel = function(sm, handler)
@@ -333,6 +366,8 @@ return {
                 return sm:e "collapsed_response_ready"
             elseif res[3] == "collapsed_forwarding_upstream_error" then
                 return sm:e "collapsed_forwarding_upstream_error"
+            elseif res[3] == "collapsed_forwarding_vary_modified" then
+                return sm:e "collapsed_forwarding_vary_modified"
             else
                 return sm:e "collapsed_forwarding_failed"
             end
@@ -386,7 +421,7 @@ return {
 
     purging = function(sm, handler)
         local mode = purge_mode()
-        local ok, message, job = purge(handler, mode, handler:cache_key_chain())
+        local ok, message, job = purge(handler, mode, handler:cache_key_chain().repset)
         local json = create_purge_response(mode, message, job)
         handler.response:set_body(json)
 

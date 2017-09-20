@@ -53,17 +53,21 @@ location /t {
     content_by_lua_block {
         local res, err = require("ledge.response").new()
         assert(not res, "new with empty args should return negatively")
-        assert(string.find(err, "redis and key_chain args required"),
-            "err should contain 'redis and key_chian args required'")
+        assert(err ~= nil, "err not nil")
+
+        local res, err = require("ledge.response").new({})
+        assert(not res, "new with empty handler should return negatively")
+        assert(err ~= nil, "err not nil")
+
+        local res, err = require("ledge.response").new({redis = {} })
+        assert(not res, "new with empty handler redis should return negatively")
+        assert(err ~= nil, "err not nil")
 
         local handler = require("ledge").create_handler()
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         assert(res and not err, "response object should be created without error")
 
@@ -90,10 +94,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         read_body(res) -- will be empty
 
@@ -119,10 +120,7 @@ location /t {
         handler.redis = redis
 
         require("ledge.response").set_debug(true)
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         res:set_body("foo")
 
@@ -174,10 +172,7 @@ location /t {
         handler.redis = redis
 
         require("ledge.response").set_debug(true)
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         assert(not res:is_cacheable())
 
@@ -211,6 +206,12 @@ location /t {
             ["Cache-Control"] = "max-age=60, no-cache=X-Foo",
         }
         assert(res:is_cacheable())
+
+        res.header = {
+            ["Cache-Control"] = "max-age=60",
+            ["Vary"] = "*",
+        }
+        assert(not res:is_cacheable())
     }
 }
 --- request
@@ -229,10 +230,7 @@ location /t {
         handler.redis = redis
 
         require("ledge.response").set_debug(true)
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         assert(res:ttl() == 0, "ttl should be 0")
 
@@ -266,10 +264,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         res.uri = "http://example.com"
         res.status = 200
@@ -278,10 +273,7 @@ location /t {
         assert(ok and not err, "res should save without err")
 
 
-        local res2, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res2, err = require("ledge.response").new(handler)
 
         local ok, err = res2:read()
         assert(ok and not err, "res2 should save without err")
@@ -291,10 +283,7 @@ location /t {
         res2.header["X-Save-Me"] = "ok"
         res2:save(60)
 
-        local res3, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res3, err = require("ledge.response").new(handler)
         res3:read()
 
         assert(res3.header["X-Save-Me"] == "ok", "res3 headers")
@@ -304,10 +293,7 @@ location /t {
 
         assert(res3.size == 99, "res3.size should be 99")
 
-        local res4, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res4, err = require("ledge.response").new(handler)
         res4:read()
 
         assert(res4.size == 99, "res3.size should be 99")
@@ -330,10 +316,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         -- Ensure entry exists
         res.uri = "http://example.com"
@@ -382,10 +365,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         res.uri = "http://example.com"
         res.status = 200
@@ -395,10 +375,7 @@ location /t {
 
         res:set_and_save("has_esi", "dummy")
 
-        local res2, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res2, err = require("ledge.response").new(handler)
 
         local ok, err = res2:read()
         assert(ok and not err, "res2 should save without err")
@@ -409,10 +386,7 @@ location /t {
         res2.header["X-Save-Me"] = "ok"
         res2:save(60)
 
-        local res3, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res3, err = require("ledge.response").new(handler)
         res3:read()
 
         assert(res3.header["X-Save-Me"] == "ok", "res3 headers")

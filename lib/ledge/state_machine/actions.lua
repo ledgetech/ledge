@@ -172,7 +172,7 @@ return {
     end,
 
     set_json_response = function(handler)
-        local res = response.new(handler.redis, handler:cache_key_chain())
+        local res = response.new(handler)
         res.header["Content-Type"] = "application/json"
         handler.response = res
     end,
@@ -201,6 +201,10 @@ return {
 
     disable_output_buffers = function(handler)
         handler.output_buffers_enabled = false
+    end,
+
+    reset_cache_key = function(handler)
+        handler:reset_cache_key()
     end,
 
     set_http_ok = function()

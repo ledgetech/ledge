@@ -199,12 +199,19 @@ GET /t
 location /t {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
 
+        -- Set redis and read the cache key
+        handler.redis = redis
+        handler:cache_key_chain()
+
+        -- Unset redis again
+        handler.redis = {}
         local res, err = handler:read_from_cache()
         assert(res == nil and err ~= nil,
             "read_from_cache should error with no redis connections")
 
-        handler.redis = require("ledge").create_redis_connection()
+        handler.redis = redis
         handler.storage = require("ledge").create_storage_connection(
             handler.config.storage_driver,
             handler.config.storage_driver_config
@@ -268,6 +275,11 @@ location /t_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+
+        handler.redis = redis
+        handler:cache_key_chain()
+        handler.redis = {}
 
         local res, err = handler:save_to_cache()
         assert(res == nil and err ~= nil,
@@ -277,7 +289,7 @@ location /t_prx {
         assert(res == nil and err ~= nil,
             "fetch_from_origin should error with no redis")
 
-        handler.redis = require("ledge").create_redis_connection()
+        handler.redis = redis
         handler.storage = require("ledge").create_storage_connection(
             handler.config.storage_driver,
             handler.config.storage_driver_config

@@ -89,6 +89,8 @@ location /gc_b {
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
         local handler = require("ledge").create_handler()
+        handler.redis = redis
+
         local key_chain = handler:cache_key_chain()
         local num_entities, err = redis:scard(key_chain.entities)
         ngx.say(num_entities)
@@ -115,6 +117,8 @@ location /gc {
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
         local handler = require("ledge").create_handler()
+        handler.redis = redis
+
         local key_chain = handler:cache_key_chain()
         local num_entities, err = redis:scard(key_chain.entities)
         ngx.say(num_entities)
@@ -136,8 +140,10 @@ location /gc {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
-        local key_chain = require("ledge").create_handler():cache_key_chain()
-        local res, err = redis:keys(key_chain.root .. "*")
+        local handler = require("ledge").create_handler()
+        handler.redis = redis
+        local key_chain = handler:cache_key_chain()
+        local res, err = redis:keys(key_chain.full .. "*")
         assert(not next(res), "res should be empty")
     }
 }
@@ -177,6 +183,7 @@ location /gc_5_prx {
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
         local handler = require("ledge").create_handler()
+        handler.redis = redis
         local key_chain = handler:cache_key_chain()
         redis:del(key_chain.headers)
         handler:run()
@@ -202,8 +209,10 @@ location /gc_5 {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
-        local key_chain = require("ledge").create_handler():cache_key_chain()
-        local res, err = redis:keys(key_chain.root .. "*")
+        local handler = require("ledge").create_handler()
+        handler.redis = redis
+        local key_chain = handler:cache_key_chain()
+        local res, err = redis:keys(key_chain.full .. "*")
         if res then
             ngx.say(#res)
         end

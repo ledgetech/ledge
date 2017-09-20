@@ -84,6 +84,7 @@ location "/mem_pressure_1_prx" {
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
         local handler = require("ledge").create_handler()
+        handler.redis = redis
         local key_chain = handler:cache_key_chain()
 
         local evict = ngx.req.get_uri_args()["key"]
@@ -245,6 +246,7 @@ location "/mem_pressure_4_prx" {
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
         local handler = require("ledge").create_handler()
+        handler.redis = redis
         local key_chain = handler:cache_key_chain()
 
         local evict = ngx.req.get_uri_args()["key"]

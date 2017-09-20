@@ -101,6 +101,7 @@ local event_defaults = {
     before_upstream_connect = {},
     before_upstream_request = {},
     after_upstream_request = {},
+    before_vary = {},
     before_save = {},
     before_save_revalidation_data = {},
     before_serve = {},
