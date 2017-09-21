@@ -8,6 +8,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_COVERAGE} ||= 0;
 $ENV{TEST_NGINX_HTML_DIR} ||= html_dir();
+$ENV{TEST_NGINX_SOCKET_DIR} ||= $ENV{TEST_NGINX_HTML_DIR};
 
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
@@ -116,12 +117,12 @@ upstream connection failed:
 === TEST 4: No port with unix socket works
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx.sock;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx.sock;
 location /upstream_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         require("ledge").create_handler({
-            upstream_host = "unix:$TEST_NGINX_HTML_DIR/nginx.sock",
+            upstream_host = "unix:$TEST_NGINX_SOCKET_DIR/nginx.sock",
             upstream_port = "",
         }):run()
     }
