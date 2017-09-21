@@ -8,6 +8,7 @@ $ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
 $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
 $ENV{TEST_COVERAGE} ||= 0;
 $ENV{TEST_NGINX_HTML_DIR} ||= html_dir();
+$ENV{TEST_NGINX_SOCKET_DIR} ||= $ENV{TEST_NGINX_HTML_DIR};
 
 sub read_file {
     my $infile = shift;
@@ -49,7 +50,7 @@ init_by_lua_block {
 
 		local httpc_ssl = require("resty.http").new()
 		local ok, err =
-			httpc_ssl:connect("unix:$ENV{TEST_NGINX_HTML_DIR}/nginx-ssl.sock")
+			httpc_ssl:connect("unix:$ENV{TEST_NGINX_SOCKET_DIR}/nginx-ssl.sock")
 
 		if not ok then
 			ngx.say("Unable to connect to sock, ", err)
@@ -86,7 +87,7 @@ init_by_lua_block {
     })
 
     require("ledge").set_handler_defaults({
-        upstream_host = "unix:$ENV{TEST_NGINX_HTML_DIR}/nginx-ssl.sock",
+        upstream_host = "unix:$ENV{TEST_NGINX_SOCKET_DIR}/nginx-ssl.sock",
         upstream_use_ssl = true,
         upstream_ssl_server_name = "example.com",
         upstream_ssl_verify = true,
@@ -113,7 +114,7 @@ __DATA__
 === TEST 1: SSL works
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx-ssl.sock ssl;
 location /upstream_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
@@ -144,7 +145,7 @@ OK https
 === TEST 2: Bad SSL name errors
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx-ssl.sock ssl;
 location /upstream_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
@@ -176,7 +177,7 @@ ssl handshake failed
 === TEST 3: SSL verification can be disabled
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx-ssl.sock ssl;
 location /upstream_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
@@ -210,7 +211,7 @@ OK https
 === TEST 4: Empty SSL name treated as nil
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx-ssl.sock ssl;
 location /upstream_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
@@ -243,7 +244,7 @@ OK https
 === TEST 9a: Prime another key
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx-ssl.sock ssl;
 location /purge_ssl_entry {
     rewrite ^(.*)_entry$ $1_prx break;
     content_by_lua_block {
@@ -285,7 +286,7 @@ TEST 9: primed
 === TEST 9b: Purge with X-Purge: revalidate
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx-ssl.sock ssl;
 location /purge_ssl_entry {
     rewrite ^(.*)_entry$ $1_prx break;
     content_by_lua_block {
@@ -326,7 +327,7 @@ PURGE /purge_ssl_entry
 === TEST 9c: Confirm cache was revalidated
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx-ssl.sock ssl;
 location /purge_ssl_entry {
     rewrite ^(.*)_entry$ $1_prx break;
     content_by_lua_block {
@@ -358,7 +359,7 @@ TEST 9 Revalidated: primed
 --- log_level: debug
 --- http_config eval: $::HttpConfig
 --- config
-listen unix:$TEST_NGINX_HTML_DIR/nginx-ssl.sock ssl;
+listen unix:$TEST_NGINX_SOCKET_DIR/nginx-ssl.sock ssl;
 location /esi_ssl_entry {
     rewrite ^(.*)_entry$ $1_prx break;
     content_by_lua_block {
