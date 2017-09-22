@@ -337,3 +337,45 @@ location /vary {
 --- no_error_log
 [error]
 
+
+=== TEST 6: Vary - case insensitive
+--- http_config eval: $::HttpConfig
+--- config
+location /vary6_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+}
+
+location /vary {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Vary"] = "X-Test"
+        ngx.print("TEST 6: ", ngx.req.get_headers()["X-Test"])
+    }
+}
+--- request eval
+["GET /vary6_prx", "GET /vary6_prx", "GET /vary6_prx"]
+--- more_headers eval
+[
+"X-Test: testval",
+"X-test: TestVAL",
+"X-teSt: foobar",
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .*",
+"X-Cache: HIT from .*",
+"X-Cache: MISS from .*",
+]
+--- response_body eval
+[
+"TEST 6: testval",
+"TEST 6: testval",
+"TEST 6: foobar",
+
+]
+--- no_error_log
+[error]

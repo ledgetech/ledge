@@ -350,13 +350,13 @@ location /t {
         local vary_key = generate_vary_key({"Foo"}, callback, nil)
         log(vary_key)
         assert(called_flag == true, "Callback is called")
-        assert(vary_key == "Foo:Bar", "Vary spec not modified with noop function")
+        assert(vary_key == "foo:bar", "Vary spec not modified with noop function")
         called_flag = false
 
         local vary_key = generate_vary_key({"Foo", "X-Test"}, callback, nil)
         log(vary_key)
         assert(called_flag == true, "Callback is called - multivalue spec")
-        assert(vary_key == "Foo:Bar:X-Test:value", "Vary spec not modified with noop function - multivalue spec")
+        assert(vary_key == "foo:bar:x-test:value", "Vary spec not modified with noop function - multivalue spec")
         called_flag = false
 
 
@@ -366,19 +366,19 @@ location /t {
         end
         local vary_key = generate_vary_key(nil, callback, nil)
         log(vary_key)
-        assert(vary_key == "MyVal:Arbitrary", "Callback modifies key with nil spec")
+        assert(vary_key == "myval:arbitrary", "Callback modifies key with nil spec")
 
         local vary_key = generate_vary_key({}, callback, nil)
         log(vary_key)
-        assert(vary_key == "MyVal:Arbitrary", "Callback modifies key with empty spec")
+        assert(vary_key == "myval:arbitrary", "Callback modifies key with empty spec")
 
         local vary_key = generate_vary_key({"Foo"}, callback, nil)
         log(vary_key)
-        assert(vary_key == "Foo:Bar:MyVal:Arbitrary", "Callback appends key with spec")
+        assert(vary_key == "foo:bar:myval:arbitrary", "Callback appends key with spec")
 
         local vary_key = generate_vary_key({"Foo", "X-Test"}, callback, nil)
         log(vary_key)
-        assert(vary_key == "MyVal:Arbitrary:Foo:Bar:X-Test:value", "Callback appends key with spec - multi values")
+        assert(vary_key == "myval:arbitrary:foo:bar:x-test:value", "Callback appends key with spec - multi values")
 
 
         callback = function(vary_key)
@@ -387,7 +387,7 @@ location /t {
 
         local vary_key = generate_vary_key({"Foo"}, callback, nil)
         log(vary_key)
-        assert(vary_key == "Foo:Arbitrary", "Callback overrides key spec")
+        assert(vary_key == "foo:arbitrary", "Callback overrides key spec")
 
 
         callback = function(vary_key)
@@ -410,11 +410,11 @@ location /t {
 
         local vary_key = generate_vary_key({"A", "B"}, nil, {["A"] = "123", ["B"] = "xyz"})
         log(vary_key)
-        assert(vary_key == "A:123:B:xyz", "Vary key from arbitrary headers")
+        assert(vary_key == "a:123:b:xyz", "Vary key from arbitrary headers")
 
         local vary_key = generate_vary_key({"Foo", "B"}, nil, {["Foo"] = "123", ["B"] = "xyz"})
         log(vary_key)
-        assert(vary_key == "Foo:123:B:xyz", "Arbitrary headers take precendence")
+        assert(vary_key == "foo:123:b:xyz", "Arbitrary headers take precendence")
 
     }
 }
@@ -474,22 +474,22 @@ location /t {
         local key_chain = require("ledge.cache_key").key_chain
 
         local root_key = "ledge:dummy:root:"
-        local vary_key = "Foo:Bar:Test:value"
+        local vary_key = "foo:bar:test:value"
         local vary_spec = {"Foo", "Test"}
 
         local expected = {
             vary              = "ledge:dummy:root:::vary",
             repset            = "ledge:dummy:root:::repset",
-            main              = "ledge:dummy:root:#Foo:Bar:Test:value::main",
-            entities          = "ledge:dummy:root:#Foo:Bar:Test:value::entities",
-            headers           = "ledge:dummy:root:#Foo:Bar:Test:value::headers",
-            reval_params      = "ledge:dummy:root:#Foo:Bar:Test:value::reval_params",
-            reval_req_headers = "ledge:dummy:root:#Foo:Bar:Test:value::reval_req_headers",
+            main              = "ledge:dummy:root:#foo:bar:test:value::main",
+            entities          = "ledge:dummy:root:#foo:bar:test:value::entities",
+            headers           = "ledge:dummy:root:#foo:bar:test:value::headers",
+            reval_params      = "ledge:dummy:root:#foo:bar:test:value::reval_params",
+            reval_req_headers = "ledge:dummy:root:#foo:bar:test:value::reval_req_headers",
         }
         local extra = {
             root = "ledge:dummy:root:",
-            full = "ledge:dummy:root:#Foo:Bar:Test:value",
-            fetching_lock = "ledge:dummy:root:#Foo:Bar:Test:value::fetching",
+            full = "ledge:dummy:root:#foo:bar:test:value",
+            fetching_lock = "ledge:dummy:root:#foo:bar:test:value::fetching",
         }
 
         local chain, err = key_chain()
@@ -546,7 +546,7 @@ location /t {
         local save_key_chain = require("ledge.cache_key").save_key_chain
 
         local root_key = "ledge:dummy:root:"
-        local vary_key = "Foo:Bar:Test:value"
+        local vary_key = "foo:bar:test:value"
         local vary_spec = {"Foo", "Test"}
 
 
