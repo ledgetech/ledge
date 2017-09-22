@@ -260,6 +260,12 @@ local function save_key_chain(redis, key_chain, ttl)
     local vary_spec = key_chain.vary_spec
 
     if next(vary_spec) then
+        -- Always lowercase all vary fields
+        -- key_chain.vary is a set so will deduplicate for us
+        for i,v in ipairs(vary_spec) do
+            vary_spec[i] = str_lower(v)
+        end
+
         local _, e = redis:sadd(key_chain.vary, unpack(vary_spec))
         if e then ngx_log(ngx_ERR, e) end
 
