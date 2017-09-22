@@ -584,8 +584,14 @@ location /t {
         assert(redis:exists(chain.repset) == 1, "Repset created")
 
         local vs = redis:smembers(chain.vary)
-        for i, v in pairs(vs) do
-            assert(vary_spec[i] == v, "Vary spec saved: "..i)
+        for _, v in pairs(vs) do
+            local match = false
+            for _, v2 in ipairs(vary_spec) do
+                if v2:lower() == v then
+                    match = true
+                end
+            end
+            assert(match, "Vary spec saved: ")
         end
 
         local vs = redis:smembers(chain.repset)
@@ -602,7 +608,13 @@ location /t {
 
         local vs = redis:smembers(chain.vary)
         for i, v in pairs(vs) do
-            assert(vary_spec[i] == v, "Vary spec overwritten: "..i)
+            local match = false
+            for _, v2 in ipairs(vary_spec) do
+                if v2:lower() == v then
+                    match = true
+                end
+            end
+            assert(match, "Vary spec overwritten")
         end
 
         redis:sadd(chain.repset, "dummy_value")
@@ -619,6 +631,11 @@ location /t {
         local ok, err = save_key_chain(redis, chain, 3600)
         assert(redis:exists(chain.vary ) == 0, "Empty spec removes vary key")
         assert(redis:exists(chain.repset)  == 1, "Empty spec still creates repset")
+
+
+        local chain = key_chain(root_key, vary_key, {"Foo", "Bar", "Foo", "bar"})
+        local ok, err = save_key_chain(redis, chain, 3600)
+        assert(redis:scard(chain.vary) == 2, "Deduplicate vary fields")
 
     }
 }
