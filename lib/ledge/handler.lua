@@ -263,7 +263,7 @@ local function cache_key_chain(self)
         local vs = vary_spec(self, rk)
 
         local vk = vary_key(self, vs)
-ngx.log(ngx.DEBUG, "Vary Key: ", vk)
+
         self._cache_key_chain = ledge_cache_key.key_chain(rk, vk, vs)
     end
 
@@ -661,8 +661,6 @@ local function save_to_cache(self, res)
     local key_chain = cache_key_chain(self)
     local redis = self.redis
     redis:watch(key_chain.main)
-
-ngx.log(ngx.DEBUG, "Saving: ", key_chain.main)
 
     local repset_ttl = redis:ttl(key_chain.repset)
 

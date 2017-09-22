@@ -7,6 +7,7 @@ local pairs, setmetatable, tonumber, unpack =
 local tbl_getn = table.getn
 local tbl_insert = table.insert
 local tbl_concat = table.concat
+local tbl_sort   = table.sort
 
 local str_lower = string.lower
 local str_find = string.find
@@ -25,6 +26,7 @@ local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
 local ngx_re_find = ngx.re.find
+local ngx_re_gsub = ngx.re.gsub
 
 local header_has_directive = require("ledge.header_util").header_has_directive
 
@@ -197,8 +199,6 @@ function _M.read(self)
     local redis = self.redis
     local key_chain = self.handler:cache_key_chain()
 
-    ngx.log(ngx.DEBUG, "Response Reading: ", key_chain.main)
-
     -- Read main metdata
     local cache_parts, err = redis:hgetall(key_chain.main)
     if not cache_parts or cache_parts == ngx_null then
@@ -363,7 +363,7 @@ function _M.save(self, keep_cache_for)
     local redis = self.redis
     if not next(redis) then return nil, "no redis" end
     local key_chain = self.handler:cache_key_chain()
-ngx.log(ngx.DEBUG, "RESPONSE saving: ", key_chain.main)
+
     if not self.header["Date"] then
         self.header["Date"] = ngx_http_time(ngx_time())
     end
@@ -413,7 +413,7 @@ end
 
 function _M.set_and_save(self, field, value)
     local redis = self.redis
-ngx.log(ngx.DEBUG, "RESPONSE set and saving: ", self.handler:cache_key_chain().main)
+
     local ok, err = redis:hset(self.handler:cache_key_chain().main, field, tostring(value))
     if not ok then
         if err then ngx_log(ngx_ERR, err) end
@@ -443,15 +443,41 @@ function _M.add_warning(self, code, name)
 end
 
 
+local function deduplicate_table(table)
+    -- Can't have duplicates if there's 1 or 0 entries!
+    if #table <= 1 then
+        return table
+    end
+
+    local new_table = {}
+    local unique = {}
+    local i = 0
+
+    for _,v in ipairs(table) do
+        if not unique[v] then
+            unique[v] = true
+            i = i +1
+            new_table[i] = v
+        end
+    end
+
+    return new_table
+end
+
+
 function _M.process_vary(self)
     local vary_hdr = self.header["Vary"]
     local vary_spec
 
-    if vary_hdr then
+    if vary_hdr and vary_hdr ~= "" then
         if type(vary_hdr) == "table" then
             vary_hdr = tbl_concat(vary_hdr,",")
         end
+        -- Remove whitespace around commas
+        vary_hdr = ngx_re_gsub(vary_hdr, [[\s*,\s*]], ",", "oj")
         vary_spec = str_split(str_lower(vary_hdr), ",")
+        tbl_sort(vary_spec)
+        vary_spec = deduplicate_table(vary_spec)
     end
 
     return vary_spec
