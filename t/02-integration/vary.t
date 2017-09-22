@@ -386,3 +386,72 @@ location /vary {
 ]
 --- no_error_log
 [error]
+
+=== TEST 7: Vary - sort order
+--- ONLY
+--- http_config eval: $::HttpConfig
+--- config
+location /vary7_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+}
+
+location /vary {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3700"
+        local incr = ngx.shared.ledge_test:incr("test7", 1, 0)
+        if incr == 1 then
+            -- Prime with 1 order
+            ngx.header["Vary"] = "X-Test, X-Test2, X-Test3"
+        elseif incr == 2 then
+            -- Second request, different order, different values in request
+            ngx.header["Vary"] = "X-Test3, X-test, X-test2"
+        else
+            -- 3rd request, same values as request1, different values in vary
+            ngx.header["Vary"] = "X-Test2, X-test3, X-Test"
+        end
+        ngx.print("TEST 7: ", incr)
+    }
+}
+--- request eval
+["GET /vary7_prx", "GET /vary7_prx", "GET /vary7_prx"]
+--- more_headers eval
+[
+"X-Test: abc
+X-Test2: 123
+X-Test3: xyz
+",
+
+"X-Test: abc2
+X-Test2: 123b
+X-Test3: xyz2
+",
+
+"X-Test: abc
+X-Test2: 123
+X-Test3: xyz
+",
+
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .*
+Vary: X-Test, X-Test2, X-Test3",
+
+"X-Cache: MISS from .*
+Vary: X-Test3, X-test, X-test2",
+
+"X-Cache: HIT from .*
+Vary: X-Test, X-Test2, X-Test3",
+]
+--- response_body eval
+[
+"TEST 7: 1",
+"TEST 7: 2",
+"TEST 7: 1",
+]
+--- no_error_log
+[error]
