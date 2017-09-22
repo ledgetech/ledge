@@ -1,6 +1,8 @@
 local ipairs, next, type, pcall, setmetatable =
       ipairs, next, type, pcall, setmetatable
 
+local str_lower = string.lower
+
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
 local ngx_var = ngx.var
@@ -157,7 +159,7 @@ local function generate_vary_key(vary_spec, callback, headers)
         end
     end
 
-    return tbl_concat(t, ":")
+    return str_lower(tbl_concat(t, ":"))
 end
 _M.generate_vary_key = generate_vary_key
 
