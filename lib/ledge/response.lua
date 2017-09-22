@@ -451,7 +451,7 @@ function _M.process_vary(self)
         if type(vary_hdr) == "table" then
             vary_hdr = tbl_concat(vary_hdr,",")
         end
-        vary_spec = str_split(vary_hdr, ",")
+        vary_spec = str_split(str_lower(vary_hdr), ",")
     end
 
     return vary_spec

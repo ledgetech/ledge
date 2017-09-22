@@ -110,7 +110,7 @@ local function vary_spec_compare(spec_a, spec_b)
 
     elseif (spec_b and next(spec_b)) then
         -- TODO: looping here faster?
-        if tbl_concat(spec_b, ",") == tbl_concat(spec_a, ",") then
+        if str_lower(tbl_concat(spec_b, ",")) == str_lower(tbl_concat(spec_a, ",")) then
             -- Current vary spec and new vary spec match
             return false
         end
