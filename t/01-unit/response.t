@@ -453,6 +453,12 @@ location /t {
                 res = {"bar","baz","foo"},
                 msg = "Multi field - sort2",
             },
+
+            {
+                hdr = "foo, bar, bar, foo, baz",
+                res = {"bar","baz","foo"},
+                msg = "De-duplicate",
+            },
         }
 
         for _, t in ipairs(tests) do
