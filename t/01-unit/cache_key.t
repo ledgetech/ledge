@@ -277,6 +277,9 @@ location /t {
         local changed = vary_spec_compare({"Foo", "Bar"}, {"Foo", "Bar"})
         assert(changed == false, "table == table (multi-values")
 
+        local changed = vary_spec_compare({"Foo", "bar"}, {"foo", "Bar"})
+        assert(changed == false, "table == table (case)")
+
 
         local changed = vary_spec_compare({"Foo"}, {})
         assert(changed == true, "table ~= empty table")

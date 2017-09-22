@@ -352,7 +352,14 @@ location /vary6_prx {
 location /vary {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Vary"] = "X-Test"
+        local incr = ngx.shared.ledge_test:incr("test6", 1, 0)
+        if incr == 1 then
+            ngx.header["Vary"] = "X-Test"
+        elseif incr == 2 then
+            ngx.header["Vary"] = "X-test"
+        else
+            ngx.header["Vary"] = "x-Test"
+        end
         ngx.print("TEST 6: ", ngx.req.get_headers()["X-Test"])
     }
 }
