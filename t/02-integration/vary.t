@@ -388,7 +388,6 @@ location /vary {
 [error]
 
 === TEST 7: Vary - sort order
---- ONLY
 --- http_config eval: $::HttpConfig
 --- config
 location /vary7_prx {

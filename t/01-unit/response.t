@@ -398,3 +398,84 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+
+=== TEST 9: Process Vary
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local encode = require("cjson").encode
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local res, err = require("ledge.response").new(handler)
+
+        local tests = {
+            {
+                hdr = nil,
+                res = nil,
+                msg = "Nil header, nil spec",
+            },
+            {
+                hdr = "",
+                res = nil,
+                msg = "Empty header, nil spec",
+            },
+            {
+                hdr = "foo",
+                res = {"foo"},
+                msg = "Single field",
+            },
+            {
+                hdr = "Foo",
+                res = {"foo"},
+                msg = "Single field - case",
+            },
+            {
+                hdr = "fOo,bar,Baz",
+                res = {"bar","baz","foo"},
+                msg = "Multi field",
+            },
+            {
+                hdr = "fOo, bar     ,       Baz",
+                res = {"bar","baz","foo"},
+                msg = "Multi field - whitespace",
+            },
+            {
+                hdr = "bar,baz,foo",
+                res = {"bar","baz","foo"},
+                msg = "Multi field - sort1",
+            },
+                    {
+                hdr = "foo,baz,bar",
+                res = {"bar","baz","foo"},
+                msg = "Multi field - sort2",
+            },
+        }
+
+        for _, t in ipairs(tests) do
+            res.header["Vary"] = t["hdr"]
+            local vary_spec = res:process_vary()
+            ngx.log(ngx.DEBUG, "-----------------------------------------------")
+            ngx.log(ngx.DEBUG, "header:   ", t["hdr"])
+            ngx.log(ngx.DEBUG, "spec:     ", encode(vary_spec))
+            ngx.log(ngx.DEBUG, "expected: ", encode(t["res"]))
+
+            if type(t["res"]) == "table" then
+                for i, v in ipairs(t["res"]) do
+                    assert(vary_spec[i] == v, t["msg"])
+                end
+            else
+
+                assert(res:process_vary() == t["res"], t["msg"])
+            end
+
+        end
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
