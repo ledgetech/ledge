@@ -362,6 +362,14 @@ location /t {
         assert(vary_key == "foo:bar:x-test:value", "Vary spec not modified with noop function - multivalue spec")
         called_flag = false
 
+        ngx.req.set_header("Foo", {"Foo1", "Foo2"})
+        local vary_key = generate_vary_key({"Foo", "X-Test"}, callback, nil)
+        log(vary_key)
+        assert(called_flag == true, "Callback is called - multivalue header")
+        assert(vary_key == "foo:foo1,foo2:x-test:value", "Vary spec - multivalue header")
+        called_flag = false
+        ngx.req.set_header("Foo", "Bar")
+
 
         -- Active callback
         callback = function(vary_key)
@@ -481,8 +489,6 @@ location /t {
         local vary_spec = {"Foo", "Test"}
 
         local expected = {
-            vary              = "ledge:dummy:root:::vary",
-            repset            = "ledge:dummy:root:::repset",
             main              = "ledge:dummy:root:#foo:bar:test:value::main",
             entities          = "ledge:dummy:root:#foo:bar:test:value::entities",
             headers           = "ledge:dummy:root:#foo:bar:test:value::headers",
@@ -490,8 +496,10 @@ location /t {
             reval_req_headers = "ledge:dummy:root:#foo:bar:test:value::reval_req_headers",
         }
         local extra = {
-            root = "ledge:dummy:root:",
-            full = "ledge:dummy:root:#foo:bar:test:value",
+            vary          = "ledge:dummy:root:::vary",
+            repset        = "ledge:dummy:root:::repset",
+            root          = "ledge:dummy:root:",
+            full          = "ledge:dummy:root:#foo:bar:test:value",
             fetching_lock = "ledge:dummy:root:#foo:bar:test:value::fetching",
         }
 
@@ -514,7 +522,7 @@ location /t {
             ngx.log(ngx.DEBUG, k, ": ", v, " == ", expected[k])
             assert(expected[k] == v, k.." chain mismatch")
         end
-        assert(i == 7, "7 keys: "..i)
+        assert(i == 5, "5 iterable keys: "..i)
 
         for k,v in pairs(expected) do
             ngx.log(ngx.DEBUG, k,": ", v, " == ", chain[k])
@@ -524,7 +532,9 @@ location /t {
         for k,v in pairs(extra) do
             ngx.log(ngx.DEBUG, k,": ", v, " == ", chain[k])
             assert(chain[k] == v, k.." extra mismatch")
+            i = i +1
         end
+        assert(i ==  10, "10 total chain entries: "..i)
 
         for i,v in ipairs(vary_spec) do
             assert(chain.vary_spec[i] == v, " Vary spec mismatch")

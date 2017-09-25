@@ -227,13 +227,18 @@ location /t {
 
         -- delete
         local ok, err = purge(handler, "delete", key_chain.repset)
-        if err then ngx.log(ngx.DEBUG, err) end
+        if err then ngx.log(ngx.DEBUG, "dekete: ",err) end
         assert(ok == true and err == "deleted", "purge should return true - deleted")
 
         -- delete, missing
         local ok, err = purge(handler, "delete", key_chain.repset)
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == false and err == "nothing to purge", "purge should return false - nothing to purge")
+
+        local keys = redis:keys(key_chain.root.."*")
+        ngx.log(ngx.DEBUG, require("cjson").encode(keys))
+
+        assert(#keys == 0, "Keys have all been removed")
     }
 }
 location /cache3_prx {
@@ -254,6 +259,88 @@ location /cache {
 [
 "GET /cache3_prx",
 "GET /t"
+]
+--- no_error_log
+[error]
+
+=== TEST 3b: purge with vary
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    rewrite ^ /cache3 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis   = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local storage = require("ledge").create_storage_connection(
+                handler.config.storage_driver,
+                handler.config.storage_driver_config
+            )
+        handler.storage = storage
+
+        local key_chain = handler:cache_key_chain()
+        ngx.log(ngx.DEBUG, require("cjson").encode(key_chain))
+
+        local purge = require("ledge.purge").purge
+
+        -- invalidate
+        local ok, err = purge(handler, "invalidate", key_chain.repset)
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == true and err == "purged", "purge should return true - purged")
+
+        -- revalidate
+        local reval_job = false
+        local jobcount = 0
+        handler.revalidate_in_background = function()
+            jobcount = jobcount + 1
+            reval_job = true
+            return "job"..jobcount
+        end
+
+        local ok, err, job = purge(handler, "revalidate", key_chain.repset)
+        if err then ngx.log(ngx.DEBUG, err) end
+        assert(ok == false and err == "already expired", "purge should return false - already expired")
+        assert(reval_job == true, "revalidate should schedule job")
+        assert(job[1] == "job1" and job[2] == "job2", "revalidate should return the job "..tostring(job))
+        assert(jobcount == 2, "Revalidate should schedule 1 job per representation")
+
+        -- delete
+        local ok, err = purge(handler, "delete", key_chain.repset)
+        if err then ngx.log(ngx.DEBUG, "dekete: ",err) end
+        assert(ok == true and err == "deleted", "purge should return true - deleted")
+
+
+        local keys = redis:keys(key_chain.root.."*")
+        ngx.log(ngx.DEBUG, require("cjson").encode(keys))
+
+        assert(#keys == 0, "Keys have all been removed")
+    }
+}
+location /cache3_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        handler:run()
+    }
+}
+
+location /cache {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Vary"] = "X-Test"
+        ngx.say("TEST 3b")
+    }
+}
+--- request eval
+[
+"GET /cache3_prx", "GET /cache3_prx",
+"GET /t"
+]
+--- more_headers eval
+[
+"X-Test: foo", "X-Test: bar",
+""
 ]
 --- no_error_log
 [error]

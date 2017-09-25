@@ -522,3 +522,52 @@ X-Vary: noop",
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 9: Other representations are preserved with a no-cache-response
+--- http_config eval: $::HttpConfig
+--- config
+location /vary_9_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+}
+location /vary_9 {
+    content_by_lua_block {
+        local incr = ngx.shared.ledge_test:incr("test9", 1, 0)
+        if incr == 3 then
+            ngx.header["Cache-Control"] = "no-cache"
+        else
+            ngx.header["Cache-Control"] = "max-age=60"
+        end
+        ngx.header["Vary"] = "X-Test"
+        ngx.print("TEST 9: ", incr)
+    }
+}
+--- request eval
+[
+"GET /vary_9_prx",
+"GET /vary_9_prx",
+"GET /vary_9_prx",
+"GET /vary_9_prx",
+]
+--- more_headers eval
+[
+"X-Test: Foo",
+"X-Test: Bar",
+"X-Test: Foo
+Cache-Control: no-cache",
+"X-Test: Bar",
+]
+--- response_body eval
+[
+"TEST 9: 1",
+"TEST 9: 2",
+"TEST 9: 3",
+"TEST 9: 2",
+]
+--- no_error_log
+[error]
+

@@ -459,13 +459,23 @@ location /t {
                 res = {"bar","baz","foo"},
                 msg = "De-duplicate",
             },
+            {
+                hdr = {"foo", "Bar", "Baz, Qux"},
+                res = {"bar", "baz", "foo", "qux"},
+                msg = "Multiple vary headers",
+            },
+            {
+                hdr = {"foo, bar", "foo", "bar, Qux", "bar, Foo"},
+                res = {"bar", "foo", "qux"},
+                msg = "Multiple vary headers - deduplicate",
+            },
         }
 
         for _, t in ipairs(tests) do
             res.header["Vary"] = t["hdr"]
             local vary_spec = res:parse_vary_header()
             ngx.log(ngx.DEBUG, "-----------------------------------------------")
-            ngx.log(ngx.DEBUG, "header:   ", t["hdr"])
+            ngx.log(ngx.DEBUG, "header:   ", encode(t["hdr"]))
             ngx.log(ngx.DEBUG, "spec:     ", encode(vary_spec))
             ngx.log(ngx.DEBUG, "expected: ", encode(t["res"]))
 

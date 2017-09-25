@@ -318,7 +318,7 @@ location /t {
         local job = {
             redis = redis,
             data = {
-                key_chain = { repset = "*::repset" },
+                repset = "*::repset",
                 keyspace_scan_count = 2,
                 purge_mode = "invalidate",
                 storage_driver = handler.config.storage_driver,
