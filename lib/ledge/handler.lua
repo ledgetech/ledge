@@ -232,7 +232,7 @@ _M.vary_spec = vary_spec
 local function create_vary_key_callback(self)
     return function(vary_key)
             -- TODO: gunzip?
-            emit(self, "before_vary", vary_key)
+            emit(self, "before_vary_selection", vary_key)
         end
 end
 _M.create_vary_key_callback = create_vary_key_callback

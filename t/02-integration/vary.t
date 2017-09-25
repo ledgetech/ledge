@@ -456,46 +456,69 @@ Vary: X-Test, X-Test2, X-Test3",
 [error]
 
 
-=== TEST 8: Vary event
+=== TEST 8: Vary event hook
 --- http_config eval: $::HttpConfig
 --- config
-location /vary_prx {
+location /vary8_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         require("ledge.state_machine").set_debug(true)
-        require("ledge").create_handler():run()
+        local handler = require("ledge").create_handler()
+
+        handler:bind("before_vary_selection", function(vary_key)
+            local x_vary = ngx.req.get_headers()["X-Vary"]
+            -- Do nothing if noop set
+            if x_vary ~= "noop" then
+                vary_key["x-test"] = nil
+                vary_key["X-Test2"] = x_vary
+            end
+            ngx.log(ngx.DEBUG, "Vary Key: ", require("cjson").encode(vary_key))
+        end)
+
+        handler:run()
     }
 }
 
 location /vary {
     content_by_lua_block {
+        local incr = ngx.shared.ledge_test:incr("test8", 1, 0)
         ngx.header["Cache-Control"] = "max-age=3600"
-        ngx.header["Vary"] = "X-Test"
-        ngx.print("TEST 1: ", ngx.req.get_headers()["X-Test"])
+        if ngx.req.get_headers()["X-Vary"] == "noop" then
+            ngx.header["Vary"] = "X-Test2"
+        else
+            ngx.header["Vary"] = "X-Test"
+        end
+        ngx.print("TEST 8: ", incr)
     }
 }
 --- request eval
-["GET /vary_prx", "GET /vary_prx", "GET /vary_prx", "GET /vary_prx"]
+["GET /vary8_prx", "GET /vary8_prx", "GET /vary8_prx", "GET /vary8_prx"]
 --- more_headers eval
 [
-"X-Test: testval",
-"X-Test: anotherval",
-"",
-"X-Test: testval",
+"X-Test: testval
+X-Vary: foo",
+
+"X-Test: anotherval
+X-Vary: foo",
+
+"X-Test2: bar
+X-Vary: noop",
+
+"X-Vary: bar",
 ]
 --- response_headers_like eval
 [
 "X-Cache: MISS from .*",
-"X-Cache: MISS from .*",
+"X-Cache: HIT from .*",
 "X-Cache: MISS from .*",
 "X-Cache: HIT from .*",
 ]
 --- response_body eval
 [
-"TEST 1: testval",
-"TEST 1: anotherval",
-"TEST 1: nil",
-"TEST 1: testval",
+"TEST 8: 1",
+"TEST 8: 1",
+"TEST 8: 2",
+"TEST 8: 2",
 ]
 --- no_error_log
 [error]

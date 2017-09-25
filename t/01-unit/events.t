@@ -52,6 +52,7 @@ location /t {
         handler:bind("before_save_revalidation_data", say)
         handler:bind("before_serve", say)
         handler:bind("before_esi_include_request", say)
+        handler:bind("before_vary_selection", say)
 
         handler:emit("after_cache_read", "after_cache_read")
         handler:emit("before_upstream_request", "before_upstream_request")
@@ -60,6 +61,7 @@ location /t {
         handler:emit("before_save_revalidation_data", "before_save_revalidation_data")
         handler:emit("before_serve", "before_serve")
         handler:emit("before_esi_include_request", "before_esi_include_request")
+        handler:emit("before_vary_selection", "before_vary_selection")
     }
 }
 
@@ -73,6 +75,7 @@ before_save
 before_save_revalidation_data
 before_serve
 before_esi_include_request
+before_vary_selection
 --- error_log
 no such event: non_event
 
