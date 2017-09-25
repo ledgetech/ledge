@@ -454,3 +454,48 @@ Vary: X-Test, X-Test2, X-Test3",
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 8: Vary event
+--- http_config eval: $::HttpConfig
+--- config
+location /vary_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+}
+
+location /vary {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Vary"] = "X-Test"
+        ngx.print("TEST 1: ", ngx.req.get_headers()["X-Test"])
+    }
+}
+--- request eval
+["GET /vary_prx", "GET /vary_prx", "GET /vary_prx", "GET /vary_prx"]
+--- more_headers eval
+[
+"X-Test: testval",
+"X-Test: anotherval",
+"",
+"X-Test: testval",
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .*",
+"X-Cache: MISS from .*",
+"X-Cache: MISS from .*",
+"X-Cache: HIT from .*",
+]
+--- response_body eval
+[
+"TEST 1: testval",
+"TEST 1: anotherval",
+"TEST 1: nil",
+"TEST 1: testval",
+]
+--- no_error_log
+[error]

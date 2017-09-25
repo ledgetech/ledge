@@ -333,7 +333,7 @@ return {
     end,
 
     considering_vary = function(sm, handler)
-        local new_spec = handler.response:process_vary()
+        local new_spec = handler.response:parse_vary_header()
         local key_chain = handler:cache_key_chain()
 
         if vary_spec_compare(new_spec, key_chain.vary_spec) then

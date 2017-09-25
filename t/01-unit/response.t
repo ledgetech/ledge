@@ -400,7 +400,7 @@ GET /t
 [error]
 
 
-=== TEST 9: Process Vary
+=== TEST 9: Parse vary header
 --- http_config eval: $::HttpConfig
 --- config
 location /t {
@@ -463,7 +463,7 @@ location /t {
 
         for _, t in ipairs(tests) do
             res.header["Vary"] = t["hdr"]
-            local vary_spec = res:process_vary()
+            local vary_spec = res:parse_vary_header()
             ngx.log(ngx.DEBUG, "-----------------------------------------------")
             ngx.log(ngx.DEBUG, "header:   ", t["hdr"])
             ngx.log(ngx.DEBUG, "spec:     ", encode(vary_spec))
@@ -475,7 +475,7 @@ location /t {
                 end
             else
 
-                assert(res:process_vary() == t["res"], t["msg"])
+                assert(vary_spec == t["res"], t["msg"])
             end
 
         end

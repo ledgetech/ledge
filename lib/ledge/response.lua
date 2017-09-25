@@ -465,7 +465,7 @@ local function deduplicate_table(table)
 end
 
 
-function _M.process_vary(self)
+function _M.parse_vary_header(self)
     local vary_hdr = self.header["Vary"]
     local vary_spec
 
