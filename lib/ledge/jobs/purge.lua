@@ -66,7 +66,7 @@ function _M.expire_pattern(cursor, job, handler)
     -- Scan using the "main" key to get a single key per cache entry
     local res, err = job.redis_slave:scan(
         cursor,
-        "MATCH", job.data.key_chain.repset,
+        "MATCH", job.data.repset,
         "COUNT", job.data.keyspace_scan_count
     )
 

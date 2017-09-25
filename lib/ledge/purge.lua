@@ -89,7 +89,6 @@ local function expire_keys(redis, storage, key_chain, entity_id)
     if e then ngx_log(ngx_ERR, e) end
 
     -- Set new TTLs for all keys in the key chain
-    key_chain.fetching_lock = nil -- this looks after itself
     for _,key in pairs(key_chain) do
         local _, e = redis:expire(key, new_ttl)
         if e then ngx_log(ngx_ERR, e) end
@@ -161,7 +160,7 @@ local function _purge(handler, purge_mode, key_chain)
 end
 
 
-local function key_chain_from_rep(root_key, full_key)
+local function key_chain_from_full_key(root_key, full_key)
     local pos = str_find(full_key, "#")
     if pos == nil then
         return nil
@@ -169,10 +168,7 @@ local function key_chain_from_rep(root_key, full_key)
 
     -- Remove the root_key from the start
     local vary_key = str_sub(full_key, pos+1)
-
     local vary_spec = {} -- We don't need this
-
-
 
     return key_chain(root_key, vary_key, vary_spec)
 end
@@ -194,11 +190,12 @@ local function purge(handler, purge_mode, repset)
     local res_ok, res_message
     local jobs = {}
 
-    for _, rep in ipairs(representations) do
+    local key_chain
+    for _, full_key in ipairs(representations) do
+        key_chain = key_chain_from_full_key(root_key, full_key)
+        local ok, message, job = _purge(handler, purge_mode, key_chain)
 
-        ngx.log(ngx.DEBUG, "Purging representation: ", rep)
-        local ok, message, job = _purge(handler, purge_mode, key_chain_from_rep(root_key, rep))
-
+        -- Set the overall response if any representation was purged
         if res_ok == nil or ok == true then
             res_ok = ok
             res_message = message
@@ -206,6 +203,13 @@ local function purge(handler, purge_mode, repset)
 
         tbl_insert(jobs, job)
     end
+
+    -- Clean up vary and repset keys if we're deleting
+    if purge_mode == "delete" and res_ok then
+       local _, e = handler.redis:del(key_chain.repset, key_chain.vary)
+       if e then ngx_log(ngx_ERR, e) end
+    end
+
     return res_ok, res_message, jobs
 end
 _M.purge = purge
@@ -213,11 +217,12 @@ _M.purge = purge
 
 local function purge_in_background(handler, purge_mode)
     local key_chain = handler:cache_key_chain()
+
     local job, err = put_background_job(
         "ledge_purge",
         "ledge.jobs.purge",
         {
-            key_chain = key_chain,
+            repset = key_chain.repset,
             keyspace_scan_count = handler.config.keyspace_scan_count,
             purge_mode = purge_mode,
             storage_driver = handler.config.storage_driver,

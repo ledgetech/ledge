@@ -218,7 +218,7 @@ local function vary_spec(self, root_key)
                 root_key
             )
         if not vary_spec then
-            ngx_log(ngx_ERR, "Read vary spec: ", err)
+            ngx_log(ngx_ERR, "Failed to read vary spec: ", err)
             return false
         end
         self._vary_spec = vary_spec
@@ -845,6 +845,9 @@ local function delete_from_cache(self, key_chain, entity_id)
             }
         )
     end
+
+    -- Remove this representation from the repset
+    redis:srem(key_chain.repset, key_chain.full)
 
     -- Delete everything in the keychain
     local keys = {}

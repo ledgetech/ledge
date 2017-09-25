@@ -181,12 +181,6 @@ local function key_chain(root_key, vary_key, vary_spec)
 
     -- Apply metatable
     local key_chain = setmetatable({
-            -- set: headers upon which to vary
-            vary   = root_key .. "::vary",
-
-            -- set: representations for this root key
-            repset = root_key .. "::repset",
-
             -- hash: cache key metadata
             main = full_key .. "::main",
 
@@ -202,10 +196,18 @@ local function key_chain(root_key, vary_key, vary_spec)
             -- hash: request params for revalidation
             reval_req_headers = full_key .. "::reval_req_headers",
         }, get_fixed_field_metatable_proxy({
-            -- Hide "root", "full", the "vary_spec" and "fetching_lock" from iterators.
+            -- Hide these keys from iterators
+
+            -- These are not actual keys but useful to keep around
             root = root_key,
             full = full_key,
             vary_spec = vary_spec,
+
+            -- set: headers upon which to vary
+            vary = root_key .. "::vary",
+            -- set: representations for this root key
+            repset = root_key .. "::repset",
+            -- Lock key for collapsed forwarding
             fetching_lock = full_key .. "::fetching",
         })
     )
