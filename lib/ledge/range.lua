@@ -27,7 +27,7 @@ local ngx_PARTIAL_CONTENT = 206
 
 
 local _M = {
-    _VERSION = "2.0.2",
+    _VERSION = "2.0.3",
 }
 
 
