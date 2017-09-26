@@ -735,11 +735,11 @@ end
 _M.save_to_cache = save_to_cache
 
 
-local function delete_from_cache(self, key_chain, entity_id)
+local function delete_from_cache(self, key_chain)
     local redis = self.redis
 
     -- Get entity_id if not already provided
-    entity_id = entity_id or self:entity_id(key_chain)
+    local entity_id = self:entity_id(key_chain)
 
     -- Schedule entity collection
     if entity_id then

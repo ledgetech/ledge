@@ -85,8 +85,10 @@ local function expire_keys(redis, storage, key_chain, entity_id)
         if e then ngx_log(ngx_ERR, e) end
     end
 
-    _, e = storage:set_ttl(entity_id, new_ttl)
-    if e then ngx_log(ngx_ERR, e) end
+    -- Reduce TTL on entity if there is one
+    if entity_id and entity_id ~= ngx_null then
+        storage:set_ttl(entity_id, new_ttl)
+    end
 
     local ok, err = redis:exec() -- luacheck: ignore ok
     if err then
@@ -110,19 +112,18 @@ local function purge(handler, purge_mode, key_chain)
     local redis = handler.redis
     local storage = handler.storage
 
-    local entity_id, err = handler:entity_id(key_chain)
+    local exists, err = redis:exists(key_chain.main)
     if err then ngx_log(ngx_ERR, err) end
 
     -- We 404 if we have nothing
-    if not entity_id or entity_id == ngx_null
-        or not storage:exists(entity_id) then
-
+    if not exists or exists == ngx_null or exists == 0 then
         return false, "nothing to purge", nil
     end
 
+
     -- Delete mode overrides everything else, since you can't revalidate
     if purge_mode == "delete" then
-        local res, err = handler:delete_from_cache(key_chain, entity_id)
+        local res, err = handler:delete_from_cache(key_chain)
         if not res then
             return nil, err, nil
         else
@@ -137,7 +138,7 @@ local function purge(handler, purge_mode, key_chain)
     end
 
     -- Invalidate the keys
-    local ok, err = expire_keys(redis, storage, key_chain, entity_id)
+    local ok, err = expire_keys(redis, storage, key_chain, handler:entity_id(key_chain))
 
     if not ok and err then
         return nil, err, job
