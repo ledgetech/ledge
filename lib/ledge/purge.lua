@@ -36,49 +36,44 @@ _M.create_purge_response = create_purge_response
 -- Expires the keys in key_chain and reduces the ttl in storage
 -- TODO review this for error cases etc
 local function expire_keys(redis, storage, key_chain, entity_id)
-    local exists, err = redis:exists(key_chain.main)
-    if exists == 1 then
-        local time = ngx_time()
-        local expires, err = redis:hget(key_chain.main, "expires")
-        if not expires or expires == ngx_null then
-            return nil, "could not determine existing expiry: " .. (err or "")
-        end
+    local time = ngx_time()
+    local expires, err = redis:hget(key_chain.main, "expires")
+    if not expires or expires == ngx_null then
+        return nil, "could not determine existing expiry: " .. (err or "")
+    end
 
-        -- If expires is in the past then this key is stale. Nothing to do here.
-        if tonumber(expires) <= time then
-            return false, nil
-        end
-
-        local ttl, err = redis:ttl(key_chain.main)
-        if not ttl or ttl == ngx_null then
-            return nil, "count not determine exsiting ttl: " .. (err or "")
-        end
-
-        local ttl_reduction = expires - time
-        if ttl_reduction < 0 then ttl_reduction = 0 end
-
-        redis:multi()
-
-        -- Set the expires field of the main key to the new time, to control
-        -- its validity.
-        redis:hset(key_chain.main, "expires", tostring(time - 1))
-
-        -- Set new TTLs for all keys in the key chain
-        key_chain.fetching_lock = nil -- this looks after itself
-        for _,key in pairs(key_chain) do
-            redis:expire(key, ttl - ttl_reduction)
-        end
-
-        storage:set_ttl(entity_id, ttl - ttl_reduction)
-
-        local ok, err = redis:exec()
-        if err then
-            return nil, err
-        else
-            return true, nil
-        end
-    else
+    -- If expires is in the past then this key is stale. Nothing to do here.
+    if tonumber(expires) <= time then
         return false, nil
+    end
+
+    local ttl, err = redis:ttl(key_chain.main)
+    if not ttl or ttl == ngx_null then
+        return nil, "count not determine exsiting ttl: " .. (err or "")
+    end
+
+    local ttl_reduction = expires - time
+    if ttl_reduction < 0 then ttl_reduction = 0 end
+
+    redis:multi()
+
+    -- Set the expires field of the main key to the new time, to control
+    -- its validity.
+    redis:hset(key_chain.main, "expires", tostring(time - 1))
+
+    -- Set new TTLs for all keys in the key chain
+    key_chain.fetching_lock = nil -- this looks after itself
+    for _,key in pairs(key_chain) do
+        redis:expire(key, ttl - ttl_reduction)
+    end
+
+    storage:set_ttl(entity_id, ttl - ttl_reduction)
+
+    local ok, err = redis:exec()
+    if err then
+        return nil, err
+    else
+        return true, nil
     end
 end
 _M.expire_keys = expire_keys
@@ -95,12 +90,11 @@ local function purge(handler, purge_mode)
     local redis = handler.redis
     local storage = handler.storage
     local key_chain = handler:cache_key_chain()
-    local entity_id, err = redis:hget(key_chain.main, "entity")
+
+    local exists, err = redis:exists(key_chain.main)
 
     -- We 404 if we have nothing
-    if not entity_id or entity_id == ngx_null
-        or not storage:exists(entity_id) then
-
+    if not exists or exists == ngx_null or exists == 0 then
         return false, "nothing to purge", nil
     end
 
