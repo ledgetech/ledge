@@ -324,7 +324,7 @@ GET /purge_cached
 --- no_error_log
 [error]
 --- response_body
-entities: 1
+entities: 0
 
 
 === TEST 7a: Prime another key with args
@@ -1229,7 +1229,6 @@ result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.result: 
 --- wait: 1
 
 === TEST 19: Purge response with no body
---- ONLY
 --- http_config eval: $::HttpConfig
 --- config
 location /purge {

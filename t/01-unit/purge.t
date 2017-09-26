@@ -195,7 +195,7 @@ location /t {
         local purge = require("ledge.purge").purge
 
         -- invalidate - error
-        local ok, err = purge(handler, "invalidate", {main = "bogus_key"})
+        local ok, err = purge(handler, "invalidate", {main = "bogus_key3"})
         if err then ngx.log(ngx.DEBUG, err) end
         assert(ok == false and err == "nothing to purge", "purge should return false - bad key")
 
