@@ -1,8 +1,8 @@
 local ngx_var = ngx.var
 local ffi = require "ffi"
 
-local type, next, setmetatable, getmetatable, error, tostring, select =
-        type, next, setmetatable, getmetatable, error, tostring, select
+local type, next, setmetatable, getmetatable, error, tostring =
+        type, next, setmetatable, getmetatable, error, tostring
 
 local str_find = string.find
 local str_sub = string.sub
@@ -207,7 +207,13 @@ local function co_wrap(func)
     else
         return function(...)
             if co_status(co) == "suspended" then
-                return select(2, co_resume(co, ...))
+                -- Handle errors in coroutines
+                local ok, val1, val2, val3 = co_resume(co, ...)
+                if ok == true then
+                    return val1, val2, val3
+                else
+                    return nil, val1
+                end
             else
                 return nil, "can't resume a " .. co_status(co) .. " coroutine"
             end
