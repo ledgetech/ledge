@@ -37,7 +37,7 @@ local ngx_INFO = ngx.INFO
 
 
 local _M = {
-    _VERSION = "2.0.3",
+    _VERSION = "2.0.4",
 }
 
 
