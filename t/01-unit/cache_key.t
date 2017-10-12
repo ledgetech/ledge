@@ -466,7 +466,8 @@ location /t {
         redis:sadd(vary_spec_key, "Foo")
         redis:sadd(vary_spec_key, "Bar")
         local spec, err = read_vary_spec(redis, root_key)
-        assert(type(spec) == "table" and #spec == 2 and spec[1] == "Foo", "Spec returned")
+        table.sort(spec)
+        assert(type(spec) == "table" and #spec == 2 and spec[2] == "Foo" and spec[1] == "Bar", "Spec returned")
 
     }
 }

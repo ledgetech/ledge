@@ -281,3 +281,44 @@ location "/mem_pressure_4" {
 "MISSED: entities"]
 --- no_error_log
 [error]
+
+=== TEST 5: Prime and break active entity during read - ESI
+--- http_config eval: $::HttpConfig
+--- config
+location "/mem_pressure_5_prx" {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        if not ngx.req.get_uri_args()["prime"] then
+            handler:bind("before_serve", function(res)
+                ngx.log(ngx.DEBUG, "Deleting: ", res.entity_id)
+                handler.storage:delete(res.entity_id)
+            end)
+        else
+            -- Dummy log for prime request
+            require("ledge.state_machine").set_debug(true)
+            ngx.log(ngx.DEBUG, "entity removed during read")
+        end
+        ngx.req.set_uri_args({})
+        handler:run()
+    }
+}
+location "/mem_pressure_5" {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Surrogate-Control"] = 'content="ESI/1.0"'
+        ngx.print("ORIGIN")
+        ngx.print("<esi:vars>$(QUERY_STRING)</esi:vars>")
+    }
+}
+--- request eval
+["GET /mem_pressure_5_prx?prime=true", "GET /mem_pressure_5_prx"]
+--- response_body eval
+["ORIGIN", ""]
+--- response_headers_like eval
+["X-Cache: MISS from .*", "X-Cache: HIT from .*"]
+--- no_error_log
+[error]
+--- error_log
+entity removed during read

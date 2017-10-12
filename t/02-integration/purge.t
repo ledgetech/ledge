@@ -11,6 +11,8 @@ $ENV{TEST_COVERAGE} ||= 0;
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
+lua_shared_dict ledge_test 1m;
+
 init_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
         require("luacov.runner").init()
@@ -323,7 +325,7 @@ GET /purge_cached
 --- no_error_log
 [error]
 --- response_body
-entities: 1
+entities: 0
 
 
 === TEST 7a: Prime another key with args
@@ -1228,7 +1230,6 @@ result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.result: 
 ]
 --- wait: 1
 
-
 === TEST 18: Purge clears all representations
 --- http_config eval: $::HttpConfig
 --- config
@@ -1286,6 +1287,62 @@ result: purged
 "X-Cache: MISS from .+", "X-Cache: MISS from .+",
 "",
 "X-Cache: MISS from .+", "X-Cache: MISS from .+",
+]
+--- no_error_log
+[error]
+
+=== TEST 19: Purge response with no body
+--- http_config eval: $::HttpConfig
+--- config
+location /purge {
+    rewrite ^ /purge_cached_19 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_19_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_19 {
+    content_by_lua_block {
+        local incr = ngx.shared.ledge_test:incr("test19", 1, 0)
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["X-Incr"] = incr
+    }
+}
+--- request eval
+[
+"GET /purge_cached_19_prx", "GET /purge_cached_19_prx",
+
+"PURGE /purge",
+
+"GET /purge_cached_19_prx"
+]
+--- error_code eval
+[200, 200, 200, 200]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .+
+X-Incr: 1",
+
+"X-Cache: HIT from .+
+X-Incr: 1",
+
+"",
+
+"X-Cache: MISS from .+
+X-Incr: 2"
 ]
 --- no_error_log
 [error]
