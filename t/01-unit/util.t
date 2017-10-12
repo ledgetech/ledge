@@ -1,12 +1,9 @@
-use Test::Nginx::Socket;
+use Test::Nginx::Socket 'no_plan';
 use Cwd qw(cwd);
-
-plan tests => repeat_each() * (blocks() * 2);
-
 my $pwd = cwd();
 
-$ENV{TEST_COVERAGE} ||= 0;
 $ENV{TEST_NGINX_PORT} |= 1984;
+$ENV{TEST_COVERAGE} ||= 0;
 
 our $HttpConfig = qq{
 lua_package_path "./lib/?.lua;;";
@@ -382,6 +379,49 @@ location /t {
 GET /t
 --- no_error_log
 [error]
+
+=== TEST 8b: coroutine.wrap errors
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local co_wrap = require("ledge.util").coroutine.wrap
+
+        local co = co_wrap(
+            function()
+                for i = 1, 10 do
+                    if i == 5 then
+                        error("BOOM")
+                    end
+                    coroutine.yield(i)
+                end
+            end
+        )
+
+        function run()
+            local res = ""
+            repeat
+                local num, err = co()
+                if num then
+                    res = res .. num .. "-"
+                elseif err then
+                    ngx.log(ngx.DEBUG, "Coroutine error: ", err)
+                end
+            until not num
+            res = res .. "finished"
+            return res
+        end
+
+        assert(run() == "1-2-3-4-finished", "Error was yielded!")
+    }
+}
+--- request
+GET /t
+--- error_log
+Coroutine error:
+BOOM
+--- no_error_log
+Error was yielded!
 
 
 === TEST 9: get_hostname
