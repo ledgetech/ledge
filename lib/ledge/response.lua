@@ -473,13 +473,14 @@ function _M.parse_vary_header(self)
         if type(vary_hdr) == "table" then
             vary_hdr = tbl_concat(vary_hdr,",")
         end
-        -- Remove whitespace around commas
-        vary_hdr = ngx_re_gsub(vary_hdr, [[\s*,\s*]], ",", "oj")
-        vary_spec = str_split(str_lower(vary_hdr), ",")
+        -- Remove whitespace around commas and lowercase
+        vary_hdr = ngx_re_gsub(str_lower(vary_hdr), [[\s*,\s*]], ",", "oj")
+        vary_spec = str_split(vary_hdr, ",")
         tbl_sort(vary_spec)
         vary_spec = deduplicate_table(vary_spec)
     end
 
+    -- Return the new vary sepc table *and* the normalised header
     return vary_spec
 end
 

@@ -98,28 +98,44 @@ end
 _M.read_vary_spec = read_vary_spec
 
 
-local function vary_spec_compare(spec_a, spec_b)
+local function vary_compare(spec_a, spec_b)
     if (not spec_a or not next(spec_a)) then
         if (not spec_b or not next(spec_b)) then
             -- both nil or empty
-            return false
+            return true
         else
             -- spec_b is set but spec_a is empty
-            return true
+            return false
         end
 
     elseif (spec_b and next(spec_b)) then
-        -- TODO: looping here faster?
-        if str_lower(tbl_concat(spec_b, ",")) == str_lower(tbl_concat(spec_a, ",")) then
-            -- Current vary spec and new vary spec match
-            return false
+        local outer_match = true
+
+        -- Loop over all values in spec_a
+        for _, v in ipairs(spec_a) do
+            local match = false
+            -- Look for a match in spec_b
+            for _, v2 in ipairs(spec_b) do
+                if v == v2 then
+                    match = true
+                    break
+                end
+            end
+
+            -- Didn't match any values in spec_b
+            if match == false then
+                outer_match = false
+                break
+            end
         end
+
+        return outer_match
     end
 
     -- spec_a is a thing but spec_b is not
-    return true
+    return false
 end
-_M.vary_spec_compare = vary_spec_compare
+_M.vary_compare = vary_compare
 
 
 local function generate_vary_key(vary_spec, callback, headers)

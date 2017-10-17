@@ -38,7 +38,7 @@ local acquire_lock = require("ledge.collapse").acquire_lock
 
 local parse_content_range = require("ledge.range").parse_content_range
 
-local vary_spec_compare = require("ledge.cache_key").vary_spec_compare
+local vary_compare = require("ledge.cache_key").vary_compare
 
 
 local _M = { -- luacheck: no unused
@@ -336,7 +336,7 @@ return {
         local new_spec = handler.response:parse_vary_header()
         local key_chain = handler:cache_key_chain()
 
-        if vary_spec_compare(new_spec, key_chain.vary_spec) then
+        if vary_compare(new_spec, key_chain.vary_spec) == false then
             handler:set_vary_spec(new_spec)
             return sm:e "vary_modified"
 
