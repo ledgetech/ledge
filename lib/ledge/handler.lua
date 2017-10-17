@@ -854,6 +854,13 @@ local function delete_from_cache(self, key_chain)
     for _, v in pairs(key_chain) do
         tbl_insert(keys, v)
     end
+
+    -- If there are no more entries in the repset clean up the vary key too
+    local exists = redis:exists(key_chain.repset)
+    if exists == 0 then
+        tbl_insert(keys, key_chain.vary)
+    end
+
     return redis:del(unpack(keys))
 end
 _M.delete_from_cache = delete_from_cache
