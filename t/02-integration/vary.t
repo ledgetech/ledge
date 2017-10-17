@@ -530,7 +530,7 @@ X-Vary: noop",
 location /vary_9_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-    require("ledge.state_machine").set_debug(true)
+        require("ledge.state_machine").set_debug(true)
         require("ledge").create_handler():run()
     }
 }
@@ -571,3 +571,72 @@ Cache-Control: no-cache",
 --- no_error_log
 [error]
 
+=== TEST 10: Vary key cleaned up
+--- http_config eval: $::HttpConfig
+--- config
+location /vary_10_check {
+    rewrite ^(.*)_check$ $1 break;
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local handler = require("ledge").create_handler()
+        handler.redis = redis
+
+        local chain = handler:cache_key_chain()
+
+        local res, err = redis:smembers(chain.repset)
+        local exists, err = redis:exists(chain.vary)
+        ngx.print(#res, " ", exists)
+    }
+}
+location /vary_10_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /vary_10 {
+    content_by_lua_block {
+        local incr = ngx.shared.ledge_test:incr("test10", 1, 0)
+        if incr < 3 then
+            ngx.header["Cache-Control"] = "max-age=60"
+        else
+            ngx.header["Cache-Control"] = "no-cache"
+        end
+        ngx.header["Vary"] = "X-Test"
+        ngx.print("TEST 10: ", incr)
+    }
+}
+--- request eval
+[
+"GET /vary_10_prx",
+"GET /vary_10_prx",
+"GET /vary_10_check",
+"GET /vary_10_prx",
+"GET /vary_10_check",
+"GET /vary_10_prx",
+"GET /vary_10_check",
+]
+--- more_headers eval
+[
+"X-Test: Foo",
+"X-Test: Bar",
+"",
+"X-Test: Foo
+Cache-Control: no-cache",
+"",
+"X-Test: Bar
+Cache-Control: no-cache",
+"",
+]
+--- response_body eval
+[
+"TEST 10: 1",
+"TEST 10: 2",
+"2 1",
+"TEST 10: 3",
+"1 1",
+"TEST 10: 4",
+"0 0",
+]
+--- no_error_log
+[error]
