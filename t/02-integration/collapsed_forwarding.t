@@ -426,3 +426,180 @@ GET /concurrent_collapsed
 --- response_body
 OK 1
 OK 2
+
+=== TEST 9: Collapsing with vary
+--- http_config eval: $::HttpConfig
+--- config
+location /prime {
+    rewrite ^ /collapsed9 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            enable_collapsed_forwarding = true,
+        }):run()
+    }
+}
+location /concurrent_collapsed {
+    rewrite_by_lua_block {
+        ngx.shared.test:set("test_9", 0)
+    }
+
+    echo_location_async "/collapsed9_prx";
+    echo_sleep 0.05;
+    echo_location_async "/collapsed9_prx";
+}
+location /collapsed9_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler({
+            enable_collapsed_forwarding = true,
+        }):run()
+    }
+}
+location /collapsed {
+    content_by_lua_block {
+        ngx.sleep(0.1)
+        local counter = ngx.shared.test:incr("test_9", 1)
+        ngx.header["Vary"] = "X-Test"
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("OK " .. tostring(counter))
+    }
+}
+--- request eval
+[
+"GET /prime", "PURGE /prime",
+"GET /concurrent_collapsed"
+]
+--- error_code eval
+[200, 200, 200]
+--- response_body_like eval
+[
+"OK nil", ".+",
+"OK 1OK 1"
+]
+
+=== TEST 10: Collapsing with vary - change in spec
+--- http_config eval: $::HttpConfig
+--- config
+location /prime {
+    rewrite ^ /collapsed10 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            enable_collapsed_forwarding = false,
+        }):run()
+    }
+}
+location /concurrent_collapsed {
+    echo_location_async "/collapsed10_prx";
+    echo_sleep 0.05;
+    echo_location_async "/collapsed10_prx";
+}
+location /collapsed10_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler({
+            enable_collapsed_forwarding = true,
+        }):run()
+    }
+}
+location /collapsed {
+    content_by_lua_block {
+        ngx.sleep(0.1)
+        local counter = ngx.shared.test:incr("test_10", 1, 0)
+        if counter == 1 then
+            ngx.header["Vary"] = "X-Test" -- Prime with this
+        else
+            ngx.header["Vary"] = "X-Test2"
+        end
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("OK " .. tostring(counter))
+    }
+}
+--- request eval
+[
+"GET /prime", "PURGE /prime",
+"GET /concurrent_collapsed"
+]
+--- more_headers eval
+[
+"X-Test: Foo","X-Test: Foo",
+"X-Test: Foo",
+]
+--- error_code eval
+[200, 200, 200]
+--- response_body_like eval
+[
+"OK 1", ".+",
+"OK 2OK 2"
+]
+
+=== TEST 11: Collapsing with vary - change in spec mismatch
+--- http_config eval: $::HttpConfig
+--- config
+location /prime {
+    rewrite ^ /collapsed11 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            enable_collapsed_forwarding = false,
+        }):run()
+    }
+}
+location /concurrent_collapsed {
+    echo_subrequest_async GET "/collapsed11a_prx"; # X-Test: Foo
+    echo_sleep 0.05;
+    echo_subrequest_async GET "/collapsed11b_prx"; # X-Test: Foo, X-Test2: Bar
+}
+location /collapsed11a_prx {
+    rewrite ^(.*)a_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler({
+            enable_collapsed_forwarding = true,
+        }):run()
+    }
+}
+location /collapsed11b_prx {
+    rewrite ^(.*)b_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_header("X-Test2", "Bar")
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler({
+            enable_collapsed_forwarding = true,
+        }):run()
+    }
+}
+location /collapsed {
+    content_by_lua_block {
+        ngx.sleep(0.1)
+        local counter = ngx.shared.test:incr("test_11", 1, 0)
+        if counter == 1 then
+            ngx.header["Vary"] = "X-Test" -- Prime with this
+        else
+            ngx.header["Vary"] = "X-Test2"
+        end
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("OK " .. tostring(counter))
+    }
+}
+--- request eval
+[
+"GET /prime", "PURGE /prime",
+"GET /concurrent_collapsed"
+]
+--- more_headers eval
+[
+"X-Test: Foo","X-Test: Foo",
+"X-Test: Foo",
+]
+--- error_code eval
+[200, 200, 200]
+--- response_body_like eval
+[
+"OK 1", ".+",
+"OK 2OK 3"
+]
+

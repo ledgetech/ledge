@@ -51,6 +51,9 @@ Prime cache then collect the entity
 location /t {
     rewrite ^ /cache break;
     content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        redis:flushall() -- Previous tests create some odd keys
+
         local collect_entity = require("ledge.jobs.collect_entity")
         local handler = require("ledge").create_handler()
 
@@ -125,6 +128,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
 
         local handler = require("ledge").create_handler()
+        handler.redis = redis
 
 
         local job = {
@@ -305,13 +309,16 @@ location /t {
     rewrite ^ /cache break;
     content_by_lua_block {
         local purge_job = require("ledge.jobs.purge")
+        local redis = require("ledge").create_redis_connection()
+
         local handler = require("ledge").create_handler()
+        handler.redis = redis
         local heartbeat_flag = false
 
         local job = {
-            redis = require("ledge").create_redis_connection(),
+            redis = redis,
             data = {
-                key_chain = { main = "*::main" },
+                repset = "*::repset",
                 keyspace_scan_count = 2,
                 purge_mode = "invalidate",
                 storage_driver = handler.config.storage_driver,

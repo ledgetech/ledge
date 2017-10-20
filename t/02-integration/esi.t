@@ -2675,8 +2675,10 @@ location /esi_36_break {
     rewrite ^(.*)_break$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler()
-        local key = handler:cache_key_chain().main
         local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+        local key = handler:cache_key_chain().main
+
 
         -- Incorrectly set has_esi flag on main key
         redis:hset(key, "has_esi", "ESI/1.0")

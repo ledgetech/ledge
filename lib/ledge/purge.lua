@@ -1,6 +1,8 @@
 local pcall, tonumber, tostring, pairs =
     pcall, tonumber, tostring, pairs
 
+local tbl_insert = table.insert
+
 local ngx_var = ngx.var
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
@@ -8,6 +10,10 @@ local ngx_null = ngx.null
 local ngx_time = ngx.time
 local ngx_md5 = ngx.md5
 local ngx_HTTP_BAD_REQUEST = ngx.HTTP_BAD_REQUEST
+
+local str_find = string.find
+local str_sub  = string.sub
+local str_len  = string.len
 
 local http = require("resty.http")
 
@@ -17,17 +23,21 @@ local cjson_decode = require("cjson").decode
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local put_background_job = require("ledge.background").put_background_job
 
+local key_chain = require("ledge.cache_key").key_chain
+
 local _M = {
     _VERSION = "2.0.0",
 }
 
+local repset_len = -(str_len("::repset")+1)
 
-local function create_purge_response(purge_mode, result, qless_job)
+
+local function create_purge_response(purge_mode, result, qless_jobs)
     local d = {
         purge_mode = purge_mode,
         result = result,
     }
-    if qless_job then d.qless_job = qless_job end
+    if qless_jobs then d.qless_jobs = qless_jobs end
 
     local ok, json = pcall(cjson_encode, d)
 
@@ -79,7 +89,6 @@ local function expire_keys(redis, storage, key_chain, entity_id)
     if e then ngx_log(ngx_ERR, e) end
 
     -- Set new TTLs for all keys in the key chain
-    key_chain.fetching_lock = nil -- this looks after itself
     for _,key in pairs(key_chain) do
         local _, e = redis:expire(key, new_ttl)
         if e then ngx_log(ngx_ERR, e) end
@@ -99,7 +108,6 @@ local function expire_keys(redis, storage, key_chain, entity_id)
 end
 _M.expire_keys = expire_keys
 
-
 -- Purges the cache item according to purge_mode which defaults to "invalidate".
 -- If there's nothing to do we return false which results in a 404.
 -- @param   table   handler instance
@@ -108,7 +116,7 @@ _M.expire_keys = expire_keys
 -- @return  boolean success
 -- @return  string  message
 -- @return  table   qless job (for revalidate only)
-local function purge(handler, purge_mode, key_chain)
+local function _purge(handler, purge_mode, key_chain)
     local redis = handler.redis
     local storage = handler.storage
 
@@ -151,16 +159,71 @@ local function purge(handler, purge_mode, key_chain)
 
     end
 end
+
+
+local function key_chain_from_full_key(root_key, full_key)
+    local pos = str_find(full_key, "#")
+    if pos == nil then
+        return nil
+    end
+
+    -- Remove the root_key from the start
+    local vary_key = str_sub(full_key, pos+1)
+    local vary_spec = {} -- We don't need this
+
+    return key_chain(root_key, vary_key, vary_spec)
+end
+
+
+-- Purges all representatinos of the cache item
+local function purge(handler, purge_mode, repset)
+    local representations, err = handler.redis:smembers(repset)
+    if err then
+        return nil, err
+    end
+
+    if #representations == 0 then
+        return false, "nothing to purge", nil
+    end
+
+    local root_key = str_sub(repset, 1, repset_len)
+
+    local res_ok, res_message
+    local jobs = {}
+
+    local key_chain
+    for _, full_key in ipairs(representations) do
+        key_chain = key_chain_from_full_key(root_key, full_key)
+        local ok, message, job = _purge(handler, purge_mode, key_chain)
+
+        -- Set the overall response if any representation was purged
+        if res_ok == nil or ok == true then
+            res_ok = ok
+            res_message = message
+        end
+
+        tbl_insert(jobs, job)
+    end
+
+    -- Clean up vary and repset keys if we're deleting
+    if purge_mode == "delete" and res_ok then
+       local _, e = handler.redis:del(key_chain.repset, key_chain.vary)
+       if e then ngx_log(ngx_ERR, e) end
+    end
+
+    return res_ok, res_message, jobs
+end
 _M.purge = purge
 
 
 local function purge_in_background(handler, purge_mode)
     local key_chain = handler:cache_key_chain()
+
     local job, err = put_background_job(
         "ledge_purge",
         "ledge.jobs.purge",
         {
-            key_chain = key_chain,
+            repset = key_chain.repset,
             keyspace_scan_count = handler.config.keyspace_scan_count,
             purge_mode = purge_mode,
             storage_driver = handler.config.storage_driver,
@@ -175,7 +238,7 @@ local function purge_in_background(handler, purge_mode)
     if err then ngx_log(ngx_ERR, err) end
 
     -- Create a JSON payload for the response
-    local res = create_purge_response(purge_mode, "scheduled", job)
+    local res = create_purge_response(purge_mode, "scheduled", {job})
     handler.response:set_body(res)
 
     return true
