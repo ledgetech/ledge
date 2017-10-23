@@ -348,6 +348,12 @@ location /t {
 
         local ok, err = res:read()
         assert(ok or not err, "read should return error on redis error")
+
+
+        handler.cache_key_chain = function() return nil, "Dummy" end
+
+        local ok, err = res:read()
+        assert(ok == nil and err == "Dummy", "read should return error when failing to get the key chain")
     }
 }
 --- request
