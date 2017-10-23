@@ -87,6 +87,7 @@ An `upstream` is the only thing which must be manually configured, and points to
 
 Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a [driver system](#storage_driver) making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
 
+[Back to TOC](#table-of-contents)
 
 ### Cache keys
 
@@ -102,8 +103,7 @@ URI arguments are sorted alphabetically by default, so `http://example.com?a=1&b
 
 HTTP response sizes can be wildly different, sometimes tiny and sometimes huge, and it's not always possible to know the total size up front.
 
-To guarantee predictable memory usage regardless of response sizes Ledge operates a streaming design, meaning it only ever operates on a single `buffer` per request at a time. This is equally true when fetching upstream to when reading from cache or 
-serving to the client request.
+To guarantee predictable memory usage regardless of response sizes Ledge operates a streaming design, meaning it only ever operates on a single `buffer` per request at a time. This is equally true when fetching upstream to when reading from cache or serving to the client request.
 
 It's also true (mostly) when processing [ESI](#edge-size-includes) instructions, except for in the case where an instruction is found to span multiple buffers. In this case, we continue buffering until a complete instruction can be understood, up to a [configurable limit](#esi_max_size).
 
@@ -123,7 +123,6 @@ This is particularly useful to reduce upstream load if a spike of traffic occurs
 
 Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Includes](#edge-side-includes), [serving stale](#serving-stale) and [revalidating on purge](#purging) for more information.
 
-
 [Back to TOC](#table-of-contents)
 
 
@@ -135,14 +134,14 @@ Assuming you have Redis running on `localhost:6379`, and your upstream is at `lo
 http {
     if_modified_since Off;
     lua_check_client_abort On;
-    
+
     init_by_lua_block {
         require("ledge").configure({
             redis_connector_params = {
                 url = "redis://127.0.0.1:6379/0",
             },
         })
-        
+
         require("ledge").set_handler_defaults({
             upstream_host = "127.0.0.1",
             upstream_port = 8080,
@@ -167,6 +166,7 @@ http {
 ```
 
 [Back to TOC](#table-of-contents)
+
 
 ## Config systems
 
@@ -221,11 +221,11 @@ More commonly, we just want to alter behaviour for a given Nginx `location`.
 location /foo_location {
     content_by_lua_block {
         local handler = require("ledge").create_handler()
-        
+
         handler:bind("before_serve", function(res)
             res.header["X-Foo"] = "bar"   -- only set X-Foo for this location
         end)
-        
+
         handler:run()
     }
 }
@@ -266,6 +266,8 @@ The goal is to be 100% RFC compliant, but with some extensions to allow more agr
 ## Purging
 
 To manually invalidate a cache item (or purge), we support the non-standard `PURGE` method familiar to users of Squid. Send a HTTP request to the URI with the method set, and Ledge will attempt to invalidate the item, returning status `200` on success and `404` if the URI was not found in cache, along with a JSON body for more details.
+
+A purge request will affect all representations associated with the cache key, for example compressed and uncompressed responses separated by the `Vary: Accept-Encoding` response header will all be purged.
 
 `$> curl -X PURGE -H "Host: example.com" http://cache.example.com/page1 | jq .`
 
@@ -315,7 +317,6 @@ limit_except GET POST PUT DELETE {
 
 [Back to TOC](#table-of-contents)
 
-
 ### JSON API
 
 A JSON based API is also available for purging cache multiple cache items at once.  
@@ -345,7 +346,6 @@ Returns a results hash keyed by URI or a JSON error response
 ```
 
 [Back to TOC](#table-of-contents)
-
 
 ### Wildcard purging
 
@@ -396,7 +396,6 @@ end)
 In other words, set the TTL to the highest comfortable frequency of requests at the origin, and `stale-while-revalidate` to the longest comfortable TTL, to increase the chances of background revalidation occurring. Note that the first stale request will obviously get stale content, and so very long values can result in very out of date content for one request.
 
 All stale behaviours are constrained by normal cache control semantics. For example, if the origin is down, and the response could be served stale due to the upstream error, but the request contains `Cache-Control: no-cache` or even `Cache-Control: max-age=60` where the content is older than 60 seconds, they will be served the error, rather than the stale content.
-
 
 [Back to TOC](#table-of-contents)
 
@@ -559,6 +558,7 @@ init_by_lua_block {
 
 Ledge uses [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector) to handle all Redis connections. It simply passes anything given in `redis_connector_params` straight to [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector), so review the documentation there for options, including how to use [Redis Sentinel](https://redis.io/topics/sentinel).
 
+
 #### qless_db
 
 `default: 1`
@@ -667,7 +667,6 @@ syntax: `handler:run()`
 
 Must be called during the `init_worker` phase, otherwise background tasks will not be run, including garbage collection which is very importatnt.
 
-
 [Back to TOC](#table-of-contents)
 
 
@@ -726,6 +725,7 @@ This is a `string` value, which will be used to attempt to load a storage driver
 
 [Back to TOC](#handler-configuration-options)
 
+
 #### storage_driver_config
 
 `default: {}`
@@ -733,6 +733,7 @@ This is a `string` value, which will be used to attempt to load a storage driver
 Storage configuration can vary based on the driver. Currently we only have a Redis driver.
 
 [Back to TOC](#handler-configuration-options)
+
 
 ##### Redis storage driver config
 
@@ -744,6 +745,7 @@ If `supports_transactions` is set to `false`, cache bodies are not written atomi
 
 [Back to TOC](#handler-configuration-options)
 
+
 #### upstream_connect_timeout
 
 default: `1000 (ms)`
@@ -751,6 +753,7 @@ default: `1000 (ms)`
 Maximum time to wait for an upstream connection (in milliseconds). If it is exceeded, we send a `503` status code, unless [stale_if_error](#stale_if_error) is configured.
 
 [Back to TOC](#handler-configuration-options)
+
 
 #### upstream_send_timeout
 
@@ -760,6 +763,7 @@ Maximum time to wait sending data on a connected upstream socket (in millisecond
 
 [Back to TOC](#handler-configuration-options)
 
+
 #### upstream_read_timeout
 
 default: `10000 (ms)`
@@ -768,17 +772,20 @@ Maximum time to wait on a connected upstream socket (in milliseconds). If it is 
 
 [Back to TOC](#handler-configuration-options)
 
+
 #### upstream_keepalive_timeout
 
 default: `75000`
 
 [Back to TOC](#handler-configuration-options)
 
+
 #### upstream_keepalive_poolsize
 
 default: `64`
 
 [Back to TOC](#handler-configuration-options)
+
 
 #### upstream_host
 
@@ -792,6 +799,7 @@ resolver 8.8.8.8;
 
 [Back to TOC](#handler-configuration-options)
 
+
 #### upstream_port
 
 default: `80`
@@ -799,6 +807,7 @@ default: `80`
 Specifies the port of the upstream host.
 
 [Back to TOC](#handler-configuration-options)
+
 
 #### upstream_use_ssl
 
@@ -808,6 +817,7 @@ Toggles the use of SSL on the upstream connection. Other `upstream_ssl_*` option
 
 [Back to TOC](#handler-configuration-options)
 
+
 #### upstream_ssl_server_name
 
 default: `""`
@@ -816,6 +826,7 @@ Specifies the SSL server name used for Server Name Indication (SNI). See [sslhan
 
 [Back to TOC](#handler-configuration-options)
 
+
 #### upstream_ssl_verify
 
 default: `false`
@@ -823,6 +834,7 @@ default: `false`
 Toggles SSL verification. See [sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake) for more information.
 
 [Back to TOC](#handler-configuration-options)
+
 
 #### cache_key_spec
 
@@ -861,6 +873,8 @@ require("ledge").create_handler({
     }
 }):run()
 ```
+
+Consider leveraging vary, via the [before_vary_selection](#before_vary_selection) event, for separating cache entries rather than modifying the main `cache_key_spec` directly.
 
 [Back to TOC](#handler-configuration-options)
 
@@ -1042,6 +1056,7 @@ If set to false, disables advertising the software name and version, e.g. `(ledg
 * [before_save](#before_save)
 * [before_serve](#before_serve)
 * [before_save_revalidation_data](#before_save_revalidation_data)
+* [before_vary_selection](#before_vary_selection)
 
 #### after_cache_read
 
@@ -1049,7 +1064,7 @@ syntax: `bind("after_cache_read", function(res) -- end)`
 
 params: `res`. The cached response table.
 
-Fires directly after the response was successfully loaded from cache. 
+Fires directly after the response was successfully loaded from cache.
 
 The `res` table given contains:
 
@@ -1174,8 +1189,39 @@ The `reval_params` are values derived from the current running configuration for
 [Back to TOC](#events)
 
 
-## Administration
+#### before_vary_selection
 
+syntax: `bind("before_vary_selection", function(vary_key) -- end)`
+
+params: `vary_key` A table of selecting headers
+
+Fires when we're about to generate the vary key, used to select the correct cache representation.
+
+The `vary_key` table is a hash of header field names (lowercase) to values.  
+A field name which exists in the Vary response header but does not exist in the current request header will have a value of `ngx.null`.
+
+```
+Request Headers:
+    Accept-Encoding: gzip
+    X-Test: abc
+    X-test: def
+
+Response Headers:
+    Vary: Accept-Encoding, X-Test
+    Vary: X-Foo
+
+vary_key table:
+{
+    ["accept-encoding"] = "gzip",
+    ["x-test"] = "abc,def",
+    ["x-foo"] = ngx.null
+}
+```
+
+[Back to TOC](#events)
+
+
+## Administration
 
 ### X-Cache
 
@@ -1230,6 +1276,7 @@ You may also wish to tweak the [qless job history](https://github.com/pintsized/
 
 
 [Back to TOC](#table-of-contents)
+
 
 ## Author
 
