@@ -196,8 +196,12 @@ end
 -- Return nil and *no* error if this is just a broken/partial cache entry
 -- so we MISS and update the entry.
 function _M.read(self)
+    local key_chain, err = self.handler:cache_key_chain()
+    if not key_chain then
+        return nil, err
+    end
+
     local redis = self.redis
-    local key_chain = self.handler:cache_key_chain()
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(key_chain.main)

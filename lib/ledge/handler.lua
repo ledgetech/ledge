@@ -264,7 +264,13 @@ local function cache_key_chain(self)
 
         local vk = vary_key(self, vs)
 
-        self._cache_key_chain = ledge_cache_key.key_chain(rk, vk, vs)
+        local chain, err = ledge_cache_key.key_chain(rk, vk, vs)
+
+        if not chain then
+            return nil, err
+        end
+
+        self._cache_key_chain = chain
     end
 
     return self._cache_key_chain
