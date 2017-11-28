@@ -26,7 +26,7 @@ local put_background_job = require("ledge.background").put_background_job
 local key_chain = require("ledge.cache_key").key_chain
 
 local _M = {
-    _VERSION = "2.0.0",
+    _VERSION = "2.1.0",
 }
 
 local repset_len = -(str_len("::repset")+1)

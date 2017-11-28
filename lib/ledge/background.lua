@@ -3,7 +3,7 @@ local math_ceil = math.ceil
 local qless = require("resty.qless")
 
 local _M = {
-    _VERSION = "2.0.0",
+    _VERSION = "2.1.0",
 }
 
 local function put_background_job( queue, klass, data, options)
