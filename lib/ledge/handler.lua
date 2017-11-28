@@ -289,7 +289,9 @@ _M.reset_cache_key = reset_cache_key
 
 local function set_vary_spec(self, vary_spec)
     reset_cache_key(self)
-    self._vary_spec = vary_spec
+    if vary_spec then
+        self._vary_spec = vary_spec
+    end
 end
 _M.set_vary_spec = set_vary_spec
 
