@@ -428,6 +428,7 @@ location /stale_5 {
         local hdr = ngx.req.get_headers()
         ngx.say("X-Test: ",hdr["X-Test"])
         ngx.say("Cookie: ",hdr["Cookie"])
+        ngx.say("Authorization: ",hdr["Authorization"])
     }
 }
 --- request
@@ -435,6 +436,7 @@ GET /stale_5_prx
 --- more_headers
 X-Test: foobar
 Cookie: baz=qux
+Authorization: test
 --- response_body
 TEST 5
 --- wait: 1
@@ -457,6 +459,7 @@ GET /stale_5_prx
 TEST 5b
 X-Test: foobar
 Cookie: baz=qux
+Authorization: test
 --- no_error_log
 [error]
 
@@ -486,6 +489,7 @@ location /stale_reval_params_remove {
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
         local handler = require("ledge").create_handler()
+        handler.redis = redis
         local key_chain = handler:cache_key_chain()
 
         redis:del(key_chain.reval_req_headers)

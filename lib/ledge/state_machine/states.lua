@@ -4,17 +4,15 @@ local range = require("ledge.range")
 
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
-local ngx_PARTIAL_CONTENT = ngx.PARTIAL_CONTENT
 local ngx_null = ngx.null
+
 local ngx_PARTIAL_CONTENT = 206
-local ngx_RANGE_NOT_SATISFIABLE = 416
-local ngx_HTTP_NOT_MODIFIED = 304
 
 local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_headers = ngx.req.get_headers
 
-local ngx_re_find = ngx.re.find
-local ngx_re_match = ngx.re.match
+local str_find = string.find
+local str_lower = string.lower
 
 local header_has_directive = require("ledge.header_util").header_has_directive
 
@@ -32,18 +30,19 @@ local req_accepts_cache = require("ledge.request").accepts_cache
 local purge_mode = require("ledge.request").purge_mode
 
 local purge = require("ledge.purge").purge
+local purge_api = require("ledge.purge").purge_api
 local purge_in_background = require("ledge.purge").purge_in_background
 local create_purge_response = require("ledge.purge").create_purge_response
 
 local acquire_lock = require("ledge.collapse").acquire_lock
 
-local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
-
 local parse_content_range = require("ledge.range").parse_content_range
 
+local vary_compare = require("ledge.cache_key").vary_compare
 
-local _M = {
-    _VERSION = "2.0.4",
+
+local _M = { -- luacheck: no unused
+    _VERSION = "2.1.0",
 }
 
 
@@ -52,7 +51,7 @@ local _M = {
 -- calling state_machine:e(ev) with the event that has occurred. Place any
 -- further logic in actions triggered by the transition table.
 return {
-    checking_method = function(sm, handler)
+    checking_method = function(sm)
         local method = ngx_req_get_method()
         if method == "PURGE" then
             return sm:e "purge_requested"
@@ -64,9 +63,18 @@ return {
         end
     end,
 
+    considering_purge_api = function(sm)
+        local ct = ngx_req_get_headers()["Content-Type"]
+        if ct and str_lower(ct) == "application/json" then
+            return sm:e "purge_api_requested"
+        else
+            return sm:e "purge_requested"
+        end
+    end,
+
     considering_wildcard_purge = function(sm, handler)
         local key_chain = handler:cache_key_chain()
-        if ngx_re_find(key_chain.root, "\\*", "soj") then
+        if str_find(key_chain.root, "*", 1, true) then
             return sm:e "wildcard_purge_requested"
         else
             return sm:e "purge_requested"
@@ -82,11 +90,11 @@ return {
         end
     end,
 
-    accept_cache = function(sm, handler)
+    accept_cache = function(sm)
         return sm:e "cache_accepted"
     end,
 
-    checking_request = function(sm, handler)
+    checking_request = function(sm)
         if req_accepts_cache() then
             return sm:e "cache_accepted"
         else
@@ -168,7 +176,7 @@ return {
             -- yet, so we must do that now
             -- TODO: Perhaps the state machine can load the processor to avoid this weird check
             if res.has_esi then
-                local p, err = esi.choose_esi_processor(handler)
+                local p = esi.choose_esi_processor(handler)
                 if not p then
                     -- This shouldn't happen
                     -- if res.has_esi is set then a processor should be selectedable
@@ -244,7 +252,7 @@ return {
         local res, err = acquire_lock(redis, lock_key, timeout)
 
         if res == nil then -- Lua script failed
-            ngx_log(ngx_ERR, err)
+            if err then ngx_log(ngx_ERR, err) end
             return sm:e "collapsed_forwarding_failed"
         elseif res then -- We have the lock
             return sm:e "obtained_collapsed_forwarding_lock"
@@ -256,10 +264,10 @@ return {
             -- In which case we have missed the publish event
 
             local redis_subscriber = ledge.create_redis_connection()
-            local ok, err = redis_subscriber:subscribe(key_chain.root)
+            local ok, err = redis_subscriber:subscribe(lock_key)
             if not ok or ok == ngx_null then
                 -- Failed to enter subscribe mode
-                ngx_log(ngx_ERR, err)
+                if err then ngx_log(ngx_ERR, err) end
                 return sm:e "collapsed_forwarding_failed"
             end
 
@@ -273,7 +281,7 @@ return {
                 return sm:e "collapsed_forwarding_channel_closed"
             else
                 -- Error checking lock still exists
-                ngx_log(ngx_ERR, err)
+                if err then ngx_log(ngx_ERR, err) end
                 return sm:e "collapsed_forwarding_failed"
             end
         end
@@ -281,30 +289,61 @@ return {
 
     publishing_collapse_success = function(sm, handler)
         local redis = handler.redis
-        local key_chain = handler:cache_key_chain()
-        redis:del(key_chain.fetching_lock) -- Clear the lock
-        redis:publish(key_chain.root, "collapsed_response_ready")
+        local key = handler._publish_key
+        redis:del(key) -- Clear the lock
+        redis:publish(key, "collapsed_response_ready")
+
         return sm:e "published"
     end,
 
     publishing_collapse_failure = function(sm, handler)
         local redis = handler.redis
-        local key_chain = handler:cache_key_chain()
-        redis:del(key_chain.fetching_lock) -- Clear the lock
-        redis:publish(key_chain.root, "collapsed_forwarding_failed")
+        local key = handler._publish_key
+        redis:del(key) -- Clear the lock
+        redis:publish(key, "collapsed_forwarding_failed")
+
         return sm:e "published"
     end,
 
     publishing_collapse_upstream_error = function(sm, handler)
         local redis = handler.redis
-        local key_chain = handler:cache_key_chain()
-        redis:del(key_chain.fetching_lock) -- Clear the lock
-        redis:publish(key_chain.root, "collapsed_forwarding_upstream_error")
+        local key = handler._publish_key
+        redis:del(key) -- Clear the lock
+        redis:publish(key, "collapsed_forwarding_upstream_error")
+
+        return sm:e "published"
+    end,
+
+    publishing_collapse_vary_modified = function(sm, handler)
+        local redis = handler.redis
+        local key = handler._publish_key
+        redis:del(key) -- Clear the lock
+        redis:publish(key, "collapsed_forwarding_vary_modified")
+
         return sm:e "published"
     end,
 
     fetching_as_surrogate = function(sm, handler)
+        -- stash these because we might change the key
+        -- depending on vary response
+        local key_chain = handler:cache_key_chain()
+        handler._publish_key = key_chain.fetching_lock
+
         return sm:e "can_fetch"
+    end,
+
+    considering_vary = function(sm, handler)
+        local new_spec = handler.response:parse_vary_header()
+        local key_chain = handler:cache_key_chain()
+
+        if vary_compare(new_spec, key_chain.vary_spec) == false then
+            handler:set_vary_spec(new_spec)
+            return sm:e "vary_modified"
+
+        else
+            return sm:e "vary_unmodified"
+
+        end
     end,
 
     waiting_on_collapsed_forwarding_channel = function(sm, handler)
@@ -312,9 +351,9 @@ return {
 
         -- Extend the timeout to the size of the window
         redis:set_timeout(handler.config.collapsed_forwarding_window)
-        local res, err = redis:read_reply() -- block until we hear something or timeout
-        if not res then
-            return sm:e "http_gateway_timeout"
+        local res, _ = redis:read_reply() -- block until we hear something or timeout
+        if not res or res == ngx_null then
+            return sm:e "collapsed_forwarding_failed"
         else
             -- TODO this config is now in the singleton
             redis:set_timeout(60) --handler.config.redis_read_timeout)
@@ -327,6 +366,8 @@ return {
                 return sm:e "collapsed_response_ready"
             elseif res[3] == "collapsed_forwarding_upstream_error" then
                 return sm:e "collapsed_forwarding_upstream_error"
+            elseif res[3] == "collapsed_forwarding_vary_modified" then
+                return sm:e "collapsed_forwarding_vary_modified"
             else
                 return sm:e "collapsed_forwarding_failed"
             end
@@ -369,9 +410,18 @@ return {
         end
     end,
 
+    purging_via_api = function(sm, handler)
+        local ok = purge_api(handler)
+        if ok then
+            return sm:e "purge_api_completed"
+        else
+            return sm:e "purge_api_failed"
+        end
+    end,
+
     purging = function(sm, handler)
         local mode = purge_mode()
-        local ok, message, job = purge(handler, mode)
+        local ok, message, job = purge(handler, mode, handler:cache_key_chain().repset)
         local json = create_purge_response(mode, message, job)
         handler.response:set_body(json)
 
@@ -411,7 +461,7 @@ return {
         end
     end,
 
-    considering_local_revalidation = function(sm, handler)
+    considering_local_revalidation = function(sm)
         if can_revalidate_locally() then
             return sm:e "can_revalidate_locally"
         else
@@ -453,7 +503,7 @@ return {
         end
     end,
 
-    preparing_response = function(sm, handler)
+    preparing_response = function(sm)
         return sm:e "response_ready"
     end,
 
@@ -467,11 +517,11 @@ return {
         return sm:e "served"
     end,
 
-    exiting = function(sm, handler)
+    exiting = function()
         ngx.exit(ngx.status)
     end,
 
-    cancelling_abort_request = function(sm, handler)
+    cancelling_abort_request = function()
         return true
     end,
 }

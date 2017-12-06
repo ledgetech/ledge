@@ -1,16 +1,15 @@
-local h_util = require "ledge.header_util"
 local http_headers = require "resty.http_headers"
 local util = require "ledge.util"
 
-local pairs, ipairs, setmetatable, tonumber, unpack =
-    pairs, ipairs, setmetatable, tonumber, unpack
+local pairs, setmetatable, tonumber, unpack =
+    pairs, setmetatable, tonumber, unpack
 
 local tbl_getn = table.getn
 local tbl_insert = table.insert
 local tbl_concat = table.concat
+local tbl_sort   = table.sort
 
 local str_lower = string.lower
-local str_gsub = string.gsub
 local str_find = string.find
 local str_sub = string.sub
 local str_rep = string.rep
@@ -23,12 +22,11 @@ local ngx_ERR = ngx.ERR
 local ngx_INFO = ngx.INFO
 local ngx_DEBUG = ngx.DEBUG
 local ngx_re_gmatch = ngx.re.gmatch
-local ngx_re_match = ngx.re.match
 local ngx_parse_http_time = ngx.parse_http_time
 local ngx_http_time = ngx.http_time
 local ngx_time = ngx.time
-local ngx_req_get_headers = ngx.req.get_headers
 local ngx_re_find = ngx.re.find
+local ngx_re_gsub = ngx.re.gsub
 
 local header_has_directive = require("ledge.header_util").header_has_directive
 
@@ -39,7 +37,7 @@ local get_fixed_field_metatable_proxy =
 local _DEBUG = false
 
 local _M = {
-    _VERSION = "2.0.4",
+    _VERSION = "2.1.0",
     set_debug = function(debug) _DEBUG = debug end,
 }
 
@@ -51,14 +49,18 @@ end
 _M.empty_body_reader = empty_body_reader
 
 
-function _M.new(redis, key_chain)
-    if not redis or not next(redis) or not key_chain or not next(key_chain) then
-        return nil, "redis and key_chain args required"
+function _M.new(handler)
+    if not handler or not next(handler) then
+        return nil, "Handler is required"
+    end
+
+    if not handler.redis or not next(handler.redis) then
+        return nil, "Handler has no redis connection"
     end
 
     return setmetatable({
-        redis = redis,
-        key_chain = key_chain,  -- Cache key chain
+        redis = handler.redis,
+        handler = handler,  -- Cache key chain
 
         uri = "",
         status = 0,
@@ -135,6 +137,10 @@ function _M.is_cacheable(self)
         return false
     end
 
+    if h["Vary"] == "*" then
+       return false
+    end
+
     if self:ttl() > 0 then
         return true
     else
@@ -190,8 +196,12 @@ end
 -- Return nil and *no* error if this is just a broken/partial cache entry
 -- so we MISS and update the entry.
 function _M.read(self)
+    local key_chain, err = self.handler:cache_key_chain()
+    if not key_chain then
+        return nil, err
+    end
+
     local redis = self.redis
-    local key_chain = self.key_chain
 
     -- Read main metdata
     local cache_parts, err = redis:hgetall(key_chain.main)
@@ -202,11 +212,9 @@ function _M.read(self)
     -- No cache entry for this key
     local cache_parts_len = #cache_parts
     if not cache_parts_len or cache_parts_len == 0 then
-        ngx_log(ngx_INFO, "live entity has no data")
         return nil
     end
 
-    local ttl = nil
     local time_in_cache = 0
     local time_since_generated = 0
 
@@ -263,7 +271,7 @@ function _M.read(self)
         local header = headers[i]
         if str_find(header, ":") then
             -- We have multiple headers with the same field name
-            local index, key = unpack(str_split(header, ":"))
+            local _, key = unpack(str_split(header, ":"))
             if not self.header[key] then
                 self.header[key] = {}
             end
@@ -318,6 +326,8 @@ local function prepare_cacheable_headers(headers)
                 local from, to, err = ngx_re_find(cc, pattern, "jo", re_ctx, 1)
                 if from then
                     uncacheable_headers[str_sub(cc, from, to)] = true
+                elseif err then
+                    ngx_log(ngx_ERR, err)
                 end
             until not from
         end
@@ -356,7 +366,7 @@ function _M.save(self, keep_cache_for)
 
     local redis = self.redis
     if not next(redis) then return nil, "no redis" end
-    local key_chain = self.key_chain
+    local key_chain = self.handler:cache_key_chain()
 
     if not self.header["Date"] then
         self.header["Date"] = ngx_http_time(ngx_time())
@@ -407,9 +417,10 @@ end
 
 function _M.set_and_save(self, field, value)
     local redis = self.redis
-    local ok, err = redis:hset(self.key_chain.main, field, tostring(value))
+
+    local ok, err = redis:hset(self.handler:cache_key_chain().main, field, tostring(value))
     if not ok then
-        ngx_log(ngx_ERR, err)
+        if err then ngx_log(ngx_ERR, err) end
         return nil, err
     end
 
@@ -433,6 +444,48 @@ function _M.add_warning(self, code, name)
     local header = code .. ' ' .. name
     header = header .. ' "' .. WARNINGS[code] .. '"'
     tbl_insert(self.header["Warning"], header)
+end
+
+
+local function deduplicate_table(table)
+    -- Can't have duplicates if there's 1 or 0 entries!
+    if #table <= 1 then
+        return table
+    end
+
+    local new_table = {}
+    local unique = {}
+    local i = 0
+
+    for _,v in ipairs(table) do
+        if not unique[v] then
+            unique[v] = true
+            i = i +1
+            new_table[i] = v
+        end
+    end
+
+    return new_table
+end
+
+
+function _M.parse_vary_header(self)
+    local vary_hdr = self.header["Vary"]
+    local vary_spec
+
+    if vary_hdr and vary_hdr ~= "" then
+        if type(vary_hdr) == "table" then
+            vary_hdr = tbl_concat(vary_hdr,",")
+        end
+        -- Remove whitespace around commas and lowercase
+        vary_hdr = ngx_re_gsub(str_lower(vary_hdr), [[\s*,\s*]], ",", "oj")
+        vary_spec = str_split(vary_hdr, ",")
+        tbl_sort(vary_spec)
+        vary_spec = deduplicate_table(vary_spec)
+    end
+
+    -- Return the new vary sepc table *and* the normalised header
+    return vary_spec
 end
 
 

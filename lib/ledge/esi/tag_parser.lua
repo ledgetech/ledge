@@ -13,7 +13,7 @@ local get_fixed_field_metatable_proxy =
 
 
 local _M = {
-    _VERSION = "2.0.4",
+    _VERSION = "2.1.0",
 }
 
 
@@ -91,6 +91,7 @@ function _M.find_whole_tag(self, tag)
     -- Find the first opening tag
     local opening_f, opening_t, err = ngx_re_find(markup, self.open_pattern(tag), "soj")
     if not opening_f then
+        if err then ngx_log(ngx_ERR, err) end
         -- Nothing here
         return nil
     end
@@ -102,7 +103,7 @@ function _M.find_whole_tag(self, tag)
         self.open_pattern(tag), "soj"
     )
     if not opening_m then
-        ngx_log(ngx_ERR, err)
+        if err then ngx_log(ngx_ERR, err) end
         return nil
     end
 

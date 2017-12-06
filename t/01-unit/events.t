@@ -52,6 +52,7 @@ location /t {
         handler:bind("before_save_revalidation_data", say)
         handler:bind("before_serve", say)
         handler:bind("before_esi_include_request", say)
+        handler:bind("before_vary_selection", say)
 
         handler:emit("after_cache_read", "after_cache_read")
         handler:emit("before_upstream_request", "before_upstream_request")
@@ -60,6 +61,7 @@ location /t {
         handler:emit("before_save_revalidation_data", "before_save_revalidation_data")
         handler:emit("before_serve", "before_serve")
         handler:emit("before_esi_include_request", "before_esi_include_request")
+        handler:emit("before_vary_selection", "before_vary_selection")
     }
 }
 
@@ -73,6 +75,7 @@ before_save
 before_save_revalidation_data
 before_serve
 before_esi_include_request
+before_vary_selection
 --- error_log
 no such event: non_event
 
@@ -105,11 +108,14 @@ function 3
 
 
 === TEST 3: Default binds
---- http_config
+--- http_config eval
+qq {
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
 init_by_lua_block {
-    require("luacov.runner").init()
+    if $ENV{TEST_COVERAGE} == 1 then
+        require("luacov.runner").init()
+    end
 
     require("ledge").bind("after_cache_read", function(arg)
         ngx.say("default 1: ", arg)
@@ -118,6 +124,7 @@ init_by_lua_block {
     require("ledge").bind("after_cache_read", function(arg)
         ngx.say("default 2: ", arg)
     end)
+}
 }
 --- config
 location /t {

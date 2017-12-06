@@ -65,7 +65,7 @@ INSTALL         ?= install
 
 .PHONY: all install test test_all start_redis_instances stop_redis_instances \
 	start_redis_instance stop_redis_instance cleanup_redis_instance flush_db \
-	check_ports test_ledge test_sentinel coverage delete_sentinel_config
+	check_ports test_ledge test_sentinel coverage delete_sentinel_config check
 
 all: ;
 
@@ -155,4 +155,7 @@ coverage: flush_db
 	@rm -f luacov.stats.out
 	@$(TEST_LEDGE_REDIS_VARS) TEST_COVERAGE=1 $(PROVE) $(TEST_FILE)
 	@luacov
-	@tail -21 luacov.report.out
+	@tail -30 luacov.report.out
+
+check:
+	luacheck lib

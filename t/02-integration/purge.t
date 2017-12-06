@@ -220,11 +220,11 @@ PURGE /purge_cached*
 [error]
 --- response_body_like
 purge_mode: invalidate
-qless_job.jid: [a-f0-9]{32}
-qless_job.klass: ledge.jobs.purge
-qless_job.options.jid: [a-f0-9]{32}
-qless_job.options.priority: 5
-qless_job.options.tags.1: purge
+qless_jobs.1.jid: [a-f0-9]{32}
+qless_jobs.1.klass: ledge.jobs.purge
+qless_jobs.1.options.jid: [a-f0-9]{32}
+qless_jobs.1.options.priority: 5
+qless_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -297,11 +297,11 @@ PURGE /purge_c*
 --- error_code: 200
 --- response_body_like
 purge_mode: invalidate
-qless_job.jid: [a-f0-9]{32}
-qless_job.klass: ledge.jobs.purge
-qless_job.options.jid: [a-f0-9]{32}
-qless_job.options.priority: 5
-qless_job.options.tags.1: purge
+qless_jobs.1.jid: [a-f0-9]{32}
+qless_jobs.1.klass: ledge.jobs.purge
+qless_jobs.1.options.jid: [a-f0-9]{32}
+qless_jobs.1.options.priority: 5
+qless_jobs.1.options.tags.1: purge
 --- no_error_log
 [error]
 
@@ -313,6 +313,7 @@ location /purge_cached {
     content_by_lua_block {
         local redis = require("ledge").create_redis_connection()
         local handler = require("ledge").create_handler()
+        handler.redis = redis
         local key_chain = handler:cache_key_chain()
 
         local num_entities, err = redis:scard(key_chain.entities)
@@ -369,11 +370,11 @@ PURGE /purge_ca*ed
 [error]
 --- response_body_like
 purge_mode: invalidate
-qless_job.jid: [a-f0-9]{32}
-qless_job.klass: ledge.jobs.purge
-qless_job.options.jid: [a-f0-9]{32}
-qless_job.options.priority: 5
-qless_job.options.tags.1: purge
+qless_jobs.1.jid: [a-f0-9]{32}
+qless_jobs.1.klass: ledge.jobs.purge
+qless_jobs.1.options.jid: [a-f0-9]{32}
+qless_jobs.1.options.priority: 5
+qless_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -441,11 +442,11 @@ PURGE /purge_cached_8*
 [error]
 --- response_body_like
 purge_mode: invalidate
-qless_job.jid: [a-f0-9]{32}
-qless_job.klass: ledge.jobs.purge
-qless_job.options.jid: [a-f0-9]{32}
-qless_job.options.priority: 5
-qless_job.options.tags.1: purge
+qless_jobs.1.jid: [a-f0-9]{32}
+qless_jobs.1.klass: ledge.jobs.purge
+qless_jobs.1.options.jid: [a-f0-9]{32}
+qless_jobs.1.options.priority: 5
+qless_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -529,11 +530,11 @@ PURGE /purge_cached_9_prx
 [error]
 --- response_body_like
 purge_mode: revalidate
-qless_job.jid: [a-f0-9]{32}
-qless_job.klass: ledge.jobs.revalidate
-qless_job.options.jid: [a-f0-9]{32}
-qless_job.options.priority: 4
-qless_job.options.tags.1: revalidate
+qless_jobs.1.jid: [a-f0-9]{32}
+qless_jobs.1.klass: ledge.jobs.revalidate
+qless_jobs.1.options.jid: [a-f0-9]{32}
+qless_jobs.1.options.priority: 4
+qless_jobs.1.options.tags.1: revalidate
 result: purged
 --- error_code: 200
 
@@ -610,11 +611,11 @@ PURGE /purge_cached_10_prx?*
 [error]
 --- response_body_like
 purge_mode: revalidate
-qless_job.jid: [a-f0-9]{32}
-qless_job.klass: ledge.jobs.purge
-qless_job.options.jid: [a-f0-9]{32}
-qless_job.options.priority: 5
-qless_job.options.tags.1: purge
+qless_jobs.1.jid: [a-f0-9]{32}
+qless_jobs.1.klass: ledge.jobs.purge
+qless_jobs.1.options.jid: [a-f0-9]{32}
+qless_jobs.1.options.priority: 5
+qless_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_log
 TEST 10 Revalidated: 1 primed
@@ -748,11 +749,11 @@ PURGE /purge_cached_12_prx?*
 [error]
 --- response_body_like
 purge_mode: delete
-qless_job.jid: [a-f0-9]{32}
-qless_job.klass: ledge.jobs.purge
-qless_job.options.jid: [a-f0-9]{32}
-qless_job.options.priority: 5
-qless_job.options.tags.1: purge
+qless_jobs.1.jid: [a-f0-9]{32}
+qless_jobs.1.klass: ledge.jobs.purge
+qless_jobs.1.options.jid: [a-f0-9]{32}
+qless_jobs.1.options.priority: 5
+qless_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
 
@@ -796,6 +797,7 @@ location /purge_cached_13_prx {
 
             local redis = require("ledge").create_redis_connection()
             local handler = require("ledge").create_handler()
+            handler.redis = redis
             local key_chain = handler:cache_key_chain()
 
             if sabotage == "uri" then
@@ -864,13 +866,430 @@ PURGE /purge_cached_13_prx?*
 TEST 13 Revalidated: 2 primed
 --- response_body_like
 purge_mode: revalidate
-qless_job.jid: [a-f0-9]{32}
-qless_job.klass: ledge.jobs.purge
-qless_job.options.jid: [a-f0-9]{32}
-qless_job.options.priority: 5
-qless_job.options.tags.1: purge
+qless_jobs.1.jid: [a-f0-9]{32}
+qless_jobs.1.klass: ledge.jobs.purge
+qless_jobs.1.options.jid: [a-f0-9]{32}
+qless_jobs.1.options.priority: 5
+qless_jobs.1.options.tags.1: purge
 result: scheduled
 --- error_code: 200
+
+
+=== TEST 14: Purge API runs
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_14_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_14 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 14: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+[
+"GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2",
+
+qq(PURGE /purge_api
+{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=1", "http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=2"]}),
+
+"GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2",
+]
+--- more_headers eval
+[
+"","",
+"Content-Type: Application/JSON",
+"","",
+]
+--- response_body eval
+[
+"TEST 14: 1", "TEST 14: 2",
+
+qq(purge_mode: invalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=1.result: purged
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=2.result: purged
+),
+
+"TEST 14: 1", "TEST 14: 2",
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+"Content-Type: application/json",
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+]
+--- no_error_log
+[error]
+
+
+=== TEST 15: Purge API wildcard query string
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_15_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_15 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 15: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+[
+"GET /purge_cached_15_prx?a=1", "GET /purge_cached_15_prx?a=2",
+
+qq(PURGE /purge_api
+{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx?a*"]}),
+]
+--- more_headers eval
+[
+"","",
+"Content-Type: Application/JSON",
+]
+--- response_body_like eval
+[
+"TEST 15: 1", "TEST 15: 2",
+
+qq(purge_mode: invalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.klass: ledge.jobs.purge
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.priority: 5
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.tags.1: purge
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.result: scheduled
+),
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+"Content-Type: application/json",
+]
+--- wait: 2
+--- no_error_log
+[error]
+
+=== TEST 15b: Purge API wildcard query string
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_15_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_15 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 15b: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+["GET /purge_cached_15_prx?a=1", "GET /purge_cached_15_prx?a=2"]
+--- response_body_like eval
+["TEST 15b: 1", "TEST 15b: 2"]
+--- response_headers_like eval
+["X-Cache: MISS from .+", "X-Cache: MISS from .+"]
+--- no_error_log
+[error]
+
+=== TEST 16: Purge API wildcards
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_16_prx {
+    rewrite ^(.*)_prx(.*)? $1$2 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_16 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 16: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+[
+"GET /purge_cached_16_prx?a=1", "GET /purge_cached_16_prx?a=2",
+
+qq(PURGE /purge_api
+{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx*"]}),
+]
+--- more_headers eval
+[
+"","",
+"Content-Type: Application/JSON",
+]
+--- response_body_like eval
+[
+"TEST 16: 1", "TEST 16: 2",
+
+qq(purge_mode: invalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.klass: ledge.jobs.purge
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.options.priority: 5
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.options.tags.1: purge
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.result: scheduled
+),
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+"Content-Type: application/json",
+]
+--- wait: 2
+--- no_error_log
+[error]
+
+=== TEST 16b: Purge API wildcard check
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_16_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+    require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_16 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 16b: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+["GET /purge_cached_16_prx?a=1", "GET /purge_cached_16_prx?a=2"]
+--- response_body_like eval
+["TEST 16b: 1", "TEST 16b: 2"]
+--- response_headers_like eval
+["X-Cache: MISS from .+", "X-Cache: MISS from .+"]
+--- no_error_log
+[error]
+
+=== TEST 17: Purge API - bad request
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+
+--- request eval
+[
+'PURGE /purge_api
+{"uris": ["foobar"]}',
+
+'PURGE /purge_api
+this is not valid json',
+
+'PURGE /purge_api
+{"foo": ["bar"]}',
+
+'PURGE /purge_api
+{"uris": []}',
+
+'PURGE /purge_api
+{"uris": "not an array"}',
+
+'PURGE /purge_api
+{"uris": ["http://www.example.com/"], "purge_mode": "foobar"}'
+]
+--- more_headers
+Content-Type: Application/JSON
+--- error_code eval
+[200,400,400,400,400,400]
+--- response_body eval
+[
+"purge_mode: invalidate
+result.foobar.error: bad uri: foobar
+",
+"error: Could not parse request body: Expected value but found invalid token at character 1
+",
+"error: No URIs provided
+",
+"error: No URIs provided
+",
+"error: Field 'uris' must be an array
+",
+"error: Invalid purge_mode
+",
+]
+--- no_error_log
+[error]
+
+
+=== TEST 17: Purge API passes through purge_mode
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_api {
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_17_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(false)
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_17 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.print("TEST 17: ", ngx.req.get_uri_args()["a"])
+    }
+}
+--- request eval
+[
+"GET /purge_cached_17_prx?a=1",
+
+qq(PURGE /purge_api
+{"purge_mode": "revalidate", "uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx?a=1"]}),
+]
+--- more_headers eval
+[
+"", "Content-Type: Application/JSON",
+]
+--- response_body_like eval
+[
+"TEST 17: 1",
+
+qq(purge_mode: revalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.klass: ledge.jobs.revalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.options.priority: 4
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.options.tags.1: revalidate
+result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.result: purged
+),
+
+]
+--- wait: 1
+
+=== TEST 18: Purge clears all representations
+--- http_config eval: $::HttpConfig
+--- config
+location /purge {
+    rewrite ^ /purge_cached_18 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+   body_filter_by_lua_block {
+        ngx.arg[1] = format_json(ngx.arg[1])
+        ngx.arg[2] = true
+    }
+}
+location /purge_cached_18_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            keep_cache_for = 3600,
+        }):run()
+    }
+}
+location /purge_cached_18 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["Vary"] = "X-Test"
+        ngx.print("TEST 18: ", ngx.req.get_headers()["X-Test"])
+    }
+}
+--- request eval
+[
+"GET /purge_cached_18_prx", "GET /purge_cached_18_prx",
+
+"PURGE /purge",
+
+"GET /purge_cached_18_prx", "GET /purge_cached_18_prx",
+]
+--- more_headers eval
+[
+"X-Test: abc", "X-Test: xyz",
+"",
+"X-Test: abc", "X-Test: xyz",
+]
+--- response_body eval
+[
+"TEST 18: abc", "TEST 18: xyz",
+
+"purge_mode: invalidate
+result: purged
+",
+
+"TEST 18: abc", "TEST 18: xyz",
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+"",
+"X-Cache: MISS from .+", "X-Cache: MISS from .+",
+]
+--- no_error_log
+[error]
 
 === TEST 19: Purge response with no body
 --- http_config eval: $::HttpConfig

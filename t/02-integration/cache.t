@@ -73,6 +73,32 @@ TEST 1
 --- no_error_log
 [error]
 
+=== TEST 1b: Subzero request; X-Cache: MISS is prepended
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+
+location /cache {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.header["X-Cache"] = "HIT from example.com"
+        ngx.say("TEST 1")
+    }
+}
+--- request
+GET /cache_prx?append
+--- response_headers_like
+X-Cache: MISS from .+, HIT from example.com
+--- response_body
+TEST 1
+--- no_error_log
+[error]
+
 
 === TEST 2: Hot request; X-Cache: HIT
 --- http_config eval: $::HttpConfig
@@ -294,8 +320,9 @@ location /cache_6 {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler()
-        local key_chain = handler:cache_key_chain()
         local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+        local key_chain = handler:cache_key_chain()
 
         local res, err = redis:keys(key_chain.root .. "*")
         if res then
@@ -660,6 +687,7 @@ location /cache_15_prx {
 location /cache_15 {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=60"
+        ngx.header["Vary"] = "Foobar"
         ngx.say("TEST 15")
     }
 }
@@ -680,8 +708,9 @@ location /cache_15_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler()
-        local key_chain = handler:cache_key_chain()
         local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+        local key_chain = handler:cache_key_chain()
 
         local res, err = redis:keys(key_chain.root .. "*")
         if res then
@@ -701,8 +730,8 @@ location /cache_15_prx {
 GET /cache_15_prx
 --- timeout: 5
 --- response_body
-Numkeys: 5
-Numkeys: 5
+Numkeys: 7
+Numkeys: 7
 --- no_error_log
 [error]
 
@@ -808,8 +837,9 @@ location /cache_16_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler()
-        local key_chain = handler:cache_key_chain()
         local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+        local key_chain = handler:cache_key_chain()
 
         -- Break entities
         redis:del(handler:cache_key_chain().entities)
@@ -829,5 +859,78 @@ GET /cache_16_prx
 X-Cache: MISS from .*
 --- response_body
 TEST 16d
+--- no_error_log
+[error]
+
+
+=== TEST 17: Main key is completely overriden
+--- http_config eval: $::HttpConfig
+--- config
+location /cache_17_modify {
+    rewrite ^(.*)_modify$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+        local key = handler:cache_key_chain().main
+
+        -- Add new field to main key
+        redis:hset(key, "bogus_field", "foobar")
+
+        -- Print result from redis
+        local main, err = redis:hgetall(key)
+        main = redis:array_to_hash(main)
+        ngx.print(key, " bogus_field: ", main["bogus_field"])
+
+    }
+}
+location /cache_17_check {
+    rewrite ^(.*)_check$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+        local key = handler:cache_key_chain().main
+
+        -- Print result from redis
+        local main, err = redis:hgetall(key)
+        main = redis:array_to_hash(main)
+        ngx.print(key, " bogus_field: ", main["bogus_field"])
+    }
+}
+location /cache_17_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /cache_17 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.print("TEST 17")
+    }
+}
+--- request eval
+[
+"GET /cache_17_prx",
+"GET /cache_17_modify",
+"GET /cache_17_prx",
+"GET /cache_17_check",
+]
+--- more_headers eval
+[
+"",
+"",
+"Cache-Control: no-cache",
+"",
+]
+--- response_body eval
+[
+"TEST 17",
+"ledge:cache:http:localhost:/cache_17:#::main bogus_field: foobar",
+"TEST 17",
+"ledge:cache:http:localhost:/cache_17:#::main bogus_field: nil",
+]
+
 --- no_error_log
 [error]

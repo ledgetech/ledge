@@ -6,7 +6,6 @@ local type, next, setmetatable, getmetatable, error, tostring =
 
 local str_find = string.find
 local str_sub = string.sub
-local tbl_insert = table.insert
 local co_create = coroutine.create
 local co_status = coroutine.status
 local co_resume = coroutine.resume
@@ -31,7 +30,7 @@ if not ok then ngx.log(ngx.ERR, err) end
 
 
 local _M = {
-    _VERSION = "2.0.4",
+    _VERSION = "2.1.0",
     string = {},
     table = {},
     mt = {},
@@ -56,7 +55,7 @@ _M.string.randomhex = randomhex
 
 
 local function str_split(str, delim)
-    local pos, endpos, prev, i = 0, 0, 0, 0
+    local pos, endpos, prev, i = 0, 0, 0, 0 -- luacheck: ignore pos endpos
     local out = {}
     repeat
         pos, endpos = str_find(str, delim, prev, true)
@@ -80,11 +79,11 @@ _M.string.split = str_split
 -- A metatable which prevents undefined fields from being created / accessed
 local fixed_field_metatable = {
     __index =
-        function(t, k)
+        function(t, k) -- luacheck: no unused
             error("field " .. tostring(k) .. " does not exist", 3)
         end,
     __newindex =
-        function(t, k, v)
+        function(t, k, v) -- luacheck: no unused
             error("attempt to create new field " .. tostring(k), 3)
         end,
 }
@@ -104,7 +103,7 @@ _M.mt.fixed_field_metatable = fixed_field_metatable
 local function get_fixed_field_metatable_proxy(proxy)
     return {
         __index =
-            function(t, k)
+            function(t, k) -- luacheck: no unused
                 return proxy[k] or
                     error("field " .. tostring(k) .. " does not exist", 2)
             end,
@@ -180,7 +179,6 @@ local function tbl_copy_merge_defaults(t1, defaults)
     if t1 == nil then t1 = {} end
     if defaults == nil then defaults = {} end
     if type(t1) == "table" and type(defaults) == "table" then
-        local mt = getmetatable(defaults)
         local copy = {}
         for t1_key, t1_value in next, t1, nil do
             copy[tbl_copy(t1_key)] = tbl_copy_merge_defaults(

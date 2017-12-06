@@ -1,5 +1,5 @@
-local _M = {
-    _VERSION = "2.0.4",
+local _M = { -- luacheck: no unused
+    _VERSION = "2.1.0",
 }
 
 
@@ -28,7 +28,18 @@ return {
             begin = "purging",
             but_first = "set_json_response"
         },
-        { begin = "considering_wildcard_purge" },
+        {
+            when = "considering_purge_api",
+            begin = "considering_wildcard_purge"
+        },
+        { begin = "considering_purge_api" },
+    },
+
+    purge_api_requested = {
+        {
+            begin = "purging_via_api",
+            but_first = "set_json_response"
+        },
     },
 
     wildcard_purge_requested = {
@@ -42,6 +53,14 @@ return {
 
     wildcard_purge_scheduled = {
         { begin = "serving", but_first = "set_http_ok" },
+    },
+
+    purge_api_completed = {
+        { begin = "serving", but_first = "set_http_ok" },
+    },
+
+    purge_api_failed = {
+        { begin = "serving", but_first = "set_http_status_from_response" },
     },
 
     -- URI to purge was not found. Exit 404 Not Found.
@@ -137,6 +156,12 @@ return {
         { begin = "considering_stale_error" },
     },
 
+    -- We were waiting on another request, but the vary key changed
+    -- Might still match so check the cache again
+    collapsed_forwarding_vary_modified = {
+        { begin = "checking_cache", but_first = "reset_cache_key" },
+    },
+
     -- We need to fetch and nothing is telling us we shouldn't.
     -- Collapsed forwarding is not enabled.
     can_fetch = {
@@ -146,7 +171,16 @@ return {
     -- We've fetched and got a response status and headers. We should consider
     -- potential for ESI before doing anything else.
     response_fetched = {
+        { in_case = "vary_modified", begin = "considering_esi_scan" },
+        { begin = "considering_vary" },
+    },
+
+    vary_modified = {
         { begin = "considering_esi_scan" },
+    },
+
+    vary_unmodified = {
+        { begin = "considering_esi_scan" }
     },
 
     partial_response_fetched = {
@@ -252,6 +286,12 @@ return {
     -- served stale), we can just exit. Otherwise go back through validationg
     -- in case we can 304 to the client.
     response_cacheable = {
+        {
+            after = "fetching_as_surrogate",
+            in_case = "vary_modified",
+            begin = "publishing_collapse_vary_modified",
+            but_first = "save_to_cache"
+        },
         {
             after = "fetching_as_surrogate",
             begin = "publishing_collapse_success",

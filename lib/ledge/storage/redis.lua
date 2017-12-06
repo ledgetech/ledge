@@ -1,17 +1,14 @@
-local redis = require "resty.redis"
 local redis_connector = require "resty.redis.connector"
 
-local   tostring, ipairs, pairs, type, tonumber, next, unpack, setmetatable =
-        tostring, ipairs, pairs, type, tonumber, next, unpack, setmetatable
+local tostring, pairs, next, unpack, setmetatable =
+      tostring, pairs, next, unpack, setmetatable
 
 local ngx_null = ngx.null
 local ngx_log = ngx.log
 local ngx_ERR = ngx.ERR
-local ngx_NOTICE = ngx.NOTICE
 local ngx_WARN = ngx.WARN
 
 local tbl_insert = table.insert
-local tbl_copy = require("ledge.util").table.copy
 local tbl_copy_merge_defaults = require("ledge.util").table.copy_merge_defaults
 local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 local get_fixed_field_metatable_proxy =
@@ -19,7 +16,7 @@ local get_fixed_field_metatable_proxy =
 
 
 local _M = {
-    _VERSION = "2.0.4",
+    _VERSION = "2.1.0",
 }
 
 
@@ -159,7 +156,7 @@ function _M.delete(self, entity_id)
     local key_chain = entity_keys(entity_id)
     if key_chain then
         local keys = {}
-        for k, v in pairs(key_chain) do
+        for _, v in pairs(key_chain) do
             tbl_insert(keys, v)
         end
         local res, err = self.redis:del(unpack(keys))

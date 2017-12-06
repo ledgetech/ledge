@@ -53,17 +53,21 @@ location /t {
     content_by_lua_block {
         local res, err = require("ledge.response").new()
         assert(not res, "new with empty args should return negatively")
-        assert(string.find(err, "redis and key_chain args required"),
-            "err should contain 'redis and key_chian args required'")
+        assert(err ~= nil, "err not nil")
+
+        local res, err = require("ledge.response").new({})
+        assert(not res, "new with empty handler should return negatively")
+        assert(err ~= nil, "err not nil")
+
+        local res, err = require("ledge.response").new({redis = {} })
+        assert(not res, "new with empty handler redis should return negatively")
+        assert(err ~= nil, "err not nil")
 
         local handler = require("ledge").create_handler()
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         assert(res and not err, "response object should be created without error")
 
@@ -90,10 +94,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         read_body(res) -- will be empty
 
@@ -119,10 +120,7 @@ location /t {
         handler.redis = redis
 
         require("ledge.response").set_debug(true)
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         res:set_body("foo")
 
@@ -174,10 +172,7 @@ location /t {
         handler.redis = redis
 
         require("ledge.response").set_debug(true)
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         assert(not res:is_cacheable())
 
@@ -211,6 +206,12 @@ location /t {
             ["Cache-Control"] = "max-age=60, no-cache=X-Foo",
         }
         assert(res:is_cacheable())
+
+        res.header = {
+            ["Cache-Control"] = "max-age=60",
+            ["Vary"] = "*",
+        }
+        assert(not res:is_cacheable())
     }
 }
 --- request
@@ -229,10 +230,7 @@ location /t {
         handler.redis = redis
 
         require("ledge.response").set_debug(true)
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         assert(res:ttl() == 0, "ttl should be 0")
 
@@ -266,10 +264,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         res.uri = "http://example.com"
         res.status = 200
@@ -278,36 +273,27 @@ location /t {
         assert(ok and not err, "res should save without err")
 
 
-        local res2, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res2, err = require("ledge.response").new(handler)
 
         local ok, err = res2:read()
-        assert(ok and not err)
+        assert(ok and not err, "res2 should save without err")
 
-        assert(res2.uri == "http://example.com")
+        assert(res2.uri == "http://example.com", "res2 uri")
 
         res2.header["X-Save-Me"] = "ok"
         res2:save(60)
 
-        local res3, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res3, err = require("ledge.response").new(handler)
         res3:read()
 
-        assert(res3.header["X-Save-Me"] == "ok")
+        assert(res3.header["X-Save-Me"] == "ok", "res3 headers")
 
         local ok, err = res3:set_and_save("size", 99)
         assert(ok and not err, "set_and_save should return positively")
 
         assert(res3.size == 99, "res3.size should be 99")
 
-        local res4, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res4, err = require("ledge.response").new(handler)
         res4:read()
 
         assert(res4.size == 99, "res3.size should be 99")
@@ -330,10 +316,7 @@ location /t {
         local redis = require("ledge").create_redis_connection()
         handler.redis = redis
 
-        local res, err = require("ledge.response").new(
-            handler.redis,
-            handler:cache_key_chain()
-        )
+        local res, err = require("ledge.response").new(handler)
 
         -- Ensure entry exists
         res.uri = "http://example.com"
@@ -365,10 +348,156 @@ location /t {
 
         local ok, err = res:read()
         assert(ok or not err, "read should return error on redis error")
+
+
+        handler.cache_key_chain = function() return nil, "Dummy" end
+
+        local ok, err = res:read()
+        assert(ok == nil and err == "Dummy", "read should return error when failing to get the key chain")
     }
 }
 --- request
 GET /t
 --- error_code: 200
+--- no_error_log
+[error]
+
+=== TEST 8: save should replace the has_esi flag
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local res, err = require("ledge.response").new(handler)
+
+        res.uri = "http://example.com"
+        res.status = 200
+
+        local ok, err = res:save(60)
+        assert(ok and not err, "res should save without err")
+
+        res:set_and_save("has_esi", "dummy")
+
+        local res2, err = require("ledge.response").new(handler)
+
+        local ok, err = res2:read()
+        assert(ok and not err, "res2 should save without err")
+
+        assert(res2.uri == "http://example.com", "res2 uri")
+        assert(res2.has_esi == "dummy", "res2 has_esi")
+
+        res2.header["X-Save-Me"] = "ok"
+        res2:save(60)
+
+        local res3, err = require("ledge.response").new(handler)
+        res3:read()
+
+        assert(res3.header["X-Save-Me"] == "ok", "res3 headers")
+        assert(res3.has_esi == false, "res3 has_esi: "..tostring(res3.has_esi))
+
+    }
+}
+--- request
+GET /t
+--- no_error_log
+[error]
+
+
+=== TEST 9: Parse vary header
+--- http_config eval: $::HttpConfig
+--- config
+location /t {
+    content_by_lua_block {
+        local encode = require("cjson").encode
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+
+        local res, err = require("ledge.response").new(handler)
+
+        local tests = {
+            {
+                hdr = nil,
+                res = nil,
+                msg = "Nil header, nil spec",
+            },
+            {
+                hdr = "",
+                res = nil,
+                msg = "Empty header, nil spec",
+            },
+            {
+                hdr = "foo",
+                res = {"foo"},
+                msg = "Single field",
+            },
+            {
+                hdr = "Foo",
+                res = {"foo"},
+                msg = "Single field - case",
+            },
+            {
+                hdr = "fOo,bar,Baz",
+                res = {"bar","baz","foo"},
+                msg = "Multi field",
+            },
+            {
+                hdr = "fOo, bar     ,       Baz",
+                res = {"bar","baz","foo"},
+                msg = "Multi field - whitespace",
+            },
+            {
+                hdr = "bar,baz,foo",
+                res = {"bar","baz","foo"},
+                msg = "Multi field - sort1",
+            },
+                    {
+                hdr = "foo,baz,bar",
+                res = {"bar","baz","foo"},
+                msg = "Multi field - sort2",
+            },
+
+            {
+                hdr = "foo, bar, bar, foo, baz",
+                res = {"bar","baz","foo"},
+                msg = "De-duplicate",
+            },
+            {
+                hdr = {"foo", "Bar", "Baz, Qux"},
+                res = {"bar", "baz", "foo", "qux"},
+                msg = "Multiple vary headers",
+            },
+            {
+                hdr = {"foo, bar", "foo", "bar, Qux", "bar, Foo"},
+                res = {"bar", "foo", "qux"},
+                msg = "Multiple vary headers - deduplicate",
+            },
+        }
+
+        for _, t in ipairs(tests) do
+            res.header["Vary"] = t["hdr"]
+            local vary_spec = res:parse_vary_header()
+            ngx.log(ngx.DEBUG, "-----------------------------------------------")
+            ngx.log(ngx.DEBUG, "header:   ", encode(t["hdr"]))
+            ngx.log(ngx.DEBUG, "spec:     ", encode(vary_spec))
+            ngx.log(ngx.DEBUG, "expected: ", encode(t["res"]))
+
+            if type(t["res"]) == "table" then
+                for i, v in ipairs(t["res"]) do
+                    assert(vary_spec[i] == v, t["msg"])
+                end
+            else
+
+                assert(vary_spec == t["res"], t["msg"])
+            end
+
+        end
+    }
+}
+--- request
+GET /t
 --- no_error_log
 [error]

@@ -4,8 +4,6 @@ local esi = require("ledge.esi")
 local response = require("ledge.response")
 
 local ngx_var = ngx.var
-local ngx_log = ngx.log
-local ngx_INFO = ngx.INFO
 
 local ngx_HTTP_NOT_MODIFIED = ngx.HTTP_NOT_MODIFIED
 
@@ -13,11 +11,8 @@ local ngx_req_set_header = ngx.req.set_header
 
 local get_gzip_decoder = require("ledge.gzip").get_gzip_decoder
 
-local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
-
-
-local _M = {
-    _VERSION = "2.0.4",
+local _M = { -- luacheck: no unused
+    _VERSION = "2.1.0",
 }
 
 
@@ -168,31 +163,16 @@ return {
         ngx_req_set_header("If-None-Match", client_validators["If-None-Match"])
     end,
 
-    add_validators_from_cache = function(handler)
-        local cached_res = handler.response
-
-        ngx_req_set_header("If-Modified-Since", cached_res.header["Last-Modified"])
-        ngx_req_set_header("If-None-Match", cached_res.header["Etag"])
-    end,
-
     add_stale_warning = function(handler)
         return handler:add_warning("110")
-    end,
-
-    add_transformation_warning = function(handler)
-        return handler:add_warning("214")
     end,
 
     add_disconnected_warning = function(handler)
         return handler:add_warning("112")
     end,
 
-    serve = function(handler)
-        return handler:serve()
-    end,
-
     set_json_response = function(handler)
-        local res = response.new(handler.redis, handler:cache_key_chain())
+        local res = response.new(handler)
         res.header["Content-Type"] = "application/json"
         handler.response = res
     end,
@@ -200,7 +180,7 @@ return {
     -- Updates the realidation_params key with data from the current request,
     -- and schedules a background revalidation job
     revalidate_in_background = function(handler)
-        return handler:revalidate_in_background(true)
+        return handler:revalidate_in_background(handler:cache_key_chain(), true)
     end,
 
     -- Triggered on upstream partial content, assumes no stored
@@ -216,42 +196,38 @@ return {
     end,
 
     delete_from_cache = function(handler)
-        return handler:delete_from_cache()
-    end,
-
-    release_collapse_lock = function(handler)
-        handler.redis:del(handler:cache_key_chain().fetching_lock)
+        return handler:delete_from_cache(handler:cache_key_chain())
     end,
 
     disable_output_buffers = function(handler)
         handler.output_buffers_enabled = false
     end,
 
-    set_http_ok = function(handler)
+    reset_cache_key = function(handler)
+        handler:reset_cache_key()
+    end,
+
+    set_http_ok = function()
         ngx.status = ngx.HTTP_OK
     end,
 
-    set_http_not_found = function(handler)
+    set_http_not_found = function()
         ngx.status = ngx.HTTP_NOT_FOUND
     end,
 
-    set_http_not_modified = function(handler)
+    set_http_not_modified = function()
         ngx.status = ngx_HTTP_NOT_MODIFIED
     end,
 
-    set_http_service_unavailable = function(handler)
+    set_http_service_unavailable = function()
         ngx.status = ngx.HTTP_SERVICE_UNAVAILABLE
     end,
 
-    set_http_gateway_timeout = function(handler)
+    set_http_gateway_timeout = function()
         ngx.status = ngx.HTTP_GATEWAY_TIMEOUT
     end,
 
-    set_http_connection_timed_out = function(handler)
-        ngx.status = 524
-    end,
-
-    set_http_internal_server_error = function(handler)
+    set_http_internal_server_error = function()
         ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
     end,
 

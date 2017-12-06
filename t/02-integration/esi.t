@@ -2667,3 +2667,56 @@ OK
 X-Cache: MISS from .*
 --- no_error_log
 [error]
+
+=== TEST 36: No error if res.has_esi incorrectly set_debug
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_36_break {
+    rewrite ^(.*)_break$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler()
+        local redis = require("ledge").create_redis_connection()
+        handler.redis = redis
+        local key = handler:cache_key_chain().main
+
+
+        -- Incorrectly set has_esi flag on main key
+        redis:hset(key, "has_esi", "ESI/1.0")
+        ngx.print("OK")
+    }
+}
+location /esi_36_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge.state_machine").set_debug(true)
+        -- No surrogate control here
+        require("ledge").create_handler():run()
+    }
+}
+location /esi_36 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=60"
+        ngx.print("<esi:vars>Hello</esi:vars>")
+    }
+}
+--- request eval
+[
+    "GET /esi_36_prx",
+    "GET /esi_36_break",
+    "GET /esi_36_prx",
+]
+--- response_body eval
+[
+    "<esi:vars>Hello</esi:vars>",
+    "OK",
+    "<esi:vars>Hello</esi:vars>",
+]
+--- response_headers_like eval
+[
+    "X-Cache: MISS from .*",
+    "",
+    "X-Cache: HIT from .*",
+]
+--- no_error_log
+[error]

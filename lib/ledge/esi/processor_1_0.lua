@@ -7,8 +7,8 @@ local   tostring, type, tonumber, next, unpack, pcall, setfenv =
         tostring, type, tonumber, next, unpack, pcall, setfenv
 
 local str_sub = string.sub
-local str_find = string.find
-local str_len = string.len
+-- TODO: Find places we can use str_find over ngx_re_find
+--local str_find = string.find
 
 local tbl_concat = table.concat
 local tbl_insert = table.insert
@@ -19,12 +19,9 @@ local co_wrap = util.coroutine.wrap
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub
 local ngx_re_match = ngx.re.match
-local ngx_re_gmatch = ngx.re.gmatch
 local ngx_re_find = ngx.re.find
 local ngx_req_get_headers = ngx.req.get_headers
-local ngx_req_get_method = ngx.req.get_method
 local ngx_req_get_uri_args = ngx.req.get_uri_args
-local ngx_crc32_long = ngx.crc32_long
 local ngx_flush = ngx.flush
 local ngx_var = ngx.var
 local ngx_log = ngx.log
@@ -36,7 +33,7 @@ local get_fixed_field_metatable_proxy =
 
 
 local _M = {
-    _VERSION = "2.0.4",
+    _VERSION = "2.1.0",
 }
 
 
@@ -47,8 +44,6 @@ function _M.new(handler)
     }, get_fixed_field_metatable_proxy(_M))
 end
 
-
-local default_recursion_limit = 10
 
 -- $1: variable name (e.g. QUERY_STRING)
 -- $2: substructure key
@@ -138,7 +133,11 @@ local function esi_eval_var(var)
             -- __tostring metamethod turns these back into encoded URI args
             return tostring(esi_args)
         else
-            return tostring(esi_args[key] or default)
+            local value = esi_args[key] or default
+            if type(value) == "table" then
+                return tbl_concat(value, ",")
+            end
+            return tostring(value)
         end
     else
         local custom_variables = ngx.ctx.__ledge_esi_custom_variables
@@ -163,6 +162,7 @@ local function esi_eval_var(var)
         return default
     end
 end
+_M.esi_eval_var = esi_eval_var
 
 
 -- Used in esi_replace_vars. Declared locally to avoid runtime closure
@@ -238,6 +238,7 @@ local function _esi_condition_lexer(condition)
 
     repeat
         local token, err = ngx_re_match(condition, p, "", ctx)
+        if err then ngx_log(ngx_ERR, err) end
         if token then
             local number, string, operator = token[1], token[2], token[3]
             local token_type
@@ -316,6 +317,7 @@ local function _esi_condition_lexer(condition)
 
     return true, tbl_concat(tokens or {}, " ")
 end
+_M._esi_condition_lexer = _esi_condition_lexer
 
 
 local function _esi_evaluate_condition(condition)
@@ -380,6 +382,7 @@ local function esi_replace_vars(chunk)
 
     return chunk
 end
+_M.esi_replace_vars = esi_replace_vars
 
 
 function _M.esi_fetch_include(self, include_tag, buffer_size)
@@ -402,6 +405,7 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
         [[src="([^"]+)"]],
         "oj"
     )
+    if err then ngx_log(ngx_ERR, err) end
 
     if src then
         local httpc = http.new()
@@ -506,6 +510,8 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
                         local ch, err = reader(buffer_size)
                         if ch then
                             co_yield(ch)
+                        elseif err then
+                            ngx_log(ngx_ERR, err)
                         end
                     until not ch
                 end
@@ -553,6 +559,7 @@ local function process_escaping(chunk, res, recursion)
         return chunk
     end
 end
+_M.process_escaping = process_escaping
 
 
 -- Assumed chunk contains a complete conditional instruction set. Handles
@@ -585,14 +592,12 @@ local function evaluate_conditionals(chunk, res, recursion)
 
             local inner_parser = tag_parser.new(choose.contents)
 
-            local when_found = false
             local when_matched = false
             local otherwise
             repeat
                 local tag = inner_parser:next("esi:when|esi:otherwise")
                 if tag and tag.closing then
                     if tag.tagname == "esi:when" and when_matched == false then
-                        when_found = true
 
                         local function process_when(m_when)
                             -- We only show the first matching branch, others
@@ -617,11 +622,12 @@ local function evaluate_conditionals(chunk, res, recursion)
                             return ""
                         end
 
-                        local when_res = ngx_re_sub(
+                        local ok, err = ngx_re_sub(
                             tag.whole,
                             esi_when_pattern,
                             process_when
                         )
+                        if not ok and err then ngx_log(ngx_ERR, err) end
 
                         -- Break after the first winning expression
                     elseif tag.tagname == "esi:otherwise" then
@@ -669,7 +675,7 @@ function _M.get_scan_filter(self, res)
 
         repeat
             local chunk, err = reader(buffer_size)
-            local has_esi = false
+            if err then ngx_log(ngx_ERR, err) end
 
             if chunk then
                 -- If we have a tag hint (partial opening ESI tag) from the
@@ -733,10 +739,11 @@ function _M.get_scan_filter(self, res)
                         else
                             -- No complete tag found, but look for something
                             -- resembling the beginning of an incomplete ESI tag
-                            local start_from, start_to, err = ngx_re_find(
+                            local start_from, _, err = ngx_re_find(
                                 chunk,
                                 "<(?:!--)?esi", "soj"
                             )
+                            if err then ngx_log(ngx_ERR, err) end
                             if start_from then
                                 -- Incomplete opening tag, so buffer and try again
                                 prev_chunk = chunk
@@ -750,6 +757,7 @@ function _M.get_scan_filter(self, res)
                                 str_sub(chunk, -6, -1),
                                 "(?:<!--es|<!--e|<!--|<es|<!-|<e|<!|<)$", "soj"
                             )
+                            if err then ngx_log(ngx_ERR, err) end
 
                             if hint_match then
                                 tag_hint = hint_match[0]
@@ -793,9 +801,9 @@ function _M.get_process_filter(self, res)
         local inner_reader = co_wrap(function(buffer_size)
             repeat
                 local chunk, err, has_esi = reader(buffer_size)
-                local escaped = 0
-                if chunk then
+                if err then ngx_log(ngx_ERR, err) end
 
+                if chunk then
                     if has_esi then
                         -- Remove <!--esi-->
                         chunk = process_escaping(chunk)
@@ -830,6 +838,7 @@ function _M.get_process_filter(self, res)
                                 "oj",
                                 re_ctx
                             )
+                            if err then ngx_log(ngx_ERR, err) end
 
                             if from then
                                 -- Yield up to the start of the include tag
@@ -869,6 +878,7 @@ function _M.get_process_filter(self, res)
         -- so that we can handle accidental recursion.
         repeat
             local chunk, err = inner_reader(buffer_size)
+            if err then ngx_log(ngx_ERR, err) end
             if chunk then
                 -- If we see an abort instruction, we set a flag to stop
                 -- further esi:includes.

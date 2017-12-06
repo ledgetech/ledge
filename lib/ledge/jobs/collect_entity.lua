@@ -5,19 +5,19 @@ local create_storage_connection = require("ledge").create_storage_connection
 
 
 local _M = {
-    _VERSION = "2.0.4",
+    _VERSION = "2.1.0",
 }
 
 
 -- Cleans up expired items and keeps track of memory usage.
 function _M.perform(job)
-    local storage = create_storage_connection(
+    local storage, err = create_storage_connection(
         job.data.storage_driver,
         job.data.storage_driver_config
     )
 
     if not storage then
-        return nil, "job-error", "could not connect to storage driver"
+        return nil, "job-error", "could not connect to storage driver: "..tostring(err)
     end
 
     local ok, err = storage:delete(job.data.entity_id)
