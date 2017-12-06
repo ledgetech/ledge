@@ -93,6 +93,8 @@ local function read_vary_spec(redis, root_key)
         return nil, err
     end
 
+    table.sort(res)
+
     return res
 end
 _M.read_vary_spec = read_vary_spec
