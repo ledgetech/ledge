@@ -205,7 +205,7 @@ Binding a function globally means it will fire for the given event, on all reque
 
 ```lua
 init_by_lua_block {
-    require("ledge"):bind("before_serve", function(res)
+    require("ledge").bind("before_serve", function(res)
         res.header["X-Foo"] = "bar"   -- always set X-Foo to bar
     end)
 }
