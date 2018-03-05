@@ -1660,6 +1660,9 @@ location /esi_17 {
             [['htxtp://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/']],
             "(1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')",
             "2 =~ '/[0-9]/'",
+            "$(HTTP_ACCEPT_LANGUAGE{gb}) == 'true'",
+            "$(HTTP_ACCEPT_LANGUAGE{fr}) == 'false'",
+            "$(HTTP_ACCEPT_LANGUAGE{fr}) == 'true'",
         }
 
         for _,c in ipairs(conditions) do
@@ -1670,6 +1673,8 @@ location /esi_17 {
 }
 --- request
 GET /esi_17_prx?msg=hello&msg2=hel'lo
+--- more_headers
+Accept-Language: en-gb
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1 == 1
@@ -1695,6 +1700,9 @@ hel'lo == 'hel\'lo'
 Failed
 (1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')
 2 =~ '/[0-9]/'
+true == 'true'
+false == 'false'
+Failed
 
 
 === TEST 17b: Lexer complains about unparseable conditions
