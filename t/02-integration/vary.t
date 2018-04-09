@@ -640,3 +640,94 @@ Cache-Control: no-cache",
 ]
 --- no_error_log
 [error]
+
+=== TEST 11: Missing repset re-created on read
+--- http_config eval: $::HttpConfig
+--- config
+location /vary_11_break {
+    rewrite ^(.*)_break $1 break;
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local handler = require("ledge").create_handler()
+        handler.redis = redis
+
+        local chain = handler:cache_key_chain()
+
+        local res, err = redis:del(chain.repset)
+        local exists, err = redis:exists(chain.repset)
+        ngx.print(exists)
+    }
+}
+location /vary_11_check {
+    rewrite ^(.*)_check$ $1 break;
+    content_by_lua_block {
+        local redis = require("ledge").create_redis_connection()
+        local handler = require("ledge").create_handler()
+        handler.redis = redis
+
+        local chain = handler:cache_key_chain()
+
+        local res, err = redis:smembers(chain.repset)
+        ngx.print(#res)
+    }
+}
+location /vary_11_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /vary_11 {
+    content_by_lua_block {
+        local incr = ngx.shared.ledge_test:incr("test11", 1, 0)
+        if incr < 3 then
+            ngx.header["Cache-Control"] = "max-age=60"
+        else
+            ngx.header["Cache-Control"] = "no-cache"
+        end
+        ngx.header["Vary"] = "X-Test"
+        ngx.print("TEST 11: ", incr)
+    }
+}
+--- request eval
+[
+"GET /vary_11_prx",
+"GET /vary_11_prx",
+"GET /vary_11_break",
+"GET /vary_11_prx",
+"GET /vary_11_check",
+"GET /vary_11_prx",
+"GET /vary_11_check",
+]
+--- more_headers eval
+[
+"X-Test: Foo",
+"X-Test: Bar",
+"",
+"X-Test: Foo",
+"",
+"X-Test: Bar",
+"",
+]
+--- response_body eval
+[
+"TEST 11: 1",
+"TEST 11: 2",
+"0",
+"TEST 11: 1",
+"1",
+"TEST 11: 2",
+"2",
+]
+--- response_headers_like eval
+[
+"X-Cache: MISS from .*",
+"X-Cache: MISS from .*",
+"",
+"X-Cache: HIT from .*",
+"",
+"X-Cache: HIT from .*",
+"",
+]
+--- no_error_log
+[error]
