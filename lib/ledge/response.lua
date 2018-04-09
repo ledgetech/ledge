@@ -33,6 +33,7 @@ local header_has_directive = require("ledge.header_util").header_has_directive
 local get_fixed_field_metatable_proxy =
     require("ledge.util").mt.get_fixed_field_metatable_proxy
 
+local save_key_chain = require("ledge.cache_key").save_key_chain
 
 local _DEBUG = false
 
@@ -302,6 +303,22 @@ function _M.read(self)
         elseif entities == 0 then
             ngx_log(ngx_INFO, "entities set is empty")
             return nil
+        end
+    end
+
+    -- Check this key is in the repset
+    local scard, err = redis:sismember(key_chain.repset, key_chain.full)
+    if err then
+        return nil, err
+    end
+
+    -- Got a cache entry but missing from repset or repset missing, bad...
+    -- Call save_key_chain which will add this rep to the repset
+    if scard == 0 then
+        local repset_ttl = redis:ttl(key_chain.main)
+        local ok, err = save_key_chain(redis, key_chain, repset_ttl)
+        if not ok then
+            return nil, err
         end
     end
 
