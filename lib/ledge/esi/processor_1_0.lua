@@ -7,6 +7,7 @@ local   tostring, type, tonumber, next, unpack, pcall, setfenv =
         tostring, type, tonumber, next, unpack, pcall, setfenv
 
 local str_sub = string.sub
+local str_byte = string.byte
 -- TODO: Find places we can use str_find over ngx_re_find
 local str_find = string.find
 
@@ -166,16 +167,25 @@ end
 
 
 local function esi_eval_var(var)
-    var = _esi_eval_var(var)
+    local escape = true
+    local var_name = var[1]
 
-    -- Escape ESI tags in ESI variables
-    local pos = str_find(var, "<esi", 1, true)
-    if pos ~= nil then
-        var = ngx_re_gsub(var, "<", "&lt;", "soj")
-        var = ngx_re_gsub(var, ">", "&gt;", "soj")
+    -- If var name begins with RAW_ do not escape
+    local b1, b2, b3, b4 = str_byte(var_name, 1, 4)
+    if b1 == 82 and b2 == 65 and b3 == 87 and b4 == 95 then
+        escape = false
+        var[1] = str_sub(var_name, 5, -1)
     end
 
-    return var
+    local res = _esi_eval_var(var)
+
+    -- Always escape ESI tags in ESI variables
+    if escape or str_find(res, "<esi", 1, true) ~= nil then
+        res = ngx_re_gsub(res, "<", "&lt;", "soj")
+        res = ngx_re_gsub(res, ">", "&gt;", "soj")
+    end
+
+    return res
 end
 _M.esi_eval_var = esi_eval_var
 
