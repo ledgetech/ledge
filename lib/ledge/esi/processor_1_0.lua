@@ -8,7 +8,7 @@ local   tostring, type, tonumber, next, unpack, pcall, setfenv =
 
 local str_sub = string.sub
 -- TODO: Find places we can use str_find over ngx_re_find
---local str_find = string.find
+local str_find = string.find
 
 local tbl_concat = table.concat
 local tbl_insert = table.insert
@@ -54,7 +54,7 @@ local esi_var_pattern =
 
 
 -- Evaluates a given ESI variable.
-local function esi_eval_var(var)
+local function _esi_eval_var(var)
     -- Extract variables from capture results table
     local var_name = var[1] or ""
 
@@ -142,6 +142,7 @@ local function esi_eval_var(var)
     else
         local custom_variables = ngx.ctx.__ledge_esi_custom_variables
         if next(custom_variables) then
+
             local var = custom_variables[var_name]
             if var then
                 if key then
@@ -161,6 +162,20 @@ local function esi_eval_var(var)
         end
         return default
     end
+end
+
+
+local function esi_eval_var(var)
+    var = _esi_eval_var(var)
+
+    -- Escape ESI tags in ESI variables
+    local pos = str_find(var, "<esi", 1, true)
+    if pos ~= nil then
+        var = ngx_re_gsub(var, "<", "&lt;", "soj")
+        var = ngx_re_gsub(var, ">", "&gt;", "soj")
+    end
+
+    return var
 end
 _M.esi_eval_var = esi_eval_var
 
