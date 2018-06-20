@@ -190,10 +190,9 @@ end
 _M.esi_eval_var = esi_eval_var
 
 
--- Used in esi_replace_vars. Declared locally to avoid runtime closure
-local function _esi_gsub_in_vars_tags(m)
-    local res = ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "soj")
-    return m[1] .. res .. m[3]
+local function esi_replace_vars(str, cb)
+    cb = cb or esi_eval_var
+    return ngx_re_gsub(str, esi_var_pattern, cb, "soj")
 end
 
 
@@ -335,7 +334,7 @@ _M._esi_condition_lexer = _esi_condition_lexer
 
 local function _esi_evaluate_condition(condition)
     -- Evaluate variables in the condition
-    condition = ngx_re_gsub(condition, esi_var_pattern, esi_eval_var_in_when_tag, "soj")
+    condition = esi_replace_vars(condition, esi_eval_var_in_when_tag)
 
     local ok, condition = _esi_condition_lexer(condition)
     if not ok then
@@ -364,9 +363,15 @@ local function _esi_evaluate_condition(condition)
 end
 
 
--- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
+-- Used in esi_process_vars_tag. Declared locally to avoid runtime closure
+local function _esi_gsub_in_vars_tags(m)
+    local res = esi_replace_vars(m[2])
+    return m[1] .. res .. m[3]
+end
+
+-- Replaces all variables in <esi:vars> blocks.
 -- Also removes the <esi:vars> tags themselves.
-local function esi_replace_vars(chunk)
+local function esi_process_vars_tag(chunk)
     -- For every esi:vars block, substitute any number of variables found.
     chunk = ngx_re_gsub(chunk,
         "(<esi:vars>)(.+?)(</esi:vars>)",
@@ -381,7 +386,7 @@ local function esi_replace_vars(chunk)
         "soj"
     )
 end
-_M.esi_replace_vars = esi_replace_vars
+_M.esi_process_vars_tag = esi_process_vars_tag
 
 
 function _M.esi_fetch_include(self, include_tag, buffer_size)
@@ -408,7 +413,7 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
 
     if src then
         -- Evaluate variables in the src URI
-        src = ngx_re_gsub(src[1], esi_var_pattern, esi_eval_var, "oj")
+        src = esi_replace_vars(src[1])
 
         local httpc = http.new()
 
@@ -658,7 +663,7 @@ local function evaluate_conditionals(chunk, res, recursion)
     if not chunk_has_conditionals then
         return chunk
     else
-        return tbl_concat(res)
+        return esi_replace_vars(tbl_concat(res))
     end
 end
 
@@ -826,7 +831,7 @@ function _M.get_process_filter(self, res)
                         )
 
                         -- Evaluate and replace esi vars
-                        chunk = esi_replace_vars(chunk)
+                        chunk = esi_process_vars_tag(chunk)
 
                         -- Evaluate choose / when / otherwise conditions...
                         chunk = evaluate_conditionals(chunk)
