@@ -1690,18 +1690,18 @@ Accept-Language: en-gb
 'repeat' != 'function'
 Failed
 ' repeat sentence with function in it ' == ' repeat sentence with function in it '
-$(QUERY_STRING{msg}) == 'hello'
+hello == 'hello'
 'string \' escaping' == 'string \' escaping'
 'string \" escaping' == 'string \" escaping'
-$(QUERY_STRING{msg2}) == 'hel\'lo'
+hel'lo == 'hel\'lo'
 'hello' =~ '/llo/'
 'HeL\'\'\'Lo' =~ '/hel[\']{1,3}lo/i'
 'http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/'
 Failed
 (1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')
 2 =~ '/[0-9]/'
-$(HTTP_ACCEPT_LANGUAGE{gb}) == 'true'
-$(HTTP_ACCEPT_LANGUAGE{fr}) == 'false'
+true == 'true'
+false == 'false'
 Failed
 
 
@@ -2814,5 +2814,40 @@ GET /esi_39_prx
 --- response_body
 &lt;script&gt;alert("HAXXED");&lt;/script&gt;
 <script>alert("HAXXED");</script>
+--- no_error_log
+[error]
+
+
+=== TEST 40: ESI vars in when/choose blocks are replaced
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_14_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        run()
+    }
+}
+location /esi_14 {
+    default_type text/html;
+content_by_lua_block {
+local content = [[<esi:choose>
+<esi:when test="1 == 1">$(QUERY_STRING{a})
+$(RAW_QUERY_STRING{tag})
+$(QUERY_STRING{tag})
+</esi:when>
+<esi:otherwise>
+Will never happen
+</esi:otherwise>
+</esi:choose>]]
+    ngx.print(content)
+}
+}
+--- request
+GET /esi_14_prx?a=1&tag=foo<script>alert("bad!")</script>bar
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+1
+foo<script>alert("bad!")</script>bar
+foo&lt;script&gt;alert("bad!")&lt;/script&gt;bar
 --- no_error_log
 [error]

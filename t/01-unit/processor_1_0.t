@@ -435,7 +435,7 @@ default
 ",
 ]
 
-=== TEST 9: esi_replace_vars
+=== TEST 9: esi_process_vars_tag
 --- http_config eval: $::HttpConfig
 --- config
 location /t {
@@ -480,9 +480,9 @@ location /t {
             },
         }
         for _, t in pairs(tests) do
-            local output = processor.esi_replace_vars(t["chunk"])
+            local output = processor.esi_process_vars_tag(t["chunk"])
             ngx.log(ngx.DEBUG, "'", output, "'")
-            assert(output == t["res"], "esi_replace_vars mismatch: "..t["msg"] )
+            assert(output == t["res"], "esi_process_vars_tag mismatch: "..t["msg"] )
         end
         ngx.say("OK")
     }
