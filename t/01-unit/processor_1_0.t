@@ -440,6 +440,10 @@ default
 --- config
 location /t {
     content_by_lua_block {
+        ngx.ctx.__ledge_esi_custom_variables = {
+
+            ["DANGER_ZONE"] = '<esi:include src="/kenny" />'
+        }
         local processor = require("ledge.esi.processor_1_0")
         local tests = {
         -- vars tags
@@ -468,6 +472,12 @@ location /t {
                 ["res"]   = [[<p>foo</p>]],
                 ["msg"]   = "empty vars tags removed - content preserved"
             },
+        --  injecting ESI tags from vars
+            {
+                ["chunk"] = [[<esi:vars>$(DANGER_ZONE)</esi:vars>]],
+                ["res"]   = [[&lt;esi:include src="/kenny" /&gt;]],
+                ["msg"]   = "Injected tags are escaped"
+            },
         }
         for _, t in pairs(tests) do
             local output = processor.esi_replace_vars(t["chunk"])
@@ -475,6 +485,11 @@ location /t {
             assert(output == t["res"], "esi_replace_vars mismatch: "..t["msg"] )
         end
         ngx.say("OK")
+    }
+}
+location /kenny {
+    content_by_lua_block {
+        ngx.print("Shouldn't see this")
     }
 }
 

@@ -2733,7 +2733,7 @@ location /esi_36 {
 === TEST 37: SSRF
 --- http_config eval: $::HttpConfig
 --- config
-location /esi_5_prx {
+location /esi_37_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         ngx.req.set_uri_args('evil=foo"/><esi:include src="/bad_frag" />')
@@ -2757,7 +2757,36 @@ location /bad_frag {
     }
 }
 --- request
-GET /esi_5_prx
+GET /esi_37_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
+
+=== TEST 38: SSRF via <esi:vars>
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_38_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_uri_args('evil=<esi:include src="/bad_frag" />')
+        run()
+    }
+}
+location /esi_ {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.say([[<esi:vars>$(QUERY_STRING{evil})</esi:vars>]])
+    }
+}
+location /bad_frag {
+    content_by_lua_block {
+        ngx.log(ngx.ERR, "Shouldn't be able to request this")
+    }
+}
+--- request
+GET /esi_38_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+&lt;esi:include src="/bad_frag" /&gt;
 --- no_error_log
 [error]
