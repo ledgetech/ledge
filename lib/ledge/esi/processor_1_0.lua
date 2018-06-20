@@ -172,29 +172,17 @@ local function _esi_gsub_in_vars_tags(m)
 end
 
 
--- Used in esi_replace_vars. Declared locally to avoid runtime closure
-local function _esi_gsub_in_when_test_tags(m)
-    local vars = ngx_re_gsub(m[2], esi_var_pattern, function(m_var)
-        local res = esi_eval_var(m_var)
-        -- Quote unless we can be considered a number
-        local number = tonumber(res)
-        if number then
-            return number
-        else
-            -- Strings must be enclosed in single quotes, so also backslash
-            -- escape single quotes within the value
-            return "\'" .. ngx_re_gsub(res, "'", "\\'", "oj") .. "\'"
-        end
-    end, "soj")
-
-    return m[1] .. vars .. m[3]
-end
-
-
--- Used in esi_replace_vars. Declared locally to avoid runtime closure
-local function _esi_gsub_vars_in_other_tags(m)
-    local vars = ngx_re_gsub(m[2], esi_var_pattern, esi_eval_var, "oj")
-    return m[1] .. vars .. m[3]
+local function esi_eval_var_in_when_tag(var)
+    var = esi_eval_var(var)
+    -- Quote unless we can be considered a number
+    local number = tonumber(var)
+    if number then
+        return number
+    else
+        -- Strings must be enclosed in single quotes, so also backslash
+        -- escape single quotes within the value
+        return "\'" .. ngx_re_gsub(var, "'", "\\'", "oj") .. "\'"
+    end
 end
 
 
@@ -321,6 +309,9 @@ _M._esi_condition_lexer = _esi_condition_lexer
 
 
 local function _esi_evaluate_condition(condition)
+    -- Evaluate variables in the condition
+    condition = ngx_re_gsub(condition, esi_var_pattern, esi_eval_var_in_when_tag, "soj")
+
     local ok, condition = _esi_condition_lexer(condition)
     if not ok then
         return false
@@ -334,6 +325,7 @@ local function _esi_evaluate_condition(condition)
         setfenv(eval, { find = ngx.re.find })
 
         local ok, res = pcall(eval)
+
         if ok then
             return res
         else
@@ -350,37 +342,19 @@ end
 -- Replaces all variables in <esi:vars> blocks, or inline within other esi:tags.
 -- Also removes the <esi:vars> tags themselves.
 local function esi_replace_vars(chunk)
-    -- First replace any variables in esi:when test="" tags, as these may need
-    -- to be quoted for expression evaluation
-    chunk = ngx_re_gsub(chunk,
-        [[(<esi:when\s*test=\")(.+?)(\"\s*>(?:.*?))]],
-        _esi_gsub_in_when_test_tags,
-        "soj"
-    )
-
     -- For every esi:vars block, substitute any number of variables found.
     chunk = ngx_re_gsub(chunk,
-        "(<esi:[^>]+>)(.+?)(</esi:[^>]+>)",
+        "(<esi:vars>)(.+?)(</esi:vars>)",
         _esi_gsub_in_vars_tags,
         "soj"
     )
 
     -- Remove vars tags that are left over
-    chunk = ngx_re_gsub(chunk,
+    return ngx_re_gsub(chunk,
         "(<esi:vars>|</esi:vars>)",
         "",
         "soj"
     )
-
-    -- Replace vars inline in any other esi: tags, retaining the surrounding
-    -- tags.
-    chunk = ngx_re_gsub(chunk,
-        [[(<esi:)([^>]+)([/\s]*>)]],
-        _esi_gsub_vars_in_other_tags,
-        "oj"
-    )
-
-    return chunk
 end
 _M.esi_replace_vars = esi_replace_vars
 
@@ -408,10 +382,13 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
     if err then ngx_log(ngx_ERR, err) end
 
     if src then
+        -- Evaluate variables in the src URI
+        src = ngx_re_gsub(src[1], esi_var_pattern, esi_eval_var, "oj")
+
         local httpc = http.new()
 
         local scheme, host, port, path
-        local uri_parts = httpc:parse_uri(src[1])
+        local uri_parts = httpc:parse_uri(src)
 
         if not uri_parts then
             -- Not a valid URI, so probably a relative path. Resolve
@@ -419,7 +396,7 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
             scheme = ngx_var.scheme
             host = ngx_var.http_host or ngx_var.host
             port = ngx_var.server_port
-            path = src[1]
+            path = src
 
             -- No leading slash means we have a relative path. Append
             -- this to the current URI.
@@ -495,11 +472,11 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
             local res, err = httpc:request(req_params)
 
             if not res then
-                ngx_log(ngx_ERR, err, " from ", (src[1] or ''))
+                ngx_log(ngx_ERR, err, " from ", (src or ''))
                 return nil
 
             elseif res.status >= 500 then
-                ngx_log(ngx_ERR, res.status, " from ", (src[1] or ''))
+                ngx_log(ngx_ERR, res.status, " from ", (src or ''))
                 return nil
 
             else
@@ -605,6 +582,7 @@ local function evaluate_conditionals(chunk, res, recursion)
                             if when_matched then return "" end
 
                             local condition = m_when[1]
+
                             if _esi_evaluate_condition(condition) then
                                 when_matched = true
 
@@ -822,7 +800,7 @@ function _M.get_process_filter(self, res)
                             "soj"
                         )
 
-                        -- Evaluate and replace all esi vars
+                        -- Evaluate and replace esi vars
                         chunk = esi_replace_vars(chunk)
 
                         -- Evaluate choose / when / otherwise conditions...
