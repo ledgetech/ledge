@@ -2790,3 +2790,29 @@ GET /esi_38_prx
 &lt;esi:include src="/bad_frag" /&gt;
 --- no_error_log
 [error]
+
+=== TEST 39: XSS via <esi:vars>
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_39_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_uri_args('evil=<script>alert("HAXXED");</script>')
+        run()
+    }
+}
+location /esi_ {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.say([[<esi:vars>$(QUERY_STRING{evil})</esi:vars>]])
+        ngx.say([[<esi:vars>$(RAW_QUERY_STRING{evil})</esi:vars>]])
+    }
+}
+--- request
+GET /esi_39_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+&lt;script&gt;alert("HAXXED");&lt;/script&gt;
+<script>alert("HAXXED");</script>
+--- no_error_log
+[error]
