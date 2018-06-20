@@ -577,21 +577,29 @@ location /t {
                 ["res"]   = [[fragment]],
                 ["msg"]   = "nothing to escape"
             },
+            {
+                ["tag"] = [[<esi:include src="/frag?$(QUERY_STRING{test})" />]],
+                ["res"]   = [[fragmentfoobar]],
+                ["msg"]   = "Query string var is evaluated"
+            },
 
         }
         for _, t in pairs(tests) do
             local ret = processor.esi_fetch_include(self, t["tag"], buffer_size)
-            ngx.log(ngx.DEBUG, "'", output, "'")
+            ngx.log(ngx.DEBUG, "RET: '", ret, "'")
+            ngx.log(ngx.DEBUG, "OUTPUT: '", output, "'")
             assert(output == t["res"], "esi_fetch_include mismatch: "..t["msg"] )
         end
         ngx.say("OK")
     }
 }
 location /f {
-    content_by_lua_block { ngx.print("fragment") }
+    content_by_lua_block {
+        ngx.print("fragment", ngx.var.args or "")
+    }
 }
 --- request
-GET /t
+GET /t?test=foobar
 --- no_error_log
 [error]
 --- response_body

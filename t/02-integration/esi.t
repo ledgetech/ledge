@@ -63,7 +63,7 @@ init_worker_by_lua_block {
 };
 
 no_long_string();
-no_diff();
+#no_diff();
 run_tests();
 
 
@@ -2726,5 +2726,38 @@ location /esi_36 {
     "",
     "X-Cache: HIT from .*",
 ]
+--- no_error_log
+[error]
+
+
+=== TEST 37: SSRF
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_5_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_uri_args('evil=foo"/><esi:include src="/bad_frag" />')
+        run()
+    }
+}
+location /fragment_1 {
+    content_by_lua_block {
+        ngx.say("FRAGMENT")
+    }
+}
+location /esi_ {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.print([[<esi:include src="/fragment_1?$(QUERY_STRING{evil})" />]])
+    }
+}
+location /bad_frag {
+    content_by_lua_block {
+        ngx.log(ngx.ERR, "Shouldn't be able to request this")
+    }
+}
+--- request
+GET /esi_5_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- no_error_log
 [error]
