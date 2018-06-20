@@ -442,28 +442,6 @@ location /t {
     content_by_lua_block {
         local processor = require("ledge.esi.processor_1_0")
         local tests = {
-        -- When tags
-            {
-                ["chunk"] = [[<esi:when test="$(QUERY_STRING{test_param})" >]],
-                ["res"]   = [[<esi:when test="'test'" >]],
-                ["msg"]   = "vars in when tag"
-            },
-            {
-                ["chunk"] = [[<esi:when   test="$(QUERY_STRING{test_param})"     >]],
-                ["res"]   = [[<esi:when   test="'test'"     >]],
-                ["msg"]   = "vars in when tag - whitespace"
-            },
-            {
-                ["chunk"] = [[<esi:when   test="$(QUERY_STRING{test_param})]],
-                ["res"]   = [[<esi:when   test="$(QUERY_STRING{test_param})]],
-                ["msg"]   = "vars in when tag - incomplete"
-            },
-            {
-                ["chunk"] = [[<esi:when test="$(QUERY_STRING{test_param})" == 'foobar'>]],
-                ["res"]   = [[<esi:when test="test" == 'foobar'>]],
-                ["msg"]   = "vars in when tag - quoting"
-            },
-
         -- vars tags
             {
                 ["chunk"] = [[<esi:vars>$(QUERY_STRING)</esi:vars>]],
@@ -490,14 +468,6 @@ location /t {
                 ["res"]   = [[<p>foo</p>]],
                 ["msg"]   = "empty vars tags removed - content preserved"
             },
-
-        -- other esi tags
-            {
-                ["chunk"] = [[<esi:foo>$(QUERY_STRING)</esi:foo>]],
-                ["res"]   = [[<esi:foo>test_param=test</esi:foo>]],
-                ["msg"]   = "foo tag"
-            },
-
         }
         for _, t in pairs(tests) do
             local output = processor.esi_replace_vars(t["chunk"])

@@ -1690,18 +1690,18 @@ Accept-Language: en-gb
 'repeat' != 'function'
 Failed
 ' repeat sentence with function in it ' == ' repeat sentence with function in it '
-hello == 'hello'
+$(QUERY_STRING{msg}) == 'hello'
 'string \' escaping' == 'string \' escaping'
 'string \" escaping' == 'string \" escaping'
-hel'lo == 'hel\'lo'
+$(QUERY_STRING{msg2}) == 'hel\'lo'
 'hello' =~ '/llo/'
 'HeL\'\'\'Lo' =~ '/hel[\']{1,3}lo/i'
 'http://example.com?foo=bar' =~ '/^(http[s]?)://([^:/]+)(?::(\d+))?(.*)/'
 Failed
 (1 > 2) | (3.02 > 2.4124 & 1 <= 1) && ('HeLLo' =~ '/hello/i')
 2 =~ '/[0-9]/'
-true == 'true'
-false == 'false'
+$(HTTP_ACCEPT_LANGUAGE{gb}) == 'true'
+$(HTTP_ACCEPT_LANGUAGE{fr}) == 'false'
 Failed
 
 
