@@ -516,6 +516,23 @@ If `$(ESI_ARGS)` is used without a field key, it renders the original query stri
 
 [Back to TOC](#table-of-contents)
 
+
+### Variable Escaping
+
+ESI variables are minimally escaped by default in order to prevent user's injecting additional ESI tags or XSS exploits.
+
+Unescaped variables are available by prefixing the variable name with `RAW_`. This should be used with care.
+
+```html
+# /esi/test.html?a=<script>alert()</script>
+<esi:vars>
+$(QUERY_STRING{a})     <!-- &lt;script&gt;alert()&lt;/script&gt; -->
+$(RAW_QUERY_STRING{a}) <!--  <script>alert()</script> -->
+</esi:vars>
+```
+
+[Back to TOC](#table-of-contents)
+
 ### Missing ESI features
 
 The following parts of the [ESI specification](https://www.w3.org/TR/esi-lang) are not supported, but could be in due course if a need is identified.

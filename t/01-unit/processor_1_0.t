@@ -435,40 +435,32 @@ default
 ",
 ]
 
-=== TEST 9: esi_replace_vars
+=== TEST 9: esi_process_vars_tag
 --- http_config eval: $::HttpConfig
 --- config
 location /t {
     content_by_lua_block {
+        ngx.ctx.__ledge_esi_custom_variables = {
+
+            ["DANGER_ZONE"] = '<esi:include src="/kenny" />'
+        }
         local processor = require("ledge.esi.processor_1_0")
         local tests = {
-        -- When tags
-            {
-                ["chunk"] = [[<esi:when test="$(QUERY_STRING{test_param})" >]],
-                ["res"]   = [[<esi:when test="'test'" >]],
-                ["msg"]   = "vars in when tag"
-            },
-            {
-                ["chunk"] = [[<esi:when   test="$(QUERY_STRING{test_param})"     >]],
-                ["res"]   = [[<esi:when   test="'test'"     >]],
-                ["msg"]   = "vars in when tag - whitespace"
-            },
-            {
-                ["chunk"] = [[<esi:when   test="$(QUERY_STRING{test_param})]],
-                ["res"]   = [[<esi:when   test="$(QUERY_STRING{test_param})]],
-                ["msg"]   = "vars in when tag - incomplete"
-            },
-            {
-                ["chunk"] = [[<esi:when test="$(QUERY_STRING{test_param})" == 'foobar'>]],
-                ["res"]   = [[<esi:when test="test" == 'foobar'>]],
-                ["msg"]   = "vars in when tag - quoting"
-            },
-
         -- vars tags
             {
                 ["chunk"] = [[<esi:vars>$(QUERY_STRING)</esi:vars>]],
                 ["res"]   = [[test_param=test]],
                 ["msg"]   = "vars tag"
+            },
+            {
+                ["chunk"] = [[before <esi:vars>$(QUERY_STRING)</esi:vars> after]],
+                ["res"]   = [[before test_param=test after]],
+                ["msg"]   = "vars tag - outside content"
+            },
+            {
+                ["chunk"] = [[before <esi:vars>$(QUERY_STRING) after</esi:vars>]],
+                ["res"]   = [[before test_param=test after]],
+                ["msg"]   = "vars tag - inside content"
             },
             {
                 ["chunk"] = [[   <esi:vars>   $(QUERY_STRING{test_param})   </esi:vars>   ]],
@@ -490,21 +482,24 @@ location /t {
                 ["res"]   = [[<p>foo</p>]],
                 ["msg"]   = "empty vars tags removed - content preserved"
             },
-
-        -- other esi tags
+        --  injecting ESI tags from vars
             {
-                ["chunk"] = [[<esi:foo>$(QUERY_STRING)</esi:foo>]],
-                ["res"]   = [[<esi:foo>test_param=test</esi:foo>]],
-                ["msg"]   = "foo tag"
+                ["chunk"] = [[<esi:vars>$(DANGER_ZONE)</esi:vars>]],
+                ["res"]   = [[&lt;esi:include src="/kenny" /&gt;]],
+                ["msg"]   = "Injected tags are escaped"
             },
-
         }
         for _, t in pairs(tests) do
-            local output = processor.esi_replace_vars(t["chunk"])
+            local output = processor.esi_process_vars_tag(t["chunk"])
             ngx.log(ngx.DEBUG, "'", output, "'")
-            assert(output == t["res"], "esi_replace_vars mismatch: "..t["msg"] )
+            assert(output == t["res"], "esi_process_vars_tag mismatch: "..t["msg"] )
         end
         ngx.say("OK")
+    }
+}
+location /kenny {
+    content_by_lua_block {
+        ngx.print("Shouldn't see this")
     }
 }
 
@@ -577,21 +572,29 @@ location /t {
                 ["res"]   = [[fragment]],
                 ["msg"]   = "nothing to escape"
             },
+            {
+                ["tag"] = [[<esi:include src="/frag?$(QUERY_STRING{test})" />]],
+                ["res"]   = [[fragmentfoobar]],
+                ["msg"]   = "Query string var is evaluated"
+            },
 
         }
         for _, t in pairs(tests) do
             local ret = processor.esi_fetch_include(self, t["tag"], buffer_size)
-            ngx.log(ngx.DEBUG, "'", output, "'")
+            ngx.log(ngx.DEBUG, "RET: '", ret, "'")
+            ngx.log(ngx.DEBUG, "OUTPUT: '", output, "'")
             assert(output == t["res"], "esi_fetch_include mismatch: "..t["msg"] )
         end
         ngx.say("OK")
     }
 }
 location /f {
-    content_by_lua_block { ngx.print("fragment") }
+    content_by_lua_block {
+        ngx.print("fragment", ngx.var.args or "")
+    }
 }
 --- request
-GET /t
+GET /t?test=foobar
 --- no_error_log
 [error]
 --- response_body

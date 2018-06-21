@@ -2728,3 +2728,172 @@ location /esi_36 {
 ]
 --- no_error_log
 [error]
+
+
+=== TEST 37: SSRF
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_37_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_uri_args('evil=foo"/><esi:include src="/bad_frag" />')
+        run()
+    }
+}
+location /fragment_1 {
+    content_by_lua_block {
+        ngx.say("FRAGMENT")
+    }
+}
+location /esi_ {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.print([[<esi:include src="/fragment_1?$(QUERY_STRING{evil})" />]])
+    }
+}
+location /bad_frag {
+    content_by_lua_block {
+        ngx.log(ngx.ERR, "Shouldn't be able to request this")
+    }
+}
+--- request
+GET /esi_37_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- no_error_log
+[error]
+
+=== TEST 38: SSRF via <esi:vars>
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_38_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_uri_args('evil=<esi:include src="/bad_frag" />')
+        run()
+    }
+}
+location /esi_ {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.say([[<esi:vars>$(QUERY_STRING{evil})</esi:vars>]])
+    }
+}
+location /bad_frag {
+    content_by_lua_block {
+        ngx.log(ngx.ERR, "Shouldn't be able to request this")
+    }
+}
+--- request
+GET /esi_38_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+&lt;esi:include src="/bad_frag" /&gt;
+--- no_error_log
+[error]
+
+=== TEST 39: XSS via <esi:vars>
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_39_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_uri_args('evil=<script>alert("HAXXED");</script>')
+        run()
+    }
+}
+location /esi_ {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.say([[<esi:vars>$(QUERY_STRING{evil})</esi:vars>]])
+        ngx.say([[<esi:vars>$(RAW_QUERY_STRING{evil})</esi:vars>]])
+    }
+}
+--- request
+GET /esi_39_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+&lt;script&gt;alert("HAXXED");&lt;/script&gt;
+<script>alert("HAXXED");</script>
+--- no_error_log
+[error]
+
+
+=== TEST 40: ESI vars in when/choose blocks are replaced
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_40_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        run()
+    }
+}
+location /esi_40 {
+    default_type text/html;
+content_by_lua_block {
+local content = [[<esi:choose>
+<esi:when test="1 == 1">$(QUERY_STRING{a})
+$(RAW_QUERY_STRING{tag})
+$(QUERY_STRING{tag})
+</esi:when>
+<esi:otherwise>
+Will never happen
+</esi:otherwise>
+</esi:choose>]]
+    ngx.print(content)
+}
+}
+--- request
+GET /esi_40_prx?a=1&tag=foo<script>alert("bad!")</script>bar
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+1
+foo<script>alert("bad!")</script>bar
+foo&lt;script&gt;alert("bad!")&lt;/script&gt;bar
+--- no_error_log
+[error]
+
+
+=== TEST 41: Vars inside when/choose blocks are not evaluated before esi includes
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_41_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_uri_args('a=test&evil="<esi:include src="/bad_frag" />')
+        run()
+    }
+}
+location /esi_ {
+    default_type text/html;
+    content_by_lua_block {
+local content = [[BEFORE $(QUERY_STRING{a})
+<esi:choose><esi:when test="1 == 1">
+<esi:include src="/fragment_1?test=$(QUERY_STRING{evil})" />
+$(QUERY_STRING{a})
+</esi:when><esi:otherwise>Will never happen</esi:otherwise></esi:choose>
+AFTER]]
+        ngx.say(content)
+    }
+}
+location /fragment_1 {
+    content_by_lua_block {
+        ngx.print("FRAGMENT")
+    }
+}
+location /bad_frag {
+    content_by_lua_block {
+        ngx.log(ngx.ERR, "Shouldn't be able to request this")
+    }
+}
+--- request
+GET /esi_41_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+BEFORE $(QUERY_STRING{a})
+
+FRAGMENT
+test
+
+AFTER
+--- no_error_log
+[error]
