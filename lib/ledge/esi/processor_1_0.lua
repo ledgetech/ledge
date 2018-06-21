@@ -34,7 +34,7 @@ local get_fixed_field_metatable_proxy =
 
 
 local _M = {
-    _VERSION = "2.1.1",
+    _VERSION = "2.1.2",
 }
 
 
