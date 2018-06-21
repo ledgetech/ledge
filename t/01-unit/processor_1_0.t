@@ -453,6 +453,16 @@ location /t {
                 ["msg"]   = "vars tag"
             },
             {
+                ["chunk"] = [[before <esi:vars>$(QUERY_STRING)</esi:vars> after]],
+                ["res"]   = [[before test_param=test after]],
+                ["msg"]   = "vars tag - outside content"
+            },
+            {
+                ["chunk"] = [[before <esi:vars>$(QUERY_STRING) after</esi:vars>]],
+                ["res"]   = [[before test_param=test after]],
+                ["msg"]   = "vars tag - inside content"
+            },
+            {
                 ["chunk"] = [[   <esi:vars>   $(QUERY_STRING{test_param})   </esi:vars>   ]],
                 ["res"]   = [[      test      ]],
                 ["msg"]   = "vars tag - whitespace"

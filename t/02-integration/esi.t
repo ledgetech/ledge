@@ -63,7 +63,7 @@ init_worker_by_lua_block {
 };
 
 no_long_string();
-#no_diff();
+no_diff();
 run_tests();
 
 
@@ -2821,13 +2821,13 @@ GET /esi_39_prx
 === TEST 40: ESI vars in when/choose blocks are replaced
 --- http_config eval: $::HttpConfig
 --- config
-location /esi_14_prx {
+location /esi_40_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         run()
     }
 }
-location /esi_14 {
+location /esi_40 {
     default_type text/html;
 content_by_lua_block {
 local content = [[<esi:choose>
@@ -2843,11 +2843,57 @@ Will never happen
 }
 }
 --- request
-GET /esi_14_prx?a=1&tag=foo<script>alert("bad!")</script>bar
+GET /esi_40_prx?a=1&tag=foo<script>alert("bad!")</script>bar
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 1
 foo<script>alert("bad!")</script>bar
 foo&lt;script&gt;alert("bad!")&lt;/script&gt;bar
+--- no_error_log
+[error]
+
+
+=== TEST 41: Vars inside when/choose blocks are not evaluated before esi includes
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_41_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        ngx.req.set_uri_args('a=test&evil="<esi:include src="/bad_frag" />')
+        run()
+    }
+}
+location /esi_ {
+    default_type text/html;
+    content_by_lua_block {
+local content = [[BEFORE $(QUERY_STRING{a})
+<esi:choose><esi:when test="1 == 1">
+<esi:include src="/fragment_1?test=$(QUERY_STRING{evil})" />
+$(QUERY_STRING{a})
+</esi:when><esi:otherwise>Will never happen</esi:otherwise></esi:choose>
+AFTER]]
+        ngx.say(content)
+    }
+}
+location /fragment_1 {
+    content_by_lua_block {
+        ngx.print("FRAGMENT")
+    }
+}
+location /bad_frag {
+    content_by_lua_block {
+        ngx.log(ngx.ERR, "Shouldn't be able to request this")
+    }
+}
+--- request
+GET /esi_41_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+BEFORE $(QUERY_STRING{a})
+
+FRAGMENT
+test
+
+AFTER
 --- no_error_log
 [error]
