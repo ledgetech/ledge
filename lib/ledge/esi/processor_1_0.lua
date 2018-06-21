@@ -363,30 +363,164 @@ local function _esi_evaluate_condition(condition)
 end
 
 
--- Used in esi_process_vars_tag. Declared locally to avoid runtime closure
-local function _esi_gsub_in_vars_tags(m)
-    local res = esi_replace_vars(m[2])
-    return m[1] .. res .. m[3]
+-- Assumed chunk contains a complete conditional instruction set. Handles
+-- recursion for nested conditions.
+local function evaluate_conditionals(chunk, res, recursion)
+    if not recursion then recursion = 0 end
+    if not res then res = {} end
+
+    local parser = tag_parser.new(chunk)
+
+    -- $1: the condition inside test=""
+    local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>)]]
+    local after -- Will contain anything after the last closing choose tag
+    local chunk_has_conditionals = false
+    repeat
+        local choose, ch_before, ch_after = parser:next("esi:choose")
+        if choose and choose.closing then
+            chunk_has_conditionals = true
+
+            -- Anything before this choose should just be output
+            if ch_before then
+                tbl_insert(res, ch_before)
+            end
+
+            -- If this ends up being the last choose tag, content after this
+            -- should be output
+            if ch_after then
+                after = ch_after
+            end
+
+            local inner_parser = tag_parser.new(choose.contents)
+
+            local when_matched = false
+            local otherwise
+            repeat
+                local tag = inner_parser:next("esi:when|esi:otherwise")
+                if tag and tag.closing then
+                    if tag.tagname == "esi:when" and when_matched == false then
+
+                        local function process_when(m_when)
+                            -- We only show the first matching branch, others
+                            -- must be removed even if they also match.
+                            if when_matched then return "" end
+
+                            local condition = m_when[1]
+
+                            if _esi_evaluate_condition(condition) then
+                                when_matched = true
+
+                                if ngx_re_find(tag.contents, "<esi:choose>") then
+                                    -- recurse
+                                    evaluate_conditionals(
+                                        tag.contents,
+                                        res,
+                                        recursion + 1
+                                    )
+                                else
+                                    tbl_insert(res, tag.contents)
+                                end
+                            end
+                            return ""
+                        end
+
+                        local ok, err = ngx_re_sub(
+                            tag.whole,
+                            esi_when_pattern,
+                            process_when
+                        )
+                        if not ok and err then ngx_log(ngx_ERR, err) end
+
+                        -- Break after the first winning expression
+                    elseif tag.tagname == "esi:otherwise" then
+                        otherwise = tag.contents
+                    end
+                end
+            until not tag
+
+            if not when_matched and otherwise then
+                if ngx_re_find(otherwise, "<esi:choose>") then
+                    -- recurse
+                    evaluate_conditionals(otherwise, res, recursion + 1)
+                else
+                    tbl_insert(res, otherwise)
+                end
+            end
+        end
+
+    until not choose
+
+    if after then
+        tbl_insert(res, after)
+    end
+
+    -- Variables inside ESI tags should be evaluated.
+    -- Return hint to eval this chunk
+    if not chunk_has_conditionals then
+        return chunk, false
+    else
+        return tbl_concat(res), true
+    end
 end
+
+
+-- Used in esi_process_vars_tag. Declared locally to avoid runtime closure
+local function _esi_gsub_vars(m)
+    return esi_replace_vars(m[2])
+end
+
 
 -- Replaces all variables in <esi:vars> blocks.
 -- Also removes the <esi:vars> tags themselves.
 local function esi_process_vars_tag(chunk)
-    -- For every esi:vars block, substitute any number of variables found.
-    chunk = ngx_re_gsub(chunk,
-        "(<esi:vars>)(.+?)(</esi:vars>)",
-        _esi_gsub_in_vars_tags,
-        "soj"
-    )
+    if str_find(chunk, "esi:vars", 1, true) == nil then
+        return chunk
+    end
 
-    -- Remove vars tags that are left over
+    -- For every esi:vars block, substitute any number of variables found.
     return ngx_re_gsub(chunk,
-        "(<esi:vars>|</esi:vars>)",
-        "",
+        "(<esi:vars>)(.*?)(</esi:vars>)",
+        _esi_gsub_vars,
         "soj"
     )
 end
 _M.esi_process_vars_tag = esi_process_vars_tag
+
+
+local function process_escaping(chunk, res, recursion)
+    if not recursion then recursion = 0 end
+    if not res then res = {} end
+
+    local parser = tag_parser.new(chunk)
+
+    local chunk_has_escaping = false
+    repeat
+        local tag, before, after = parser:next("!--esi")
+        if tag and tag.closing then
+            chunk_has_escaping = true
+            if before then
+                tbl_insert(res, before)
+            end
+
+            -- If there are more nested, recurse
+            if ngx_re_find(tag.contents, "<!--esi", "soj") then
+                return process_escaping(tag.contents, res, recursion)
+            else
+                tbl_insert(res, tag.contents)
+                tbl_insert(res, after)
+            end
+
+        end
+
+    until not tag
+
+    if chunk_has_escaping then
+        return tbl_concat(res)
+    else
+        return chunk
+    end
+end
+_M.process_escaping = process_escaping
 
 
 function _M.esi_fetch_include(self, include_tag, buffer_size)
@@ -533,138 +667,96 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
 end
 
 
-local function process_escaping(chunk, res, recursion)
-    if not recursion then recursion = 0 end
-    if not res then res = {} end
+local function esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size, eval_vars)
+    -- Short circuit
+    if not chunk or str_find(chunk, "<esi:include", 1, true) == nil then
 
-    local parser = tag_parser.new(chunk)
+        if eval_vars then
+            chunk = esi_replace_vars(chunk)
+        end
 
-    local chunk_has_escaping = false
+        return co_yield(chunk)
+    end
+
+    -- Find and loop over esi:include tags
+    local re_ctx = { pos = 1 }
+    local yield_from = 1
     repeat
-        local tag, before, after = parser:next("!--esi")
-        if tag and tag.closing then
-            chunk_has_escaping = true
-            if before then
-                tbl_insert(res, before)
+        local from, to, err = ngx_re_find(
+            chunk,
+            [[<esi:include\s*src="[^"]+"\s*/>]],
+            "oj",
+            re_ctx
+        )
+        if err then ngx_log(ngx_ERR, err) end
+
+        if from then
+            -- Yield up to the start of the include tag
+            local pre = str_sub(chunk, yield_from, from - 1)
+            if eval_vars then
+                pre = esi_replace_vars(pre)
             end
 
-            -- If there are more nested, recurse
-            if ngx_re_find(tag.contents, "<!--esi", "soj") then
-                return process_escaping(tag.contents, res, recursion)
+            co_yield(pre)
+            ngx_flush()
+            yield_from = to + 1
+
+            -- This will be true if an include has
+            -- previously yielded the "esi:abort_includes
+            -- instruction.
+            if esi_abort_flag == false then
+                -- Fetches and yields the streamed response
+                self:esi_fetch_include(
+                    str_sub(chunk, from, to),
+                    buffer_size
+                )
+            end
+        else
+            if yield_from == 1 then
+                -- No includes found, yield everything
+                if eval_vars then
+                    chunk = esi_replace_vars(chunk)
+                end
+
+                co_yield(chunk)
             else
-                tbl_insert(res, tag.contents)
-                tbl_insert(res, after)
-            end
+                -- No *more* includes, yield what's left
+                chunk = str_sub(chunk, re_ctx.pos, -1)
+                if eval_vars then
+                    chunk = esi_replace_vars(chunk)
+                end
 
+                co_yield(chunk)
+            end
         end
 
-    until not tag
-
-    if chunk_has_escaping then
-        return tbl_concat(res)
-    else
-        return chunk
-    end
+    until not from
 end
-_M.process_escaping = process_escaping
 
 
--- Assumed chunk contains a complete conditional instruction set. Handles
--- recursion for nested conditions.
-local function evaluate_conditionals(chunk, res, recursion)
-    if not recursion then recursion = 0 end
-    if not res then res = {} end
-
-    local parser = tag_parser.new(chunk)
-
-    -- $1: the condition inside test=""
-    local esi_when_pattern = [[(?:<esi:when)\s+(?:test="(.+?)"\s*>)]]
-    local after -- Will contain anything after the last closing choose tag
-    local chunk_has_conditionals = false
-    repeat
-        local choose, ch_before, ch_after = parser:next("esi:choose")
-        if choose and choose.closing then
-            chunk_has_conditionals = true
-
-            -- Anything before this choose should just be output
-            if ch_before then
-                tbl_insert(res, ch_before)
-            end
-
-            -- If this ends up being the last choose tag, content after this
-            -- should be output
-            if ch_after then
-                after = ch_after
-            end
-
-            local inner_parser = tag_parser.new(choose.contents)
-
-            local when_matched = false
-            local otherwise
-            repeat
-                local tag = inner_parser:next("esi:when|esi:otherwise")
-                if tag and tag.closing then
-                    if tag.tagname == "esi:when" and when_matched == false then
-
-                        local function process_when(m_when)
-                            -- We only show the first matching branch, others
-                            -- must be removed even if they also match.
-                            if when_matched then return "" end
-
-                            local condition = m_when[1]
-
-                            if _esi_evaluate_condition(condition) then
-                                when_matched = true
-
-                                if ngx_re_find(tag.contents, "<esi:choose>") then
-                                    -- recurse
-                                    evaluate_conditionals(
-                                        tag.contents,
-                                        res,
-                                        recursion + 1
-                                    )
-                                else
-                                    tbl_insert(res, tag.contents)
-                                end
-                            end
-                            return ""
-                        end
-
-                        local ok, err = ngx_re_sub(
-                            tag.whole,
-                            esi_when_pattern,
-                            process_when
-                        )
-                        if not ok and err then ngx_log(ngx_ERR, err) end
-
-                        -- Break after the first winning expression
-                    elseif tag.tagname == "esi:otherwise" then
-                        otherwise = tag.contents
-                    end
-                end
-            until not tag
-
-            if not when_matched and otherwise then
-                if ngx_re_find(otherwise, "<esi:choose>") then
-                    -- recurse
-                    evaluate_conditionals(otherwise, res, recursion + 1)
-                else
-                    tbl_insert(res, otherwise)
-                end
-            end
-        end
-
-    until not choose
-
-    if after then
-        tbl_insert(res, after)
-    end
-
-    if not chunk_has_conditionals then
+local function esi_process_comment_tags(chunk)
+    if str_find(chunk, "<esi:comment", 1, true) == nil then
         return chunk
-    else
-        return esi_replace_vars(tbl_concat(res))
     end
+
+    return ngx_re_gsub(chunk,
+        "<esi:comment (?:.*?)/>",
+        "",
+        "soj"
+    )
+end
+
+
+local function esi_process_remove_tags(chunk)
+    if str_find(chunk, "<esi:remove", 1, true) == nil then
+        return chunk
+    end
+
+    return ngx_re_gsub(chunk,
+        "(<esi:remove>.*?</esi:remove>)",
+        "",
+        "soj"
+    )
 end
 
 
@@ -817,64 +909,21 @@ function _M.get_process_filter(self, res)
                         chunk = process_escaping(chunk)
 
                         -- Remove comments.
-                        chunk = ngx_re_gsub(chunk,
-                            "<esi:comment (?:.*?)/>",
-                            "",
-                            "soj"
-                        )
+                        chunk = esi_process_comment_tags(chunk)
 
-                        -- Remove 'remove' blocks
-                        chunk = ngx_re_gsub(chunk,
-                            "(<esi:remove>.*?</esi:remove>)",
-                            "",
-                            "soj"
-                        )
+                        -- Remove '<esi:remove' blocks
+                        chunk = esi_process_remove_tags(chunk)
 
-                        -- Evaluate and replace esi vars
+                        -- Evaluate and replace <esi:vars>
                         chunk = esi_process_vars_tag(chunk)
 
                         -- Evaluate choose / when / otherwise conditions...
-                        chunk = evaluate_conditionals(chunk)
+                        local chunk, should_eval = evaluate_conditionals(chunk)
 
-                        -- Find and loop over esi:include tags
-                        local re_ctx = { pos = 1 }
-                        local yield_from = 1
-                        repeat
-                            local from, to, err = ngx_re_find(
-                                chunk,
-                                [[<esi:include\s*src="[^"]+"\s*/>]],
-                                "oj",
-                                re_ctx
-                            )
-                            if err then ngx_log(ngx_ERR, err) end
+                        -- Process ESI includes
+                        -- Will yield content to the outer reader
+                        esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size, should_eval)
 
-                            if from then
-                                -- Yield up to the start of the include tag
-                                co_yield(str_sub(chunk, yield_from, from - 1))
-                                ngx_flush()
-                                yield_from = to + 1
-
-                                -- This will be true if an include has
-                                -- previously yielded the "esi:abort_includes
-                                -- instruction.
-                                if esi_abort_flag == false then
-                                    -- Fetches and yields the streamed response
-                                    self:esi_fetch_include(
-                                        str_sub(chunk, from, to),
-                                        buffer_size
-                                    )
-                                end
-                            else
-                                if yield_from == 1 then
-                                    -- No includes found, yield everything
-                                    co_yield(chunk)
-                                else
-                                    -- No *more* includes, yield what's left
-                                    co_yield(str_sub(chunk, re_ctx.pos, -1))
-                                end
-                            end
-
-                        until not from
                     else
                         co_yield(chunk)
                     end
@@ -890,7 +939,7 @@ function _M.get_process_filter(self, res)
             if chunk then
                 -- If we see an abort instruction, we set a flag to stop
                 -- further esi:includes.
-                if ngx_re_find(chunk, "<esi:abort_includes", "soj") then
+                if str_find(chunk, "<esi:abort_includes", 1, true) then
                     esi_abort_flag = true
                 end
 
