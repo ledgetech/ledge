@@ -50,13 +50,13 @@ Moreover, it is particularly suited to applications where the origin is expensiv
 * [LuaRocks](https://luarocks.org/)
 
 
-### 2. Install Ledge using LuaRocks:
+### 2. Install Ledge using OPM:
 
 ```
-luarocks install ledge
+opm get hamishforbes/ledge
 ```
 
-This will install the latest stable release, and all other Lua module dependencies, which if installing manually without LuaRocks are:
+This will install the latest stable release, and all other Lua module dependencies, which if installing manually without OPM are:
 
 * [lua-resty-http](https://github.com/pintsized/lua-resty-http)
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector)
