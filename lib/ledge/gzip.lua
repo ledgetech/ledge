@@ -8,7 +8,7 @@ local zlib = require("ffi-zlib")
 
 
 local _M = {
-    _VERSION = "2.1.2",
+    _VERSION = "2.1.3",
 }
 
 
