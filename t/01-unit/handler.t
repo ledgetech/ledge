@@ -175,14 +175,14 @@ error in user callback for 'before_serve': oops
 location /t {
     content_by_lua_block {
         -- Defaults to the hostname of the server
-        local visible_hostname = require("ledge").create_handler().config.visible_hostname
-        local host = ngx.var.hostname
+        local visible_hostname = string.lower(require("ledge").create_handler().config.visible_hostname)
+        local host = string.lower(ngx.var.hostname)
         assert(visible_hostname == host,
             "visible_hostname "..tostring(visible_hostname).." should be "..host)
 
         -- Test overriding the visible_hostname
         local host = "example.com"
-        local visible_hostname = require("ledge").create_handler({ visible_hostname = host }).config.visible_hostname
+        local visible_hostname = string.lower(require("ledge").create_handler({ visible_hostname = host }).config.visible_hostname)
         assert(visible_hostname == host,
             "visible_hostname should be " .. host)
     }

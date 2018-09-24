@@ -430,7 +430,7 @@ Error was yielded!
 location /t {
     content_by_lua_block {
         local get_hostname = require("ledge.util").get_hostname
-        assert(get_hostname() == ngx.var.hostname,
+        assert(string.lower(get_hostname()) == string.lower(ngx.var.hostname),
             "get_hostname "..tostring(get_hostname()).." should be "..ngx.var.hostname)
     }
 }
