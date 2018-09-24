@@ -499,11 +499,11 @@ local function fetch_from_origin(self)
         -- A received message that does not have a Date header field MUST be
         -- assigned one by the recipient if the message will be cached by that
         -- recipient
-        if not res.header["Date"] or
+        if type(res.header["Date"]) ~= "string" or
             not ngx_parse_http_time(res.header["Date"]) then
 
             ngx_log(ngx_WARN,
-                "no Date header from upstream, generating locally"
+                "Missing or invalid Date header from upstream, generating locally"
             )
             res.header["Date"] = ngx_http_time(ngx_time())
         end
