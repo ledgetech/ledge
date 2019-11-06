@@ -4,7 +4,7 @@ An RFC compliant and [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache fo
 
 Ledge can be utilised as a fast, robust and scalable alternative to Squid / Varnish etc, either installed standalone or integrated into an existing Nginx server or load balancer.
 
-Moreover, it is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible.
+Ledge is particularly suited to applications where the origin is expensive or distant, making it desirable to serve from cache as optimistically as possible.
 
 
 ## Table of Contents
@@ -56,7 +56,7 @@ Moreover, it is particularly suited to applications where the origin is expensiv
 luarocks install ledge
 ```
 
-This will install the latest stable release, and all other Lua module dependencies, which if installing manually without LuaRocks are:
+This will install the latest stable release, and all other Lua module dependencies:
 
 * [lua-resty-http](https://github.com/pintsized/lua-resty-http)
 * [lua-resty-redis-connector](https://github.com/pintsized/lua-resty-redis-connector)
@@ -68,7 +68,7 @@ This will install the latest stable release, and all other Lua module dependenci
 
 ### 3. Review OpenResty documentation
 
-If you are new to OpenResty, it's quite important to review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx, as the environment is unusual. Specifcally, it's useful to understand the meaning of the different Nginx phase hooks such as `init_by_lua` and `content_by_lua`, as well as how the `lua-nginx-module` locates Lua modules with the [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path) directive.
+If you are new to OpenResty, you should review the [lua-nginx-module](https://github.com/openresty/lua-nginx-module) documentation on how to run Lua code in Nginx, as the environment is unusual. It is useful to understand the meaning of the different Nginx phase hooks such as `init_by_lua` and `content_by_lua`, as well as how the `lua-nginx-module` locates Lua modules with the [lua_package_path](https://github.com/openresty/lua-nginx-module#lua_package_path) directive.
 
 [Back to TOC](#table-of-contents)
 
@@ -83,17 +83,26 @@ A `worker` is long lived, and there is one per Nginx worker process. It is creat
 
 An `upstream` is the only thing which must be manually configured, and points to another HTTP host where actual content lives. Typically one would use DNS to resolve client connections to the Nginx server running Ledge, and tell Ledge where to fetch from with the `upstream` configuration. As such, Ledge isn't designed to work as a forwarding proxy.
 
-[Redis](http://redis.io) is used for much more than cache storage. We rely heavily on its data structures to maintain cache `metadata`, as well as embedded Lua scripts for atomic task management and so on. By default, all cache body data and `metadata` will be stored in the same Redis instance. The location of cache `metadata` is global, set when Nginx starts up.
+[Redis](http://redis.io) is used for cache body data, metadata, and embedded Lua scripts for atomic task management. By default, all cache body data and metadata will be stored in the same Redis instance. The location of cache metadata is global, set when Nginx starts up.
 
-Cache body data is handled by the `storage` system, and as mentioned, by default shares the same Redis instance as the `metadata`. However, `storage` is abstracted via a [driver system](#storage_driver) making it possible to store cache body data in a separate Redis instance, or a group of horizontally scalable Redis instances via a [proxy](https://github.com/twitter/twemproxy), or to roll your own `storage` driver, for example targeting PostreSQL or even simply a filesystem. It's perhaps important to consider that by default all cache storage uses Redis, and as such is bound by system memory.
+Cache body data is handled by the `storage` system and, by default, shares the same Redis instance as metadata.
+
+However - `storage` is abstracted via a [driver system](#storage_driver), which makes it possible to:
+
+* store body data in a separate Redis instance.
+* store body data in a group of horizontally scalable Redis instances (via a [proxy](https://github.com/twitter/twemproxy)).
+* roll your own `storage` driver, for example targeting PostreSQL or even a filesystem.
+ 
+
+By default, all cache storage uses Redis, and as such is bound by system memory.
 
 [Back to TOC](#table-of-contents)
 
 ### Cache keys
 
-A goal of any caching system is to safely maximise the HIT potential. That is, normalise factors which would split the cache wherever possible, in order to share as much cache as possible.
+A goal of any caching system is to safely maximise the `HIT` potential. That is, normalise factors which would split the cache wherever possible, in order to share as much cache as possible.
 
-This is tricky to generalise, and so by default Ledge puts sane defaults from the request URI into the cache key, and provides a means for this to be customised by altering the [cache\_key\_spec](#cache_key_spec).
+This is tricky to generalise, so by default Ledge puts sane defaults from the request URI into the cache key. This can be customised by altering the [cache\_key\_spec](#cache_key_spec).
 
 URI arguments are sorted alphabetically by default, so `http://example.com?a=1&b=2` would hit the same cache entry as `http://example.com?b=2&a=1`.
 
@@ -101,11 +110,11 @@ URI arguments are sorted alphabetically by default, so `http://example.com?a=1&b
 
 ### Streaming design
 
-HTTP response sizes can be wildly different, sometimes tiny and sometimes huge, and it's not always possible to know the total size up front.
+HTTP response sizes can be wildly different, and it's not always possible to know the total size up front.
 
-To guarantee predictable memory usage regardless of response sizes Ledge operates a streaming design, meaning it only ever operates on a single `buffer` per request at a time. This is equally true when fetching upstream to when reading from cache or serving to the client request.
+To guarantee predictable memory usage, Ledge operates a streaming design - it only ever operates on a single `buffer` per request at a time. This applies when fetching upstream, reading from cache or serving data back to the client.
 
-It's also true (mostly) when processing [ESI](#edge-size-includes) instructions, except for in the case where an instruction is found to span multiple buffers. In this case, we continue buffering until a complete instruction can be understood, up to a [configurable limit](#esi_max_size).
+This also applies when processing [ESI](#edge-size-includes) instructions, except in the case where an instruction is found to span multiple buffers. In this situation, we continue buffering until a complete instruction can be understood, up to a [configurable limit](#esi_max_size).
 
 This streaming design also improves latency, since we start serving the first `buffer` to the client request as soon as we're done with it, rather than fetching and saving an entire resource prior to serving. The `buffer` size can be [tuned](#buffer_size) even on a per `location` basis.
 
@@ -113,7 +122,7 @@ This streaming design also improves latency, since we start serving the first `b
 
 ### Collapsed forwarding
 
-Ledge can attempt to collapse concurrent origin requests for known (previously) cacheable resources into a single upstream request. That is, if an upstream request for a resource is in progress, subsequent concurrent requests for the same resource will not bother the upstream, and instead wait for the first request to finish.
+Ledge can attempt to collapse concurrent origin requests for known (previously) cacheable resources into a single upstream request. If an upstream request for a resource is in progress, concurrent requests for the same resource will not bother the upstream, and instead wait for the first request to finish.
 
 This is particularly useful to reduce upstream load if a spike of traffic occurs for expired and expensive content (since the chances of concurrent requests is higher on slower content).
 
@@ -121,7 +130,7 @@ This is particularly useful to reduce upstream load if a spike of traffic occurs
 
 ### Advanced cache patterns
 
-Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache HIT rates and to reduce latency for requests. See the sections on [Edge Side Includes](#edge-side-includes), [serving stale](#serving-stale) and [revalidating on purge](#purging) for more information.
+Beyond standard RFC compliant cache behaviours, Ledge has many features designed to maximise cache `HIT` rates and to reduce latency for requests. See the sections on [Edge Side Includes](#edge-side-includes), [serving stale](#serving-stale) and [revalidating on purge](#purging) for more information.
 
 [Back to TOC](#table-of-contents)
 
@@ -170,18 +179,18 @@ http {
 
 ## Config systems
 
-There are four different layers to the configuration system. Firstly there is the main [Redis config](#ledgeconfigure) and [handler defaults](#ledgeset_handler_defaults) config, which are global and must be set during the Nginx `init` phase.
+There are four different layers to the configuration system. Firstly, there are the main [Redis config](#ledgeconfigure) and [handler defaults](#ledgeset_handler_defaults), which are global and must be set during the Nginx `init` phase.
 
-Beyond this, you can specify [handler instance config](#ledgecreate_handler) on an Nginx `location` block basis, and finally there are some performance tuning config options for the [worker](#ledgecreate_worker) instances.
+You can specify [handler instance config](#ledgecreate_handler) on an Nginx `location` block basis, and finally there are some performance tuning options for the [worker](#ledgecreate_worker) instances.
 
-In addition, there is an [events system](#events-system) for binding Lua functions to mid-request events, proving opportunities to dynamically alter configuration.
+In addition, there is an [events system](#events-system) for binding Lua functions to mid-request events, providing opportunities to dynamically alter configuration.
 
 [Back to TOC](#table-of-contents)
 
 
 ## Events system
 
-Ledge makes most of its decisions based on the content it is working with. HTTP request and response headers drive the semantics for content delivery, and so rather than having countless configuration options to change this, we instead provide opportunities to alter the given semantics when necessary.
+Ledge makes most of its decisions based on the content it is working with. HTTP request and response headers drive the semantics for content delivery, so instead of having many configuration options to override this, we provide opportunities to alter the given semantics by binding functions to events.
 
 For example, if an `upstream` fails to set a long enough cache expiry, rather than inventing an option such as "extend\_ttl", we instead would `bind` to the `after_upstream_request` event, and adjust the response headers to include the ttl we're hoping for.
 
@@ -235,7 +244,7 @@ location /foo_location {
 
 ### Performance implications
 
-Writing simple logic for events is not expensive at all (and in many cases will be JIT compiled). If you need to consult service endpoints during an event then obviously consider that this will affect your overall latency, and make sure you do everything in a **non-blocking** way, e.g. using [cosockets](https://github.com/openresty/lua-nginx-module#ngxsockettcp) provided by OpenResty, or a driver based upon this.
+Writing simple logic for events is not expensive at all (and in many cases will be JIT compiled). If you need to consult service endpoints during an event then consider that this will affect your overall latency, and make sure you do everything in a **non-blocking** way, e.g. using [cosockets](https://github.com/openresty/lua-nginx-module#ngxsockettcp) provided by OpenResty, or a driver based upon this.
 
 If you have lots of event handlers, consider that creating closures in Lua is relatively expensive. A good solution would be to make your own module, and pass the defined functions in.
 
@@ -447,7 +456,7 @@ end)
 
 Note that if ESI is processed, downstream cache-ability is automatically dropped since you don't want other intermediaries or browsers caching the result.
 
-It's therefore best to only set `Surrogate-Control` for content which you know has ESI instructions. Whilst Ledge will detect the presence of ESI instructions when saving (and do nothing on cache HITs if no instructions are present), on a cache MISS it will have already dropped downstream cache headers before reading / saving the body. This is a side-effect of the [streaming design](#streaming-design).
+It's therefore best to only set `Surrogate-Control` for content which you know has ESI instructions. Whilst Ledge will detect the presence of ESI instructions when saving (and do nothing on cache `HIT`s if no instructions are present), on a cache `MISS` it will have already dropped downstream cache headers before reading / saving the body. This is a side-effect of the [streaming design](#streaming-design).
 
 [Back to TOC](#table-of-contents)
 
@@ -510,7 +519,7 @@ ESI args is a neat feature to get around this, by using a configurable [prefix](
 </esi:choose>
 ```
 
-In this example, the `esi_display_mode` values of `summary` or `details` will return the same cache HIT, but display different content.
+In this example, the `esi_display_mode` values of `summary` or `details` will return the same cache `HIT`, but display different content.
 
 If `$(ESI_ARGS)` is used without a field key, it renders the original query string arguments, e.g. `esi_foo=bar&esi_display_mode=summary`, URL encoded.
 
@@ -519,7 +528,7 @@ If `$(ESI_ARGS)` is used without a field key, it renders the original query stri
 
 ### Variable Escaping
 
-ESI variables are minimally escaped by default in order to prevent user's injecting additional ESI tags or XSS exploits.
+ESI variables are minimally escaped by default in order to prevent users injecting additional ESI tags or XSS exploits.
 
 Unescaped variables are available by prefixing the variable name with `RAW_`. This should be used with care.
 
@@ -607,7 +616,7 @@ init_by_lua_block {
 
 syntax: `local handler = ledge.create_handler(config)`
 
-Creates a `handler` instance for the current reqiest. Config given here will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
+Creates a `handler` instance for the current request. Config given here will be merged with the defaults, allowing certain options to be adjusted on a per Nginx `location` basis.
 
 ```lua
 server {
@@ -633,7 +642,7 @@ syntax: `local worker = ledge.create_worker(config)`
 
 Creates a `worker` instance inside the current Nginx worker process, for processing background jobs. You only need to call this once inside a single `init_worker` block, and it will be called for each Nginx worker that is configured.
 
-Job queues can be run at varying amounts of concurrency per worker, which can be set by providing `config` here. See [managing qless](#managing-qless) for more details.
+Job processing concurrency can be changed per worker, by providing `config` here. See [managing qless](#managing-qless) for more details.
 
 ```lua
 init_worker_by_lua_block {
@@ -725,7 +734,7 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 
 default: `ledge.storage.redis`
 
-This is a `string` value, which will be used to attempt to load a storage driver. Any third party driver here can accept its own config options (see below), but must provide the following interface:
+This is a `string` value, which will be used to attempt to load a storage driver. Any third party driver can accept its own config options (see below), but must provide the following interface:
 
 * `bool new()`
 * `bool connect()`
@@ -738,7 +747,7 @@ This is a `string` value, which will be used to attempt to load a storage driver
 * `function get_reader(object response)`
 * `function get_writer(object response, number ttl, function onsuccess, function onfailure)`
 
-*Note, whilst it is possible to configure storage drivers on a per `location` basis, it is **strongly** recommended that you never do this, and consider storage drivers to be system wide, much like the main Redis config. If you really need differenet storage driver configurations for different locations, then it will work, but features such as purging using wildcards will silently not work. YMMV.*
+*Note, whilst it is possible to configure storage drivers on a per `location` basis, it is **strongly** recommended that you never do this, and consider storage drivers to be system wide, like the main Redis config. If you really need different storage driver configurations for different locations, then it will work, but features such as purging using wildcards will silently not work. YMMV.*
 
 [Back to TOC](#handler-configuration-options)
 
@@ -975,7 +984,7 @@ The only exception is if ESI is configured, and Ledge has determined there are E
 
 default: `1000`
 
-Tunes the behaviour of keyspace scans, which occur when sending a PURGE request with wildcard syntax. A higher number may be better if latency to Redis is high and the keyspace is large.
+Tunes the behaviour of keyspace scans, which occur when sending a `PURGE` request with wildcard syntax. A higher number may be better if latency to Redis is high and the keyspace is large.
 
 [Back to TOC](#handler-configuration-options)
 
@@ -995,7 +1004,7 @@ default: `false`
 
 Toggles [ESI](http://www.w3.org/TR/esi-lang) scanning and processing, though behaviour is also contingent upon [esi_content_types](#esi_content_types) and [esi_surrogate_delegation](#esi_surrogate_delegation) settings, as well as `Surrogate-Control` / `Surrogate-Capability` headers.
 
-ESI instructions are detected on the slow path (i.e. when fetching from the origin), so only instructions which are known to be present are processed on cache HITs.
+ESI instructions are detected on the slow path (i.e. when fetching from the origin), so only instructions which are known to be present are processed on cache `HIT`s.
 
 [Back to TOC](#handler-configuration-options)
 
@@ -1283,7 +1292,7 @@ Will give log lines such as:
 
 Ledge uses [lua-resty-qless](https://github.com/pintsized/lua-resty-qless) to schedule and process background tasks, which are stored in Redis.
 
-Jobs are scheduled for background revalidation requests as well as wildcard PURGE requests, but most importantly for garbage collection of replaced body entities.
+Jobs are scheduled for background revalidation requests as well as wildcard `PURGE` requests, but most importantly for garbage collection of replaced body entities.
 
 That is, it's very important that jobs are being run properly and in a timely fashion.
 
