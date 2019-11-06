@@ -7,6 +7,7 @@ local _M = { -- luacheck: no unused
 -- transitioning.
 return {
     exiting = { "redis_close", "httpc_close" },
+    aborting = { "redis_close", "httpc_close_without_keepalive" },
     checking_cache = { "read_cache" },
 
     -- Never fetch with client validators, but put them back afterwards.

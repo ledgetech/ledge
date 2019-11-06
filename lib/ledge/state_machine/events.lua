@@ -517,7 +517,7 @@ return {
             in_case = "obtained_collapsed_forwarding_lock",
             begin = "cancelling_abort_request"
         },
-        { begin = "exiting" },
+        { begin = "aborting" },
     },
 
 
