@@ -524,4 +524,8 @@ return {
     cancelling_abort_request = function()
         return true
     end,
+
+    aborting = function()
+        ngx.exit(ngx.status)
+    end,
 }

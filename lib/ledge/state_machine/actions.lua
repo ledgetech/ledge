@@ -35,6 +35,13 @@ return {
         end
     end,
 
+    httpc_close_without_keepalive = function(handler)
+        local upstream_client = handler.upstream_client
+        if next(upstream_client) then
+            return upstream_client:close()
+        end
+    end,
+
     stash_error_response = function(handler)
         handler.error_response = handler.response
     end,
