@@ -8,7 +8,7 @@ local fixed_field_metatable = require("ledge.util").mt.fixed_field_metatable
 
 
 local _M = {
-    _VERSION = "2.1.3",
+    _VERSION = "2.1.4",
 }
 
 

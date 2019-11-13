@@ -1,5 +1,5 @@
 local _M = { -- luacheck: no unused
-    _VERSION = "2.1.3",
+    _VERSION = "2.1.4",
 }
 
 

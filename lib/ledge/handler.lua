@@ -52,7 +52,7 @@ local response = require("ledge.response")
 
 
 local _M = {
-    _VERSION = "2.1.3",
+    _VERSION = "2.1.4",
 }
 
 
