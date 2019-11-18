@@ -254,6 +254,7 @@ init_by_lua_block {
 }
 --- config
 location /t {
+    lua_socket_log_errors Off;
     content_by_lua_block {
         local ok, err = require("ledge").create_handler():run()
         assert(ok == nil and err ~= nil,
