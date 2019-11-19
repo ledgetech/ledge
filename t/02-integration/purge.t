@@ -51,7 +51,7 @@ init_by_lua_block {
         local fmt = "%s: %s\\n"
         local out = ""
         for i, k in ipairs(keys) do
-            key = k
+            local key = k
             if prefix then
                 key = prefix.."."..k
             end
@@ -525,7 +525,6 @@ location /purge_cached_9 {
 X-Purge: revalidate
 --- request
 PURGE /purge_cached_9_prx
---- wait: 2
 --- no_error_log
 [error]
 --- response_body_like
@@ -539,7 +538,34 @@ result: purged
 --- error_code: 200
 
 
-=== TEST 9c: Confirm cache was revalidated
+=== TEST 9c: Wait for revalidation to complete
+--- http_config eval: $::HttpConfig
+--- config
+location /purge_cached_9_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler():run()
+    }
+}
+location /purge_cached_9 {
+    content_by_lua_block {
+        ngx.header["Cache-Control"] = "max-age=3600"
+        ngx.say("TEST 9 Revalidated: ", ngx.req.get_headers()["Cookie"])
+    }
+}
+location /waiting {
+  echo "OK";
+}
+--- request
+GET /waiting
+--- response_body
+OK
+--- no_error_log
+[error]
+--- wait: 5
+
+
+=== TEST 9d: Confirm cache was revalidated
 --- http_config eval: $::HttpConfig
 --- config
 location /purge_cached_9_prx {
