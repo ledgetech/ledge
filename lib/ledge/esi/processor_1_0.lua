@@ -530,7 +530,8 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
     local recursion_count =
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
 
-    local recursion_limit = self.handler.config.esi_recursion_limit
+    local config = self.handler.config
+    local recursion_limit = config.esi_recursion_limit
 
     if recursion_count >= recursion_limit then
         ngx_log(ngx_ERR, "ESI recursion limit (", recursion_limit, ") exceeded")
@@ -569,6 +570,16 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
             end
         else
             scheme, host, port, path = unpack(uri_parts)
+
+             -- Third party domain requests must be explicitly enabled
+            local our_host = ngx_var.http_host or ngx_var.host
+            if (host ~= our_host) then
+                local allowed_third_party_domains = config.esi_includes_third_party_domain_whitelist
+
+                if (not next(allowed_third_party_domains) or not allowed_third_party_domains[host]) then
+                    return nil
+                end
+            end
         end
 
         local upstream = host

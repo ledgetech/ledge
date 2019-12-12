@@ -10,7 +10,7 @@ $ENV{TEST_COVERAGE} ||= 0;
 $ENV{TEST_LEDGE_CHUNKED} ||= 'on';
 
 our $HttpConfig = qq{
-resolver 8.8.8.8;
+resolver 8.8.8.8 ipv6=off;
 if_modified_since off;
 chunked_transfer_encoding $ENV{TEST_LEDGE_CHUNKED};
 lua_check_client_abort On;
@@ -46,7 +46,7 @@ init_by_lua_block {
 
     -- Make all content return valid Surrogate-Control headers
     function run(handler)
-        if not handler then 
+        if not handler then
             handler = require("ledge").create_handler()
         end
         handler:bind("after_upstream_request", function(res)
@@ -354,7 +354,7 @@ location /esi_5 {
         ngx.say("2")
         ngx.print([[<esi:include src="/fragment_1?a=2" />]])
         ngx.print("3")
-        ngx.print([[<esi:include src="http://127.0.0.1:1984/fragment_1?a=3" />]])
+        ngx.print([[<esi:include src="http://localhost:1984/fragment_1?a=3" />]])
     }
 }
 --- request
@@ -441,11 +441,11 @@ location =/ {
 location /esi_5 {
     default_type text/html;
     content_by_lua_block {
-        ngx.print([[<esi:include src="http://127.0.0.1:1984/fragment_1" />]])
-        ngx.print([[<esi:include src="//127.0.0.1:1984/fragment_1" />]])
-        ngx.print([[<esi:include src="http://127.0.0.1:1984/" />]])
-        ngx.print([[<esi:include src="http://127.0.0.1:1984" />]])
-        ngx.print([[<esi:include src="//127.0.0.1:1984" />]])
+        ngx.print([[<esi:include src="http://localhost:1984/fragment_1" />]])
+        ngx.print([[<esi:include src="//localhost:1984/fragment_1" />]])
+        ngx.print([[<esi:include src="http://localhost:1984/" />]])
+        ngx.print([[<esi:include src="http://localhost:1984" />]])
+        ngx.print([[<esi:include src="//localhost:1984" />]])
     }
 }
 --- request
@@ -2895,5 +2895,66 @@ FRAGMENT
 test
 
 AFTER
+--- no_error_log
+[error]
+
+
+=== TEST 42: By default includes to 3rd party domains don't run
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_42_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        run()
+    }
+}
+location /esi_42 {
+    default_type text/html;
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local content = [[<esi:include src="https://jsonplaceholder.typicode.com/todos/1" />]]
+        ngx.print(content)
+    }
+}
+--- request
+GET /esi_42_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body:
+--- no_error_log
+[error]
+
+
+=== TEST 43: Allow includes to jsonplaceholder.typicode.com
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_43_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            esi_includes_third_party_domain_whitelist = {
+                ["jsonplaceholder.typicode.com"] = true,
+            }
+        })
+        run(handler)
+    }
+}
+location /esi_43 {
+    default_type text/html;
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local content = [[<esi:include src="https://jsonplaceholder.typicode.com/todos/1" />]]
+        ngx.say(content)
+    }
+}
+--- request
+GET /esi_43_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+{
+  "userId": 1,
+  "id": 1,
+  "title": "delectus aut autem",
+  "completed": false
+}
 --- no_error_log
 [error]
