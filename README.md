@@ -713,6 +713,7 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 * [esi_args_prefix](#esi_args_prefix)
 * [esi_custom_variables](#esi_custom_variables)
 * [esi_max_size](#esi_max_size)
+* [esi_includes_third_party_domain_whitelist](#esi_includes_third_party_domain_whitelist)
 * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
 * [collapsed_forwarding_window](#collapsed_forwarding_window)
 * [gunzip_enabled](#gunzip_enabled)
@@ -1052,6 +1053,26 @@ Any variables supplied here will be available anywhere ESI vars can be used eval
 default: `1024 * 1024 (bytes)`
 
 [Back to TOC](#handler-configuration-options)
+
+
+#### esi_includes_third_party_domain_whitelist
+
+default: `{}`
+
+By default URIs given in `<esi:include \>` tags must match the parent request's hostname (or simply be relative URIs).
+Requesting from third party domains must be explicitly enabled. 
+
+```lua
+require("ledge").create_handler({
+    esi_includes_third_party_domain_whitelist = {
+        ["example.com"] = true,  
+    }
+}):run()
+```
+
+Hostnames are given as the table key with a truthy value, for O(1) lookup.
+
+*Note; This behaviour was introduced in v2.2*
 
 
 #### advertise_ledge
