@@ -1059,7 +1059,7 @@ default: `1024 * 1024 (bytes)`
 
 default: `{}`
 
-By default URIs given in `<esi:include \>` tags must match the parent request's hostname (or simply be relative URIs).
+By default URIs given in `<esi:include>` tags must match the parent request's hostname (or simply be relative URIs).
 Requesting from third party domains must be explicitly enabled. 
 
 ```lua
