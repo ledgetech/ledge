@@ -2961,7 +2961,7 @@ GET /esi_43_prx
 === TEST 44: White list third party includes
 --- http_config eval: $::HttpConfig
 --- config
-location /esi_43_prx {
+location /esi_44_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler({
@@ -2973,7 +2973,7 @@ location /esi_43_prx {
         run(handler)
     }
 }
-location /esi_43 {
+location /esi_44 {
     default_type text/html;
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
@@ -2982,7 +2982,7 @@ location /esi_43 {
     }
 }
 --- request
-GET /esi_43_prx
+GET /esi_44_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
 {
