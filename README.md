@@ -848,7 +848,7 @@ Specifies the SSL server name used for Server Name Indication (SNI). See [sslhan
 
 #### upstream_ssl_verify
 
-default: `false`
+default: `true`
 
 Toggles SSL verification. See [sslhandshake](https://github.com/openresty/lua-nginx-module#tcpsocksslhandshake) for more information.
 
