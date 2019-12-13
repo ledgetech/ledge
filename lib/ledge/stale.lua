@@ -8,7 +8,7 @@ local get_numeric_header_token =
 
 
 local _M = {
-    _VERSION = "2.1.4"
+    _VERSION = "2.2.0"
 }
 
 

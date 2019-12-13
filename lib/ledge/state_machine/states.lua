@@ -42,7 +42,7 @@ local vary_compare = require("ledge.cache_key").vary_compare
 
 
 local _M = { -- luacheck: no unused
-    _VERSION = "2.1.4",
+    _VERSION = "2.2.0",
 }
 
 

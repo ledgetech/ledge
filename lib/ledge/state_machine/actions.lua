@@ -12,7 +12,7 @@ local ngx_req_set_header = ngx.req.set_header
 local get_gzip_decoder = require("ledge.gzip").get_gzip_decoder
 
 local _M = { -- luacheck: no unused
-    _VERSION = "2.1.4",
+    _VERSION = "2.2.0",
 }
 
 

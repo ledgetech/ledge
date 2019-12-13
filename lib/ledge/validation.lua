@@ -8,7 +8,7 @@ local header_has_directive = require("ledge.header_util").header_has_directive
 
 
 local _M = {
-    _VERSION = "2.1.4",
+    _VERSION = "2.2.0",
 }
 
 
