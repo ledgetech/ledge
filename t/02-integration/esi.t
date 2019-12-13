@@ -2899,7 +2899,7 @@ AFTER
 [error]
 
 
-=== TEST 42: By default includes to 3rd party domains don't run
+=== TEST 42: By default includes to 3rd party domains are allowed
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_42_prx {
@@ -2913,27 +2913,62 @@ location /esi_42 {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local content = [[<esi:include src="https://jsonplaceholder.typicode.com/todos/1" />]]
-        ngx.print(content)
+        ngx.say(content)
     }
 }
 --- request
 GET /esi_42_prx
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body:
+--- response_body
+{
+  "userId": 1,
+  "id": 1,
+  "title": "delectus aut autem",
+  "completed": false
+}
 --- no_error_log
 [error]
 
 
-=== TEST 43: Allow includes to jsonplaceholder.typicode.com
+=== TEST 43: Disable third party includes
 --- http_config eval: $::HttpConfig
 --- config
 location /esi_43_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler({
-            esi_includes_third_party_domain_whitelist = {
+            esi_disable_third_party_includes = true, 
+        })
+        run(handler)
+    }
+}
+location /esi_43 {
+    default_type text/html;
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local content = [[<esi:include src="https://jsonplaceholder.typicode.com/todos/1" />]]
+        ngx.print(content)
+    }
+}
+--- request
+GET /esi_43_prx
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body:
+--- no_error_log
+[error]
+
+
+=== TEST 44: White list third party includes
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_43_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            esi_disable_third_party_includes = true, 
+            esi_third_party_includes_domain_whitelist = {
                 ["jsonplaceholder.typicode.com"] = true,
-            }
+            },
         })
         run(handler)
     }

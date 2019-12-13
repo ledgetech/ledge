@@ -81,7 +81,9 @@ local handler_defaults = setmetatable({
     esi_args_prefix = "esi_",
     esi_max_size = 1024 * 1024,  -- (bytes)
     esi_custom_variables = {},
-    esi_includes_third_party_domain_whitelist = {},
+
+    esi_disable_third_party_includes = false,
+    esi_third_party_includes_domain_whitelist = {},
 
     enable_collapsed_forwarding = false,
     collapsed_forwarding_window = 60 * 1000,

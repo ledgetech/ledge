@@ -571,13 +571,15 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
         else
             scheme, host, port, path = unpack(uri_parts)
 
-             -- Third party domain requests must be explicitly enabled
-            local our_host = ngx_var.http_host or ngx_var.host
-            if (host ~= our_host) then
-                local allowed_third_party_domains = config.esi_includes_third_party_domain_whitelist
+            -- Third party domain requests may need to be explicitly enabled
+            if (config.esi_disable_third_party_includes) then
+                local our_host = ngx_var.http_host or ngx_var.host
+                if (host ~= our_host) then
+                    local allowed_third_party_domains = config.esi_third_party_includes_domain_whitelist
 
-                if (not next(allowed_third_party_domains) or not allowed_third_party_domains[host]) then
-                    return nil
+                    if (not next(allowed_third_party_domains) or not allowed_third_party_domains[host]) then
+                        return nil
+                    end
                 end
             end
         end

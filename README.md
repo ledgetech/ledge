@@ -713,7 +713,8 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 * [esi_args_prefix](#esi_args_prefix)
 * [esi_custom_variables](#esi_custom_variables)
 * [esi_max_size](#esi_max_size)
-* [esi_includes_third_party_domain_whitelist](#esi_includes_third_party_domain_whitelist)
+* [esi_disable_third_party_includes](#esi_disable_third_party_includes)
+* [esi_third_party_includes_domain_whitelist](#esi_third_party_includes_domain_whitelist)
 * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
 * [collapsed_forwarding_window](#collapsed_forwarding_window)
 * [gunzip_enabled](#gunzip_enabled)
@@ -1055,16 +1056,22 @@ default: `1024 * 1024 (bytes)`
 [Back to TOC](#handler-configuration-options)
 
 
-#### esi_includes_third_party_domain_whitelist
+#### esi_disable_third_party_includes 
+
+default: `false`
+
+`<esi:include>` tags can make requests to any arbitrary URI. Turn this on to ensure the URI domain must match the URI of the current request.
+
+#### esi_third_party_includes_domain_whitelist
 
 default: `{}`
 
-By default URIs given in `<esi:include>` tags must match the parent request's hostname (or simply be relative URIs).
-Requesting from third party domains must be explicitly enabled. 
+If third party includes are disabled, you can also explicitly provide a whitelist of allowed third party domains.
 
 ```lua
 require("ledge").create_handler({
-    esi_includes_third_party_domain_whitelist = {
+    esi_disable_third_party_includes = true,
+    esi_third_party_includes_domain_whitelist = {
         ["example.com"] = true,  
     }
 }):run()
