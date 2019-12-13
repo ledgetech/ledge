@@ -215,7 +215,7 @@ init_by_lua_block {
 
 ### Binding to handlers
 
-More commonly, we just want to alter behaviour for a given Nginx `location`. 
+More commonly, we just want to alter behaviour for a given Nginx `location`.
 
 ```lua
 location /foo_location {
@@ -319,7 +319,7 @@ limit_except GET POST PUT DELETE {
 
 ### JSON API
 
-A JSON based API is also available for purging cache multiple cache items at once.  
+A JSON based API is also available for purging cache multiple cache items at once.
 This requires a `PURGE` request with a `Content-Type` header set to `application/json` and a valid JSON request body.
 
 Valid parameters
@@ -1056,7 +1056,7 @@ default: `1024 * 1024 (bytes)`
 [Back to TOC](#handler-configuration-options)
 
 
-#### esi_disable_third_party_includes 
+#### esi_disable_third_party_includes
 
 default: `false`
 
@@ -1072,7 +1072,7 @@ If third party includes are disabled, you can also explicitly provide a whitelis
 require("ledge").create_handler({
     esi_disable_third_party_includes = true,
     esi_third_party_includes_domain_whitelist = {
-        ["example.com"] = true,  
+        ["example.com"] = true,
     }
 }):run()
 ```
@@ -1242,7 +1242,7 @@ params: `vary_key` A table of selecting headers
 
 Fires when we're about to generate the vary key, used to select the correct cache representation.
 
-The `vary_key` table is a hash of header field names (lowercase) to values.  
+The `vary_key` table is a hash of header field names (lowercase) to values.
 A field name which exists in the Vary response header but does not exist in the current request header will have a value of `ngx.null`.
 
 ```

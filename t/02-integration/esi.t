@@ -2937,7 +2937,7 @@ location /esi_43_prx {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
         local handler = require("ledge").create_handler({
-            esi_disable_third_party_includes = true, 
+            esi_disable_third_party_includes = true,
         })
         run(handler)
     }
