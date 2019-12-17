@@ -546,13 +546,8 @@ end
 -- If our esi include host matches the current host, use server_addr /
 -- server_port instead. This keeps the connection local to this node
 -- where possible.
--- TODO: Put this behind a config option?
-local function should_loopback_request(scheme, host)
-    if host == ngx_var.http_host and scheme == ngx_var.scheme then
-        return true
-    end
-
-    return false
+local function should_loopback_request(config, scheme, host)
+    return config.esi_attempt_loopback and host == ngx_var.http_host and scheme == ngx_var.scheme
 end
 
 
@@ -673,7 +668,7 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
     if (not can_make_request_to_domain(config, host)) then return nil end
 
     local upstream = host
-    if should_loopback_request(scheme, host) then
+    if should_loopback_request(config, scheme, host) then
         upstream = ngx_var.server_addr
         port = ngx_var.server_port
     end
