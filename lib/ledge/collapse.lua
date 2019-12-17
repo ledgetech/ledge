@@ -1,5 +1,5 @@
 local _M = {
-    _VERSION = "2.2.0",
+    _VERSION = "2.2.1",
 }
 
 -- Attempts to set a lock key in redis. The lock will expire after

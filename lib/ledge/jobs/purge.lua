@@ -9,7 +9,7 @@ local create_redis_slave_connection = require("ledge").create_redis_slave_connec
 local close_redis_connection = require("ledge").close_redis_connection
 
 local _M = {
-    _VERSION = "2.2.0",
+    _VERSION = "2.2.1",
 }
 
 

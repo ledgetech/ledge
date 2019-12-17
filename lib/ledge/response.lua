@@ -38,7 +38,7 @@ local save_key_chain = require("ledge.cache_key").save_key_chain
 local _DEBUG = false
 
 local _M = {
-    _VERSION = "2.2.0",
+    _VERSION = "2.2.1",
     set_debug = function(debug) _DEBUG = debug end,
 }
 
