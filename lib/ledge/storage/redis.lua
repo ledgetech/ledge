@@ -312,6 +312,10 @@ function _M.get_writer(self, res, ttl, onsuccess, onfailure)
         end
 
         local chunk, err, has_esi = reader(buffer_size)
+        if not chunk and err then
+            failed = true
+            failed_reason = "upstream error: " .. err
+        end
 
         if chunk and not failed then  -- We have something to write
             size = size + #chunk
