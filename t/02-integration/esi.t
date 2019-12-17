@@ -2993,3 +2993,89 @@ GET /esi_44_prx
 }
 --- no_error_log
 [error]
+
+
+=== TEST 45: Cookies and Authorization propagate to fragment on same domain
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_45_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        run()
+    }
+}
+location /fragment_1 {
+    content_by_lua_block {
+        ngx.say("method: ", ngx.req.get_method())
+        local h = ngx.req.get_headers()
+
+        local h_keys = {}
+        for k,v in pairs(h) do
+            table.insert(h_keys, k)
+        end
+        table.sort(h_keys)
+
+        for _,k in ipairs(h_keys) do
+            ngx.say(k, ": ", h[k])
+        end
+    }
+}
+location /esi_45 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.print([[<esi:include src="/fragment_1" />]])
+    }
+}
+--- request
+POST /esi_45_prx
+--- more_headers
+Cache-Control: no-cache
+Cookie: foo
+Authorization: bar
+Range: bytes=0-
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body_like
+method: GET
+authorization: bar
+cache-control: no-cache
+cookie: foo
+host: localhost
+user-agent: lua-resty-http/\d+\.\d+ \(Lua\) ngx_lua/\d+ ledge_esi/\d+\.\d+[\.\d]*
+x-esi-parent-uri: http://localhost/esi_45_prx
+x-esi-recursion-level: 1
+--- no_error_log
+[error]
+
+
+=== TEST 45b: Cookies and Authorization don't propagate to fragment on different domain
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_45_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        run()
+    }
+}
+location /esi_45 {
+    default_type text/html;
+    content_by_lua_block {
+        ngx.print([[<esi:include src="https://mockbin.org/request" />]])
+    }
+}
+--- request
+POST /esi_45_prx
+--- more_headers
+Cache-Control: no-cache
+Cookie: foo
+Authorization: bar
+Range: bytes=0-
+Accept: text/plain
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body_like
+(.*)"method": "GET",
+(.*)"cache-control": "no-cache",
+--- response_body_unlike
+(.*)"authorization": "bar",
+(.*)"cookie": "foo",
+--- no_error_log
+[error]

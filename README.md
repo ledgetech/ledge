@@ -713,6 +713,7 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 * [esi_args_prefix](#esi_args_prefix)
 * [esi_custom_variables](#esi_custom_variables)
 * [esi_max_size](#esi_max_size)
+* [esi_attempt_loopback](#esi_attempt_loopback)
 * [esi_disable_third_party_includes](#esi_disable_third_party_includes)
 * [esi_third_party_includes_domain_whitelist](#esi_third_party_includes_domain_whitelist)
 * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
@@ -1056,11 +1057,24 @@ default: `1024 * 1024 (bytes)`
 [Back to TOC](#handler-configuration-options)
 
 
+#### esi_attempt_loopback
+
+default: `true`
+
+If an ESI subrequest has the same `scheme` and `host` as the parent request, we loopback the connection to the current
+`server_addr` and `server_port` in order to avoid going over network.
+
+[Back to TOC](#handler-configuration-options)
+
+
 #### esi_disable_third_party_includes
 
 default: `false`
 
 `<esi:include>` tags can make requests to any arbitrary URI. Turn this on to ensure the URI domain must match the URI of the current request.
+
+[Back to TOC](#handler-configuration-options)
+
 
 #### esi_third_party_includes_domain_whitelist
 
@@ -1080,6 +1094,8 @@ require("ledge").create_handler({
 Hostnames are given as the table key with a truthy value, for O(1) lookup.
 
 *Note; This behaviour was introduced in v2.2*
+
+[Back to TOC](#handler-configuration-options)
 
 
 #### advertise_ledge

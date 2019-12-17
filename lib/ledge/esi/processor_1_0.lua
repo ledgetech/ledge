@@ -523,6 +523,123 @@ end
 _M.process_escaping = process_escaping
 
 
+local function is_include_host_on_same_domain(host)
+    return host == (ngx_var.http_host or ngx_var.host)
+end
+
+
+local function can_make_request_to_domain(config, host)
+    -- Third party domain requests may need to be explicitly enabled
+    if config.esi_disable_third_party_includes then
+        if not is_include_host_on_same_domain(host) then
+            local allowed_third_party_domains = config.esi_third_party_includes_domain_whitelist
+            if not next(allowed_third_party_domains) or not allowed_third_party_domains[host] then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+
+-- If our esi include host matches the current host, use server_addr /
+-- server_port instead. This keeps the connection local to this node
+-- where possible.
+local function should_loopback_request(config, scheme, host)
+    return config.esi_attempt_loopback and host == ngx_var.http_host and scheme == ngx_var.scheme
+end
+
+
+local function parse_src_attribute(include_tag)
+    local src, err = ngx_re_match(include_tag, [[src="([^"]+)"]], "oj")
+    if not src then
+        return nil, err
+    end
+
+    -- Evaluate variables in the src URI
+    return esi_replace_vars(src[1])
+end
+
+
+local function parse_include_src(src)
+    local scheme, host, port, path
+    local uri_parts = http.parse_uri(nil, src)
+
+    if not uri_parts then
+        -- Not a valid URI, so probably a relative path. Resolve
+        -- local to the current request.
+        scheme = ngx_var.scheme
+        host = ngx_var.http_host or ngx_var.host
+        port = ngx_var.server_port
+        path = src
+
+        -- No leading slash means we have a relative path. Append
+        -- this to the current URI.
+        if str_sub(path, 1, 1) ~= "/" then
+            path = ngx_var.uri .. "/" .. path
+        end
+
+        return scheme, host, port, path
+    end
+
+    return unpack(uri_parts)
+end
+
+
+local function make_esi_connection(config, upstream, scheme, host, port)
+    local httpc = http.new()
+    httpc:set_timeouts(
+        config.upstream_connect_timeout,
+        config.upstream_send_timeout,
+        config.upstream_read_timeout
+    )
+
+    local res, err
+    port = tonumber(port)
+    if port then
+        res, err = httpc:connect(upstream, port)
+    else
+        res, err = httpc:connect(upstream)
+    end
+
+    if not res then
+        return nil, err .. " connecting to " .. upstream .. ":" .. port
+    end
+
+    if scheme == "https" then
+        local ok, err = httpc:ssl_handshake(false, host, false)
+        if not ok then
+            return nil, "ssl handshake failed: " .. err
+        end
+    end
+
+    return httpc
+end
+
+
+local function make_esi_request_params(conn, host, path)
+    local parent_headers = ngx_req_get_headers()
+
+    local req_params = {
+        method = "GET",
+        path = ngx_re_gsub(path, "\\s", "%20", "jo"),
+        headers = {
+            ["Host"] = host,
+            ["Cache-Control"] = parent_headers["Cache-Control"],
+            ["User-Agent"] = conn._USER_AGENT .. " ledge_esi/" .. _M._VERSION,
+        },
+    }
+
+    if is_include_host_on_same_domain(host) then
+        req_params.headers["Authorization"] = parent_headers["Authorization"]
+        req_params.headers["Cookie"] = parent_headers["Cookie"]
+    end
+
+    return req_params
+end
+
+
 function _M.esi_fetch_include(self, include_tag, buffer_size)
     -- We track include recursion, and bail past the limit, yielding a special
     -- "esi:abort_includes" instruction which the outer process filter checks
@@ -539,144 +656,71 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
         return nil
     end
 
-    local src, err = ngx_re_match(
-        include_tag,
-        [[src="([^"]+)"]],
-        "oj"
-    )
-    if err then ngx_log(ngx_ERR, err) end
+    local src, err = parse_src_attribute(include_tag)
+    if not src then
+        ngx_log(ngx_ERR, err)
+        return nil
+    end
 
-    if src then
-        -- Evaluate variables in the src URI
-        src = esi_replace_vars(src[1])
+    local scheme, host, port, path = parse_include_src(src)
+    if not scheme then return nil end
 
-        local httpc = http.new()
+    if (not can_make_request_to_domain(config, host)) then return nil end
 
-        local scheme, host, port, path
-        local uri_parts = httpc:parse_uri(src)
+    local upstream = host
+    if should_loopback_request(config, scheme, host) then
+        upstream = ngx_var.server_addr
+        port = ngx_var.server_port
+    end
 
-        if not uri_parts then
-            -- Not a valid URI, so probably a relative path. Resolve
-            -- local to the current request.
-            scheme = ngx_var.scheme
-            host = ngx_var.http_host or ngx_var.host
-            port = ngx_var.server_port
-            path = src
+    local httpc, err = make_esi_connection(config, upstream, scheme, host, port)
+    if not httpc then
+        ngx_log(ngx_ERR, err)
+        return nil
+    end
 
-            -- No leading slash means we have a relative path. Append
-            -- this to the current URI.
-            if str_sub(path, 1, 1) ~= "/" then
-                path = ngx_var.uri .. "/" .. path
-            end
-        else
-            scheme, host, port, path = unpack(uri_parts)
+    local req_params = make_esi_request_params(httpc, host, path)
 
-            -- Third party domain requests may need to be explicitly enabled
-            if (config.esi_disable_third_party_includes) then
-                local our_host = ngx_var.http_host or ngx_var.host
-                if (host ~= our_host) then
-                    local allowed_third_party_domains = config.esi_third_party_includes_domain_whitelist
+    -- A chance to modify the request before we go upstream
+    self.handler:emit("before_esi_include_request", req_params)
 
-                    if (not next(allowed_third_party_domains) or not allowed_third_party_domains[host]) then
-                        return nil
-                    end
+    -- Add these after the pre_include_callback so that they cannot be
+    -- accidentally overriden
+    req_params.headers["X-ESI-Parent-URI"] =
+    ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri
+
+    req_params.headers["X-ESI-Recursion-Level"] = recursion_count + 1
+
+    -- Go!
+    local res, err = httpc:request(req_params)
+
+    if not res then
+        ngx_log(ngx_ERR, err, " from ", (src or ''))
+        return nil
+
+    elseif res.status >= 500 then
+        ngx_log(ngx_ERR, res.status, " from ", (src or ''))
+        return nil
+
+    else
+        if res then
+            -- Stream the include fragment, yielding as we go
+            local reader = res.body_reader
+            repeat
+                local ch, err = reader(buffer_size)
+                if ch then
+                    co_yield(ch)
+                elseif err then
+                    ngx_log(ngx_ERR, err)
                 end
-            end
-        end
-
-        local upstream = host
-
-        -- If our upstream matches the current host, use server_addr /
-        -- server_port instead. This keeps the connection local to this node
-        -- where possible.
-        if upstream == ngx_var.http_host then
-            upstream = ngx_var.server_addr
-            port = ngx_var.server_port
-        end
-
-        local config = self.handler.config
-        httpc:set_timeouts(
-            config.upstream_connect_timeout,
-            config.upstream_send_timeout,
-            config.upstream_read_timeout
-        )
-
-        local res, err
-        port = tonumber(port)
-        if port then
-            res, err = httpc:connect(upstream, port)
-        else
-            res, err = httpc:connect(upstream)
-        end
-
-        if not res then
-            ngx_log(ngx_ERR, err, " connecting to ", upstream,":", port)
-            return nil
-        else
-            if scheme == "https" then
-                local ok, err = httpc:ssl_handshake(false, host, false)
-                if not ok then
-                    ngx_log(ngx_ERR, "ssl handshake failed: ", err)
-                    return nil
-                end
-            end
-
-            local parent_headers = ngx_req_get_headers()
-
-            local req_params = {
-                method = "GET",
-                path = ngx_re_gsub(path, "\\s", "%20", "jo"),
-                headers = {
-                    ["Host"] = host,
-                    ["Cookie"] = parent_headers["Cookie"],
-                    ["Cache-Control"] = parent_headers["Cache-Control"],
-                    ["Authorization"] = parent_headers["Authorization"],
-                    ["User-Agent"] =
-                        httpc._USER_AGENT .. " ledge_esi/" .. _M._VERSION
-                },
-            }
-
-            -- A chance to modify the request before we go upstream
-            self.handler:emit("before_esi_include_request", req_params)
-
-            -- Add these after the pre_include_callback so that they cannot be
-            -- accidentally overriden
-            req_params.headers["X-ESI-Parent-URI"] =
-                ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri
-
-            req_params.headers["X-ESI-Recursion-Level"] = recursion_count + 1
-
-            local res, err = httpc:request(req_params)
-
-            if not res then
-                ngx_log(ngx_ERR, err, " from ", (src or ''))
-                return nil
-
-            elseif res.status >= 500 then
-                ngx_log(ngx_ERR, res.status, " from ", (src or ''))
-                return nil
-
-            else
-                if res then
-                    -- Stream the include fragment, yielding as we go
-                    local reader = res.body_reader
-                    repeat
-                        local ch, err = reader(buffer_size)
-                        if ch then
-                            co_yield(ch)
-                        elseif err then
-                            ngx_log(ngx_ERR, err)
-                        end
-                    until not ch
-                end
-            end
-
-            httpc:set_keepalive(
-                config.upstream_keepalive_timeout,
-                config.upstream_keepalive_poolsize
-            )
+            until not ch
         end
     end
+
+    httpc:set_keepalive(
+        config.upstream_keepalive_timeout,
+        config.upstream_keepalive_poolsize
+    )
 end
 
 
