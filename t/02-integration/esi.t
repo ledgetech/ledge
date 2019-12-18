@@ -3121,10 +3121,11 @@ location /fragment {
 GET /esi_46_prx
 --- more_headers
 Cookie: allowed=yes
+Cookie: also_allowed=yes
 Cookie: not_allowed=no
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
 --- response_body
-allowed=yes
+allowed=yes; also_allowed=yes
 yes:
 FRAGMENT:&allowed=yes&not_allowed=
 yes:no
