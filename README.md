@@ -714,6 +714,7 @@ Must be called during the `init_worker` phase, otherwise background tasks will n
 * [esi_custom_variables](#esi_custom_variables)
 * [esi_max_size](#esi_max_size)
 * [esi_attempt_loopback](#esi_attempt_loopback)
+* [esi_vars_cookie_blacklist](#esi_vars_cookie_blacklist)
 * [esi_disable_third_party_includes](#esi_disable_third_party_includes)
 * [esi_third_party_includes_domain_whitelist](#esi_third_party_includes_domain_whitelist)
 * [enable_collapsed_forwarding](#enable_collapsed_forwarding)
@@ -1063,6 +1064,30 @@ default: `true`
 
 If an ESI subrequest has the same `scheme` and `host` as the parent request, we loopback the connection to the current
 `server_addr` and `server_port` in order to avoid going over network.
+
+[Back to TOC](#handler-configuration-options)
+
+
+#### esi_vars_cookie_blacklist
+
+default: `{}`
+
+Cookie names given here will not be expandable as ESI variables: e.g. `$(HTTP_COOKIE)` or `$(HTTP_COOKIE{foo})`. However they
+are not removed from the request data, and will still be propagated to `<esi:include>` subrequests.
+
+This is useful if your client is sending a sensitive cookie that you don't ever want to accidentally evaluate in server output.
+
+```lua
+require("ledge").create_handler({
+    esi_vars_cookie_blacklist = {
+        secret = true,
+        ["my-secret-cookie"] = true,
+    }
+}):run()
+```
+
+Cookie names are given as the table key with a truthy value, for O(1) runtime lookup.
+
 
 [Back to TOC](#handler-configuration-options)
 
