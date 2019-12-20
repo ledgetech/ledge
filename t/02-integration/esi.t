@@ -3079,3 +3079,55 @@ Accept: text/plain
 (.*)"cookie": "foo",
 --- no_error_log
 [error]
+
+
+=== TEST 46: Cookie var blacklist
+--- http_config eval: $::HttpConfig
+--- config
+location /esi_46_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        local handler = require("ledge").create_handler({
+            esi_vars_cookie_blacklist = {
+                not_allowed  = true,
+            },
+        })
+        run(handler)
+    }
+}
+location /esi_46 {
+    default_type text/html;
+    content_by_lua_block {
+        -- Blacklist should apply to expansion in vars
+        ngx.say([[<esi:vars>$(HTTP_COOKIE)</esi:vars>]])
+
+        -- And by key
+        ngx.say([[<esi:vars>$(HTTP_COOKIE{allowed}):$(HTTP_COOKIE{not_allowed})</esi:vars>]])
+
+        -- ...and also in URIs
+        ngx.say([[<esi:include src="/fragment?&allowed=$(HTTP_COOKIE{allowed})&not_allowed=$(HTTP_COOKIE{not_allowed})" />]])
+    }
+}
+location /fragment {
+    content_by_lua_block {
+        ngx.say("FRAGMENT:"..ngx.var.args)
+
+        -- But ALL cookies are still propagated by default to subrequests
+        local cookie = require("resty.cookie").new()
+        ngx.print(cookie:get("allowed") .. ":" .. cookie:get("not_allowed"))
+    }
+}
+--- request
+GET /esi_46_prx
+--- more_headers
+Cookie: allowed=yes
+Cookie: also_allowed=yes
+Cookie: not_allowed=no
+--- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
+--- response_body
+allowed=yes; also_allowed=yes
+yes:
+FRAGMENT:&allowed=yes&not_allowed=
+yes:no
+--- no_error_log
+[error]

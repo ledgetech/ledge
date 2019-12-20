@@ -88,39 +88,70 @@ local function _esi_eval_var(var)
         -- according to the spec.
 
         local header = str_sub(var_name, 6)
-        local value = ngx_req_get_headers()[header]
 
-        if not value then
-            return default
-        elseif header == "COOKIE" and key then
-            local ck = cookie:new()
-            local cookie_value = ck:get(key)
-            return cookie_value or default
-        elseif header == "ACCEPT_LANGUAGE" and key then
-            -- If we're a table (multilple Accept-Language headers), convert
-            -- to string
-            if type(value) == "table" then
-                value = tbl_concat(value, ", ")
+        if header == "COOKIE" then
+            local cookies = ngx.ctx.__ledge_esi_cookies or cookie:new()
+            local blacklist = ngx.ctx.__ledge_esi_vars_cookie_blacklist or {}
+
+            if not next(blacklist) then
+                if key then
+                    return cookies:get(key) or default
+                end
+
+                return ngx_var.http_cookie or default
             end
 
-            if ngx_re_find(value, key, "oj") then
-                return "true"
-            else
-                return "false"
-            end
-
-        elseif type(value) == "table" then
-            -- For normal repeated headers, numeric indexes are supported
-            key = tonumber(key)
+            -- We have a blacklist to filter with
             if key then
-                -- We can index numerically (0 indexed)
-                return tostring(value[key + 1] or default)
+                if not blacklist[key] then
+                    return cookies:get(key) or default
+                end
+
+                return default
             else
-                -- Without a numeric key, render as a comma separated list
-                return tbl_concat(value, ", ") or default
+                -- We need a full cookie string, with any blacklisted values removed
+                local cookies = cookies:get_all()
+
+                value = {}
+                for k, v in pairs(cookies) do
+                    if not blacklist[k] then
+                        tbl_insert(value, k .. "=" .. v)
+                    end
+                end
+                table.sort(value)
+                return tbl_concat(value, "; ") or default
             end
         else
-            return value
+            local value = ngx_req_get_headers()[header]
+
+            if not value then
+                return default
+            elseif header == "ACCEPT_LANGUAGE" and key then
+                -- If we're a table (multilple Accept-Language headers), convert
+                -- to string
+                if type(value) == "table" then
+                    value = tbl_concat(value, ", ")
+                end
+
+                if ngx_re_find(value, key, "oj") then
+                    return "true"
+                else
+                    return "false"
+                end
+
+            elseif type(value) == "table" then
+                -- For normal repeated headers, numeric indexes are supported
+                key = tonumber(key)
+                if key then
+                    -- We can index numerically (0 indexed)
+                    return tostring(value[key + 1] or default)
+                else
+                    -- Without a numeric key, render as a comma separated list
+                    return tbl_concat(value, ", ") or default
+                end
+            else
+                return value
+            end
         end
     elseif var_name == "ESI_ARGS" then
         local esi_args = ngx.ctx.__ledge_esi_args
@@ -948,6 +979,10 @@ function _M.get_process_filter(self, res)
 
     -- push configured custom variables into ctx to be read by regex functions
     ngx.ctx.__ledge_esi_custom_variables = self.handler.config.esi_custom_variables
+
+    -- push current request cookies and blacklist into ctx for regex functions
+    ngx.ctx.__ledge_esi_cookies = cookie:new()
+    ngx.ctx.__ledge_esi_vars_cookie_blacklist = self.handler.config.esi_vars_cookie_blacklist
 
     -- We use an outer coroutine to filter the processed output in case we have
     -- to abort recursive includes.

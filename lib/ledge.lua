@@ -82,6 +82,7 @@ local handler_defaults = setmetatable({
     esi_max_size = 1024 * 1024,  -- (bytes)
     esi_custom_variables = {},
     esi_attempt_loopback = true,
+    esi_vars_cookie_blacklist = {},
 
     esi_disable_third_party_includes = false,
     esi_third_party_includes_domain_whitelist = {},
