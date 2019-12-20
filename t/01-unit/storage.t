@@ -87,7 +87,7 @@ init_by_lua_block {
 
 
     -- Utility returning an iterator over given chunked data, but which
-    -- fails (simulating connection failure) at fail_pos iteration.
+    -- fails (simulating storage connection failure) at fail_pos iteration.
     function get_and_fail_source(data, fail_pos, storage)
         local index = 0
         return function()
@@ -96,6 +96,22 @@ init_by_lua_block {
             if index == fail_pos then
                 storage.redis:close()
             end
+
+            if data[index] then
+                return data[index][1], data[index][2], data[index][3]
+            end
+        end
+    end
+
+    
+    -- Utility returning an iterator over given chunked data, but which
+    -- fails (simulating upstream timeout) at fail_pos iteration.
+    function get_and_fail_upstream_source(data, fail_pos)
+        local index = 0
+        return function()
+            index = index + 1
+
+            if index == fail_pos then return nil, "timeout" end
 
             if data[index] then
                 return data[index][1], data[index][2], data[index][3]
@@ -359,7 +375,7 @@ location /storage {
 [error]
 
 
-=== TEST 5: Test write fails and abort handler called if conn is interrupted
+=== TEST 5: Test write fails and abort handler called if conn to storage is interrupted
 --- http_config eval: $::HttpConfig
 --- config
 location /storage {
@@ -417,6 +433,61 @@ error writing: closed
 456:nil:true
 789:nil:true
 error writing: closed
+",
+]
+
+
+=== TEST 5b: Test write fails and abort handler called if upstream errors
+--- http_config eval: $::HttpConfig
+--- config
+location /storage {
+    lua_socket_log_errors off;
+    content_by_lua_block {
+        local backend = ngx.req.get_uri_args()["backend"]
+        local config = get_backend(backend)
+
+        local storage = require(config.module).new()
+        assert(storage:connect(config.params),
+            "storage:connect should return positively")
+
+        local res = _res.new("00005b-" .. backend)
+        -- Load source but fail on second chunk
+        res.body_reader = get_and_fail_upstream_source({
+            { "123", nil, false },
+            { "456", nil, true },
+            { "789", nil, true },
+        }, 2)
+
+        assert(not storage:exists(res.entity_id),
+            "entity should not yet exist")
+
+        -- Attach the writer, and run sink
+        res.body_reader = storage:get_writer(
+            res, 60,
+            success_handler,
+            failure_handler
+        )
+        sink(res.body_reader)
+
+        if backend ~= "redis_notransact" then
+            -- Prove entity wasn't written (rolled back)
+            assert(not storage:exists(res.entity_id),
+                "entity should still not exist")
+        end
+    }
+}
+--- request eval
+[
+    "GET /storage?backend=redis",
+    "GET /storage?backend=redis_notransact",
+]
+--- response_body eval
+[
+    "123:nil:false
+upstream error: timeout
+",
+    "123:nil:false
+upstream error: timeout
 ",
 ]
 
