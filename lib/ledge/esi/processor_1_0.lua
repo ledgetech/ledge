@@ -118,7 +118,6 @@ local function _esi_eval_var(var)
                         tbl_insert(value, k .. "=" .. v)
                     end
                 end
-                table.sort(value)
                 return tbl_concat(value, "; ") or default
             end
         else
