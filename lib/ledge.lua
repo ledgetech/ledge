@@ -15,7 +15,7 @@ local redis_connector = require("resty.redis.connector")
 
 
 local _M = {
-    _VERSION = "2.2.1",
+    _VERSION = "2.3.0",
 
     ORIGIN_MODE_BYPASS = 1, -- Never go to the origin, serve from cache or 503
     ORIGIN_MODE_AVOID  = 2, -- Avoid the origin, serve from cache where possible
