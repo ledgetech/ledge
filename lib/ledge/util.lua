@@ -21,12 +21,12 @@ typedef unsigned char u_char;
 u_char * ngx_hex_dump(u_char *dst, const u_char *src, size_t len);
 int RAND_pseudo_bytes(u_char *buf, int num);
 ]])
-if not ok then ngx.log(ngx.ERR, err) end
+if not ok then ngx.log(ngx.WARN, "ffi_cdef failed: ", err) end
 
 local ok, err = pcall(ffi_cdef, [[
 int gethostname (char *name, size_t size);
 ]])
-if not ok then ngx.log(ngx.ERR, err) end
+if not ok then ngx.log(ngx.WARN, "ffi_cdef failed: ", err) end
 
 
 local _M = {
