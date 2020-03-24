@@ -1,5 +1,5 @@
 local ngx_var = ngx.var
-local ffi = require "ffi"
+local _, ffi = pcall(require, "ffi")
 
 local type, next, setmetatable, getmetatable, error, tostring =
         type, next, setmetatable, getmetatable, error, tostring
