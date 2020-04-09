@@ -13,7 +13,10 @@ our $redis_database = $ENV{TEST_LEDGE_REDIS_DATABASE} || 2;
 our $redis_qless_database = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} || 3;
 
 sub http_config {
-    my ($extra_config) = @_ || "";
+    my ($extra_config) = @_;
+    if (!defined $extra_config) {
+        $extra_config = "";
+    }
 
     return qq{
         lua_package_path "./lib/?.lua;;";
