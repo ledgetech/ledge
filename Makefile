@@ -151,29 +151,28 @@ check_ports:
 	@$(foreach port,$(REDIS_PORTS),! lsof -i :$(port) &&) true 2>&1 > /dev/null
 ###############################################################################
 
+releng:
+	@util/lua-releng -eLs
 
 flush_db:
-	-@echo "Flushing all Redis databases"
 	@$(REDIS_CLI) flushall
 
-test_ledge: flush_db
-	@util/lua-releng
+test_ledge: releng flush_db
 	@$(TEST_LEDGE_REDIS_VARS) $(PROVE) $(TEST_FILE)
 	-@echo "Qless errors:"
 	@$(REDIS_CLI) -n $(TEST_LEDGE_REDIS_QLESS_DATABASE) llen ql:f:job-error
 
-test_sentinel: flush_db
+test_sentinel: releng flush_db
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/01-master_up.t
 	$(REDIS_CLI) shutdown
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/02-master_down.t
 	sleep $(TEST_LEDGE_SENTINEL_PROMOTION_TIME)
 	$(TEST_LEDGE_SENTINEL_VARS) $(PROVE) $(SENTINEL_TEST_FILE)/03-slave_promoted.t
 
-test_leak: flush_db
+test_leak: releng flush_db
 	$(TEST_LEDGE_REDIS_VARS) TEST_NGINX_CHECK_LEAK=1 $(PROVE) $(TEST_FILE)
 
-coverage: flush_db
-	@util/lua-releng
+coverage: releng flush_db
 	@rm -f luacov.stats.out
 	@$(TEST_LEDGE_REDIS_VARS) TEST_COVERAGE=1 $(PROVE) $(TEST_FILE)
 	@luacov
