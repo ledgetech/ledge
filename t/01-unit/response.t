@@ -3,7 +3,7 @@ use FindBin;
 use lib "$FindBin::Bin/..";
 use LedgeEnv;
 
-our $HttpConfig = LedgeEnv::http_config("", qq{
+our $HttpConfig = LedgeEnv::http_config(extra_lua_config => qq{
     function read_body(res)
         repeat
             local chunk, err = res.body_reader()

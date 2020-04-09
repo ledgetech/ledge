@@ -3,7 +3,7 @@ use FindBin;
 use lib "$FindBin::Bin/..";
 use LedgeEnv;
 
-our $HttpConfig = LedgeEnv::http_config("", qq{
+our $HttpConfig = LedgeEnv::http_config(extra_lua_config => qq{
     -- Define storage backends here, and add requests to each test
     -- with backend=<backend> params.
     backends = {

@@ -3,7 +3,7 @@ use FindBin;
 use lib "$FindBin::Bin/..";
 use LedgeEnv;
 
-our $HttpConfig = LedgeEnv::http_config("", qq{
+our $HttpConfig = LedgeEnv::http_config(extra_lua_config => qq{
     function print_next(tag, before, after)
         if not tag.closing then
             tag.closing = {}

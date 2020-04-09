@@ -4,11 +4,8 @@ use lib "$FindBin::Bin/..";
 use LedgeEnv;
 
 our $HttpConfig = LedgeEnv::http_config();
-our $HttpConfig_Test6 = LedgeEnv::http_config(qq{
-    init_worker_by_lua_block {
-        require("ledge.worker").new():run()
-    }
-}, qq{
+
+our $HttpConfig_Test6 = LedgeEnv::http_config(extra_lua_config => qq{
     foo = 1
     package.loaded["ledge.job.test"] = {
         perform = function(job)
@@ -16,7 +13,7 @@ our $HttpConfig_Test6 = LedgeEnv::http_config(qq{
             return true
         end
     }
-});
+}, run_worker => 1);
 
 no_long_string();
 no_diff();
@@ -75,7 +72,7 @@ field foo does not exist
 === TEST 5: Run workers without errors
 --- http_config eval
 qq {
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+lua_package_path "./lib/?.lua;;";
 init_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
         require("luacov.runner").init()

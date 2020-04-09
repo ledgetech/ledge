@@ -13,14 +13,26 @@ our $redis_database = $ENV{TEST_LEDGE_REDIS_DATABASE} || 2;
 our $redis_qless_database = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} || 3;
 
 sub http_config {
-    my ($extra_nginx_config, $extra_lua_config) = @_;
+    my $extra_nginx_config = "";
+    my $extra_lua_config = "";
+    my $worker_config = "";
 
-    if (!defined $extra_nginx_config) {
-        $extra_nginx_config = "";
+    my (%args) = @_;
+
+    if (defined $args{extra_nginx_config}) {
+        $extra_nginx_config = $args{extra_nginx_config};
+    }
+    
+    if (defined $args{extra_lua_config}) {
+        $extra_lua_config = $args{extra_lua_config};
     }
 
-    if (!defined $extra_lua_config) {
-        $extra_lua_config = "";
+    if ($args{run_worker}) {
+        $worker_config = qq{
+            init_worker_by_lua_block {
+                require("ledge").create_worker():run()
+            }
+        };
     }
 
     return qq{
@@ -51,6 +63,8 @@ sub http_config {
 
             $extra_lua_config;
         }
+
+        $worker_config
     }
 }
 

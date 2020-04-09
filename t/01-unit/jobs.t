@@ -3,7 +3,7 @@ use FindBin;
 use lib "$FindBin::Bin/..";
 use LedgeEnv;
 
-our $HttpConfig = LedgeEnv::http_config(qq{
+our $HttpConfig = LedgeEnv::http_config(extra_nginx_config => qq{
     lua_shared_dict ledge_test 1m;
 });
 
