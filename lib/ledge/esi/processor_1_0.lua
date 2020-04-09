@@ -112,7 +112,7 @@ local function _esi_eval_var(var)
                 -- We need a full cookie string, with any blacklisted values removed
                 local cookies = cookies:get_all()
 
-                value = {}
+                local value = {}
                 for k, v in pairs(cookies) do
                     if not blacklist[k] then
                         tbl_insert(value, k .. "=" .. v)
