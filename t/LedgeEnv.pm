@@ -30,20 +30,20 @@ sub http_config {
         resolver local=on;
 
         init_by_lua_block {
-            if $LedgeEnv::test_coverage == 1 then
+            if $test_coverage == 1 then
                 require("luacov.runner").init()
             end
 
-            local REDIS_URL = "redis://$LedgeEnv::redis_host:$LedgeEnv::redis_port/$LedgeEnv::redis_database"
+            local REDIS_URL = "redis://$redis_host:$redis_port/$redis_database"
 
             require("ledge").configure({
                 redis_connector_params = { url = REDIS_URL },
-                qless_db = $LedgeEnv::redis_qless_database,
+                qless_db = $redis_qless_database,
             })
 
             require("ledge").set_handler_defaults({
-                upstream_host = "$LedgeEnv::nginx_host",
-                upstream_port = $LedgeEnv::nginx_port,
+                upstream_host = "$nginx_host",
+                upstream_port = $nginx_port,
                 storage_driver_config = {
                     redis_connector_params = { url = REDIS_URL },
                 },
