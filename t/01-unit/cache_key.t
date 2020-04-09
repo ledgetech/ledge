@@ -1,42 +1,13 @@
 use Test::Nginx::Socket 'no_plan';
-use Cwd qw(cwd);
-my $pwd = cwd();
+use FindBin;
+use lib "$FindBin::Bin/..";
+use LedgeEnv;
 
-$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
-$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_NGINX_PORT} |= 1984;
-$ENV{TEST_COVERAGE} ||= 0;
-
-our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
-
-init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        require("luacov.runner").init()
-    end
-
-    require("ledge").configure({
-        redis_connector_params = {
-            url = "redis://127.0.0.1:6379/$ENV{TEST_LEDGE_REDIS_DATABASE}",
-        },
-        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-    })
-
-    TEST_NGINX_PORT = $ENV{TEST_NGINX_PORT}
-    require("ledge").set_handler_defaults({
-        upstream_host = "127.0.0.1",
-        upstream_port = TEST_NGINX_PORT,
-    })
-
-    require("ledge.state_machine").set_debug(true)
-}
-
-}; # HttpConfig
+our $HttpConfig = LedgeEnv::http_config();
 
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 1: Root key is the same with nil ngx.var.args and empty string
@@ -440,7 +411,11 @@ GET /t
 location /t {
     rewrite ^(.*)_prx$ $1 break;
     content_by_lua_block {
-        local redis = require("ledge").create_redis_connection()
+        local redis, err = require("ledge").create_redis_connection()
+        if not redis then
+            error("redis borked: " .. tostring(err))
+        end
+
         local read_vary_spec = require("ledge.cache_key").read_vary_spec
 
         local root_key = "ledge:dummy:root:"
