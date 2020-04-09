@@ -1,12 +1,8 @@
 use Test::Nginx::Socket 'no_plan';
-use Cwd qw(cwd);
+use FindBin;
+use lib "$FindBin::Bin/..";
+use LedgeEnv;
 
-my $pwd = cwd();
-
-$ENV{TEST_NGINX_PORT} |= 1984;
-$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
-$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_COVERAGE} ||= 0;
 $ENV{TEST_NGINX_HTML_DIR} ||= html_dir();
 $ENV{TEST_NGINX_SOCKET_DIR} ||= $ENV{TEST_NGINX_HTML_DIR};
 
@@ -23,19 +19,11 @@ our $RootCACert = read_file("t/cert/rootCA.pem");
 our $ExampleCert = read_file("t/cert/example.com.crt");
 our $ExampleKey = read_file("t/cert/example.com.key");
 
-our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
-
-lua_ssl_trusted_certificate "../html/rootca.pem";
-ssl_certificate "../html/example.com.crt";
-ssl_certificate_key "../html/example.com.key";
-
-init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        require("luacov.runner").init()
-    end
-
-
+our $HttpConfig = LedgeEnv::http_config(extra_nginx_config => qq{
+    lua_ssl_trusted_certificate "../html/rootca.pem";
+    ssl_certificate "../html/example.com.crt";
+    ssl_certificate_key "../html/example.com.key";
+}, extra_lua_config => qq{
 	-- SSL helper function
 	function do_ssl(ssl_opts, params)
 		local ssl_opts = ssl_opts or {}
@@ -78,37 +66,17 @@ init_by_lua_block {
 		end
 	end
 
-
-    require("ledge").configure({
-        redis_connector_params = {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-        },
-        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-    })
-
     require("ledge").set_handler_defaults({
         upstream_host = "unix:$ENV{TEST_NGINX_SOCKET_DIR}/nginx-ssl.sock",
         upstream_use_ssl = true,
         upstream_ssl_server_name = "example.com",
         upstream_ssl_verify = true,
-        storage_driver_config = {
-            redis_connector_params = {
-                db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-            },
-        }
     })
-}
-
-init_worker_by_lua_block {
-    require("ledge").create_worker():run()
-}
-
-};
+}, run_worker => 1);
 
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 1: SSL works
