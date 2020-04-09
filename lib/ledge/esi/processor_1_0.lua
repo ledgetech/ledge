@@ -3,8 +3,8 @@ local cookie = require "resty.cookie"
 local tag_parser = require "ledge.esi.tag_parser"
 local util = require "ledge.util"
 
-local   tostring, type, tonumber, next, unpack, pcall, setfenv =
-        tostring, type, tonumber, next, unpack, pcall, setfenv
+local   tostring, type, tonumber, next, unpack, pcall, setfenv, loadstring =
+        tostring, type, tonumber, next, unpack, pcall, setfenv, loadstring
 
 local str_sub = string.sub
 local str_byte = string.byte
