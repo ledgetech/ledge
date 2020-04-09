@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+    runner:
+        image: "ledgetech/test-runner:latest"
+        volumes:
+            - ../../:/code
+        command: /bin/bash -c "TEST_LEDGE_REDIS_HOST=redis make coverage"
+        user: http
+        working_dir: /code
+        depends_on:
+            - redis
+
+    redis:
+        image: "redis:alpine"
