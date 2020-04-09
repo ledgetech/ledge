@@ -847,16 +847,10 @@ local function esi_process_remove_tags(chunk)
 end
 
 
--- Reads from reader according to "buffer_size", and scans for ESI instructions.
--- Acts as a sink when ESI instructions are not complete, buffering until the
--- chunk contains a full instruction safe to process on serve.
-function _M.get_scan_filter(self, res)
-    local reader = res.body_reader
-    local esi_detected = false
-    local max_size = self.handler.config.esi_max_size
+local function scan_filter(reader, writer, max_size, res, esi_token)
+    local co_yield = writer
     local bailed = false
-
-    return co_wrap(function(buffer_size)
+    return function(buffer_size)
         local prev_chunk = ""
         local tag_hint
 
@@ -905,7 +899,7 @@ function _M.get_scan_filter(self, res)
 
                             -- On first time, set res:set_and_save("has_esi", parser)
                             if not esi_detected then
-                                res:set_and_save("has_esi", self.token)
+                                res:set_and_save("has_esi", esi_token) --self.token)
                                 esi_detected = true
                             end
 
@@ -966,7 +960,21 @@ function _M.get_scan_filter(self, res)
                 co_yield(tag_hint)
             end
         until not chunk
-    end)
+    end
+end
+_M.scan_filter = scan_filter
+
+
+-- Reads from reader according to "buffer_size", and scans for ESI instructions.
+-- Acts as a sink when ESI instructions are not complete, buffering until the
+-- chunk contains a full instruction safe to process on serve.
+function _M.get_scan_filter(self, res)
+    local reader = res.body_reader
+    local writer = function(chunk, err, has_esi) co_yield(chunk, err, has_esi) end
+    local max_size = self.handler.config.esi_max_size
+    local bailed = false
+
+    return co_wrap(scan_filter(reader, writer, max_size, res, self.token))
 end
 
 

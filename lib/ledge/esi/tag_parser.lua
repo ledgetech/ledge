@@ -126,7 +126,7 @@ function _M.find_whole_tag(self, tag)
         return ret
     end
 
-    -- We must be block level, and could potentially be nesting
+    -- We must be block level (or incomplete), and could potentially be nesting
 
     local search = opening_t -- We search from after the opening tag
 
@@ -172,7 +172,7 @@ function _M.find_whole_tag(self, tag)
 
         return ret
     else
-        -- We have an opening block tag, but not the closing part. Return
+        -- We have an opening tag, but not the closing part. Return
         -- what we can as the filters will buffer until we find the rest.
         return ret
     end
