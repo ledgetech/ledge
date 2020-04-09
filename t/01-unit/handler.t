@@ -3,7 +3,7 @@ use FindBin;
 use lib "$FindBin::Bin/..";
 use LedgeEnv;
 
-our $HttpConfig = LedgeEnv::http_config(qq{
+our $HttpConfig = LedgeEnv::http_config("", qq{
     -- For TEST 2
     TEST_NGINX_PORT = $LedgeEnv::nginx_port
 });
@@ -11,7 +11,6 @@ our $HttpConfig = LedgeEnv::http_config(qq{
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 1: Load module

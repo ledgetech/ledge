@@ -1,21 +1,9 @@
 use Test::Nginx::Socket 'no_plan';
-use Cwd qw(cwd);
+use FindBin;
+use lib "$FindBin::Bin/..";
+use LedgeEnv;
 
-my $pwd = cwd();
-
-$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
-$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_COVERAGE} ||= 0;
-
-our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;;";
-
-
-init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        require("luacov.runner").init()
-    end
-
+our $HttpConfig = LedgeEnv::http_config("", qq{
     -- Define storage backends here, and add requests to each test
     -- with backend=<backend> params.
     backends = {
@@ -23,12 +11,12 @@ init_by_lua_block {
             module = "ledge.storage.redis",
             params = {
                 redis_connector_params = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    url = REDIS_URL,
                 },
             },
             bad_params = {
                 redis_connector_params = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    url = REDIS_URL,
                     foobar = "broken!"
                 },
             }
@@ -37,14 +25,14 @@ init_by_lua_block {
             module = "ledge.storage.redis",
             params = {
                 redis_connector_params = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    url = REDIS_URL,
                     connection_is_proxied = true,
                 },
                 supports_transactions = false,
             },
             bad_params = {
                 redis_connector_params = {
-                    db = $ENV{TEST_LEDGE_REDIS_DATABASE},
+                    url = REDIS_URL,
                     foobar = "broken!"
                 },
                 supports_transactions = false,
@@ -103,7 +91,7 @@ init_by_lua_block {
         end
     end
 
-    
+
     -- Utility returning an iterator over given chunked data, but which
     -- fails (simulating upstream timeout) at fail_pos iteration.
     function get_and_fail_upstream_source(data, fail_pos)
@@ -153,14 +141,11 @@ init_by_lua_block {
             body_reader = function() return nil end,
         }, _mt)
     end
-}
-
-};
+});
 
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 1: Load connect and close without errors.

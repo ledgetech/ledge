@@ -13,12 +13,19 @@ our $redis_database = $ENV{TEST_LEDGE_REDIS_DATABASE} || 2;
 our $redis_qless_database = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} || 3;
 
 sub http_config {
-    my ($extra_config) = @_;
-    if (!defined $extra_config) {
-        $extra_config = "";
+    my ($extra_nginx_config, $extra_lua_config) = @_;
+
+    if (!defined $extra_nginx_config) {
+        $extra_nginx_config = "";
+    }
+
+    if (!defined $extra_lua_config) {
+        $extra_lua_config = "";
     }
 
     return qq{
+        $extra_nginx_config
+
         lua_package_path "./lib/?.lua;;";
         resolver local=on;
 
@@ -42,9 +49,7 @@ sub http_config {
                 },
             })
 
-            require("ledge.state_machine").set_debug(true)
-
-            $extra_config;
+            $extra_lua_config;
         }
     }
 }
