@@ -22,7 +22,7 @@ sub http_config {
     if (defined $args{extra_nginx_config}) {
         $extra_nginx_config = $args{extra_nginx_config};
     }
-    
+
     if (defined $args{extra_lua_config}) {
         $extra_lua_config = $args{extra_lua_config};
     }
@@ -39,7 +39,7 @@ sub http_config {
         $extra_nginx_config
 
         lua_package_path "./lib/?.lua;;";
-        resolver local=on;
+        resolver local=on ipv6=off;
 
         init_by_lua_block {
             if $test_coverage == 1 then

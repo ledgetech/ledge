@@ -1,40 +1,11 @@
 use Test::Nginx::Socket 'no_plan';
-use Cwd qw(cwd);
+use FindBin;
+use lib "$FindBin::Bin/..";
+use LedgeEnv;
 
-my $pwd = cwd();
-
-$ENV{TEST_NGINX_PORT} |= 1984;
-$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
-$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_COVERAGE} ||= 0;
-
-our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
-
-lua_shared_dict ledge_test 1m;
-
-init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        require("luacov.runner").init()
-    end
-
-    require("ledge").configure({
-        redis_connector_params = {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-        },
-        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-    })
-
-    require("ledge").set_handler_defaults({
-        upstream_host = "127.0.0.1",
-        upstream_port = $ENV{TEST_NGINX_PORT},
-        storage_driver_config = {
-            redis_connector_params = {
-                db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-            },
-        }
-    })
-
+our $HttpConfig = LedgeEnv::http_config(extra_nginx_config => qq{
+    lua_shared_dict ledge_test 1m;
+}, extra_lua_config => qq{
     function format_json(json, prefix)
         local decode = require("cjson").decode
         if type(json) == "string" then
@@ -63,18 +34,11 @@ init_by_lua_block {
         end
         return out
     end
-}
-
-init_worker_by_lua_block {
-    require("ledge").create_worker():run()
-}
-
-};
+}, run_worker => 1);
 
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 1: Prime cache for subsequent tests
@@ -934,7 +898,7 @@ location /purge_cached_14 {
 "GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2",
 
 qq(PURGE /purge_api
-{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=1", "http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=2"]}),
+{"uris": ["http://localhost:$LedgeEnv::nginx_port/purge_cached_14_prx?a=1", "http://localhost:$LedgeEnv::nginx_port/purge_cached_14_prx?a=2"]}),
 
 "GET /purge_cached_14_prx?a=1", "GET /purge_cached_14_prx?a=2",
 ]
@@ -949,8 +913,8 @@ qq(PURGE /purge_api
 "TEST 14: 1", "TEST 14: 2",
 
 qq(purge_mode: invalidate
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=1.result: purged
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_14_prx?a=2.result: purged
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_14_prx?a=1.result: purged
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_14_prx?a=2.result: purged
 ),
 
 "TEST 14: 1", "TEST 14: 2",
@@ -998,7 +962,7 @@ location /purge_cached_15 {
 "GET /purge_cached_15_prx?a=1", "GET /purge_cached_15_prx?a=2",
 
 qq(PURGE /purge_api
-{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx?a*"]}),
+{"uris": ["http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx?a*"]}),
 ]
 --- more_headers eval
 [
@@ -1010,12 +974,12 @@ qq(PURGE /purge_api
 "TEST 15: 1", "TEST 15: 2",
 
 qq(purge_mode: invalidate
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.jid: [a-f0-9]{32}
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.klass: ledge.jobs.purge
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.jid: [a-f0-9]{32}
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.priority: 5
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.tags.1: purge
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_15_prx\\?a\\*.result: scheduled
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.klass: ledge.jobs.purge
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.priority: 5
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.qless_jobs.1.options.tags.1: purge
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_15_prx\\?a\\*.result: scheduled
 ),
 ]
 --- response_headers_like eval
@@ -1087,7 +1051,7 @@ location /purge_cached_16 {
 "GET /purge_cached_16_prx?a=1", "GET /purge_cached_16_prx?a=2",
 
 qq(PURGE /purge_api
-{"uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx*"]}),
+{"uris": ["http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx*"]}),
 ]
 --- more_headers eval
 [
@@ -1099,12 +1063,12 @@ qq(PURGE /purge_api
 "TEST 16: 1", "TEST 16: 2",
 
 qq(purge_mode: invalidate
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.jid: [a-f0-9]{32}
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.klass: ledge.jobs.purge
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.options.jid: [a-f0-9]{32}
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.options.priority: 5
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.qless_jobs.1.options.tags.1: purge
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_16_prx\\*.result: scheduled
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.klass: ledge.jobs.purge
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.options.priority: 5
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.qless_jobs.1.options.tags.1: purge
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_16_prx\\*.result: scheduled
 ),
 ]
 --- response_headers_like eval
@@ -1234,7 +1198,7 @@ location /purge_cached_17 {
 "GET /purge_cached_17_prx?a=1",
 
 qq(PURGE /purge_api
-{"purge_mode": "revalidate", "uris": ["http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx?a=1"]}),
+{"purge_mode": "revalidate", "uris": ["http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx?a=1"]}),
 ]
 --- more_headers eval
 [
@@ -1245,12 +1209,12 @@ qq(PURGE /purge_api
 "TEST 17: 1",
 
 qq(purge_mode: revalidate
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.jid: [a-f0-9]{32}
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.klass: ledge.jobs.revalidate
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.options.jid: [a-f0-9]{32}
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.options.priority: 4
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.qless_jobs.1.options.tags.1: revalidate
-result.http://localhost:$ENV{TEST_NGINX_PORT}/purge_cached_17_prx\\?a=1.result: purged
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.klass: ledge.jobs.revalidate
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.options.jid: [a-f0-9]{32}
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.options.priority: 4
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.qless_jobs.1.options.tags.1: revalidate
+result.http://localhost:$LedgeEnv::nginx_port/purge_cached_17_prx\\?a=1.result: purged
 ),
 
 ]

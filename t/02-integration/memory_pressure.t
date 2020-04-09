@@ -1,50 +1,17 @@
 use Test::Nginx::Socket 'no_plan';
-use Cwd qw(cwd);
+use FindBin;
+use lib "$FindBin::Bin/..";
+use LedgeEnv;
 
-my $pwd = cwd();
-
-$ENV{TEST_NGINX_PORT} |= 1984;
-$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
-$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_COVERAGE} ||= 0;
-
-our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
-
-init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        require("luacov.runner").init()
-    end
-
-    require("ledge").configure({
-        redis_connector_params = {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-        },
-        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-    })
-
+our $HttpConfig = LedgeEnv::http_config(extra_lua_config => qq{
     require("ledge").set_handler_defaults({
         esi_enabled = true,
-        upstream_host = "127.0.0.1",
-        upstream_port = $ENV{TEST_NGINX_PORT},
-        storage_driver_config = {
-            redis_connector_params = {
-                db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-            },
-        }
     })
-}
-
-init_worker_by_lua_block {
-    require("ledge").create_worker():run()
-}
-
-};
+}, run_worker => 1);
 
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 1: Prime some cache
