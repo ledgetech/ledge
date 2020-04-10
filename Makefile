@@ -152,7 +152,7 @@ check_ports:
 ###############################################################################
 
 releng:
-	@util/lua-releng -eLs
+	@util/lua-releng -eL
 
 flush_db:
 	@$(REDIS_CLI) flushall

@@ -50,7 +50,7 @@ GET /ledge_2
 qq {
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
+    if $LedgeEnv::test_coverage == 1 then
         require("luacov.runner").init()
     end
     local ok, err = pcall(require("ledge").configure, { foo = "bar" })
@@ -114,7 +114,7 @@ qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
+    if $LedgeEnv::test_coverage == 1 then
         require("luacov.runner").init()
     end
     require("ledge").configure({
@@ -164,7 +164,7 @@ qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
+    if $LedgeEnv::test_coverage == 1 then
         require("luacov.runner").init()
     end
     require("ledge").set_handler_defaults({
@@ -224,7 +224,7 @@ qq{
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
 
 init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
+    if $LedgeEnv::test_coverage == 1 then
         require("luacov.runner").init()
     end
     require("ledge").configure({
