@@ -6,7 +6,6 @@ services:
         volumes:
             - ../../:/code
         command: /bin/bash -c "TEST_LEDGE_REDIS_HOST=redis make coverage"
-        user: http
         working_dir: /code
         depends_on:
             - redis
