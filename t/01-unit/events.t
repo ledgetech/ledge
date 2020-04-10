@@ -99,7 +99,7 @@ qq {
 lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
 
 init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
+    if $LedgeEnv::test_coverage == 1 then
         require("luacov.runner").init()
     end
 

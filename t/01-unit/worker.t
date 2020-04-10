@@ -49,7 +49,7 @@ GET /worker_2
 qq {
 lua_package_path "./lib/?.lua;;";
 init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
+    if $LedgeEnv::test_coverage == 1 then
         require("luacov.runner").init()
     end
 }
@@ -74,7 +74,7 @@ field foo does not exist
 qq {
 lua_package_path "./lib/?.lua;;";
 init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
+    if $LedgeEnv::test_coverage == 1 then
         require("luacov.runner").init()
     end
 }
