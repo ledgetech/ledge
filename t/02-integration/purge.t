@@ -401,7 +401,7 @@ location /purge_cached_8 {
 }
 --- request
 PURGE /purge_cached_8*
---- wait: 1
+--- wait: 2
 --- no_error_log
 [error]
 --- response_body_like
