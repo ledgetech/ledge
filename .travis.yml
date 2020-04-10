@@ -3,4 +3,4 @@ services:
 
 script:
     - cd docker/tests
-    - docker-compose rum --rum runner
+    - docker-compose run --rm runner
