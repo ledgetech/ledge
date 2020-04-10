@@ -1,48 +1,17 @@
 use Test::Nginx::Socket 'no_plan';
-use Cwd qw(cwd);
+use FindBin;
+use lib "$FindBin::Bin/..";
+use LedgeEnv;
 
-my $pwd = cwd();
-
-$ENV{TEST_NGINX_PORT} |= 1984;
-$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
-$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_COVERAGE} ||= 0;
-$ENV{TEST_LEDGE_CHUNKED} ||= 'on';
-
-our $HttpConfig = qq{
-resolver 8.8.8.8 ipv6=off;
-if_modified_since off;
-chunked_transfer_encoding $ENV{TEST_LEDGE_CHUNKED};
-lua_check_client_abort On;
-
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
-
-init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        require("luacov.runner").init()
-    end
-
-    require("ledge").configure({
-        redis_connector_params = {
-            db = $ENV{TEST_LEDGE_REDIS_DATABASE},
-        },
-        qless_db = $ENV{TEST_LEDGE_REDIS_QLESS_DATABASE},
-    })
-
-    TEST_LEDGE_REDIS_DATABASE = $ENV{TEST_LEDGE_REDIS_DATABASE}
-
+our $HttpConfig = LedgeEnv::http_config(extra_nginx_config => qq{
+    lua_shared_dict test 1m;
+    lua_check_client_abort on;
+    if_modified_since off;
+}, extra_lua_config => qq{
     require("ledge").set_handler_defaults({
-        upstream_host = "127.0.0.1",
-        upstream_port = $ENV{TEST_NGINX_PORT},
-        storage_driver_config = {
-            redis_connector_params = {
-                db = TEST_LEDGE_REDIS_DATABASE,
-            },
-        },
         esi_enabled = true,
         buffer_size = 5, -- Try to trip scanning up with small buffers
     })
-
 
     -- Make all content return valid Surrogate-Control headers
     function run(handler)
@@ -54,18 +23,11 @@ init_by_lua_block {
         end)
         handler:run()
     end
-}
-
-init_worker_by_lua_block {
-    require("ledge").create_worker():run()
-}
-
-};
+}, run_worker => 1);
 
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 0: ESI works on slow and fast paths

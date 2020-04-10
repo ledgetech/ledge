@@ -1,27 +1,13 @@
 use Test::Nginx::Socket 'no_plan';
-use Cwd qw(cwd);
-my $pwd = cwd();
+use FindBin;
+use lib "$FindBin::Bin/..";
+use LedgeEnv;
 
-$ENV{TEST_LEDGE_REDIS_DATABASE} |= 2;
-$ENV{TEST_LEDGE_REDIS_QLESS_DATABASE} |= 3;
-$ENV{TEST_NGINX_PORT} |= 1984;
-$ENV{TEST_COVERAGE} ||= 0;
-
-our $HttpConfig = qq{
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;../lua-resty-http/lib/?.lua;../lua-ffi-zlib/lib/?.lua;;";
-
-init_by_lua_block {
-    if $ENV{TEST_COVERAGE} == 1 then
-        require("luacov.runner").init()
-    end
-}
-
-}; # HttpConfig
+our $HttpConfig = LedgeEnv::http_config();
 
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 1: Bind and emit

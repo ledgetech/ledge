@@ -1,5 +1,7 @@
 # Ledge
 
+[![Build Status](https://travis-ci.org/ledgetech/ledge.svg?branch=master)](https://travis-ci.org/ledgetech/ledge)
+
 An RFC compliant and [ESI](https://www.w3.org/TR/esi-lang) capable HTTP cache for [Nginx](http://nginx.org) / [OpenResty](https://openresty.org), backed by [Redis](http://redis.io).
 
 Ledge can be utilised as a fast, robust and scalable alternative to Squid / Varnish etc, either installed standalone or integrated into an existing Nginx server or load balancer.

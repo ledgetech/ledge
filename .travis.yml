@@ -1,0 +1,6 @@
+services:
+    - docker
+
+script:
+    - cd docker/tests
+    - docker-compose run --rm runner

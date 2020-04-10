@@ -1,29 +1,23 @@
-use Test::Nginx::Socket;
-use Cwd qw(cwd);
+use Test::Nginx::Socket 'no_plan';
+use FindBin;
+use lib "$FindBin::Bin/..";
+use LedgeEnv;
 
-plan tests => repeat_each() * (blocks() * 2) + 1;
+our $HttpConfig = LedgeEnv::http_config();
 
-my $pwd = cwd();
-
-$ENV{TEST_USE_RESTY_CORE} ||= 'nil';
-$ENV{TEST_COVERAGE} ||= 0;
-
-our $HttpConfig = qq{
-    lua_package_path "./lib/?.lua;;";
-    init_by_lua_block {
-        if $ENV{TEST_COVERAGE} == 1 then
-            require("luacov.runner").init()
+our $HttpConfig_Test6 = LedgeEnv::http_config(extra_lua_config => qq{
+    foo = 1
+    package.loaded["ledge.job.test"] = {
+        perform = function(job)
+            foo = foo + 1
+            return true
         end
     }
-    init_worker_by_lua_block {
-        assert(require("ledge.worker").new())
-    }
-};
+}, run_worker => 1);
 
 no_long_string();
 no_diff();
 run_tests();
-
 
 __DATA__
 === TEST 1: Load module without errors.
@@ -78,7 +72,7 @@ field foo does not exist
 === TEST 5: Run workers without errors
 --- http_config eval
 qq {
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
+lua_package_path "./lib/?.lua;;";
 init_by_lua_block {
     if $ENV{TEST_COVERAGE} == 1 then
         require("luacov.runner").init()
@@ -99,25 +93,7 @@ GET /worker_5
 
 
 === TEST 6: Push a job and confirm it runs
---- http_config eval
-qq {
-lua_package_path "./lib/?.lua;../lua-resty-redis-connector/lib/?.lua;../lua-resty-qless/lib/?.lua;;";
-init_by_lua_block {
-    foo = 1
-    if $ENV{TEST_COVERAGE} == 1 then
-        require("luacov.runner").init()
-    end
-    package.loaded["ledge.job.test"] = {
-        perform = function(job)
-            foo = foo + 1
-            return true
-        end
-    }
-}
-init_worker_by_lua_block {
-    require("ledge.worker").new():run()
-}
-}
+--- http_config eval: $::HttpConfig_Test6
 --- config
 location /worker_6 {
     content_by_lua_block {
@@ -127,7 +103,7 @@ location /worker_6 {
 
         local jid = assert(qless.queues["ledge_gc"]:put("ledge.job.test"))
 
-        ngx.sleep(1)
+        ngx.sleep(2)
         ngx.say(foo)
         local job = qless.jobs:get(jid)
         ngx.say(job.state)

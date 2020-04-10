@@ -3,8 +3,8 @@ local cookie = require "resty.cookie"
 local tag_parser = require "ledge.esi.tag_parser"
 local util = require "ledge.util"
 
-local   tostring, type, tonumber, next, unpack, pcall, setfenv =
-        tostring, type, tonumber, next, unpack, pcall, setfenv
+local   tostring, type, tonumber, next, unpack, pcall, setfenv, loadstring =
+        tostring, type, tonumber, next, unpack, pcall, setfenv, loadstring
 
 local str_sub = string.sub
 local str_byte = string.byte
@@ -112,7 +112,7 @@ local function _esi_eval_var(var)
                 -- We need a full cookie string, with any blacklisted values removed
                 local cookies = cookies:get_all()
 
-                value = {}
+                local value = {}
                 for k, v in pairs(cookies) do
                     if not blacklist[k] then
                         tbl_insert(value, k .. "=" .. v)
