@@ -1,7 +1,6 @@
 local http = require "resty.http"
 local cookie = require "resty.cookie"
 local tag_parser = require "ledge.esi.tag_parser"
-local util = require "ledge.util"
 
 local   tostring, type, tonumber, next, unpack, pcall, setfenv, loadstring =
         tostring, type, tonumber, next, unpack, pcall, setfenv, loadstring
@@ -15,7 +14,7 @@ local tbl_concat = table.concat
 local tbl_insert = table.insert
 
 local co_yield = coroutine.yield
-local co_wrap = util.coroutine.wrap
+local co_wrap = require("ledge.util").coroutine.wrap
 
 local ngx_re_gsub = ngx.re.gsub
 local ngx_re_sub = ngx.re.sub
@@ -670,7 +669,7 @@ local function make_esi_request_params(conn, host, path)
 end
 
 
-function _M.esi_fetch_include(self, include_tag, buffer_size)
+function _M.esi_fetch_include(self, include_tag, writer, buffer_size)
     -- We track include recursion, and bail past the limit, yielding a special
     -- "esi:abort_includes" instruction which the outer process filter checks
     -- for.
@@ -682,7 +681,7 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
 
     if recursion_count >= recursion_limit then
         ngx_log(ngx_ERR, "ESI recursion limit (", recursion_limit, ") exceeded")
-        co_yield("<esi:abort_includes />")
+        writer("<esi:abort_includes />")
         return nil
     end
 
@@ -739,7 +738,7 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
             repeat
                 local ch, err = reader(buffer_size)
                 if ch then
-                    co_yield(ch)
+                    writer(ch)
                 elseif err then
                     ngx_log(ngx_ERR, err)
                 end
@@ -754,7 +753,7 @@ function _M.esi_fetch_include(self, include_tag, buffer_size)
 end
 
 
-local function esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size, eval_vars)
+local function esi_process_include_tags(self, chunk, writer, esi_abort_flag, buffer_size, eval_vars)
     -- Short circuit
     if not chunk or str_find(chunk, "<esi:include", 1, true) == nil then
 
@@ -762,7 +761,7 @@ local function esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size
             chunk = esi_replace_vars(chunk)
         end
 
-        return co_yield(chunk)
+        return writer(chunk)
     end
 
     -- Find and loop over esi:include tags
@@ -784,7 +783,7 @@ local function esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size
                 pre = esi_replace_vars(pre)
             end
 
-            co_yield(pre)
+            writer(pre)
             ngx_flush()
             yield_from = to + 1
 
@@ -795,6 +794,7 @@ local function esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size
                 -- Fetches and yields the streamed response
                 self:esi_fetch_include(
                     str_sub(chunk, from, to),
+                    writer,
                     buffer_size
                 )
             end
@@ -805,7 +805,7 @@ local function esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size
                     chunk = esi_replace_vars(chunk)
                 end
 
-                co_yield(chunk)
+                writer(chunk)
             else
                 -- No *more* includes, yield what's left
                 chunk = str_sub(chunk, re_ctx.pos, -1)
@@ -813,7 +813,7 @@ local function esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size
                     chunk = esi_replace_vars(chunk)
                 end
 
-                co_yield(chunk)
+                writer(chunk)
             end
         end
 
@@ -847,9 +847,14 @@ local function esi_process_remove_tags(chunk)
 end
 
 
-local function scan_filter(reader, writer, max_size, res, esi_token)
-    local co_yield = writer
+-- Reads from reader according to "buffer_size", and scans for ESI instructions.
+-- Acts as a sink when ESI instructions are not complete, buffering until the
+-- chunk contains a full instruction safe to process on serve.
+function _M.get_scan_filter(self, res, reader, writer)
+    local max_size = self.handler.config.esi_max_size
+    local esi_detected = false
     local bailed = false
+
     return function(buffer_size)
         local prev_chunk = ""
         local tag_hint
@@ -878,7 +883,7 @@ local function scan_filter(reader, writer, max_size, res, esi_token)
                         "esi scan bailed as instructions spanned buffers " ..
                         "larger than esi_max_size"
                     )
-                    co_yield(chunk, nil, false)
+                    writer(chunk, nil, false)
                 else
 
                     local parser = tag_parser.new(chunk)
@@ -891,15 +896,15 @@ local function scan_filter(reader, writer, max_size, res, esi_token)
 
                             -- Yield anything before this tag
                             if before ~= "" then
-                                co_yield(before, nil, false)
+                                writer(before, nil, false)
                             end
 
                             -- Yield the entire tag with has_esi=true
-                            co_yield(tag.whole, nil, true)
+                            writer(tag.whole, nil, true)
 
                             -- On first time, set res:set_and_save("has_esi", parser)
                             if not esi_detected then
-                                res:set_and_save("has_esi", esi_token) --self.token)
+                                res:set_and_save("has_esi", self.token)
                                 esi_detected = true
                             end
 
@@ -912,7 +917,7 @@ local function scan_filter(reader, writer, max_size, res, esi_token)
                             -- This is so that we don't buffer the "before" content
                             -- if there turns out to be no closing tag
                             if before ~= "" then
-                                co_yield(before, nil, false)
+                                writer(before, nil, false)
                             end
 
                             prev_chunk = tag.opening.tag .. after
@@ -949,7 +954,7 @@ local function scan_filter(reader, writer, max_size, res, esi_token)
 
 
                             -- Nothing found, yield the whole chunk
-                            co_yield(chunk, nil, false)
+                            writer(chunk, nil, false)
                             break
                         end
                     until not tag
@@ -957,32 +962,18 @@ local function scan_filter(reader, writer, max_size, res, esi_token)
             elseif tag_hint then
                 -- We had what looked like a tag_hint but there are no more
                 -- chunks left.
-                co_yield(tag_hint)
+                writer(tag_hint)
             end
         until not chunk
     end
 end
-_M.scan_filter = scan_filter
 
 
--- Reads from reader according to "buffer_size", and scans for ESI instructions.
--- Acts as a sink when ESI instructions are not complete, buffering until the
--- chunk contains a full instruction safe to process on serve.
-function _M.get_scan_filter(self, res)
-    local reader = res.body_reader
-    local writer = function(chunk, err, has_esi) co_yield(chunk, err, has_esi) end
-    local max_size = self.handler.config.esi_max_size
-    local bailed = false
-
-    return co_wrap(scan_filter(reader, writer, max_size, res, self.token))
-end
-
-
-function _M.get_process_filter(self, res)
+function _M.get_process_filter(self, res, reader, writer)
     local recursion_count =
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
 
-    local reader = res.body_reader
+--    local reader = res.body_reader
 
     -- push configured custom variables into ctx to be read by regex functions
     ngx.ctx.__ledge_esi_custom_variables = self.handler.config.esi_custom_variables
@@ -993,7 +984,7 @@ function _M.get_process_filter(self, res)
 
     -- We use an outer coroutine to filter the processed output in case we have
     -- to abort recursive includes.
-    return co_wrap(function(buffer_size)
+    return function(buffer_size)
         local esi_abort_flag = false
 
         -- This is the actual process filter coroutine
@@ -1020,11 +1011,10 @@ function _M.get_process_filter(self, res)
                         local chunk, should_eval = evaluate_conditionals(chunk)
 
                         -- Process ESI includes
-                        -- Will yield content to the outer reader
-                        esi_process_include_tags(self, chunk, esi_abort_flag, buffer_size, should_eval)
-
+                        esi_process_include_tags(self, chunk, co_yield,
+                                                 esi_abort_flag, buffer_size, should_eval)
                     else
-                        co_yield(chunk)
+                        writer(chunk)
                     end
                 end
             until not chunk
@@ -1053,10 +1043,10 @@ function _M.get_process_filter(self, res)
                     )
                 end
 
-                co_yield(chunk)
+                writer(chunk)
             end
         until not chunk
-    end)
+    end
 end
 
 

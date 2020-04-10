@@ -1,4 +1,6 @@
 local type, next = type, next
+local co_wrap = require("ledge.util").coroutine.wrap
+local co_yield = coroutine.yield
 
 local esi = require("ledge.esi")
 local response = require("ledge.response")
@@ -102,7 +104,11 @@ return {
         if next(esi_processor) then
             res:filter_body_reader(
                 "esi_scan_filter",
-                esi_processor:get_scan_filter(res)
+                co_wrap(esi_processor:get_scan_filter(
+                    res,
+                    res.body_reader,
+                    co_yield
+                ))
             )
         end
     end,
@@ -120,7 +126,11 @@ return {
         if next(esi_processor) then
             res:filter_body_reader(
                 "esi_process_filter",
-                esi_processor:get_process_filter(res)
+                co_wrap(esi_processor:get_process_filter(
+                    res,
+                    res.body_reader,
+                    co_yield
+                ))
             )
         end
     end,
