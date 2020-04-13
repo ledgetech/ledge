@@ -973,14 +973,17 @@ function _M.get_process_filter(self, res, reader, writer)
     local recursion_count =
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
 
---    local reader = res.body_reader
+    do
+        local config = self.handler.config
+        local ctx = ngx.ctx
 
-    -- push configured custom variables into ctx to be read by regex functions
-    ngx.ctx.__ledge_esi_custom_variables = self.handler.config.esi_custom_variables
+        -- push configured custom variables into ctx to be read by regex functions
+        ctx.__ledge_esi_custom_variables = config.esi_custom_variables
 
-    -- push current request cookies and blacklist into ctx for regex functions
-    ngx.ctx.__ledge_esi_cookies = cookie:new()
-    ngx.ctx.__ledge_esi_vars_cookie_blacklist = self.handler.config.esi_vars_cookie_blacklist
+        -- push request cookies and blacklist into ctx for regex functions
+        ctx.__ledge_esi_cookies = cookie:new()
+        ctx.__ledge_esi_vars_cookie_blacklist = config.esi_vars_cookie_blacklist
+    end
 
     -- We use an outer coroutine to filter the processed output in case we have
     -- to abort recursive includes.
@@ -1012,7 +1015,8 @@ function _M.get_process_filter(self, res, reader, writer)
 
                         -- Process ESI includes
                         esi_process_include_tags(self, chunk, co_yield,
-                                                 esi_abort_flag, buffer_size, should_eval)
+                                                 esi_abort_flag, buffer_size,
+                                                 should_eval)
                     else
                         writer(chunk)
                     end
