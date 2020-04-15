@@ -491,6 +491,7 @@ local function evaluate_conditionals(chunk, res, recursion)
         return tbl_concat(res), true
     end
 end
+_M.evaluate_conditionals = evaluate_conditionals
 
 
 -- Used in esi_process_vars_tag. Declared locally to avoid runtime closure
@@ -832,6 +833,7 @@ local function esi_process_comment_tags(chunk)
         "soj"
     )
 end
+_M.esi_process_comment_tags = esi_process_comment_tags
 
 
 local function esi_process_remove_tags(chunk)
@@ -845,6 +847,7 @@ local function esi_process_remove_tags(chunk)
         "soj"
     )
 end
+_M.esi_process_remove_tags = esi_process_remove_tags
 
 
 -- Reads from reader according to "buffer_size", and scans for ESI instructions.
