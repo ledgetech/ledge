@@ -590,6 +590,7 @@ local function parse_src_attribute(include_tag)
     -- Evaluate variables in the src URI
     return esi_replace_vars(src[1])
 end
+_M.parse_src_attribute = parse_src_attribute
 
 
 local function parse_include_src(src)
@@ -820,6 +821,7 @@ local function esi_process_include_tags(self, chunk, writer, esi_abort_flag, buf
 
     until not from
 end
+_M.esi_process_include_tags = esi_process_include_tags
 
 
 local function esi_process_comment_tags(chunk)
