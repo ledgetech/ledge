@@ -616,6 +616,7 @@ local function parse_include_src(src)
 
     return unpack(uri_parts)
 end
+_M.parse_include_src = parse_include_src
 
 
 local function make_esi_connection(config, upstream, scheme, host, port)
