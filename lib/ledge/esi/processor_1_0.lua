@@ -68,6 +68,7 @@ local function _esi_eval_var(var)
     if var_name == "QUERY_STRING" then
         if not key then
             -- We don't have a key so give them the whole string
+            ngx.log(ngx.DEBUG, "Will return ARGS!!!!!!!: ", ngx_var.args)
             return ngx_var.args or default
         else
             -- Lookup the querystring component by key
@@ -171,7 +172,7 @@ local function _esi_eval_var(var)
         end
     else
         local custom_variables = ngx.ctx.__ledge_esi_custom_variables
-        if next(custom_variables) then
+        if custom_variables and next(custom_variables) then
 
             local var = custom_variables[var_name]
             if var then
