@@ -68,7 +68,6 @@ local function _esi_eval_var(var)
     if var_name == "QUERY_STRING" then
         if not key then
             -- We don't have a key so give them the whole string
-            ngx.log(ngx.DEBUG, "Will return ARGS!!!!!!!: ", ngx_var.args)
             return ngx_var.args or default
         else
             -- Lookup the querystring component by key
