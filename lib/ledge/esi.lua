@@ -196,4 +196,73 @@ function _M.filter_esi_args(handler)
 end
 
 
+local function make_upstream_connection(config, upstream, scheme, host, port)
+    local httpc = http.new()
+    httpc:set_timeouts(
+        config.upstream_connect_timeout,
+        config.upstream_send_timeout,
+        config.upstream_read_timeout
+    )
+
+    local res, err
+    port = tonumber(port)
+    if port then
+        res, err = httpc:connect(upstream, port)
+    else
+        res, err = httpc:connect(upstream)
+    end
+
+    if not res then
+        return nil, err .. " connecting to " .. upstream .. ":" .. port
+    end
+
+    if scheme == "https" then
+        local ok, err = httpc:ssl_handshake(false, host, false)
+        if not ok then
+            return nil, "ssl handshake failed: " .. err
+        end
+    end
+
+    return httpc
+end
+
+
+function _M.stream_include(config, upstream, scheme, host, port, req_params, writer, buffer_size)
+    local httpc, err = make_upstream_connection(config, upstream, scheme, host, port)
+    if not httpc then
+        ngx_log(ngx_ERR, err)
+        return nil
+    end
+    local res, err = httpc:request(req_params)
+
+    if not res then
+        ngx_log(ngx_ERR, err, " from ", (src or ''))
+        return nil
+
+    elseif res.status >= 500 then
+        ngx_log(ngx_ERR, res.status, " from ", (src or ''))
+        return nil
+
+    else
+        if res then
+            -- Stream the include fragment, yielding as we go
+            local reader = res.body_reader
+            repeat
+                local ch, err = reader(buffer_size)
+                if ch then
+                    writer(ch)
+                elseif err then
+                    ngx_log(ngx_ERR, err)
+                end
+            until not ch
+        end
+    end
+
+    httpc:set_keepalive(
+        config.upstream_keepalive_timeout,
+        config.upstream_keepalive_poolsize
+    )
+end
+
+
 return _M

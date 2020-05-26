@@ -619,38 +619,7 @@ end
 _M.parse_include_src = parse_include_src
 
 
-local function make_esi_connection(config, upstream, scheme, host, port)
-    local httpc = http.new()
-    httpc:set_timeouts(
-        config.upstream_connect_timeout,
-        config.upstream_send_timeout,
-        config.upstream_read_timeout
-    )
-
-    local res, err
-    port = tonumber(port)
-    if port then
-        res, err = httpc:connect(upstream, port)
-    else
-        res, err = httpc:connect(upstream)
-    end
-
-    if not res then
-        return nil, err .. " connecting to " .. upstream .. ":" .. port
-    end
-
-    if scheme == "https" then
-        local ok, err = httpc:ssl_handshake(false, host, false)
-        if not ok then
-            return nil, "ssl handshake failed: " .. err
-        end
-    end
-
-    return httpc
-end
-
-
-local function make_esi_request_params(conn, host, path)
+local function make_request_params(host, path)
     local parent_headers = ngx_req_get_headers()
 
     local req_params = {
@@ -659,7 +628,7 @@ local function make_esi_request_params(conn, host, path)
         headers = {
             ["Host"] = host,
             ["Cache-Control"] = parent_headers["Cache-Control"],
-            ["User-Agent"] = conn._USER_AGENT .. " ledge_esi/" .. _M._VERSION,
+            ["User-Agent"] = http._USER_AGENT .. " ledge_esi/" .. _M._VERSION,
         },
     }
 
@@ -672,10 +641,9 @@ local function make_esi_request_params(conn, host, path)
 end
 
 
-function _M.esi_fetch_include(self, include_tag, writer, buffer_size)
+function _M.esi_fetch_include(self, include_tag, writer, fetcher, buffer_size)
     -- We track include recursion, and bail past the limit, yielding a special
-    -- "esi:abort_includes" instruction which the outer process filter checks
-    -- for.
+    -- "esi:abort_includes" instruction which the outer process filter checks.
     local recursion_count =
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
 
@@ -705,13 +673,7 @@ function _M.esi_fetch_include(self, include_tag, writer, buffer_size)
         port = ngx_var.server_port
     end
 
-    local httpc, err = make_esi_connection(config, upstream, scheme, host, port)
-    if not httpc then
-        ngx_log(ngx_ERR, err)
-        return nil
-    end
-
-    local req_params = make_esi_request_params(httpc, host, path)
+    local req_params = make_request_params(host, path)
 
     -- A chance to modify the request before we go upstream
     self.handler:emit("before_esi_include_request", req_params)
@@ -719,44 +681,16 @@ function _M.esi_fetch_include(self, include_tag, writer, buffer_size)
     -- Add these after the pre_include_callback so that they cannot be
     -- accidentally overriden
     req_params.headers["X-ESI-Parent-URI"] =
-    ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri
+        ngx_var.scheme .. "://" .. ngx_var.host .. ngx_var.request_uri
 
     req_params.headers["X-ESI-Recursion-Level"] = recursion_count + 1
 
     -- Go!
-    local res, err = httpc:request(req_params)
-
-    if not res then
-        ngx_log(ngx_ERR, err, " from ", (src or ''))
-        return nil
-
-    elseif res.status >= 500 then
-        ngx_log(ngx_ERR, res.status, " from ", (src or ''))
-        return nil
-
-    else
-        if res then
-            -- Stream the include fragment, yielding as we go
-            local reader = res.body_reader
-            repeat
-                local ch, err = reader(buffer_size)
-                if ch then
-                    writer(ch)
-                elseif err then
-                    ngx_log(ngx_ERR, err)
-                end
-            until not ch
-        end
-    end
-
-    httpc:set_keepalive(
-        config.upstream_keepalive_timeout,
-        config.upstream_keepalive_poolsize
-    )
+    fetcher(config, upstream, scheme, host, port, req_params, writer, buffer_size)
 end
 
 
-local function esi_process_include_tags(self, chunk, writer, esi_abort_flag, buffer_size, eval_vars)
+local function esi_process_include_tags(self, chunk, writer, fetcher, esi_abort_flag, buffer_size, eval_vars)
     -- Short circuit
     if not chunk or str_find(chunk, "<esi:include", 1, true) == nil then
 
@@ -798,6 +732,7 @@ local function esi_process_include_tags(self, chunk, writer, esi_abort_flag, buf
                 self:esi_fetch_include(
                     str_sub(chunk, from, to),
                     writer,
+                    fetcher,
                     buffer_size
                 )
             end
@@ -975,7 +910,7 @@ function _M.get_scan_filter(self, res, reader, writer)
 end
 
 
-function _M.get_process_filter(self, res, reader, writer)
+function _M.get_process_filter(self, res, reader, writer, fetcher)
     local recursion_count =
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
 
@@ -1020,7 +955,7 @@ function _M.get_process_filter(self, res, reader, writer)
                         local chunk, should_eval = evaluate_conditionals(chunk)
 
                         -- Process ESI includes
-                        esi_process_include_tags(self, chunk, co_yield,
+                        esi_process_include_tags(self, chunk, writer, fetcher,
                                                  esi_abort_flag, buffer_size,
                                                  should_eval)
                     else
