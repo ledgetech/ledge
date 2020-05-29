@@ -530,8 +530,11 @@ location /t {
     content_by_lua_block {
         -- Override the normal coroutine.yield function
         local output
-        coroutine.yield = function(chunk) output = chunk end
+        function writer(chunk)
+            output = chunk
+        end
 
+        local esi = require("ledge.esi")
         local processor = require("ledge.esi.processor_1_0")
         local handler = require("ledge").create_handler()
         local self = {
@@ -552,7 +555,9 @@ location /t {
 
         }
         for _, t in pairs(tests) do
-            local ret = processor.esi_fetch_include(self, t["tag"], buffer_size)
+            local ret = processor.esi_fetch_include(self, t["tag"],
+                                                    writer, esi.stream_include,
+                                                    buffer_size)
             ngx.log(ngx.DEBUG, "RET: '", ret, "'")
             ngx.log(ngx.DEBUG, "OUTPUT: '", output, "'")
             assert(output == t["res"], "esi_fetch_include mismatch: "..t["msg"] )

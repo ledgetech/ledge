@@ -1,3 +1,4 @@
+local http = require "resty.http"
 local h_util = require "ledge.header_util"
 
 local type, tonumber = type, tonumber
@@ -227,7 +228,7 @@ local function make_upstream_connection(config, upstream, scheme, host, port)
 end
 
 
-function _M.stream_include(config, upstream, scheme, host, port, req_params, writer, buffer_size)
+function _M.stream_include(config, src, upstream, scheme, host, port, req_params, writer, buffer_size)
     local httpc, err = make_upstream_connection(config, upstream, scheme, host, port)
     if not httpc then
         ngx_log(ngx_ERR, err)

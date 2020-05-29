@@ -686,7 +686,7 @@ function _M.esi_fetch_include(self, include_tag, writer, fetcher, buffer_size)
     req_params.headers["X-ESI-Recursion-Level"] = recursion_count + 1
 
     -- Go!
-    fetcher(config, upstream, scheme, host, port, req_params, writer, buffer_size)
+    fetcher(config, src, upstream, scheme, host, port, req_params, writer, buffer_size)
 end
 
 
@@ -910,7 +910,7 @@ function _M.get_scan_filter(self, res, reader, writer)
 end
 
 
-function _M.get_process_filter(self, res, reader, writer, fetcher)
+function _M.get_process_filter(self, reader, writer, fetcher)
     local recursion_count =
         tonumber(ngx_req_get_headers()["X-ESI-Recursion-Level"]) or 0
 
@@ -955,11 +955,11 @@ function _M.get_process_filter(self, res, reader, writer, fetcher)
                         local chunk, should_eval = evaluate_conditionals(chunk)
 
                         -- Process ESI includes
-                        esi_process_include_tags(self, chunk, writer, fetcher,
+                        esi_process_include_tags(self, chunk, co_yield, fetcher,
                                                  esi_abort_flag, buffer_size,
                                                  should_eval)
                     else
-                        writer(chunk)
+                        co_yield(chunk)
                     end
                 end
             until not chunk

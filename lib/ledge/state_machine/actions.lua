@@ -127,7 +127,6 @@ return {
             res:filter_body_reader(
                 "esi_process_filter",
                 co_wrap(esi_processor:get_process_filter(
-                    res,
                     res.body_reader,
                     co_yield,
                     esi.stream_include
