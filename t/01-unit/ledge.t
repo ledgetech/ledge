@@ -94,7 +94,8 @@ location /ledge_5 {
         assert(redis:set("ledge_5:cat", "dog"),
             "redis:set() should return positively")
 
-        ngx.say(redis:get("ledge_5:cat"))
+        local val, err = redis:get("ledge_5:cat")
+        ngx.say(val)
 
         assert(require("ledge").close_redis_connection(redis),
             "close_redis_connection() should return positively")
@@ -205,7 +206,8 @@ location /ledge_9 {
         local redis = require("ledge").create_redis_connection()
         assert(redis:select(qless_db), "select() shoudl return positively")
 
-        ngx.say(redis:get("ledge_9:cat"))
+        local val, err = redis:get("ledge_9:cat")
+        ngx.say(val)
 
         assert(require("ledge").close_redis_connection(redis),
             "close_redis_connection() should return positively")
