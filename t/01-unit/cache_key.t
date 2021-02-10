@@ -330,14 +330,17 @@ location /t {
         local vary_key = generate_vary_key({"Foo", "X-Test"}, callback, nil)
         log(vary_key)
         assert(called_flag == true, "Callback is called - multivalue spec")
-        assert(vary_key == "foo:bar:x-test:value", "Vary spec not modified with noop function - multivalue spec")
+        assert(string.find(vary_key, "foo:bar"), "Vary spec not modified with noop function - multivalue spec")
+        assert(string.find(vary_key, "x-test:value"), "Vary spec not modified with noop function - multivalue spec")
+
         called_flag = false
 
         ngx.req.set_header("Foo", {"Foo1", "Foo2"})
         local vary_key = generate_vary_key({"Foo", "X-Test"}, callback, nil)
         log(vary_key)
         assert(called_flag == true, "Callback is called - multivalue header")
-        assert(vary_key == "foo:foo1,foo2:x-test:value", "Vary spec - multivalue header")
+        assert(string.find(vary_key, "foo:foo1,foo2"), "Vary spec - multivalue header")
+        assert(string.find(vary_key, "x-test:value"), "Vary spec - multivalue header")
         called_flag = false
         ngx.req.set_header("Foo", "Bar")
 
@@ -356,11 +359,14 @@ location /t {
 
         local vary_key = generate_vary_key({"Foo"}, callback, nil)
         log(vary_key)
-        assert(vary_key == "foo:bar:myval:arbitrary", "Callback appends key with spec")
+        assert(string.find(vary_key, "foo:bar"), "Callback appends key with spec")
+        assert(string.find(vary_key, "myval:arbitrary"), "Callback appends key with spec")
 
         local vary_key = generate_vary_key({"Foo", "X-Test"}, callback, nil)
         log(vary_key)
-        assert(vary_key == "myval:arbitrary:foo:bar:x-test:value", "Callback appends key with spec - multi values")
+        assert(string.find(vary_key, "myval:arbitrary"), "Callback appends key with spec - multi values")
+        assert(string.find(vary_key, "foo:bar"), "Callback appends key with spec - multi values")
+        assert(string.find(vary_key, "x-test:value"), "Callback appends key with spec - multi values")
 
 
         callback = function(vary_key)
@@ -392,11 +398,13 @@ location /t {
 
         local vary_key = generate_vary_key({"A", "B"}, nil, {["A"] = "123", ["B"] = "xyz"})
         log(vary_key)
-        assert(vary_key == "a:123:b:xyz", "Vary key from arbitrary headers")
+        assert(string.find(vary_key, "a:123"), "Vary key from arbitrary headers")
+        assert(string.find(vary_key, "b:xyz"), "Vary key from arbitrary headers")
 
         local vary_key = generate_vary_key({"Foo", "B"}, nil, {["Foo"] = "123", ["B"] = "xyz"})
         log(vary_key)
-        assert(vary_key == "foo:123:b:xyz", "Arbitrary headers take precendence")
+        assert(string.find(vary_key, "foo:123"), "Vary key from arbitrary headers")
+        assert(string.find(vary_key, "b:xyz"), "Vary key from arbitrary headers")
 
     }
 }
