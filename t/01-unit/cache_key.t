@@ -332,6 +332,7 @@ location /t {
         assert(called_flag == true, "Callback is called - multivalue spec")
         assert(string.find(vary_key, "foo:bar"), "Vary spec not modified with noop function - multivalue spec")
         assert(string.find(vary_key, "x-test:value"), "Vary spec not modified with noop function - multivalue spec")
+        assert(string.len(vary_key) == string.len("x-test:value:foo:bar"), "Vary spec not modified with noop function - multivalue spec only contains required headers")
 
         called_flag = false
 
@@ -341,6 +342,8 @@ location /t {
         assert(called_flag == true, "Callback is called - multivalue header")
         assert(string.find(vary_key, "foo:foo1,foo2"), "Vary spec - multivalue header")
         assert(string.find(vary_key, "x-test:value"), "Vary spec - multivalue header")
+        assert(string.len(vary_key) == string.len("x-test:value:foo:foo1,foo2"), "Vary spec - multivalue header only contains required headers")
+
         called_flag = false
         ngx.req.set_header("Foo", "Bar")
 
@@ -361,12 +364,14 @@ location /t {
         log(vary_key)
         assert(string.find(vary_key, "foo:bar"), "Callback appends key with spec")
         assert(string.find(vary_key, "myval:arbitrary"), "Callback appends key with spec")
+        assert(string.len(vary_key) == string.len("myval:arbitrary:foo:bar"), "Callback appends key with spec only contains required headers")
 
         local vary_key = generate_vary_key({"Foo", "X-Test"}, callback, nil)
         log(vary_key)
         assert(string.find(vary_key, "myval:arbitrary"), "Callback appends key with spec - multi values")
         assert(string.find(vary_key, "foo:bar"), "Callback appends key with spec - multi values")
         assert(string.find(vary_key, "x-test:value"), "Callback appends key with spec - multi values")
+        assert(string.len(vary_key) == string.len("myval:arbitrary:foo:bar:x-test:value"), "Callback appends key with spec - multi values only contains required headers")
 
 
         callback = function(vary_key)
@@ -400,11 +405,13 @@ location /t {
         log(vary_key)
         assert(string.find(vary_key, "a:123"), "Vary key from arbitrary headers")
         assert(string.find(vary_key, "b:xyz"), "Vary key from arbitrary headers")
+        assert(string.len(vary_key) == string.len("a:123:b:xyz"), "Vary key from arbitrary headers only contains required headers")
 
         local vary_key = generate_vary_key({"Foo", "B"}, nil, {["Foo"] = "123", ["B"] = "xyz"})
         log(vary_key)
         assert(string.find(vary_key, "foo:123"), "Vary key from arbitrary headers")
         assert(string.find(vary_key, "b:xyz"), "Vary key from arbitrary headers")
+        assert(string.len(vary_key) == string.len("foo:123:b:xyz"), "Vary key from arbitrary headers only contains required headers")
 
     }
 }
