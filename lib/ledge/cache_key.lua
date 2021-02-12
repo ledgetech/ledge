@@ -10,12 +10,15 @@ local ngx_null = ngx.null
 
 local tbl_insert = table.insert
 local tbl_concat = table.concat
+local tbl_sort   = table.sort
 
 local req_args_sorted = require("ledge.request").args_sorted
 local req_default_args = require("ledge.request").default_args
 
 local get_fixed_field_metatable_proxy =
     require("ledge.util").mt.get_fixed_field_metatable_proxy
+
+local http_headers = require("resty.http_headers")
 
 
 local _M = {
@@ -141,7 +144,7 @@ _M.vary_compare = vary_compare
 
 
 local function generate_vary_key(vary_spec, callback, headers)
-    local vary_key = {}
+    local vary_key = http_headers.new()
 
     if vary_spec and next(vary_spec) then
         headers = headers or ngx.req.get_headers()
@@ -166,15 +169,23 @@ local function generate_vary_key(vary_spec, callback, headers)
         return ""
     end
 
-    -- Convert hash table to array
-    local t = {}
-    local i = 1
+    -- Extract keys and sort them
+    local keys = {}
     for k,v in pairs(vary_key) do
         if v ~= ngx_null then
-            t[i] = k
-            t[i+1] = v
-            i = i+2
+            tbl_insert(keys, k)
         end
+    end
+
+    tbl_sort(keys)
+
+    -- Convert hash table to flat array
+    local t = {}
+    local i = 1
+    for _, k in ipairs(keys) do
+        t[i] = k
+        t[i + 1] = vary_key[k]
+        i = i + 2
     end
 
     return str_lower(tbl_concat(t, ":"))

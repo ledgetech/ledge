@@ -365,17 +365,22 @@ location /vary7_prx {
 location /vary {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3700"
-        local incr = ngx.shared.ledge_test:incr("test7", 1, 0)
+
+        local incr = ngx.shared.ledge_test:incr("test7", 1)
+        if not incr then
+            incr = ngx.shared.ledge_test:incr("test7", 1, 0)
+        end
+
         if incr == 1 then
             -- Prime with 1 order
             ngx.header["Vary"] = "X-Test, X-Test2, X-Test3"
         elseif incr == 2 then
             -- Second request, different order, different values in request
             ngx.header["Vary"] = "X-Test3, X-test, X-test2"
-        else
-            -- 3rd request, same values as request1, different values in vary
-            ngx.header["Vary"] = "X-Test2, X-test3, X-Test"
         end
+
+        assert (incr < 3, "Third request should be a cache hit")
+
         ngx.print("TEST 7: ", incr)
     }
 }
@@ -445,7 +450,11 @@ location /vary8_prx {
 
 location /vary {
     content_by_lua_block {
-        local incr = ngx.shared.ledge_test:incr("test8", 1, 0)
+        local incr = ngx.shared.ledge_test:incr("test8", 1)
+        if not incr then
+            incr = ngx.shared.ledge_test:incr("test8", 1, 0)
+        end
+
         ngx.header["Cache-Control"] = "max-age=3600"
         if ngx.req.get_headers()["X-Vary"] == "noop" then
             ngx.header["Vary"] = "X-Test2"
