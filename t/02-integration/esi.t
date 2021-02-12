@@ -2233,18 +2233,18 @@ location /esi_30 {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3600"
         ngx.print("<esi:vars>$(ESI_ARGS{a}|noarg)</esi:vars>: ")
-        ngx.say(ngx.req.get_uri_args()["esi_a"])
+        ngx.say(ngx.req.get_uri_args()["_esi_a"])
         ngx.print("<esi:vars>$(ESI_ARGS{b}|noarg)</esi:vars>: ")
-        ngx.say(ngx.req.get_uri_args()["esi_b"])
+        ngx.say(ngx.req.get_uri_args()["_esi_b"])
         ngx.say("<esi:vars>$(ESI_ARGS|noarg)</esi:vars>")
     }
 }
 --- request
-GET /esi_30_prx?_esi_a=1&_esi_b=2&_esi_c=hello%20world
---- response_body
+GET /esi_30_prx?_esi_a=1&_esi_b=2
+--- response_body_like
 1: nil
 2: nil
-_esi_a=1&_esi_c=hello%20world&_esi_b=2
+_esi_[ab]=[12]&_esi_[ab]=[12]
 --- error_code: 200
 --- response_headers_like
 X-Cache: MISS from .*
