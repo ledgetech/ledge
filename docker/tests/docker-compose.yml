@@ -5,6 +5,8 @@ services:
         image: "ledgetech/test-runner:latest"
         volumes:
             - ../../:/code
+        environment:
+          - TEST_FILE
         command: /bin/bash -c "TEST_LEDGE_REDIS_HOST=redis make coverage"
         working_dir: /code
         depends_on:
