@@ -291,7 +291,6 @@ location /t {
         require("ledge.esi").filter_esi_args(
             require("ledge").create_handler()
         )
-        ngx.log(ngx.DEBUG, require("cjson").encode(ngx.ctx.__ledge_esi_args))
 
         local processor = require("ledge.esi.processor_1_0")
         local tests = {
@@ -300,8 +299,26 @@ location /t {
             {"ESI_ARGS", "var1", "default", "default_quoted" },
             {"ESI_ARGS", "var2", nil, "default_quoted" },
         }
+
+        local str_split = require("ledge.util").string.split
+
         for _,test in ipairs(tests) do
-            ngx.say(processor.esi_eval_var(test))
+            -- The default encoded string has a non-deterministic ordering due
+            -- to being decoded and re-encoded. For test purposes, we explicitly
+            -- re-order.
+            local res = processor.esi_eval_var(test)
+            local args = str_split (res, "&")
+
+            if #args > 1 then
+                table.sort(args)
+
+                res = ""
+                for _, v in ipairs (args) do
+                    res = res .. v .. "&"
+                end
+            end
+
+            ngx.say(res)
         end
     }
 }
@@ -323,7 +340,7 @@ default
 default_quoted
 ",
 
-"esi_var2=test2&esi_var1=test1
+"esi_var1=test1&esi_var2=test2&
 test1
 test2
 ",
@@ -333,12 +350,12 @@ default
 test2
 ",
 
-"esi_other_var=foo&esi_var1=test1
+"esi_other_var=foo&esi_var1=test1&
 test1
 default_quoted
 ",
 
-"esi_var1=test1&esi_var1=test2
+"esi_var1=test1&esi_var1=test2&
 test1,test2
 default_quoted
 ",
