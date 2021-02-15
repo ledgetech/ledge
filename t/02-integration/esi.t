@@ -3086,8 +3086,8 @@ Cookie: allowed=yes
 Cookie: also_allowed=yes
 Cookie: not_allowed=no
 --- raw_response_headers_unlike: Surrogate-Control: content="ESI/1.0\"\r\n
---- response_body
-allowed=yes; also_allowed=yes
+--- response_body_like
+(allowed=yes; also_allowed=yes)|(also_allowed=yes; allowed=yes)
 yes:
 FRAGMENT:&allowed=yes&not_allowed=
 yes:no
