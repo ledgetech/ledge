@@ -366,10 +366,7 @@ location /vary {
     content_by_lua_block {
         ngx.header["Cache-Control"] = "max-age=3700"
 
-        local incr = ngx.shared.ledge_test:incr("test7", 1)
-        if not incr then
-            incr = ngx.shared.ledge_test:incr("test7", 1, 0)
-        end
+        local incr = ngx.shared.ledge_test:incr("test7", 1, 0)
 
         if incr == 1 then
             -- Prime with 1 order
@@ -450,10 +447,7 @@ location /vary8_prx {
 
 location /vary {
     content_by_lua_block {
-        local incr = ngx.shared.ledge_test:incr("test8", 1)
-        if not incr then
-            incr = ngx.shared.ledge_test:incr("test8", 1, 0)
-        end
+        local incr = ngx.shared.ledge_test:incr("test8", 1, 0)
 
         ngx.header["Cache-Control"] = "max-age=3600"
         if ngx.req.get_headers()["X-Vary"] == "noop" then
