@@ -38,7 +38,7 @@ sub http_config {
     return qq{
         $extra_nginx_config
 
-        lua_package_path "./lib/?.lua;;";
+        lua_package_path "./lib/?.lua;./extlib/?.lua;;";
         resolver local=on ipv6=off;
 
         init_by_lua_block {
