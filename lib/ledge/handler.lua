@@ -400,6 +400,7 @@ local function fetch_from_origin(self)
             else
                 res.status = 503
             end
+            httpc:close()
             return res
         end
 
@@ -471,6 +472,7 @@ local function fetch_from_origin(self)
     if not origin then
         ngx_log(ngx_ERR, err)
         res.status = 524
+        upstream_client:close()
         return res
     end
 

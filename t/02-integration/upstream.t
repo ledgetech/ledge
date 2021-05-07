@@ -39,8 +39,48 @@ GET /upstream_prx
 --- error_log
 timeout
 
+=== TEST 2: Short read timeout does not result in responses getting mixed up
+--- http_config eval: $::HttpConfig
+--- config
+location /upstream_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({
+            upstream_send_timeout = 5000,
+            upstream_connect_timeout = 5000,
+            upstream_read_timeout = 100,
+        }):run()
+    }
+}
 
-=== TEST 2: No upstream results in a 503.
+location /other_prx {
+    rewrite ^(.*)_prx$ $1 break;
+    content_by_lua_block {
+        require("ledge").create_handler({}):run()
+    }
+}
+
+location /upstream {
+    content_by_lua_block {
+        ngx.sleep(1)
+        ngx.say("upstream")
+    }
+}
+
+location /other {
+    content_by_lua_block {
+        ngx.say("other")
+    }
+}
+--- request eval
+["GET /upstream_prx", "GET /other_prx", "GET /other_prx", "GET /other_prx"]
+--- error_code eval
+[524, 200, 200, 200]
+--- response_body eval
+["", "other\n", "other\n", "other\n"]
+
+
+=== TEST 3: No upstream results in a 503.
 --- http_config eval: $::HttpConfig
 --- config
 location /upstream_prx {
@@ -59,7 +99,7 @@ GET /upstream_prx
 upstream connection failed:
 
 
-=== TEST 3: No port results in 503
+=== TEST 4: No port results in 503
 --- http_config eval: $::HttpConfig
 --- config
 location /upstream_prx {
@@ -79,7 +119,7 @@ GET /upstream_prx
 upstream connection failed:
 
 
-=== TEST 4: No port with unix socket works
+=== TEST 5: No port with unix socket works
 --- http_config eval: $::HttpConfig
 --- config
 listen unix:$TEST_NGINX_SOCKET_DIR/nginx.sock;
